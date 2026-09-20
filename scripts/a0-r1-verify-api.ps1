@@ -1,6 +1,7 @@
 # A0-R1 验收脚本（安全版）
 # - 口令仅从环境变量读取，禁止仓库默认密码
 # - 证据文件不落盘原始 Token / 密码
+# - /health 匿名探针；logout 失效仅在明确 HTTP/API 401 时通过
 # 用法:
 #   $env:VERIFY_ADMIN_PASSWORD='<secret>'
 #   $env:VERIFY_LIMITED_PASSWORD='<secret>'   # 可选 g1viewer
@@ -64,24 +65,54 @@ function Get-CaptchaAnswer($uuid) {
     return $raw.Trim().Trim('"')
 }
 
+function New-LoginBody([string]$username, [string]$password, [string]$code, [string]$uuid) {
+    $obj = [ordered]@{
+        username = $username
+        password = $password
+        code     = $code
+        uuid     = $uuid
+    }
+    return ($obj | ConvertTo-Json -Compress)
+}
+
+function Get-ApiCode($jsonText) {
+    try {
+        $o = $jsonText | ConvertFrom-Json
+        if ($null -ne $o.code) { return [int]$o.code }
+    } catch { }
+    return $null
+}
+
+function Get-HttpStatusCodeFromError($err) {
+    if ($null -eq $err) { return $null }
+    if ($err.Exception -and $err.Exception.Response -and $err.Exception.Response.StatusCode) {
+        try { return [int]$err.Exception.Response.StatusCode } catch { }
+    }
+    if ($err.Exception -and $err.Exception.Message -match '\b(401|Unauthorized)\b') { return 401 }
+    return $null
+}
+
 function Invoke-Login($username, $password) {
     $capRaw = Get-JsonUtf8 "$BackendBase/captchaImage" $null
     Save-Evidence "captcha.json" $capRaw
     $cap = $capRaw | ConvertFrom-Json
     $uuid = [string]$cap.uuid
     $answer = Get-CaptchaAnswer $uuid
-    $body = '{"username":"' + $username + '","password":"' + $password + '","code":"' + $answer + '","uuid":"' + $uuid + '"}'
+    $body = New-LoginBody $username $password $answer $uuid
     $loginRaw = Post-JsonUtf8 "$BackendBase/login" $body $null
     Save-Evidence ("03-login-" + $username + ".json") $loginRaw
-    $token = ((($loginRaw | ConvertFrom-Json).token))
-    return @{ raw = $loginRaw; json = ($loginRaw | ConvertFrom-Json); token = $token }
+    $parsed = $loginRaw | ConvertFrom-Json
+    $token = $parsed.token
+    return @{ raw = $loginRaw; json = $parsed; token = $token }
 }
 
 try {
     $healthRaw = Get-JsonUtf8 "$BackendBase/health" $null
     Save-Evidence "01-health.json" $healthRaw
     $health = $healthRaw | ConvertFrom-Json
-    Write-Result "health" ($health.code -eq 200) $healthRaw
+    $healthOk = ($health.code -eq 200) -and ($health.data.status -eq "UP" -or $health.data -eq "UP" -or ("$($health.data)" -match "UP"))
+    if (-not $healthOk -and $health.code -eq 200 -and $healthRaw -match 'UP') { $healthOk = $true }
+    Write-Result "health" $healthOk $healthRaw
 } catch {
     Write-Result "health" $false $_.Exception.Message
 }
@@ -134,12 +165,14 @@ if (-not [string]::IsNullOrWhiteSpace($LimitedPassword)) {
                 $forbidden = Get-JsonUtf8 "$BackendBase/system/user/list?pageNum=1&pageSize=5" $h2
                 Save-Evidence "05-forbidden-user-list.json" $forbidden
                 $fj = Protect-Text $forbidden | ConvertFrom-Json
-                $ok403 = ($fj.code -eq 403) -or ($forbidden -match "权限|授权|访问被拒绝|没有权限")
+                $ok403 = ([int]$fj.code -eq 403)
                 Write-Result "limited-forbidden-403" $ok403 ("code=" + $fj.code + " msg=" + $fj.msg)
             } catch {
                 $msg = $_.Exception.Message
                 Save-Evidence "05-forbidden-user-list.txt" $msg
-                Write-Result "limited-forbidden-403" ($msg -match "403|Forbidden") $msg
+                $http = Get-HttpStatusCodeFromError $_
+                # 仅明确 HTTP 403 通过；其他异常（超时/连接失败）不得记 PASS
+                Write-Result "limited-forbidden-403" ($http -eq 403) ("http=$http msg=$msg")
             }
         }
     } catch {
@@ -152,14 +185,26 @@ if (-not [string]::IsNullOrWhiteSpace($LimitedPassword)) {
 try {
     $logoutRaw = Post-JsonUtf8 "$BackendBase/logout" "{}" $h
     Save-Evidence "06-logout.json" $logoutRaw
+    $logoutCode = Get-ApiCode $logoutRaw
+    Write-Result "logout" ($logoutCode -eq 200) ("code=$logoutCode")
+    $passLogout = $false
+    $logoutDetail = ""
     try {
         $after = Get-JsonUtf8 "$BackendBase/getInfo" $h
         Save-Evidence "06-getInfo-after-logout.json" $after
         $aj = Protect-Text $after | ConvertFrom-Json
-        Write-Result "logout-invalidates-token" ($aj.code -eq 401) ("code=" + $aj.code)
+        $afterCode = $null
+        if ($null -ne $aj.code) { $afterCode = [int]$aj.code }
+        $logoutDetail = "api_code=$afterCode"
+        # 仅 API 业务码 401 通过
+        $passLogout = ($afterCode -eq 401)
     } catch {
-        Write-Result "logout-invalidates-token" $true ("exception=" + $_.Exception.Message)
+        $http = Get-HttpStatusCodeFromError $_
+        $logoutDetail = "http=$http exception=$($_.Exception.Message)"
+        # 仅明确 HTTP 401 通过；连接失败/超时/崩溃不得记 PASS
+        $passLogout = ($http -eq 401)
     }
+    Write-Result "logout-invalidates-token" $passLogout $logoutDetail
 } catch {
     Write-Result "logout" $false $_.Exception.Message
 }
