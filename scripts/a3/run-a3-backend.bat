@@ -1,5 +1,5 @@
 @echo off
-REM A3 backend launcher. Secrets MUST come from the environment — never hardcode.
+REM A3 backend launcher. Secrets MUST come from the environment - never hardcode.
 if "%TOKEN_SECRET%"=="" (echo TOKEN_SECRET is required & exit /b 1)
 if "%APP_TOKEN_SECRET%"=="" (echo APP_TOKEN_SECRET is required & exit /b 1)
 if "%APP_TOKEN_ISSUER%"=="" (echo APP_TOKEN_ISSUER is required & exit /b 1)
