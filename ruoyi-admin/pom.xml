@@ -54,6 +54,12 @@
             <artifactId>ruoyi-generator</artifactId>
         </dependency>
 
+        <!-- A1: smartscript-user 模块边界，随应用装配；不复制若依用户/权限实现 -->
+        <dependency>
+            <groupId>com.smartscript</groupId>
+            <artifactId>smartscript-user</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
