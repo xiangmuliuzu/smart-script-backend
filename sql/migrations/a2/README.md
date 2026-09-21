@@ -10,11 +10,23 @@
 
 ## 执行顺序
 
-1. `A2_20260921_001__a2_precheck.sql` — 只读检查，`fail_cnt` 必须为 0
-2. `A2_20260921_001__a2_migrate.sql` — 结构加固与兼容映射
-3. `A2_20260921_001__a2_verify.sql` — 迁移后校验
+1. `A2_20260921_001__a2_precheck.sql` — 只读检查；最终 `SUMMARY` 行 `result` 必须为 `PASS`，且 `fail_cnt=0`
+2. `A2_20260921_001__a2_migrate.sql` — 写入 `a2_sys_user_preimage` / `a2_table_ownership`，再做结构加固与兼容映射
+3. `A2_20260921_001__a2_verify.sql` — 含列级结构校验；`SUMMARY` 必须 `PASS`
 4. 并发唯一约束与若依读写验证（见 shared 证据）
-5. `U20260921_001__a2_rollback.sql` — 完整回滚演练
+5. `U20260921_001__a2_rollback.sql` — 先删 UK，再按 preimage 恢复字段，只 DROP `action=CREATED` 的表
+
+## 回滚语义（强制）
+
+- **禁止**无条件 DROP 与 A2 同名的业务表。
+- 迁移前已存在的表在 `a2_table_ownership.action=PREEXISTING`，回滚必须保留其结构与数据。
+- `sys_user` 的 phonenumber / user_type / status / del_flag / nick_name 等变换，必须能从 `a2_sys_user_preimage` 完整逆恢复。
+- 控制表 `a2_migration_history`、`a2_table_ownership`、`a2_sys_user_preimage` 保留作审计，不在回滚中删除。
+
+## 日志脱敏
+
+- precheck / verify / API 验证日志中的手机号一律掩码（`138****8000` 形态）。
+- 禁止把完整手机号、口令、Token 写入仓库与验收证据。
 
 ## 重要约束
 
