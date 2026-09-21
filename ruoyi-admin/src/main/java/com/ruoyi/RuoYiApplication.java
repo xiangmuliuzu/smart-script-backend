@@ -9,7 +9,8 @@ import org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration;
  * 
  * @author ruoyi
  */
-@SpringBootApplication(exclude = { DataSourceAutoConfiguration.class })
+@SpringBootApplication(scanBasePackages = { "com.ruoyi", "com.smartscript.platform" },
+        exclude = { DataSourceAutoConfiguration.class })
 public class RuoYiApplication
 {
     public static void main(String[] args)

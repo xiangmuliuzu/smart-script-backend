@@ -179,6 +179,13 @@
                 <version>${ruoyi.version}</version>
             </dependency>
 
+            <!-- A1: smartscript 业务模块边界（不承载若依认证/系统管理复制实现） -->
+            <dependency>
+                <groupId>com.smartscript</groupId>
+                <artifactId>smartscript-user</artifactId>
+                <version>${ruoyi.version}</version>
+            </dependency>
+
         </dependencies>
     </dependencyManagement>
 
@@ -189,6 +196,7 @@
         <module>ruoyi-quartz</module>
         <module>ruoyi-generator</module>
         <module>ruoyi-common</module>
+        <module>smartscript-user</module>
     </modules>
     <packaging>pom</packaging>
 
