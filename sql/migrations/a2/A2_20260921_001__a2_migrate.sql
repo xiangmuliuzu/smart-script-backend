@@ -92,14 +92,26 @@ INSERT INTO tmp_a2_domain_tables (table_name) VALUES
   ('user_notification'),('user_notification_receiver'),('user_notification_preference'),
   ('user_feedback');
 
+-- 归属登记幂等规则：
+--   仅当 (version, table_name) 尚无记录时写入。
+--   已有 CREATED 不得在重跑时被改写为 PREEXISTING（否则回滚会漏删本版本建的表）。
+--   已有 PREEXISTING 同样保持不变。
 INSERT INTO a2_table_ownership (version, table_name, action, noted_at)
-SELECT @a2_version, t.table_name,
+SELECT @a2_version,
+       CONVERT(t.table_name USING utf8mb4) COLLATE utf8mb4_general_ci,
        IF(i.TABLE_NAME IS NULL, 'CREATED', 'PREEXISTING'),
        NOW()
 FROM tmp_a2_domain_tables t
 LEFT JOIN information_schema.TABLES i
-  ON i.TABLE_SCHEMA = DATABASE() AND i.TABLE_NAME = t.table_name
-ON DUPLICATE KEY UPDATE action = VALUES(action), noted_at = NOW();
+  ON i.TABLE_SCHEMA = DATABASE()
+ AND CONVERT(i.TABLE_NAME USING utf8mb4) COLLATE utf8mb4_general_ci
+     = CONVERT(t.table_name USING utf8mb4) COLLATE utf8mb4_general_ci
+WHERE NOT EXISTS (
+  SELECT 1 FROM a2_table_ownership o
+  WHERE CONVERT(o.version USING utf8mb4) COLLATE utf8mb4_general_ci = CONVERT(@a2_version USING utf8mb4) COLLATE utf8mb4_general_ci
+    AND CONVERT(o.table_name USING utf8mb4) COLLATE utf8mb4_general_ci
+        = CONVERT(t.table_name USING utf8mb4) COLLATE utf8mb4_general_ci
+);
 
 -- ---------------------------------------------------------------------
 -- 1) sys_user 兼容加固（先快照后变更）

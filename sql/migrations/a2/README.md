@@ -20,12 +20,23 @@
 
 - **禁止**无条件 DROP 与 A2 同名的业务表。
 - 迁移前已存在的表在 `a2_table_ownership.action=PREEXISTING`，回滚必须保留其结构与数据。
+- **重跑 migrate 不得改写已有归属**：`CREATED` 在重复执行后仍必须是 `CREATED`，否则回滚不完整。
 - `sys_user` 的 phonenumber / user_type / status / del_flag / nick_name 等变换，必须能从 `a2_sys_user_preimage` 完整逆恢复。
 - 控制表 `a2_migration_history`、`a2_table_ownership`、`a2_sys_user_preimage` 保留作审计，不在回滚中删除。
+
+## 结构校验（verify）
+
+- 不仅检查表名/列名，还必须核对：
+  - 数据类型与 varchar 最小长度
+  - 可空性
+  - 主键（COLUMN_KEY=PRI 且存在 PRIMARY 索引）
+  - 关键唯一索引与普通索引的列顺序
+- 任一关键结构项失败时 `SUMMARY` 必须为 `FAIL`。
 
 ## 日志脱敏
 
 - precheck / verify / API 验证日志中的手机号一律掩码（`138****8000` 形态）。
+- 证据目录不得保留完整手机号文件；发现后必须删除或脱敏替换，禁止仅改名保留。
 - 禁止把完整手机号、口令、Token 写入仓库与验收证据。
 
 ## 重要约束

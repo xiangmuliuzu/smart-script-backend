@@ -108,50 +108,221 @@ SELECT 'ownership_rows',
        CONCAT('ownership_rows=', COUNT(*), '/11')
 FROM a2_table_ownership WHERE version='A2_20260921_001';
 
--- 11) 业务表存在且结构关键列齐全（逐表，而非只数表名）
--- 期望列映射
-DROP TEMPORARY TABLE IF EXISTS tmp_a2_expected_cols;
-CREATE TEMPORARY TABLE tmp_a2_expected_cols (
+-- 11) 业务表结构：列存在 + 类型 + 可空性 + 主键 + 索引（不只验列名）
+DROP TEMPORARY TABLE IF EXISTS tmp_a2_expected_schema;
+CREATE TEMPORARY TABLE tmp_a2_expected_schema (
   table_name  VARCHAR(64) NOT NULL,
   column_name VARCHAR(64) NOT NULL,
+  data_type   VARCHAR(32) NOT NULL COMMENT 'information_schema DATA_TYPE',
+  min_len     INT NULL COMMENT 'varchar 最小长度；其他类型忽略',
+  is_nullable VARCHAR(3) NOT NULL COMMENT 'YES/NO',
+  is_pk       VARCHAR(3) NOT NULL COMMENT 'PRI=须在主键中',
   PRIMARY KEY (table_name, column_name)
 ) ENGINE=MEMORY;
 
-INSERT INTO tmp_a2_expected_cols VALUES
- ('app_sms_code','id'),('app_sms_code','phone'),('app_sms_code','scene'),('app_sms_code','code_hash'),('app_sms_code','expires_at'),('app_sms_code','create_time'),
- ('app_refresh_session','id'),('app_refresh_session','user_id'),('app_refresh_session','token_hash'),('app_refresh_session','family_id'),('app_refresh_session','expires_at'),
- ('app_user_consent','id'),('app_user_consent','user_id'),('app_user_consent','agreement_type'),('app_user_consent','agreement_version'),('app_user_consent','accepted_at'),
- ('app_user_oauth','id'),('app_user_oauth','user_id'),('app_user_oauth','provider'),('app_user_oauth','open_id'),
- ('user_real_name_auth','id'),('user_real_name_auth','user_id'),('user_real_name_auth','status'),('user_real_name_auth','auditor_id'),('user_real_name_auth','reject_reason'),
- ('user_phone_change_log','id'),('user_phone_change_log','user_id'),('user_phone_change_log','old_phone_mask'),('user_phone_change_log','new_phone_mask'),('user_phone_change_log','result'),
- ('user_author_capability','id'),('user_author_capability','user_id'),('user_author_capability','enabled'),('user_author_capability','operator_id'),
- ('user_notification','id'),('user_notification','type'),('user_notification','title'),('user_notification','create_time'),
- ('user_notification_receiver','id'),('user_notification_receiver','notification_id'),('user_notification_receiver','user_id'),('user_notification_receiver','read_at'),
- ('user_notification_preference','id'),('user_notification_preference','user_id'),('user_notification_preference','channel'),('user_notification_preference','type'),('user_notification_preference','enabled'),
- ('user_feedback','id'),('user_feedback','user_id'),('user_feedback','category'),('user_feedback','content'),('user_feedback','status'),('user_feedback','handler_id');
+INSERT INTO tmp_a2_expected_schema
+(table_name, column_name, data_type, min_len, is_nullable, is_pk) VALUES
+ ('app_sms_code','id','bigint',NULL,'NO','PRI'),
+ ('app_sms_code','phone','varchar',20,'NO','NO'),
+ ('app_sms_code','scene','varchar',32,'NO','NO'),
+ ('app_sms_code','code_hash','varchar',64,'NO','NO'),
+ ('app_sms_code','expires_at','datetime',NULL,'NO','NO'),
+ ('app_sms_code','create_time','datetime',NULL,'NO','NO'),
+ ('app_refresh_session','id','bigint',NULL,'NO','PRI'),
+ ('app_refresh_session','user_id','bigint',NULL,'NO','NO'),
+ ('app_refresh_session','token_hash','varchar',64,'NO','NO'),
+ ('app_refresh_session','family_id','varchar',64,'NO','NO'),
+ ('app_refresh_session','expires_at','datetime',NULL,'NO','NO'),
+ ('app_user_consent','id','bigint',NULL,'NO','PRI'),
+ ('app_user_consent','user_id','bigint',NULL,'NO','NO'),
+ ('app_user_consent','agreement_type','varchar',32,'NO','NO'),
+ ('app_user_consent','agreement_version','varchar',32,'NO','NO'),
+ ('app_user_consent','accepted_at','datetime',NULL,'NO','NO'),
+ ('app_user_oauth','id','bigint',NULL,'NO','PRI'),
+ ('app_user_oauth','user_id','bigint',NULL,'NO','NO'),
+ ('app_user_oauth','provider','varchar',16,'NO','NO'),
+ ('app_user_oauth','open_id','varchar',64,'NO','NO'),
+ ('user_real_name_auth','id','bigint',NULL,'NO','PRI'),
+ ('user_real_name_auth','user_id','bigint',NULL,'NO','NO'),
+ ('user_real_name_auth','status','varchar',32,'NO','NO'),
+ ('user_real_name_auth','auditor_id','bigint',NULL,'YES','NO'),
+ ('user_real_name_auth','reject_reason','varchar',500,'YES','NO'),
+ ('user_phone_change_log','id','bigint',NULL,'NO','PRI'),
+ ('user_phone_change_log','user_id','bigint',NULL,'NO','NO'),
+ ('user_phone_change_log','old_phone_mask','varchar',32,'YES','NO'),
+ ('user_phone_change_log','new_phone_mask','varchar',32,'YES','NO'),
+ ('user_phone_change_log','result','varchar',32,'NO','NO'),
+ ('user_author_capability','id','bigint',NULL,'NO','PRI'),
+ ('user_author_capability','user_id','bigint',NULL,'NO','NO'),
+ ('user_author_capability','enabled','tinyint',NULL,'NO','NO'),
+ ('user_author_capability','operator_id','bigint',NULL,'YES','NO'),
+ ('user_notification','id','bigint',NULL,'NO','PRI'),
+ ('user_notification','type','varchar',32,'NO','NO'),
+ ('user_notification','title','varchar',200,'NO','NO'),
+ ('user_notification','create_time','datetime',NULL,'NO','NO'),
+ ('user_notification_receiver','id','bigint',NULL,'NO','PRI'),
+ ('user_notification_receiver','notification_id','bigint',NULL,'NO','NO'),
+ ('user_notification_receiver','user_id','bigint',NULL,'NO','NO'),
+ ('user_notification_receiver','read_at','datetime',NULL,'YES','NO'),
+ ('user_notification_preference','id','bigint',NULL,'NO','PRI'),
+ ('user_notification_preference','user_id','bigint',NULL,'NO','NO'),
+ ('user_notification_preference','channel','varchar',32,'NO','NO'),
+ ('user_notification_preference','type','varchar',32,'NO','NO'),
+ ('user_notification_preference','enabled','tinyint',NULL,'NO','NO'),
+ ('user_feedback','id','bigint',NULL,'NO','PRI'),
+ ('user_feedback','user_id','bigint',NULL,'NO','NO'),
+ ('user_feedback','category','varchar',32,'NO','NO'),
+ ('user_feedback','content','varchar',2000,'NO','NO'),
+ ('user_feedback','status','varchar',32,'NO','NO'),
+ ('user_feedback','handler_id','bigint',NULL,'YES','NO');
 
+-- 11a 列名存在
 INSERT INTO tmp_a2_verify
-SELECT 'domain_table_columns',
-       IF(SUM(missing)=0,'PASS','FAIL'),
-       CONCAT('missing_columns=', SUM(missing), ',tables_checked=', COUNT(*))
+SELECT 'domain_columns_present',
+       IF(SUM(c.COLUMN_NAME IS NULL)=0,'PASS','FAIL'),
+       CONCAT('missing_columns=', SUM(c.COLUMN_NAME IS NULL), ',expected=', COUNT(*))
+FROM tmp_a2_expected_schema e
+LEFT JOIN information_schema.COLUMNS c
+  ON c.TABLE_SCHEMA=DATABASE() AND c.TABLE_NAME=e.table_name AND c.COLUMN_NAME=e.column_name;
+
+-- 11b 数据类型 / varchar 最小长度
+INSERT INTO tmp_a2_verify
+SELECT 'domain_column_types',
+       IF(SUM(bad)=0,'PASS','FAIL'),
+       CONCAT('type_mismatches=', SUM(bad), ',checked=', COUNT(*))
 FROM (
-  SELECT e.table_name,
-         SUM(c.COLUMN_NAME IS NULL) AS missing
-  FROM tmp_a2_expected_cols e
+  SELECT e.table_name, e.column_name,
+         CASE
+           WHEN c.COLUMN_NAME IS NULL THEN 1
+           WHEN LOWER(c.DATA_TYPE) <> LOWER(e.data_type) THEN 1
+           WHEN e.min_len IS NOT NULL AND IFNULL(c.CHARACTER_MAXIMUM_LENGTH,0) < e.min_len THEN 1
+           ELSE 0
+         END AS bad
+  FROM tmp_a2_expected_schema e
   LEFT JOIN information_schema.COLUMNS c
     ON c.TABLE_SCHEMA=DATABASE() AND c.TABLE_NAME=e.table_name AND c.COLUMN_NAME=e.column_name
-  GROUP BY e.table_name
 ) x;
 
--- 列出缺失明细（INFO，便于失败定位）
-SELECT 'INFO' AS result,
-       e.table_name, e.column_name
-FROM tmp_a2_expected_cols e
+-- 11c 可空性
+INSERT INTO tmp_a2_verify
+SELECT 'domain_column_nullability',
+       IF(SUM(bad)=0,'PASS','FAIL'),
+       CONCAT('nullability_mismatches=', SUM(bad), ',checked=', COUNT(*))
+FROM (
+  SELECT e.table_name, e.column_name,
+         CASE WHEN c.COLUMN_NAME IS NULL THEN 1
+              WHEN UPPER(IFNULL(c.IS_NULLABLE,'')) <> UPPER(e.is_nullable) THEN 1
+              ELSE 0 END AS bad
+  FROM tmp_a2_expected_schema e
+  LEFT JOIN information_schema.COLUMNS c
+    ON c.TABLE_SCHEMA=DATABASE() AND c.TABLE_NAME=e.table_name AND c.COLUMN_NAME=e.column_name
+) x;
+
+-- 11d 主键覆盖
+INSERT INTO tmp_a2_verify
+SELECT 'domain_primary_keys',
+       IF(SUM(bad)=0,'PASS','FAIL'),
+       CONCAT('pk_mismatches=', SUM(bad), ',pk_cols_expected=', COUNT(*))
+FROM (
+  SELECT e.table_name, e.column_name,
+         CASE WHEN e.is_pk<>'PRI' THEN 0
+              WHEN c.COLUMN_NAME IS NULL THEN 1
+              WHEN IFNULL(c.COLUMN_KEY,'') <> 'PRI' THEN 1
+              ELSE 0 END AS bad
+  FROM tmp_a2_expected_schema e
+  LEFT JOIN information_schema.COLUMNS c
+    ON c.TABLE_SCHEMA=DATABASE() AND c.TABLE_NAME=e.table_name AND c.COLUMN_NAME=e.column_name
+  WHERE e.is_pk='PRI'
+) x;
+
+-- 每个业务表必须存在 PRIMARY 索引
+DROP TEMPORARY TABLE IF EXISTS tmp_a2_pk_tables;
+CREATE TEMPORARY TABLE tmp_a2_pk_tables (
+  table_name VARCHAR(64) PRIMARY KEY
+) ENGINE=MEMORY;
+INSERT INTO tmp_a2_pk_tables (table_name)
+SELECT DISTINCT table_name FROM tmp_a2_expected_schema;
+
+INSERT INTO tmp_a2_verify
+SELECT 'domain_table_has_primary_index',
+       IF(SUM(missing)=0,'PASS','FAIL'),
+       CONCAT('tables_without_pk=', SUM(missing), ',tables=', COUNT(*))
+FROM (
+  SELECT t.table_name,
+         IF(SUM(s.INDEX_NAME='PRIMARY')>0, 0, 1) AS missing
+  FROM tmp_a2_pk_tables t
+  LEFT JOIN information_schema.STATISTICS s
+    ON s.TABLE_SCHEMA=DATABASE() AND s.TABLE_NAME=t.table_name
+  GROUP BY t.table_name
+) x;
+
+-- 11e 关键索引：唯一键 + 必要普通索引（含列顺序）
+DROP TEMPORARY TABLE IF EXISTS tmp_a2_expected_idx;
+CREATE TEMPORARY TABLE tmp_a2_expected_idx (
+  table_name  VARCHAR(64) NOT NULL,
+  index_name  VARCHAR(64) NOT NULL,
+  non_unique  TINYINT NOT NULL COMMENT '0=UNIQUE 1=普通',
+  cols_in_order VARCHAR(255) NOT NULL COMMENT '逗号分隔，按 SEQ_IN_INDEX',
+  PRIMARY KEY (table_name, index_name)
+) ENGINE=MEMORY;
+
+INSERT INTO tmp_a2_expected_idx VALUES
+ ('sys_user','uk_sys_user_user_name',0,'user_name'),
+ ('sys_user','uk_sys_user_phonenumber',0,'phonenumber'),
+ ('app_refresh_session','uk_app_refresh_token_hash',0,'token_hash'),
+ ('app_user_oauth','uk_app_oauth_provider_open',0,'provider,open_id'),
+ ('user_author_capability','uk_user_author_capability_user',0,'user_id'),
+ ('user_notification_receiver','uk_user_notification_receiver',0,'notification_id,user_id'),
+ ('user_notification_preference','uk_user_notification_pref',0,'user_id,channel,type'),
+ ('a2_migration_history','uk_a2_history_version',0,'version'),
+ ('app_sms_code','idx_app_sms_phone_scene_created',1,'phone,scene,create_time'),
+ ('app_sms_code','idx_app_sms_ip_created',1,'request_ip,create_time'),
+ ('app_refresh_session','idx_app_refresh_user_revoked',1,'user_id,revoked_at'),
+ ('user_feedback','idx_user_feedback_user',1,'user_id,create_time'),
+ ('user_notification_receiver','idx_user_notification_receiver_user',1,'user_id,deleted_flag,read_at');
+
+INSERT INTO tmp_a2_verify
+SELECT 'domain_indexes',
+       IF(SUM(bad)=0,'PASS','FAIL'),
+       CONCAT('index_mismatches=', SUM(bad), ',expected=', COUNT(*))
+FROM (
+  SELECT e.table_name, e.index_name,
+         CASE
+           WHEN s.INDEX_NAME IS NULL THEN 1
+           WHEN s.NON_UNIQUE <> e.non_unique THEN 1
+           WHEN IFNULL(got.cols,'') <> e.cols_in_order THEN 1
+           ELSE 0
+         END AS bad
+  FROM tmp_a2_expected_idx e
+  LEFT JOIN information_schema.STATISTICS s
+    ON s.TABLE_SCHEMA=DATABASE() AND s.TABLE_NAME=e.table_name
+   AND s.INDEX_NAME=e.index_name AND s.SEQ_IN_INDEX=1
+  LEFT JOIN (
+    SELECT TABLE_NAME, INDEX_NAME,
+           GROUP_CONCAT(COLUMN_NAME ORDER BY SEQ_IN_INDEX) AS cols
+    FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA=DATABASE()
+    GROUP BY TABLE_NAME, INDEX_NAME
+  ) got ON got.TABLE_NAME=e.table_name AND got.INDEX_NAME=e.index_name
+) x;
+
+-- 错误结构明细（INFO）
+SELECT 'INFO' AS result, e.table_name, e.column_name,
+       e.data_type AS expected_type,
+       IFNULL(c.DATA_TYPE,'MISSING') AS actual_type,
+       e.is_nullable AS expected_null,
+       IFNULL(c.IS_NULLABLE,'MISSING') AS actual_null,
+       IFNULL(c.COLUMN_KEY,'') AS actual_key
+FROM tmp_a2_expected_schema e
 LEFT JOIN information_schema.COLUMNS c
   ON c.TABLE_SCHEMA=DATABASE() AND c.TABLE_NAME=e.table_name AND c.COLUMN_NAME=e.column_name
-WHERE c.COLUMN_NAME IS NULL;
+WHERE c.COLUMN_NAME IS NULL
+   OR LOWER(IFNULL(c.DATA_TYPE,'')) <> LOWER(e.data_type)
+   OR (e.min_len IS NOT NULL AND IFNULL(c.CHARACTER_MAXIMUM_LENGTH,0) < e.min_len)
+   OR UPPER(IFNULL(c.IS_NULLABLE,'')) <> UPPER(e.is_nullable)
+   OR (e.is_pk='PRI' AND IFNULL(c.COLUMN_KEY,'')<>'PRI');
 
--- 12) 关键唯一索引（列级）
+-- 12) 关键唯一索引（名称级汇总，与 11e 互补）
 DROP TEMPORARY TABLE IF EXISTS tmp_a2_expected_uk;
 CREATE TEMPORARY TABLE tmp_a2_expected_uk (
   table_name VARCHAR(64) NOT NULL,
@@ -181,26 +352,13 @@ FROM (
   GROUP BY u.index_name
 ) x;
 
--- 错误结构探测：若存在 marker 这类非规格列且缺少 content，应 FAIL
-INSERT INTO tmp_a2_verify
-SELECT 'user_feedback_schema_shape',
-       IF(
-         SUM(c.COLUMN_NAME='content')>0 AND SUM(c.COLUMN_NAME='marker')=0
-         AND SUM(c.COLUMN_NAME='user_id')>0 AND SUM(c.COLUMN_NAME='status')>0,
-         'PASS','FAIL'
-       ),
-       CONCAT('cols=', IFNULL(GROUP_CONCAT(c.COLUMN_NAME ORDER BY c.ORDINAL_POSITION),''))
-FROM information_schema.COLUMNS c
-WHERE c.TABLE_SCHEMA=DATABASE() AND c.TABLE_NAME='user_feedback';
-
--- 13) preimage 与当前已迁移用户对照（INFO：迁移后应与 preimage 不同才有意义；至少 preimage 非空）
+-- 13) preimage 存在
 INSERT INTO tmp_a2_verify
 SELECT 'preimage_present',
        IF(COUNT(*)>0,'PASS','FAIL'),
        CONCAT('preimage_rows=', COUNT(*))
 FROM a2_sys_user_preimage;
 
--- 指纹 INFO
 SELECT 'INFO' AS result,
        CONCAT('user_count=', COUNT(*),
               ',user_id_sum=', IFNULL(SUM(user_id),0),
@@ -217,8 +375,10 @@ SELECT CASE WHEN SUM(result='FAIL')=0 THEN 'PASS' ELSE 'FAIL' END AS result,
               ',failed_ids=', IFNULL(GROUP_CONCAT(IF(result='FAIL',check_id,NULL) ORDER BY check_id),'')) AS summary
 FROM tmp_a2_verify;
 
-DROP TEMPORARY TABLE IF EXISTS tmp_a2_expected_cols;
+DROP TEMPORARY TABLE IF EXISTS tmp_a2_expected_schema;
+DROP TEMPORARY TABLE IF EXISTS tmp_a2_expected_idx;
 DROP TEMPORARY TABLE IF EXISTS tmp_a2_expected_uk;
+DROP TEMPORARY TABLE IF EXISTS tmp_a2_pk_tables;
 DROP TEMPORARY TABLE IF EXISTS tmp_a2_verify;
 
 SELECT 'VERIFY_END' AS step, NOW() AS ts;
