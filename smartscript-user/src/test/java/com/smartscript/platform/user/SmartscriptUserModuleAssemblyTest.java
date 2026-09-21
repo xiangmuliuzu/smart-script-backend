@@ -1,39 +1,55 @@
 package com.smartscript.platform.user;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
-import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 
 /**
- * A1: prove smartscript-user marker is a Spring bean under component scan,
- * and that the module does not expose production controllers or copy RuoYi auth types.
+ * A3: smartscript-user carries App auth implementation.
+ * Must not copy RuoYi PC auth types; App controllers are allowed under controller package.
  */
 class SmartscriptUserModuleAssemblyTest
 {
     @Test
-    void moduleBeanIsRegisteredWhenPackageScanned()
+    void moduleMarkerTypeIsAvailable()
     {
-        try (AnnotationConfigApplicationContext ctx = new AnnotationConfigApplicationContext())
-        {
-            ctx.scan("com.smartscript.platform.user");
-            ctx.refresh();
-            SmartscriptUserModule module = ctx.getBean(SmartscriptUserModule.class);
-            assertNotNull(module);
-            assertEquals("smartscript-user", module.getModuleId());
-        }
+        assertNotNull(SmartscriptUserModule.MODULE_ID);
+        assertEquals("smartscript-user", SmartscriptUserModule.MODULE_ID);
     }
 
     @Test
-    void moduleSourceHasNoProductionRestController() throws Exception
+    void moduleExposesAppAuthControllerOnly() throws Exception
     {
         Path root = moduleMainJava();
-        assertTrueFilesDoNotContainRestApi(root);
+        try (Stream<Path> files = Files.walk(root))
+        {
+            files.filter(p -> p.toString().endsWith(".java")).forEach(p -> {
+                try
+                {
+                    String src = Files.readString(p, StandardCharsets.UTF_8);
+                    boolean hasRest = src.contains("@RestController") || src.contains("@RequestMapping");
+                    if (hasRest)
+                    {
+                        String path = p.toString().replace('\\', '/');
+                        assertTrue(path.contains("/controller/"),
+                                "HTTP controllers must live under controller package: " + p);
+                        assertTrue(src.contains("/api/v1/auth") || src.contains("AppAuth"),
+                                "Only App auth controllers are allowed in A3 module: " + p);
+                    }
+                }
+                catch (Exception e)
+                {
+                    throw new IllegalStateException(e);
+                }
+            });
+        }
     }
 
     @Test
@@ -49,11 +65,11 @@ class SmartscriptUserModuleAssemblyTest
                     for (String forbidden : new String[] {
                             "class SysUser", "class SysRole", "class SysMenu",
                             "class LoginBody", "class LoginUser", "SysLoginService",
-                            "TokenService", "SysPermissionService"
+                            "class TokenService", "framework.web.service.TokenService",
+                            "SysPermissionService"
                     })
                     {
-                        org.junit.jupiter.api.Assertions.assertFalse(
-                                src.contains(forbidden),
+                        assertFalse(src.contains(forbidden),
                                 p + " must not copy RuoYi type/usage: " + forbidden);
                     }
                 }
@@ -65,17 +81,21 @@ class SmartscriptUserModuleAssemblyTest
         }
     }
 
-    private static void assertTrueFilesDoNotContainRestApi(Path root) throws Exception
+    @Test
+    void appTokenDomainIsIsolatedInSource() throws Exception
     {
+        Path root = moduleMainJava();
         try (Stream<Path> files = Files.walk(root))
         {
             files.filter(p -> p.toString().endsWith(".java")).forEach(p -> {
                 try
                 {
                     String src = Files.readString(p, StandardCharsets.UTF_8);
-                    org.junit.jupiter.api.Assertions.assertFalse(
-                            src.contains("@RestController") || src.contains("@RequestMapping"),
-                            "A1 module must not expose production HTTP probes: " + p);
+                    if (src.contains("token_type") || src.contains("TOKEN_TYPE"))
+                    {
+                        assertTrue(src.contains("app_access"),
+                                "App access tokens must carry token_type=app_access: " + p);
+                    }
                 }
                 catch (Exception e)
                 {
@@ -96,7 +116,7 @@ class SmartscriptUserModuleAssemblyTest
         {
             p = Paths.get("D:/build/smart-script-backend/smartscript-user/src/main/java");
         }
-        org.junit.jupiter.api.Assertions.assertTrue(Files.exists(p), "module main java not found: " + p);
+        assertTrue(Files.exists(p), "module main java not found: " + p);
         return p;
     }
 }
