@@ -145,6 +145,11 @@ function Invoke-ParallelRefresh([string]$refreshToken,[string]$baseUrl,[int]$deg
   return $out
 }
 Write-Ev ("START BaseUrl=$BaseUrl phone=$($phone.Substring(0,3))****$($phone.Substring(7)) cooldown=$cooldownSec daily=$phoneDaily")
+# Bind the evidence to the immutable revision under test so results are traceable.
+$repoRoot = 'D:\build\smart-script-backend'
+$backendSha = (& git -C $repoRoot rev-parse HEAD 2>$null)
+$dirty = @(& git -C $repoRoot status --porcelain 2>$null).Count
+Write-Ev ("REVISION backend=$backendSha app=$($env:APP_A3_SHA) dirtyFiles=$dirty")
 try { $null = Invoke-WebRequest -Uri "$BaseUrl/health" -UseBasicParsing -TimeoutSec 3; Write-Ev 'HEALTH up' } catch { if (-not (Start-Backend)) { throw 'backend failed to start' } }
 $agree = @( (Invoke-Json GET '/api/v1/auth/agreements' $null $null).data.agreements | ForEach-Object { @{type=$_.type;version=$_.version} } )
 Write-Ev ("AGREE " + ($agree | ConvertTo-Json -Compress))
