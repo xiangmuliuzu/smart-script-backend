@@ -1,0 +1,318 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.user.mapper.AppUserAdminMapper">
+
+    <!--
+      A4 App 用户管理查询。
+
+      安全约束（契约 §5.1 / §7，测试矩阵 USER-03/04/05、SEC-01/03）：
+        1. 账号域限定写死在 SQL 中：user_type IN ('01','02','03')。
+           调用方无法通过参数放宽，也禁止在内存中过滤权限或数据归属。
+        2. 手机号掩码在 SQL 层完成，完整号码不出库。
+        3. 排序字段由服务层白名单校验后以 ${orderByColumn} 传入；
+           本文件不直接绑定客户端原始字符串。
+        4. 角色/实名/作者状态用 IN 批量装配，禁止逐行查询（N+1）。
+    -->
+
+    <sql id="managedUserTypeFilter">
+        u.user_type IN ('01', '02', '03')
+    </sql>
+
+    <!-- 手机号掩码：空值原样返回，短号整体遮蔽，正常号段保留前 3 后 4 -->
+    <sql id="phoneMaskExpr">
+        CASE
+          WHEN u.phonenumber IS NULL OR TRIM(u.phonenumber) = '' THEN NULL
+          WHEN CHAR_LENGTH(u.phonenumber) &gt;= 7
+            THEN CONCAT(LEFT(u.phonenumber, 3), '****', RIGHT(u.phonenumber, 4))
+          ELSE '***'
+        END
+    </sql>
+
+    <resultMap id="AppUserSummaryMap" type="com.smartscript.platform.user.domain.admin.AppUserSummary">
+        <id property="userId" column="user_id"/>
+        <result property="userType" column="user_type"/>
+        <result property="nickname" column="nickname"/>
+        <result property="phoneMasked" column="phone_masked"/>
+        <result property="status" column="status"/>
+        <result property="realNameStatus" column="real_name_status"/>
+        <result property="authorCapability" column="author_capability"/>
+        <result property="createTime" column="create_time"/>
+        <result property="lastLoginTime" column="last_login_time"/>
+    </resultMap>
+
+    <resultMap id="AppUserDetailMap" type="com.smartscript.platform.user.domain.admin.AppUserDetail">
+        <id property="userId" column="user_id"/>
+        <result property="userType" column="user_type"/>
+        <result property="nickname" column="nickname"/>
+        <result property="phoneMasked" column="phone_masked"/>
+        <result property="status" column="status"/>
+        <result property="avatar" column="avatar"/>
+        <result property="remark" column="remark"/>
+        <result property="realNameStatus" column="real_name_status"/>
+        <result property="authorCapability" column="author_capability"/>
+        <result property="createTime" column="create_time"/>
+        <result property="lastLoginTime" column="last_login_time"/>
+        <result property="updateTime" column="update_time"/>
+    </resultMap>
+
+    <!--
+      列表主查询：未删除的 App 用户。
+      角色/实名/作者状态用相关子查询取单值，避免主查询行数膨胀；
+      管理员域 user_type='00' 永不进入结果集。
+    -->
+    <select id="selectAppUserPage" parameterType="map" resultMap="AppUserSummaryMap">
+        SELECT
+            u.user_id,
+            u.user_type,
+            u.nick_name AS nickname,
+            <include refid="phoneMaskExpr"/> AS phone_masked,
+            u.status,
+            u.create_time,
+            u.login_date AS last_login_time,
+            (SELECT rna.status
+               FROM user_real_name_auth rna
+              WHERE rna.user_id = u.user_id
+              ORDER BY rna.id DESC
+              LIMIT 1) AS real_name_status,
+            (SELECT uac.enabled
+               FROM user_author_capability uac
+              WHERE uac.user_id = u.user_id
+              LIMIT 1) AS author_capability
+        FROM sys_user u
+        WHERE <include refid="managedUserTypeFilter"/>
+          AND u.del_flag = '0'
+        <if test="keyword != null and keyword != ''">
+            AND (
+                 u.nick_name LIKE CONCAT('%', #{keyword}, '%')
+              OR u.user_name LIKE CONCAT('%', #{keyword}, '%')
+              OR u.phonenumber LIKE CONCAT('%', #{keyword}, '%')
+            )
+        </if>
+        <if test="status != null and status != ''">
+            AND u.status = #{status}
+        </if>
+        <if test="userType != null and userType != ''">
+            AND u.user_type = #{userType}
+        </if>
+        <if test="realNameStatus != null and realNameStatus != ''">
+            AND (SELECT rna.status
+                   FROM user_real_name_auth rna
+                  WHERE rna.user_id = u.user_id
+                  ORDER BY rna.id DESC
+                  LIMIT 1) = #{realNameStatus}
+        </if>
+        <if test="authorCapability != null">
+            AND COALESCE((SELECT uac.enabled
+                            FROM user_author_capability uac
+                           WHERE uac.user_id = u.user_id
+                           LIMIT 1), 0) = #{authorCapability}
+        </if>
+        <if test="roleCode != null and roleCode != ''">
+            AND EXISTS (
+                SELECT 1
+                  FROM sys_user_role ur
+                  JOIN sys_role r ON r.role_id = ur.role_id
+                 WHERE ur.user_id = u.user_id
+                   AND r.del_flag = '0'
+                   AND r.role_key = #{roleCode}
+            )
+        </if>
+        <if test="beginTime != null and beginTime != ''">
+            AND u.create_time &gt;= #{beginTime}
+        </if>
+        <if test="endTime != null and endTime != ''">
+            AND u.create_time &lt;= #{endTime}
+        </if>
+        <if test="orderByColumn != null and orderByColumn != ''">
+            ORDER BY ${orderByColumn} ${isAsc}
+        </if>
+    </select>
+
+    <!-- 详情：账号域限定与列表一致，不属于 01/02/03 时返回空行转 404 -->
+    <select id="selectAppUserDetail" resultMap="AppUserDetailMap">
+        SELECT
+            u.user_id,
+            u.user_type,
+            u.nick_name AS nickname,
+            <include refid="phoneMaskExpr"/> AS phone_masked,
+            u.status,
+            u.avatar,
+            u.remark,
+            u.create_time,
+            u.update_time,
+            u.login_date AS last_login_time,
+            (SELECT rna.status
+               FROM user_real_name_auth rna
+              WHERE rna.user_id = u.user_id
+              ORDER BY rna.id DESC
+              LIMIT 1) AS real_name_status,
+            (SELECT uac.enabled
+               FROM user_author_capability uac
+              WHERE uac.user_id = u.user_id
+              LIMIT 1) AS author_capability
+        FROM sys_user u
+        WHERE u.user_id = #{userId}
+          AND <include refid="managedUserTypeFilter"/>
+          AND u.del_flag = '0'
+        LIMIT 1
+    </select>
+
+    <!-- 批量装配：角色编码。只取未删除角色，按用户分组由服务层完成 -->
+    <resultMap id="AppUserRoleRowMap" type="com.smartscript.platform.user.domain.admin.AppUserRoleRow">
+        <result property="userId" column="user_id"/>
+        <result property="roleCode" column="role_code"/>
+    </resultMap>
+
+    <select id="selectRoleCodesByUserIds" resultMap="AppUserRoleRowMap">
+        SELECT ur.user_id AS user_id, r.role_key AS role_code
+        FROM sys_user_role ur
+        JOIN sys_role r ON r.role_id = ur.role_id
+        WHERE r.del_flag = '0'
+          AND r.status = '0'
+          AND ur.user_id IN
+        <foreach collection="userIds" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+        ORDER BY ur.user_id, r.role_sort
+    </select>
+
+    <!-- 批量装配：实名状态（每用户取最新一条） -->
+    <resultMap id="AppUserRealNameRowMap" type="com.smartscript.platform.user.domain.admin.AppUserRealNameRow">
+        <result property="userId" column="user_id"/>
+        <result property="status" column="status"/>
+    </resultMap>
+
+    <select id="selectRealNameStatusByUserIds" resultMap="AppUserRealNameRowMap">
+        SELECT rna.user_id AS user_id, rna.status AS status
+        FROM user_real_name_auth rna
+        JOIN (
+            SELECT user_id, MAX(id) AS max_id
+            FROM user_real_name_auth
+            WHERE user_id IN
+            <foreach collection="userIds" item="id" open="(" separator="," close=")">
+                #{id}
+            </foreach>
+            GROUP BY user_id
+        ) latest ON latest.max_id = rna.id
+    </select>
+
+    <!-- 批量装配：作者能力开关 -->
+    <resultMap id="AppUserCapabilityRowMap" type="com.smartscript.platform.user.domain.admin.AppUserCapabilityRow">
+        <result property="userId" column="user_id"/>
+        <result property="enabled" column="enabled"/>
+    </resultMap>
+
+    <select id="selectAuthorCapabilityByUserIds" resultMap="AppUserCapabilityRowMap">
+        SELECT uac.user_id AS user_id, uac.enabled AS enabled
+        FROM user_author_capability uac
+        WHERE uac.user_id IN
+        <foreach collection="userIds" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </select>
+
+    <!-- 账号域判定：仅 01/02/03 且未删除才有值，作为写操作的前置闸门 -->
+    <select id="selectManagedUserId" resultType="java.lang.Long">
+        SELECT u.user_id
+        FROM sys_user u
+        WHERE u.user_id = #{userId}
+          AND <include refid="managedUserTypeFilter"/>
+          AND u.del_flag = '0'
+        LIMIT 1
+    </select>
+
+    <select id="selectStatus" resultType="java.lang.String">
+        SELECT u.status
+        FROM sys_user u
+        WHERE u.user_id = #{userId}
+          AND <include refid="managedUserTypeFilter"/>
+          AND u.del_flag = '0'
+        LIMIT 1
+    </select>
+
+    <!--
+      条件更新：expectedStatus 参与 WHERE，保证并发下无丢失更新（USER-09）。
+      账号域同样写死在 WHERE 中，PC 管理员不可能被改状态（USER-04、一票否决项）。
+    -->
+    <update id="updateStatusIfMatch">
+        UPDATE sys_user u
+        SET u.status = #{status},
+            u.update_by = #{updateBy},
+            u.update_time = NOW()
+        WHERE u.user_id = #{userId}
+          AND u.status = #{expectedStatus}
+          AND <include refid="managedUserTypeFilter"/>
+          AND u.del_flag = '0'
+    </update>
+
+    <select id="selectRoleIds" resultType="java.lang.Long">
+        SELECT ur.role_id
+        FROM sys_user_role ur
+        WHERE ur.user_id = #{userId}
+        ORDER BY ur.role_id
+    </select>
+
+    <delete id="deleteUserRoles">
+        DELETE FROM sys_user_role WHERE user_id = #{userId}
+    </delete>
+
+    <insert id="insertUserRoles">
+        INSERT INTO sys_user_role (user_id, role_id)
+        VALUES
+        <foreach collection="roleIds" item="roleId" separator=",">
+            (#{userId}, #{roleId})
+        </foreach>
+    </insert>
+
+    <!--
+      可授予 App 用户的角色清单（契约 §5.1）。
+      权威来源：sys_role.app_grantable（003 迁移），叠加启用、未删除、非超级管理员。
+      超级管理员在该 WHERE 中被永久排除，不依赖标记值。
+    -->
+    <resultMap id="GrantableRoleMap" type="com.smartscript.platform.user.domain.admin.GrantableRole">
+        <id property="roleId" column="role_id"/>
+        <result property="roleName" column="role_name"/>
+        <result property="roleKey" column="role_key"/>
+    </resultMap>
+
+    <select id="selectGrantableRoles" resultMap="GrantableRoleMap">
+        SELECT r.role_id, r.role_name, r.role_key
+        FROM sys_role r
+        WHERE r.app_grantable = 1
+          AND r.status = '0'
+          AND r.del_flag = '0'
+          AND r.role_id &lt;&gt; 1
+          AND r.role_key &lt;&gt; 'admin'
+        ORDER BY r.role_sort, r.role_id
+    </select>
+
+    <!--
+      可授权边界校验：统计 roleIds 中不可授权的角色个数。
+
+      必须以「请求的 ID 集合」为基准左连接 sys_role，而不是直接过滤 sys_role：
+      直接过滤时，不存在的 role_id 不会产生任何行，COUNT 为 0 即被误判为「可授权」，
+      随后会写入没有外键约束的 sys_user_role，形成脏授权；
+      该 ID 将来被复用时还会意外获得权限。左连接可让「不存在」也计入不可授权。
+
+      不可授权 = 角色不存在 / 未标记 app_grantable / 已停用 / 已删除 / 超级管理员。
+      超级管理员由 role_id=1 或 role_key='admin' 双重判定永久拒绝，
+      即使被误标记为 app_grantable=1 也不会放行（绕过测试覆盖）。
+    -->
+    <select id="countNonGrantableRoles" resultType="int">
+        SELECT COUNT(*)
+        FROM (
+            <foreach collection="roleIds" item="roleId" separator=" UNION ALL ">
+                SELECT #{roleId} AS role_id
+            </foreach>
+        ) want
+        LEFT JOIN sys_role r ON r.role_id = want.role_id
+        WHERE r.role_id IS NULL
+           OR r.app_grantable &lt;&gt; 1
+           OR r.status &lt;&gt; '0'
+           OR r.del_flag &lt;&gt; '0'
+           OR r.role_id = 1
+           OR r.role_key = 'admin'
+    </select>
+
+</mapper>

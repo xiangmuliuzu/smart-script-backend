@@ -35,6 +35,17 @@ public class SysRole extends BaseEntity
     @Excel(name = "角色排序")
     private Integer roleSort;
 
+    /**
+     * 是否可授予 App 用户（A4）。
+     *
+     * 权威语义见 A4-管理接口契约.md §5.1：只有该标记为 true 的角色才能授予 App 用户。
+     * 由本角色管理页维护，复用 system:role:edit 权限与原生操作日志。
+     * 超级管理员角色（role_id=1 / role_key='admin'）无论标记为何都不可授予，
+     * 该硬约束在后端授权 SQL 中强制，不依赖此字段。
+     */
+    @Excel(name = "可授予App用户", readConverterExp = "false=否,true=是")
+    private Boolean appGrantable;
+
     /** 数据范围（1：所有数据权限；2：自定义数据权限；3：本部门数据权限；4：本部门及以下数据权限；5：仅本人数据权限） */
     @Excel(name = "数据范围", readConverterExp = "1=所有数据权限,2=自定义数据权限,3=本部门数据权限,4=本部门及以下数据权限,5=仅本人数据权限")
     private String dataScope;
@@ -137,6 +148,16 @@ public class SysRole extends BaseEntity
     public void setDataScope(String dataScope)
     {
         this.dataScope = dataScope;
+    }
+
+    public Boolean getAppGrantable()
+    {
+        return appGrantable;
+    }
+
+    public void setAppGrantable(Boolean appGrantable)
+    {
+        this.appGrantable = appGrantable;
     }
 
     public boolean isMenuCheckStrictly()

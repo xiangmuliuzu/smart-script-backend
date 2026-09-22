@@ -90,8 +90,19 @@ token:
   secret: ${TOKEN_SECRET:}
   expireTime: ${TOKEN_EXPIRE_MINUTES:30}
 
-# A3 App 凭证域（变量名与默认上下限；密钥仅环境变量）
+# A4 材料网关：材料文件根目录
+# 必须配置，且**不得**位于 ruoyi.profile 之下——该目录由 ResourcesConfig
+# 直接映射为公开静态资源（/profile/**），放进去等于把敏感材料公开。
+# 启动时会校验并在冲突时直接失败。
 app:
+  # A4 材料网关与 A3 凭证域同属 app 命名空间，必须在同一个 app: 块内，
+  # 否则重复的根键会让后者覆盖前者，材料目录配置会被静默丢弃。
+  admin:
+    # A4 材料网关：材料文件根目录。必须配置，且不得位于 ruoyi.profile 之下——
+    # 该目录由 ResourcesConfig 映射为公开静态资源（/profile/**），放进去等于公开材料。
+    # 启动时校验，冲突即失败。
+    material-storage-path: ${APP_ADMIN_MATERIAL_STORAGE_PATH:}
+  # A3 App 凭证域（变量名与默认上下限；密钥仅环境变量）
   auth:
     env: ${APP_AUTH_ENV:local}
     token-secret: ${APP_TOKEN_SECRET:}
