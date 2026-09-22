@@ -1,23 +1,19 @@
 package com.smartscript.platform.user.dto;
 
-public class CurrentUserDto
+/**
+ * A5 个人资料（契约 §1.2）。
+ *
+ * 只暴露 sys_user 已存在的展示字段；手机号始终为掩码，实名状态来自
+ * user_real_name_auth 最新记录。不含身份证号、明文手机号等敏感字段。
+ */
+public class UserProfileDto
 {
     private Long userId;
-    private String userType;
     private String nickname;
     private String avatar;
     private String phoneMasked;
-    private String[] roles;
+    private String userType;
     private String realNameStatus;
-
-    /**
-     * 是否已设置密码（A5 账号安全用）。
-     *
-     * 只暴露布尔值，不返回散列本身：客户端据此在「首次设置密码」与
-     * 「修改已有密码」之间选择入口，避免用户提交后才发现状态冲突
-     * （规格 §8.5「没有密码的用户走现有设置密码流程」）。
-     */
-    private boolean hasPassword;
 
     public Long getUserId()
     {
@@ -27,16 +23,6 @@ public class CurrentUserDto
     public void setUserId(Long userId)
     {
         this.userId = userId;
-    }
-
-    public String getUserType()
-    {
-        return userType;
-    }
-
-    public void setUserType(String userType)
-    {
-        this.userType = userType;
     }
 
     public String getNickname()
@@ -69,14 +55,14 @@ public class CurrentUserDto
         this.phoneMasked = phoneMasked;
     }
 
-    public String[] getRoles()
+    public String getUserType()
     {
-        return roles;
+        return userType;
     }
 
-    public void setRoles(String[] roles)
+    public void setUserType(String userType)
     {
-        this.roles = roles;
+        this.userType = userType;
     }
 
     public String getRealNameStatus()
@@ -87,15 +73,5 @@ public class CurrentUserDto
     public void setRealNameStatus(String realNameStatus)
     {
         this.realNameStatus = realNameStatus;
-    }
-
-    public boolean isHasPassword()
-    {
-        return hasPassword;
-    }
-
-    public void setHasPassword(boolean hasPassword)
-    {
-        this.hasPassword = hasPassword;
     }
 }

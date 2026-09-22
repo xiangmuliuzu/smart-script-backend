@@ -1,6 +1,7 @@
 package com.smartscript.platform.user.service;
 
 import java.util.Date;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
 import org.springframework.dao.DuplicateKeyException;
@@ -248,9 +249,24 @@ public class AppAuthenticationService
         dto.setNickname(user.getNickName());
         dto.setAvatar(user.getAvatar() == null || user.getAvatar().isBlank() ? null : user.getAvatar());
         dto.setPhoneMasked(AppHashes.maskPhone(user.getPhonenumber()));
-        dto.setRoles(new String[] {});
-        dto.setRealNameStatus("NOT_SUBMITTED");
+        // A5 起 /auth/me 返回真实角色与实名状态，供 App 统一身份能力使用
+        // （规格 §10：AuthState.currentUser.realNameStatus 与 hasRole）。
+        dto.setRoles(roleKeys(user.getUserId()));
+        dto.setRealNameStatus(realNameStatus(user.getUserId()));
+        dto.setHasPassword(user.getPassword() != null && !user.getPassword().isBlank());
         return dto;
+    }
+
+    private String[] roleKeys(Long userId)
+    {
+        List<String> roles = userMapper.selectRoleKeys(userId);
+        return roles == null || roles.isEmpty() ? new String[] {} : roles.toArray(new String[0]);
+    }
+
+    private String realNameStatus(Long userId)
+    {
+        String status = userMapper.selectRealNameStatus(userId);
+        return status == null || status.isBlank() ? AppRealNameService.STATUS_NOT_SUBMITTED : status;
     }
 
     private AppUserRecord requireUser(Long userId)

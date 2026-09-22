@@ -62,4 +62,20 @@
         ORDER BY id DESC
         LIMIT 1
     </select>
+
+    <!--
+      App 用户角色编码。
+      强制边界：排除超级管理员角色（role_key=admin）与未删除/停用的角色。
+      App 与 PC 共用 sys_user_role，避免把管理端角色暴露为 App 身份必须在 SQL 层完成。
+    -->
+    <select id="selectRoleKeys" resultType="java.lang.String">
+        SELECT r.role_key
+        FROM sys_user_role ur
+        JOIN sys_role r ON r.role_id = ur.role_id
+        WHERE ur.user_id = #{userId}
+          AND r.status = '0'
+          AND r.del_flag = '0'
+          AND r.role_key &lt;&gt; 'admin'
+        ORDER BY r.role_id
+    </select>
 </mapper>

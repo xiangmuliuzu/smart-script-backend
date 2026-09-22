@@ -1,0 +1,297 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.user.mapper.AppUserCenterMapper">
+
+    <!--
+      A5 App 用户中心数据访问（契约 A5-USER-CENTER-CONTRACT-v1）。
+
+      安全约束：
+        1. 数据归属在 SQL 层强制：所有「我的」查询都带 user_id / r.user_id 条件，
+           越权访问查不到行，由服务层统一转 404（不区分「不存在」与「不属于我」）。
+        2. 手机号只以掩码出库与落库；换绑审计不写验证码。
+        3. 实名材料的 material_ref 只在详情查询选择，与 A4「列表不返回材料」一致。
+        4. 已读、换绑等状态变更使用幂等 UPDATE（已读为 read_at IS NULL 条件更新）。
+        5. 表结构由 A2 迁移建立，这里不改结构；user_feedback.status 取值集合
+           与 DB CHECK 约束 ck_user_feedback_status 保持一致。
+    -->
+
+    <sql id="phoneMaskExpr">
+        CASE
+          WHEN u.phonenumber IS NULL OR TRIM(u.phonenumber) = '' THEN NULL
+          WHEN CHAR_LENGTH(u.phonenumber) &gt;= 7
+            THEN CONCAT(LEFT(u.phonenumber, 3), '****', RIGHT(u.phonenumber, 4))
+          ELSE '***'
+        END
+    </sql>
+
+    <!-- ================= 个人资料 ================= -->
+
+    <update id="updateNickName">
+        UPDATE sys_user
+        SET nick_name = #{nickName}, update_by = 'app-user-center', update_time = NOW()
+        WHERE user_id = #{userId}
+          AND del_flag = '0'
+    </update>
+
+    <update id="updateAvatar">
+        UPDATE sys_user
+        SET avatar = #{avatar}, update_by = 'app-user-center', update_time = NOW()
+        WHERE user_id = #{userId}
+          AND del_flag = '0'
+    </update>
+
+    <!-- 排除自身，允许把手机号改回原值（等价于未变更） -->
+    <select id="countPhoneTaken" resultType="int">
+        SELECT COUNT(*)
+        FROM sys_user
+        WHERE phonenumber = #{phone}
+          AND del_flag = '0'
+        <if test="excludeUserId != null">
+            AND user_id &lt;&gt; #{excludeUserId}
+        </if>
+    </select>
+
+    <!-- 唯一索引 uk_sys_user_phonenumber 兜底并发；冲突由服务层转 409 -->
+    <update id="updatePhone">
+        UPDATE sys_user
+        SET phonenumber = #{phone}, update_by = 'app-user-center', update_time = NOW()
+        WHERE user_id = #{userId}
+          AND del_flag = '0'
+    </update>
+
+    <insert id="insertPhoneChangeLog" parameterType="com.smartscript.platform.user.domain.UserPhoneChangeLog"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO user_phone_change_log
+            (user_id, old_phone_mask, new_phone_mask, result, client_ip, device_id, create_by, create_time)
+        VALUES
+            (#{userId}, #{oldPhoneMask}, #{newPhoneMask}, #{result}, #{clientIp}, #{deviceId},
+             'app-user-center', NOW())
+    </insert>
+
+    <!-- ================= 实名认证 ================= -->
+
+    <resultMap id="UserRealNameMap" type="com.smartscript.platform.user.domain.UserRealNameAuth">
+        <id property="applicationId" column="application_id"/>
+        <result property="userId" column="user_id"/>
+        <result property="realNameMask" column="real_name_mask"/>
+        <result property="idNumberMask" column="id_number_mask"/>
+        <result property="materialRef" column="material_ref"/>
+        <result property="status" column="status"/>
+        <result property="rejectReason" column="reject_reason"/>
+        <result property="submittedAt" column="submitted_at"/>
+        <result property="reviewedAt" column="reviewed_at"/>
+    </resultMap>
+
+    <select id="selectLatestRealName" resultMap="UserRealNameMap">
+        SELECT
+            rna.id AS application_id,
+            rna.user_id,
+            rna.real_name_mask,
+            rna.id_number_mask,
+            rna.material_ref,
+            rna.status,
+            rna.reject_reason,
+            rna.create_time AS submitted_at,
+            rna.audited_at AS reviewed_at
+        FROM user_real_name_auth rna
+        WHERE rna.user_id = #{userId}
+        ORDER BY rna.id DESC
+        LIMIT 1
+    </select>
+
+    <select id="selectLatestRealNameStatus" resultType="java.lang.String">
+        SELECT rna.status
+        FROM user_real_name_auth rna
+        WHERE rna.user_id = #{userId}
+        ORDER BY rna.id DESC
+        LIMIT 1
+    </select>
+
+    <insert id="insertRealName" parameterType="com.smartscript.platform.user.domain.UserRealNameAuth"
+            useGeneratedKeys="true" keyProperty="applicationId">
+        INSERT INTO user_real_name_auth
+            (user_id, real_name_mask, id_number_mask, material_ref, status, create_by, create_time)
+        VALUES
+            (#{userId}, #{realNameMask}, #{idNumberMask}, #{materialRef}, #{status},
+             'app-user-center', NOW())
+    </insert>
+
+    <!-- ================= 消息收件箱 ================= -->
+
+    <resultMap id="UserMessageMap" type="com.smartscript.platform.user.domain.UserMessage">
+        <id property="messageId" column="message_id"/>
+        <result property="type" column="type"/>
+        <result property="title" column="title"/>
+        <result property="content" column="content"/>
+        <result property="businessType" column="business_type"/>
+        <result property="businessId" column="business_id"/>
+        <result property="read" column="is_read"/>
+        <result property="readAt" column="read_at"/>
+        <result property="createdAt" column="created_at"/>
+    </resultMap>
+
+    <sql id="messageColumns">
+        n.id AS message_id,
+        n.type,
+        n.title,
+        n.body AS content,
+        n.business_type,
+        COALESCE(n.business_id, n.biz_ref) AS business_id,
+        (r.read_at IS NOT NULL) AS is_read,
+        r.read_at,
+        n.create_time AS created_at
+    </sql>
+
+    <select id="selectMyMessages" parameterType="map" resultMap="UserMessageMap">
+        SELECT <include refid="messageColumns"/>
+        FROM user_notification_receiver r
+        JOIN user_notification n ON n.id = r.notification_id
+        WHERE r.user_id = #{userId}
+          AND r.deleted_flag = 0
+        <if test="type != null and type != ''">
+            AND n.type = #{type}
+        </if>
+        ORDER BY n.create_time DESC, n.id DESC
+    </select>
+
+    <select id="selectMyMessage" resultMap="UserMessageMap">
+        SELECT <include refid="messageColumns"/>
+        FROM user_notification_receiver r
+        JOIN user_notification n ON n.id = r.notification_id
+        WHERE r.user_id = #{userId}
+          AND r.notification_id = #{messageId}
+          AND r.deleted_flag = 0
+        LIMIT 1
+    </select>
+
+    <select id="countUnread" resultType="int">
+        SELECT COUNT(*)
+        FROM user_notification_receiver r
+        WHERE r.user_id = #{userId}
+          AND r.deleted_flag = 0
+          AND r.read_at IS NULL
+    </select>
+
+    <select id="countUnreadGroupByType" resultType="java.util.Map">
+        SELECT n.type AS type, COUNT(*) AS total
+        FROM user_notification_receiver r
+        JOIN user_notification n ON n.id = r.notification_id
+        WHERE r.user_id = #{userId}
+          AND r.deleted_flag = 0
+          AND r.read_at IS NULL
+        GROUP BY n.type
+    </select>
+
+    <!-- 幂等：已读时 read_at 非空，条件不成立返回 0 行 -->
+    <update id="markRead">
+        UPDATE user_notification_receiver
+        SET read_at = #{now}, update_time = #{now}
+        WHERE user_id = #{userId}
+          AND notification_id = #{messageId}
+          AND deleted_flag = 0
+          AND read_at IS NULL
+    </update>
+
+    <update id="markAllRead">
+        UPDATE user_notification_receiver
+        SET read_at = #{now}, update_time = #{now}
+        WHERE user_id = #{userId}
+          AND deleted_flag = 0
+          AND read_at IS NULL
+    </update>
+
+    <!-- ================= 通知偏好 ================= -->
+
+    <resultMap id="PreferenceMap" type="com.smartscript.platform.user.domain.UserNotificationPreference">
+        <id property="id" column="id"/>
+        <result property="userId" column="user_id"/>
+        <result property="channel" column="channel"/>
+        <result property="type" column="type"/>
+        <result property="enabled" column="enabled"/>
+    </resultMap>
+
+    <select id="selectPreferences" resultMap="PreferenceMap">
+        SELECT id, user_id, channel, type, enabled
+        FROM user_notification_preference
+        WHERE user_id = #{userId}
+        ORDER BY channel, type
+    </select>
+
+    <!-- 唯一键 uk_user_notification_pref 保证一个组合只有一行 -->
+    <insert id="upsertPreference">
+        INSERT INTO user_notification_preference
+            (user_id, channel, type, enabled, create_by, create_time)
+        VALUES
+            (#{userId}, #{channel}, #{type}, #{enabled}, 'app-user-center', NOW())
+        ON DUPLICATE KEY UPDATE
+            enabled = VALUES(enabled),
+            update_by = 'app-user-center',
+            update_time = NOW()
+    </insert>
+
+    <delete id="deletePreference">
+        DELETE FROM user_notification_preference
+        WHERE user_id = #{userId}
+          AND channel = #{channel}
+          AND type = #{type}
+    </delete>
+
+    <!-- ================= 我的反馈 ================= -->
+
+    <resultMap id="UserFeedbackMap" type="com.smartscript.platform.user.domain.UserFeedback">
+        <id property="feedbackId" column="feedback_id"/>
+        <result property="category" column="category"/>
+        <result property="content" column="content"/>
+        <result property="status" column="status"/>
+        <result property="reply" column="reply"/>
+        <result property="submittedAt" column="submitted_at"/>
+        <result property="handledAt" column="handled_at"/>
+        <result property="attachmentRef" column="attachment_ref"/>
+    </resultMap>
+
+    <insert id="insertFeedback" parameterType="com.smartscript.platform.user.domain.UserFeedback"
+            useGeneratedKeys="true" keyProperty="feedbackId">
+        INSERT INTO user_feedback
+            (user_id, category, content, attachment_ref, status, create_by, create_time)
+        VALUES
+            (#{userId}, #{category}, #{content}, #{attachmentRef}, #{status},
+             'app-user-center', NOW())
+    </insert>
+
+    <!-- 列表不选择 attachment_ref：附件只在详情按归属返回（与 A4 FB-01 一致） -->
+    <select id="selectMyFeedbackPage" parameterType="map" resultMap="UserFeedbackMap">
+        SELECT
+            f.id AS feedback_id,
+            f.category,
+            f.content,
+            f.status,
+            f.reply,
+            f.create_time AS submitted_at,
+            f.handled_at
+        FROM user_feedback f
+        WHERE f.user_id = #{userId}
+        <if test="status != null and status != ''">
+            AND f.status = #{status}
+        </if>
+        ORDER BY f.create_time DESC, f.id DESC
+    </select>
+
+    <!-- user_id 参与 WHERE，他人反馈与不存在的反馈同样查不到行 -->
+    <select id="selectMyFeedback" resultMap="UserFeedbackMap">
+        SELECT
+            f.id AS feedback_id,
+            f.category,
+            f.content,
+            f.status,
+            f.reply,
+            f.attachment_ref,
+            f.create_time AS submitted_at,
+            f.handled_at
+        FROM user_feedback f
+        WHERE f.user_id = #{userId}
+          AND f.id = #{feedbackId}
+        LIMIT 1
+    </select>
+
+</mapper>

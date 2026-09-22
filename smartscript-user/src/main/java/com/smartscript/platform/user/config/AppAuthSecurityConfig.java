@@ -13,12 +13,24 @@ import com.smartscript.platform.user.security.AppAuthAuthenticationFilter;
 import com.smartscript.platform.user.security.AppAuthEntryPoint;
 
 /**
- * Dedicated App credential-domain filter chain for /api/v1/auth/**.
- * PC management endpoints remain on the RuoYi filter chain.
+ * Dedicated App credential-domain filter chain for the App-only API surface.
+ *
+ * A3 只覆盖 /api/v1/auth/**；A5 把 App 用户中心并入同一凭证域：
+ *   /api/v1/users/**    资料、实名、账号安全（含换绑手机号）、通知偏好
+ *   /api/v1/messages/** 消息中心
+ *   /api/v1/feedback/** 意见反馈
+ *
+ * 边界不变：PC 管理接口（/api/v1/admin/**）与若依原生接口仍走若依过滤链，
+ * 因此 App Token 访问管理端仍被拒绝，PC Token 访问 App 私有接口也不被本链接受。
  */
 @Configuration
 public class AppAuthSecurityConfig
 {
+    /** App 凭证域覆盖的路径前缀；本链之外的前缀一律 denyAll。 */
+    static final String[] APP_PATH_PREFIXES = {
+            "/api/v1/auth/**", "/api/v1/users/**", "/api/v1/messages/**", "/api/v1/feedback/**"
+    };
+
     @Bean
     @Order(100)
     public SecurityFilterChain appAuthFilterChain(HttpSecurity http,
@@ -26,7 +38,7 @@ public class AppAuthSecurityConfig
             AppAuthEntryPoint appAuthEntryPoint) throws Exception
     {
         AppAuthAuthenticationFilter appFilter = new AppAuthAuthenticationFilter(accessTokenService);
-        http.securityMatcher("/api/v1/auth/**")
+        http.securityMatcher(APP_PATH_PREFIXES)
                 .csrf(csrf -> csrf.disable())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .exceptionHandling(ex -> ex.authenticationEntryPoint(appAuthEntryPoint))
@@ -43,7 +55,9 @@ public class AppAuthSecurityConfig
                         .requestMatchers(HttpMethod.POST,
                                 "/api/v1/auth/oauth/wechat/login",
                                 "/api/v1/auth/oauth/qq/login").permitAll()
-                        .requestMatchers("/api/v1/auth/**").authenticated()
+                        // App 用户中心 / 消息 / 反馈：全部要求 App Access Token
+                        .requestMatchers("/api/v1/auth/**", "/api/v1/users/**",
+                                "/api/v1/messages/**", "/api/v1/feedback/**").authenticated()
                         .anyRequest().denyAll())
                 .addFilterBefore(appFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();
