@@ -336,11 +336,11 @@ try {
   try {
     Wait-Cooldown $cooldownSec
     $phoneRate='137'+(Get-Random -Minimum 10000000 -Maximum 99999999)
-    $eventsBefore = [int](Sql "SELECT COUNT(*) FROM sys_logininfor WHERE msg LIKE '%SMS_PHONE_DAILY_LIMIT%'")
+    $eventsBefore = [int](Sql "SELECT COUNT(*) FROM sys_logininfor WHERE LOCATE('SMS_PHONE_DAILY_LIMIT', msg) > 0")
     $codes06=@()
     1..([Math]::Max($phoneDaily+2,5)) | % { $r=Send-Sms $phoneRate 'LOGIN'; if($r.code){$codes06+=[int]$r.code}; Wait-Cooldown $cooldownSec }
     Start-Sleep -Seconds 2
-    $eventsAfter = [int](Sql "SELECT COUNT(*) FROM sys_logininfor WHERE msg LIKE '%SMS_PHONE_DAILY_LIMIT%'")
+    $eventsAfter = [int](Sql "SELECT COUNT(*) FROM sys_logininfor WHERE LOCATE('SMS_PHONE_DAILY_LIMIT', msg) > 0")
     $eventsDelta = $eventsAfter - $eventsBefore
     Record 'AUTH-06' (($codes06 -contains 42902) -and ($eventsDelta -ge 1)) "codes=$($codes06 -join ',') expect 42902; securityEvents+=$eventsDelta expect >=1"
   } catch { Record 'AUTH-06' $false "ex $($_.Exception.Message)" }
