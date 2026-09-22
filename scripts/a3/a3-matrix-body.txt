@@ -369,9 +369,28 @@ try {
     $oldAccess=$null; try { $null = Invoke-Json GET '/api/v1/auth/me' $null $at20; $oldAccess=200 } catch { $oldAccess=Get-ErrCode $_ }
     $oldRefresh=$null; try { $null = Invoke-Json POST '/api/v1/auth/token/refresh' @{refreshToken=$rt20;deviceId=$deviceId} $null; $oldRefresh=200 } catch { $oldRefresh=Get-ErrCode $_ }
 
+    # Durable proof of revocation on the disable path (not just a read-time rejection).
+    $revRows20 = Sql "SELECT COUNT(*) FROM app_refresh_session WHERE user_id=$uid20 AND revoked_at IS NOT NULL"
+    $activeRows20 = Sql "SELECT COUNT(*) FROM app_refresh_session WHERE user_id=$uid20 AND revoked_at IS NULL"
+
+    # Delete path: a logical delete must likewise end every App session.
+    Wait-Cooldown $cooldownSec
+    $phone20b = '131' + (Get-Random -Minimum 10000000 -Maximum 99999999)
+    $null = Send-Sms $phone20b 'LOGIN'
+    $su20b = Invoke-Json POST '/api/v1/auth/sms/login' @{phone=$phone20b;code=$code;deviceId=$deviceId;agreementAcceptances=$agree}
+    $uid20b = $su20b.data.user.userId
+    $at20b = $su20b.data.accessToken
+    $rt20b = $su20b.data.refreshToken
+    $r20del = Invoke-Json DELETE "/system/user/$uid20b" $null $pcToken
+    Start-Sleep -Seconds 2
+    $delAccess=$null; try { $null = Invoke-Json GET '/api/v1/auth/me' $null $at20b; $delAccess=200 } catch { $delAccess=Get-ErrCode $_ }
+    $delRefresh=$null; try { $null = Invoke-Json POST '/api/v1/auth/token/refresh' @{refreshToken=$rt20b;deviceId=$deviceId} $null; $delRefresh=200 } catch { $delRefresh=Get-ErrCode $_ }
+
     $ok20 = ($e20 -eq 40301) -and ($blockedAccess -ne 200) -and ($oldAccess -ne 200) -and ($oldRefresh -ne 200) `
-            -and (($r20.code -eq 200) -and ($r20re.code -eq 200))
-    Record 'AUTH-20' $ok20 "loginWhenDisabled=$e20 expect 40301; accessWhileDisabled=$blockedAccess expect !=200; oldAccessAfterReEnable=$oldAccess expect !=200; oldRefreshAfterReEnable=$oldRefresh expect !=200; adminDisable=$($r20.code) adminEnable=$($r20re.code)"
+            -and ([int]$revRows20 -ge 1) -and ([int]$activeRows20 -eq 0) `
+            -and ($delAccess -ne 200) -and ($delRefresh -ne 200) `
+            -and (($r20.code -eq 200) -and ($r20re.code -eq 200) -and ($r20del.code -eq 200))
+    Record 'AUTH-20' $ok20 "loginWhenDisabled=$e20 expect 40301; accessWhileDisabled=$blockedAccess expect !=200; oldAccessAfterReEnable=$oldAccess expect !=200; oldRefreshAfterReEnable=$oldRefresh expect !=200; revokedRows=$revRows20 activeRows=$activeRows20 expect revoked>=1/active=0; delAccess=$delAccess expect !=200; delRefresh=$delRefresh expect !=200; adminDisable=$($r20.code) adminEnable=$($r20re.code) adminDelete=$($r20del.code)"
   } catch { Record 'AUTH-20' $false "ex $($_.Exception.Message)" }
 
   try {
