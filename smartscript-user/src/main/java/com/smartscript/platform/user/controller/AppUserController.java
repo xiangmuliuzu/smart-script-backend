@@ -9,8 +9,10 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 import com.smartscript.platform.user.constant.AppAuthErrorCodes;
 import com.smartscript.platform.user.dto.AppApiResponse;
 import com.smartscript.platform.user.dto.NotificationPreferenceUpdateRequest;
@@ -24,6 +26,7 @@ import com.smartscript.platform.user.dto.UserProfileDto;
 import com.smartscript.platform.user.dto.UserProfileUpdateRequest;
 import com.smartscript.platform.user.exception.AppAuthException;
 import com.smartscript.platform.user.security.AppIdentityContext;
+import com.smartscript.platform.user.service.AppFileUploadService;
 import com.smartscript.platform.user.service.AppPhoneChangeService;
 import com.smartscript.platform.user.service.AppRealNameService;
 import com.smartscript.platform.user.service.AppUserProfileService;
@@ -49,16 +52,19 @@ public class AppUserController
     private final AppRealNameService realNameService;
     private final AppPhoneChangeService phoneChangeService;
     private final UserMessageService messageService;
+    private final AppFileUploadService uploadService;
 
     public AppUserController(AppUserProfileService profileService,
             AppRealNameService realNameService,
             AppPhoneChangeService phoneChangeService,
-            UserMessageService messageService)
+            UserMessageService messageService,
+            AppFileUploadService uploadService)
     {
         this.profileService = profileService;
         this.realNameService = realNameService;
         this.phoneChangeService = phoneChangeService;
         this.messageService = messageService;
+        this.uploadService = uploadService;
     }
 
     // ------------------------------------------------------------------
@@ -75,6 +81,19 @@ public class AppUserController
     public AppApiResponse<UserProfileDto> updateProfile(@RequestBody UserProfileUpdateRequest request)
     {
         return AppApiResponse.ok(profileService.updateProfile(currentUserId(), request));
+    }
+
+    /**
+     * 头像图片上传（规格 §8.3）。
+     *
+     * App 域专用端点：平台原生的 `/common/upload` 属于 PC 凭证链，
+     * App Access Token 在其上无法通过鉴权，且其响应格式与 App 信封不一致。
+     * 返回 `{ "url": "...", "path": "..." }`，url 可直接用于资料更新的 avatar 字段。
+     */
+    @PostMapping("/me/avatar")
+    public AppApiResponse<Map<String, Object>> uploadAvatar(@RequestParam("file") MultipartFile file)
+    {
+        return AppApiResponse.ok(uploadService.uploadImage(file));
     }
 
     // ------------------------------------------------------------------

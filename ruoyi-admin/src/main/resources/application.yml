@@ -178,6 +178,7 @@ xss:
   # 过滤开关
   enabled: true
   # 排除路径（多个用逗号分隔）
-  excludes: /system/notice,/api/v1/auth/**
+  # /api/v1/users/me/avatar 为 A5 App 头像上传：multipart 文件体不应按文本做 XSS 扫描
+  excludes: /system/notice,/api/v1/auth/**,/api/v1/users/me/avatar
   # 匹配路径
   urlPatterns: /system/*,/monitor/*,/tool/*
