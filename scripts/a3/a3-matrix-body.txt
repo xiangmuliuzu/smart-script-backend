@@ -43,14 +43,28 @@ function Record($id, $ok, $detail) { $results.Add([pscustomobject]@{id=$id;ok=[b
 function Sql($query) { $q = $query -replace '"', '\"'; return cmd /c "`"D:\java\bin\mysql.exe`" -h 127.0.0.1 -u root -p$dbPass -N -B -D $db -e `"$q`" 2>nul" }
 function Send-Sms($phoneNo, $scene) { try { return Invoke-Json POST '/api/v1/auth/sms/send' @{phone=$phoneNo;scene=$scene;deviceId=$deviceId} } catch { return @{code=Get-ErrCode $_;error=$true} } }
 function Wait-Cooldown([int]$seconds) { if ($seconds -gt 0) { Start-Sleep -Seconds ($seconds + 1) } }
+$redisCli = 'D:\java\Redis-7.2.12-Windows-x64-cygwin-with-Service\redis-cli.exe'
+$pcAdminUser = if ($env:A3_PC_ADMIN_USER) { $env:A3_PC_ADMIN_USER } else { 'admin' }
+$pcAdminPass = $env:A3_PC_ADMIN_PASSWORD
+function Get-PcAdminToken {
+  if ([string]::IsNullOrEmpty($pcAdminPass)) { throw 'A3_PC_ADMIN_PASSWORD env required for AUTH-20' }
+  $cap = Invoke-Json GET '/captchaImage' $null $null
+  $raw = & $redisCli -h 127.0.0.1 -p 6379 GET "captcha_codes:$($cap.uuid)" 2>$null
+  $ans = "$raw".Trim().Trim('"')
+  $login = Invoke-Json POST '/login' @{username=$pcAdminUser;password=$pcAdminPass;code=$ans;uuid=$cap.uuid} $null
+  if (-not $login.token) { throw "PC admin login failed: $($login.msg)" }
+  return $login.token
+}
 function B64Url([byte[]]$bytes) { return [Convert]::ToBase64String($bytes).TrimEnd('=').Replace('+','-').Replace('/','_') }
 function New-AppJwt {
-  param([string]$Secret,[string]$Iss,[string]$Aud,[string]$Sub,[string]$Sid,[string]$Jti,[long]$ExpUnix,[string]$TokenType='app_access')
-  $header = @{alg='HS512';typ='JWT'} | ConvertTo-Json -Compress
+  param([string]$Secret,[string]$Iss,[string]$Aud,[string]$Sub,[string]$Sid,[string]$Jti,[long]$ExpUnix,[string]$TokenType='app_access',[string]$Alg='HS512')
+  $header = @{alg=$Alg;typ='JWT'} | ConvertTo-Json -Compress
   $payload = @{sub=$Sub;iss=$Iss;aud=$Aud;iat=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds();exp=$ExpUnix;jti=$Jti;token_type=$TokenType;sid=$Sid} | ConvertTo-Json -Compress
   $h = B64Url ([Text.Encoding]::UTF8.GetBytes($header)); $p = B64Url ([Text.Encoding]::UTF8.GetBytes($payload))
+  if ($Alg -eq 'none') { return "$h.$p." }
   $data = [Text.Encoding]::UTF8.GetBytes("$h.$p")
-  $hmac = New-Object System.Security.Cryptography.HMACSHA512; $hmac.Key = [Text.Encoding]::UTF8.GetBytes($Secret)
+  $hmac = if ($Alg -eq 'HS256') { New-Object System.Security.Cryptography.HMACSHA256 } else { New-Object System.Security.Cryptography.HMACSHA512 }
+  $hmac.Key = [Text.Encoding]::UTF8.GetBytes($Secret)
   $sig = B64Url ($hmac.ComputeHash($data)); $hmac.Dispose(); return "$h.$p.$sig"
 }
 function Stop-Backend { Get-Process java -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; Start-Sleep -Seconds 2 }
@@ -301,7 +315,9 @@ try {
       @{n='iss';t=(New-AppJwt -Secret $appSecret -Iss 'evil-issuer' -Aud $appAud -Sub $sub -Sid '1' -Jti 'ji' -ExpUnix ($now+3600))},
       @{n='aud';t=(New-AppJwt -Secret $appSecret -Iss $appIss -Aud 'evil-aud' -Sub $sub -Sid '1' -Jti 'ja' -ExpUnix ($now+3600))},
       @{n='type';t=(New-AppJwt -Secret $appSecret -Iss $appIss -Aud $appAud -Sub $sub -Sid '1' -Jti 'jt' -ExpUnix ($now+3600) -TokenType 'pc_access')},
-      @{n='sig';t=(New-AppJwt -Secret ('X'*[Math]::Max(32,$appSecret.Length)) -Iss $appIss -Aud $appAud -Sub $sub -Sid '1' -Jti 'js' -ExpUnix ($now+3600))}
+      @{n='sig';t=(New-AppJwt -Secret ('X'*[Math]::Max(32,$appSecret.Length)) -Iss $appIss -Aud $appAud -Sub $sub -Sid '1' -Jti 'js' -ExpUnix ($now+3600))},
+      @{n='algHS256';t=(New-AppJwt -Secret $appSecret -Iss $appIss -Aud $appAud -Sub $sub -Sid '1' -Jti 'j256' -ExpUnix ($now+3600) -Alg 'HS256')},
+      @{n='algNone';t=(New-AppJwt -Secret $appSecret -Iss $appIss -Aud $appAud -Sub $sub -Sid '1' -Jti 'jnone' -ExpUnix ($now+3600) -Alg 'none')}
     )) {
       try { $null = Invoke-Json GET '/api/v1/auth/me' $null $pair.t; $c23[$pair.n]=200 } catch { $c23[$pair.n]=Get-ErrCode $_ }
     }
@@ -320,9 +336,13 @@ try {
   try {
     Wait-Cooldown $cooldownSec
     $phoneRate='137'+(Get-Random -Minimum 10000000 -Maximum 99999999)
+    $eventsBefore = [int](Sql "SELECT COUNT(*) FROM sys_logininfor WHERE msg LIKE '%SMS_PHONE_DAILY_LIMIT%'")
     $codes06=@()
     1..([Math]::Max($phoneDaily+2,5)) | % { $r=Send-Sms $phoneRate 'LOGIN'; if($r.code){$codes06+=[int]$r.code}; Wait-Cooldown $cooldownSec }
-    Record 'AUTH-06' ($codes06 -contains 42902) "codes=$($codes06 -join ',') expect 42902"
+    Start-Sleep -Seconds 2
+    $eventsAfter = [int](Sql "SELECT COUNT(*) FROM sys_logininfor WHERE msg LIKE '%SMS_PHONE_DAILY_LIMIT%'")
+    $eventsDelta = $eventsAfter - $eventsBefore
+    Record 'AUTH-06' (($codes06 -contains 42902) -and ($eventsDelta -ge 1)) "codes=$($codes06 -join ',') expect 42902; securityEvents+=$eventsDelta expect >=1"
   } catch { Record 'AUTH-06' $false "ex $($_.Exception.Message)" }
 
   try {
@@ -331,12 +351,27 @@ try {
     $null = Send-Sms $phone20 'LOGIN'
     $su20 = Invoke-Json POST '/api/v1/auth/sms/login' @{phone=$phone20;code=$code;deviceId=$deviceId;agreementAcceptances=$agree}
     $uid20 = $su20.data.user.userId
-    Sql "UPDATE sys_user SET status='1' WHERE user_id=$uid20"
+    $at20 = $su20.data.accessToken
+    $rt20 = $su20.data.refreshToken
+
+    $pcToken = Get-PcAdminToken
+    $r20 = Invoke-Json PUT '/system/user/changeStatus' @{userId=$uid20;status='1'} $pcToken
+    # Disabled-account login needs its own fresh code: the first one is already consumed,
+    # so reusing it would return 40901 and never exercise the disabled-account branch.
     Wait-Cooldown $cooldownSec
     $null = Send-Sms $phone20 'LOGIN'
     $e20=$null; try { $null = Invoke-Json POST '/api/v1/auth/sms/login' @{phone=$phone20;code=$code;deviceId=$deviceId} } catch { $e20=Get-ErrCode $_ }
-    Record 'AUTH-20' ($e20 -eq 40301) "disabled=$e20 uid=$uid20"
-    Sql "UPDATE sys_user SET status='0' WHERE user_id=$uid20"
+    $blockedAccess=$null; try { $null = Invoke-Json GET '/api/v1/auth/me' $null $at20; $blockedAccess=200 } catch { $blockedAccess=Get-ErrCode $_ }
+
+    # Re-enable: the revoked sessions must stay dead instead of resurrecting.
+    $r20re = Invoke-Json PUT '/system/user/changeStatus' @{userId=$uid20;status='0'} $pcToken
+    Start-Sleep -Seconds 2
+    $oldAccess=$null; try { $null = Invoke-Json GET '/api/v1/auth/me' $null $at20; $oldAccess=200 } catch { $oldAccess=Get-ErrCode $_ }
+    $oldRefresh=$null; try { $null = Invoke-Json POST '/api/v1/auth/token/refresh' @{refreshToken=$rt20;deviceId=$deviceId} $null; $oldRefresh=200 } catch { $oldRefresh=Get-ErrCode $_ }
+
+    $ok20 = ($e20 -eq 40301) -and ($blockedAccess -ne 200) -and ($oldAccess -ne 200) -and ($oldRefresh -ne 200) `
+            -and (($r20.code -eq 200) -and ($r20re.code -eq 200))
+    Record 'AUTH-20' $ok20 "loginWhenDisabled=$e20 expect 40301; accessWhileDisabled=$blockedAccess expect !=200; oldAccessAfterReEnable=$oldAccess expect !=200; oldRefreshAfterReEnable=$oldRefresh expect !=200; adminDisable=$($r20.code) adminEnable=$($r20re.code)"
   } catch { Record 'AUTH-20' $false "ex $($_.Exception.Message)" }
 
   try {

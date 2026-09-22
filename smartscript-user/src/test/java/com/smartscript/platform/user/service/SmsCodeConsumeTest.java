@@ -70,7 +70,7 @@ class SmsCodeConsumeTest
 
     private static SmsCodeService service(StubMapper mapper)
     {
-        return new SmsCodeService(new AppAuthProperties(), mapper, null, null, null);
+        return new SmsCodeService(new AppAuthProperties(), mapper, null, null, null, null);
     }
 
     private static AppSmsCode row(String code, java.util.Date usedAt, java.util.Date expiresAt)

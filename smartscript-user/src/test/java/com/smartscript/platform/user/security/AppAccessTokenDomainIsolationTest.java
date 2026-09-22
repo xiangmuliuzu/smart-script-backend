@@ -82,6 +82,49 @@ class AppAccessTokenDomainIsolationTest
         assertEquals(3L, ctx.getSessionId());
     }
 
+    @Test
+    void wrongAlgorithmWithSameSecretIsRejected()
+    {
+        // AUTH-23 regression: jjwt 0.9.1 picks the verification algorithm from the
+        // token header, so an HS256 token signed with the correct secret used to pass.
+        AppAccessTokenService service = new AppAccessTokenService(properties, new NoopRevocation(), usableUserMapper());
+        String hs256 = Jwts.builder()
+                .setSubject("9")
+                .setId("jti-hs256")
+                .setIssuer(properties.getTokenIssuer())
+                .setAudience(properties.getTokenAudience())
+                .claim(AppAccessTokenService.CLAIM_TOKEN_TYPE, AppAccessTokenService.TOKEN_TYPE)
+                .claim(AppAccessTokenService.CLAIM_SESSION_ID, "3")
+                .setExpiration(new java.util.Date(System.currentTimeMillis() + 60_000L))
+                .signWith(SignatureAlgorithm.HS256,
+                        properties.getTokenSecret().getBytes(java.nio.charset.StandardCharsets.UTF_8))
+                .compact();
+        AppAuthException ex = assertThrows(AppAuthException.class, () -> service.parseAndValidate(hs256));
+        assertEquals(AppAuthErrorCodes.UNAUTHORIZED, ex.getCode());
+    }
+
+    @Test
+    void unsignedNoneAlgorithmTokenIsRejected()
+    {
+        // AUTH-23 regression: alg=none must never be accepted.
+        AppAccessTokenService service = new AppAccessTokenService(properties, new NoopRevocation(), usableUserMapper());
+        String header = base64Url("{\"alg\":\"none\",\"typ\":\"JWT\"}");
+        String payload = base64Url("{\"sub\":\"9\",\"iss\":\"" + properties.getTokenIssuer()
+                + "\",\"aud\":\"" + properties.getTokenAudience()
+                + "\",\"token_type\":\"" + AppAccessTokenService.TOKEN_TYPE
+                + "\",\"sid\":\"3\",\"jti\":\"jti-none\",\"exp\":"
+                + (System.currentTimeMillis() / 1000L + 3600L) + "}");
+        String noneToken = header + "." + payload + ".";
+        AppAuthException ex = assertThrows(AppAuthException.class, () -> service.parseAndValidate(noneToken));
+        assertEquals(AppAuthErrorCodes.UNAUTHORIZED, ex.getCode());
+    }
+
+    private static String base64Url(String json)
+    {
+        return java.util.Base64.getUrlEncoder().withoutPadding()
+                .encodeToString(json.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    }
+
     private static AppUserMapper nullUserMapper()
     {
         return new AppUserMapper()

@@ -27,18 +27,31 @@ public class SmsCodeService
     private final SmsProvider smsProvider;
     private final RedisCache redisCache;
     private final AppSessionRevocationService revocationService;
+    private final AppSecurityEventRecorder securityEvents;
 
     public SmsCodeService(AppAuthProperties properties,
             AppSmsCodeMapper mapper,
             SmsProvider smsProvider,
             RedisCache redisCache,
-            AppSessionRevocationService revocationService)
+            AppSessionRevocationService revocationService,
+            AppSecurityEventRecorder securityEvents)
     {
         this.properties = properties;
         this.mapper = mapper;
         this.smsProvider = smsProvider;
         this.redisCache = redisCache;
         this.revocationService = revocationService;
+        this.securityEvents = securityEvents;
+    }
+
+    /** AUTH-06: frequency-limit decisions must leave a security-audit record. */
+    private void recordSecurityEvent(String phone, String ip, String event, int observed)
+    {
+        if (securityEvents != null)
+        {
+            securityEvents.record(AppHashes.maskPhone(phone), ip, event,
+                    "scene limit observed=" + observed);
+        }
     }
 
     public void sendCode(String phone, String scene, String ip, String requestId)
@@ -66,6 +79,7 @@ public class SmsCodeService
         int phoneToday = mapper.countPhoneToday(phone, scene, dayStart);
         if (phoneToday >= properties.getSms().getPhoneDailyLimit())
         {
+            recordSecurityEvent(phone, ip, "SMS_PHONE_DAILY_LIMIT", phoneToday);
             throw new AppAuthException(AppAuthErrorCodes.SMS_RATE_LIMIT, 429, "phone rate limit");
         }
         if (ip != null && !ip.isBlank())
@@ -73,6 +87,7 @@ public class SmsCodeService
             int ipHour = mapper.countIpLastHour(ip, hourStart);
             if (ipHour >= properties.getSms().getIpHourlyLimit())
             {
+                recordSecurityEvent(phone, ip, "SMS_IP_HOURLY_LIMIT", ipHour);
                 throw new AppAuthException(AppAuthErrorCodes.SMS_RATE_LIMIT, 429, "ip rate limit");
             }
         }

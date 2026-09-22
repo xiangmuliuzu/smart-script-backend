@@ -13,6 +13,7 @@ import com.smartscript.platform.user.service.AppSessionRevocationService;
 import com.smartscript.platform.user.util.AppHashes;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.ExpiredJwtException;
+import io.jsonwebtoken.Jws;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
@@ -27,6 +28,8 @@ public class AppAccessTokenService
     public static final String TOKEN_TYPE = "app_access";
     public static final String CLAIM_TOKEN_TYPE = "token_type";
     public static final String CLAIM_SESSION_ID = "sid";
+    /** Single allowed signing algorithm; algorithm negotiation is rejected. */
+    public static final SignatureAlgorithm SIGNATURE_ALGORITHM = SignatureAlgorithm.HS512;
 
     private final AppAuthProperties properties;
     private final AppSessionRevocationService revocationService;
@@ -78,10 +81,21 @@ public class AppAccessTokenService
         Claims claims;
         try
         {
-            claims = Jwts.parser()
+            // jjwt 0.9.1 chooses the verification algorithm from the token header, so a
+            // token signed with the same secret but a different algorithm (e.g. HS256)
+            // would otherwise validate. The header algorithm is pinned before use.
+            Jws<Claims> jws = Jwts.parser()
                     .setSigningKey(secretBytes())
-                    .parseClaimsJws(token)
-                    .getBody();
+                    .parseClaimsJws(token);
+            if (!SIGNATURE_ALGORITHM.getValue().equals(jws.getHeader().getAlgorithm()))
+            {
+                throw new AppAuthException(AppAuthErrorCodes.UNAUTHORIZED, 401, "unexpected token algorithm");
+            }
+            claims = jws.getBody();
+        }
+        catch (AppAuthException e)
+        {
+            throw e;
         }
         catch (ExpiredJwtException e)
         {
