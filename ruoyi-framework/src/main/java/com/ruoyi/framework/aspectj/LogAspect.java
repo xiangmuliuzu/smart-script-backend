@@ -125,6 +125,10 @@ public class LogAspect
             // 设置消耗时间
             operLog.setCostTime(System.currentTimeMillis() - TIME_THREADLOCAL.get());
             // 保存数据库
+            // A4 安全兜底：令牌不得进入操作日志。
+            // oper_url 记录原始 requestURI，接口级 excludeParamNames 覆盖不到，
+            // 因此在此统一脱敏（见 OperLogSanitizer）。
+            OperLogSanitizer.sanitize(operLog);
             AsyncManager.me().execute(AsyncFactory.recordOper(operLog));
         }
         catch (Exception exp)

@@ -248,6 +248,14 @@ public class SysRoleServiceImpl implements ISysRoleService
     @Transactional
     public int updateRole(SysRole role)
     {
+        // A4：超级管理员角色不得被标记为可授予 App 用户。
+        // 真正的授权硬约束在 AppUserAdminMapper 的 SQL 中（role_id=1 或 role_key='admin'
+        // 无论标记为何都拒绝）；此处仅防止标记值与语义不一致，避免误导管理员。
+        if (role.getAppGrantable() != null && role.getAppGrantable()
+                && (Long.valueOf(1L).equals(role.getRoleId()) || "admin".equals(role.getRoleKey())))
+        {
+            role.setAppGrantable(false);
+        }
         // 修改角色信息
         roleMapper.updateRole(role);
         // 删除角色与菜单关联
