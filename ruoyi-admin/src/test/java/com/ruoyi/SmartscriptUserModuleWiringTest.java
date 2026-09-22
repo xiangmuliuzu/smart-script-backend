@@ -57,43 +57,37 @@ class SmartscriptUserModuleWiringTest
     }
 
     @Test
-    void mapperScanNotExpandedWithoutMappers() throws Exception
+    void mapperScanCoversSmartscriptWhenMappersExist() throws Exception
     {
         Path moduleJava = Paths.get("smartscript-user/src/main/java");
         if (!Files.exists(moduleJava))
         {
             moduleJava = Paths.get("D:/build/smart-script-backend/smartscript-user/src/main/java");
         }
-        if (!Files.isDirectory(moduleJava))
-        {
-            return;
-        }
+        assertTrue(Files.isDirectory(moduleJava), "smartscript-user main java missing");
+        boolean hasMapper;
         try (var files = Files.walk(moduleJava))
         {
-            boolean hasMapper = files.filter(p -> p.toString().endsWith(".java"))
-                    .anyMatch(p -> {
-                        try
-                        {
-                            return Files.readString(p, StandardCharsets.UTF_8).contains("interface ")
-                                    && p.getFileName().toString().contains("Mapper");
-                        }
-                        catch (Exception e)
-                        {
-                            return false;
-                        }
-                    });
-            if (!hasMapper)
-            {
-                Path cfg = Paths.get("../ruoyi-framework/src/main/java/com/ruoyi/framework/config/ApplicationConfig.java")
-                        .toAbsolutePath().normalize();
-                if (!Files.exists(cfg))
-                {
-                    cfg = Paths.get("D:/build/smart-script-backend/ruoyi-framework/src/main/java/com/ruoyi/framework/config/ApplicationConfig.java");
-                }
-                String appCfg = Files.readString(cfg, StandardCharsets.UTF_8);
-                assertTrue(!appCfg.contains("com.smartscript"),
-                        "ApplicationConfig MapperScan must not expand to smartscript until Mappers exist");
-            }
+            hasMapper = files.filter(p -> p.toString().endsWith(".java"))
+                    .anyMatch(p -> p.getFileName().toString().contains("Mapper")
+                            && p.toString().contains("user"));
+        }
+        Path cfg = Paths.get("../ruoyi-framework/src/main/java/com/ruoyi/framework/config/ApplicationConfig.java")
+                .toAbsolutePath().normalize();
+        if (!Files.exists(cfg))
+        {
+            cfg = Paths.get("D:/build/smart-script-backend/ruoyi-framework/src/main/java/com/ruoyi/framework/config/ApplicationConfig.java");
+        }
+        String appCfg = Files.readString(cfg, StandardCharsets.UTF_8);
+        if (hasMapper)
+        {
+            assertTrue(appCfg.contains("com.smartscript.platform"),
+                    "ApplicationConfig MapperScan must cover smartscript mappers after A3");
+        }
+        else
+        {
+            assertTrue(!appCfg.contains("com.smartscript"),
+                    "ApplicationConfig MapperScan must not expand until Mappers exist");
         }
     }
 

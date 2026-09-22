@@ -14,15 +14,31 @@
     <packaging>jar</packaging>
 
     <description>
-        A1 smartscript user module boundary. Does not copy RuoYi auth/system implementations.
+        A3 App authentication module. Uses project-managed RuoYi modules only;
+        does not copy RuoYi PC auth/system implementations.
     </description>
 
     <dependencies>
-        <!-- Stereotype annotations only; Spring runtime comes from ruoyi-admin -->
         <dependency>
-            <groupId>org.springframework</groupId>
-            <artifactId>spring-context</artifactId>
-            <scope>provided</scope>
+            <groupId>com.ruoyi</groupId>
+            <artifactId>ruoyi-common</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.ruoyi</groupId>
+            <artifactId>ruoyi-framework</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.ruoyi</groupId>
+            <artifactId>ruoyi-system</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>

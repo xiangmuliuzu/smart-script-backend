@@ -1,0 +1,439 @@
+# A3 matrix runner payload. Invoked by run-matrix.cmd. Secrets from environment only.
+param(
+  [string]$BaseUrl = 'http://127.0.0.1:8080',
+  [string]$EvidenceDir = 'D:\build\shared\a3-evidence',
+  [string]$DbName = 'ruoyi_dev_a3_test',
+  [int]$ParallelDegree = 5
+)
+$ErrorActionPreference = 'Stop'
+$dbPass = $env:DB_PASSWORD
+if ([string]::IsNullOrEmpty($dbPass)) { throw 'DB_PASSWORD env required' }
+$code = $env:APP_SMS_MOCK_CODE
+if ([string]::IsNullOrEmpty($code)) { throw 'APP_SMS_MOCK_CODE env required' }
+$appSecret = $env:APP_TOKEN_SECRET
+if ([string]::IsNullOrEmpty($appSecret)) { throw 'APP_TOKEN_SECRET env required' }
+$appIss = if ($env:APP_TOKEN_ISSUER) { $env:APP_TOKEN_ISSUER } else { 'smartscript-app' }
+$appAud = if ($env:APP_TOKEN_AUDIENCE) { $env:APP_TOKEN_AUDIENCE } else { 'smartscript-app-client' }
+$cooldownSec = if ($env:SMS_COOLDOWN_SECONDS) { [int]$env:SMS_COOLDOWN_SECONDS } else { 2 }
+$phoneDaily = if ($env:SMS_PHONE_DAILY_LIMIT) { [int]$env:SMS_PHONE_DAILY_LIMIT } else { 4 }
+New-Item -ItemType Directory -Force -Path $EvidenceDir | Out-Null
+$log = Join-Path $EvidenceDir ("a3-auth-matrix-{0}.log" -f (Get-Date -Format yyyyMMdd-HHmmss))
+function Write-Ev($msg) { $line = "$(Get-Date -Format o)`t$msg"; Add-Content -Path $log -Value $line; Write-Host $line }
+$db = $DbName
+$phone = '139' + (Get-Random -Minimum 10000000 -Maximum 99999999)
+$phone2 = '138' + (Get-Random -Minimum 10000000 -Maximum 99999999)
+$deviceId = 'it-device-01'
+$pwd = 'Passw0rd123'
+$results = New-Object System.Collections.Generic.List[object]
+function Get-ErrBody($err) {
+  if ($err.ErrorDetails -and $err.ErrorDetails.Message -and $err.ErrorDetails.Message.Trim()) { return $err.ErrorDetails.Message }
+  if ($err.Exception -and $err.Exception.Response) {
+    try { $stream = $err.Exception.Response.GetResponseStream(); if ($stream) { $stream.Position = 0; return (New-Object System.IO.StreamReader($stream)).ReadToEnd() } } catch {}
+  }
+  return $null
+}
+function Get-ErrCode($err) { $raw = Get-ErrBody $err; if (-not $raw) { return $null }; try { return ($raw | ConvertFrom-Json).code } catch { return $null } }
+function Invoke-Json($method, $path, $body, $token) {
+  $uri = "$BaseUrl$path"; $headers = @{ 'X-Request-Id' = [guid]::NewGuid().ToString() }
+  if ($token) { $headers['Authorization'] = "Bearer $token" }
+  if ($null -ne $body) { return Invoke-RestMethod -Method $method -Uri $uri -Headers $headers -ContentType 'application/json' -Body ($body | ConvertTo-Json -Depth 6 -Compress) }
+  return Invoke-RestMethod -Method $method -Uri $uri -Headers $headers
+}
+function Record($id, $ok, $detail) { $results.Add([pscustomobject]@{id=$id;ok=[bool]$ok;detail=$detail}); Write-Ev ("RESULT`t{0}`t{1}`t{2}" -f $id, $(if($ok){'PASS'}else{'FAIL'}), $detail) }
+function Sql($query) { $q = $query -replace '"', '\"'; return cmd /c "`"D:\java\bin\mysql.exe`" -h 127.0.0.1 -u root -p$dbPass -N -B -D $db -e `"$q`" 2>nul" }
+function Send-Sms($phoneNo, $scene) { try { return Invoke-Json POST '/api/v1/auth/sms/send' @{phone=$phoneNo;scene=$scene;deviceId=$deviceId} } catch { return @{code=Get-ErrCode $_;error=$true} } }
+function Wait-Cooldown([int]$seconds) { if ($seconds -gt 0) { Start-Sleep -Seconds ($seconds + 1) } }
+$redisCli = 'D:\java\Redis-7.2.12-Windows-x64-cygwin-with-Service\redis-cli.exe'
+$pcAdminUser = if ($env:A3_PC_ADMIN_USER) { $env:A3_PC_ADMIN_USER } else { 'admin' }
+$pcAdminPass = $env:A3_PC_ADMIN_PASSWORD
+function Get-PcAdminToken {
+  if ([string]::IsNullOrEmpty($pcAdminPass)) { throw 'A3_PC_ADMIN_PASSWORD env required for AUTH-20' }
+  $cap = Invoke-Json GET '/captchaImage' $null $null
+  $raw = & $redisCli -h 127.0.0.1 -p 6379 GET "captcha_codes:$($cap.uuid)" 2>$null
+  $ans = "$raw".Trim().Trim('"')
+  $login = Invoke-Json POST '/login' @{username=$pcAdminUser;password=$pcAdminPass;code=$ans;uuid=$cap.uuid} $null
+  if (-not $login.token) { throw "PC admin login failed: $($login.msg)" }
+  return $login.token
+}
+function B64Url([byte[]]$bytes) { return [Convert]::ToBase64String($bytes).TrimEnd('=').Replace('+','-').Replace('/','_') }
+function New-AppJwt {
+  param([string]$Secret,[string]$Iss,[string]$Aud,[string]$Sub,[string]$Sid,[string]$Jti,[long]$ExpUnix,[string]$TokenType='app_access',[string]$Alg='HS512')
+  $header = @{alg=$Alg;typ='JWT'} | ConvertTo-Json -Compress
+  $payload = @{sub=$Sub;iss=$Iss;aud=$Aud;iat=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds();exp=$ExpUnix;jti=$Jti;token_type=$TokenType;sid=$Sid} | ConvertTo-Json -Compress
+  $h = B64Url ([Text.Encoding]::UTF8.GetBytes($header)); $p = B64Url ([Text.Encoding]::UTF8.GetBytes($payload))
+  if ($Alg -eq 'none') { return "$h.$p." }
+  $data = [Text.Encoding]::UTF8.GetBytes("$h.$p")
+  $hmac = if ($Alg -eq 'HS256') { New-Object System.Security.Cryptography.HMACSHA256 } else { New-Object System.Security.Cryptography.HMACSHA512 }
+  $hmac.Key = [Text.Encoding]::UTF8.GetBytes($Secret)
+  $sig = B64Url ($hmac.ComputeHash($data)); $hmac.Dispose(); return "$h.$p.$sig"
+}
+function Stop-Backend { Get-Process java -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; Start-Sleep -Seconds 2 }
+function Start-Backend {
+  $runBat = 'D:\build\smart-script-backend\scripts\a3\run-a3-backend.bat'
+  Start-Process -FilePath $runBat -WindowStyle Hidden
+  $deadline = (Get-Date).AddSeconds(45)
+  while ((Get-Date) -lt $deadline) { try { $r = Invoke-WebRequest -Uri "$BaseUrl/health" -UseBasicParsing -TimeoutSec 3; if ($r.StatusCode -eq 200) { return $true } } catch {}; Start-Sleep -Seconds 2 }
+  return $false
+}
+function Invoke-ParallelHttp {
+  param([string]$ScriptText,[object[]]$ArgumentList,[int]$Degree)
+  $sb = [scriptblock]::Create($ScriptText); $jobs = @()
+  1..$Degree | ForEach-Object { $idx=$_; $argList=@(); foreach($a in $ArgumentList){$argList+=$a}; $argList+=$idx; $jobs += Start-Job -ScriptBlock $sb -ArgumentList $argList }
+  $out=@(); foreach($j in $jobs){ try { $out += Receive-Job -Job $j -Wait -ErrorAction Stop } catch { $out += @{code=50000;err=$_.Exception.Message} }; Remove-Job $j -Force -ErrorAction SilentlyContinue }
+  return $out
+}
+$SmsJobScript = {
+  param($phoneNo,$smsCode,$baseUrl,$agreements,$idx)
+  try {
+    $body = @{phone=$phoneNo;code=$smsCode;deviceId="dev-$idx";agreementAcceptances=$agreements} | ConvertTo-Json -Depth 6 -Compress
+    $r = Invoke-RestMethod -Method Post -Uri "$baseUrl/api/v1/auth/sms/login" -ContentType 'application/json' -Body $body
+    return @{code=[int]$r.code;userId=$r.data.user.userId}
+  } catch {
+    $raw=$null
+    if ($_.ErrorDetails.Message) { $raw=$_.ErrorDetails.Message }
+    elseif ($_.Exception.Response) { try { $s=$_.Exception.Response.GetResponseStream(); $s.Position=0; $raw=(New-Object IO.StreamReader($s)).ReadToEnd() } catch {} }
+    $code=$null
+    if ($raw) { try { $code=[int]($raw|ConvertFrom-Json).code } catch {} }
+    return @{code=$code;userId=$null}
+  }
+}
+$RefreshJobScript = {
+  param($refreshToken,$baseUrl,$idx)
+  try {
+    $body = @{refreshToken=$refreshToken;deviceId="p-$idx"} | ConvertTo-Json -Compress
+    $r = Invoke-RestMethod -Method Post -Uri "$baseUrl/api/v1/auth/token/refresh" -ContentType 'application/json' -Body $body
+    return @{code=[int]$r.code}
+  } catch {
+    $raw=$null
+    if ($_.ErrorDetails.Message) { $raw=$_.ErrorDetails.Message }
+    elseif ($_.Exception.Response) { try { $s=$_.Exception.Response.GetResponseStream(); $s.Position=0; $raw=(New-Object IO.StreamReader($s)).ReadToEnd() } catch {} }
+    $code=$null
+    if ($raw) { try { $code=[int]($raw|ConvertFrom-Json).code } catch {} }
+    return @{code=$code}
+  }
+}
+function Invoke-ParallelSmsLogin([string]$phoneNo,[string]$smsCode,[string]$baseUrl,[object]$agreements,[int]$degree) {
+  $jobs = @()
+  1..$degree | ForEach-Object {
+    $jobs += Start-Job -ArgumentList @($phoneNo,$smsCode,$baseUrl,$agreements,$_) -ScriptBlock {
+      param($phoneNo,$smsCode,$baseUrl,$agreements,$idx)
+      try {
+        $body = @{phone=$phoneNo;code=$smsCode;deviceId="dev-$idx";agreementAcceptances=$agreements} | ConvertTo-Json -Depth 6 -Compress
+        $r = Invoke-RestMethod -Method Post -Uri "$baseUrl/api/v1/auth/sms/login" -ContentType 'application/json' -Body $body
+        return @{code=[int]$r.code;userId=$r.data.user.userId}
+      } catch {
+        $raw=$null
+        if ($_.ErrorDetails.Message) { $raw=$_.ErrorDetails.Message }
+        elseif ($_.Exception.Response) { try { $s=$_.Exception.Response.GetResponseStream(); $s.Position=0; $raw=(New-Object IO.StreamReader($s)).ReadToEnd() } catch {} }
+        $code=$null
+        if ($raw) { try { $code=[int]($raw|ConvertFrom-Json).code } catch {} }
+        if (-not $code) { $code=50000 }
+        return @{code=$code;userId=$null;raw=$raw}
+      }
+    }
+  }
+  $out=@(); foreach($j in $jobs){ try { $out += Receive-Job -Job $j -Wait -ErrorAction Stop } catch { $out += @{code=50000;err=$_.Exception.Message} }; Remove-Job $j -Force -ErrorAction SilentlyContinue }
+  return $out
+}
+function Invoke-ParallelRefresh([string]$refreshToken,[string]$baseUrl,[int]$degree) {
+  $jobs = @()
+  1..$degree | ForEach-Object {
+    $jobs += Start-Job -ArgumentList @($refreshToken,$baseUrl,$_) -ScriptBlock {
+      param($refreshToken,$baseUrl,$idx)
+      try {
+        $body = @{refreshToken=$refreshToken;deviceId="p-$idx"} | ConvertTo-Json -Compress
+        $r = Invoke-RestMethod -Method Post -Uri "$baseUrl/api/v1/auth/token/refresh" -ContentType 'application/json' -Body $body
+        return @{code=[int]$r.code}
+      } catch {
+        $raw=$null
+        if ($_.ErrorDetails.Message) { $raw=$_.ErrorDetails.Message }
+        elseif ($_.Exception.Response) { try { $s=$_.Exception.Response.GetResponseStream(); $s.Position=0; $raw=(New-Object IO.StreamReader($s)).ReadToEnd() } catch {} }
+        $code=$null
+        if ($raw) { try { $code=[int]($raw|ConvertFrom-Json).code } catch {} }
+        if (-not $code) { $code=50000 }
+        return @{code=$code;raw=$raw}
+      }
+    }
+  }
+  $out=@(); foreach($j in $jobs){ try { $out += Receive-Job -Job $j -Wait -ErrorAction Stop } catch { $out += @{code=50000;err=$_.Exception.Message} }; Remove-Job $j -Force -ErrorAction SilentlyContinue }
+  return $out
+}
+Write-Ev ("START BaseUrl=$BaseUrl phone=$($phone.Substring(0,3))****$($phone.Substring(7)) cooldown=$cooldownSec daily=$phoneDaily")
+# Bind the evidence to the immutable revision under test so results are traceable.
+$repoRoot = 'D:\build\smart-script-backend'
+$backendSha = (& git -C $repoRoot rev-parse HEAD 2>$null)
+$dirty = @(& git -C $repoRoot status --porcelain 2>$null).Count
+Write-Ev ("REVISION backend=$backendSha app=$($env:APP_A3_SHA) dirtyFiles=$dirty")
+try { $null = Invoke-WebRequest -Uri "$BaseUrl/health" -UseBasicParsing -TimeoutSec 3; Write-Ev 'HEALTH up' } catch { if (-not (Start-Backend)) { throw 'backend failed to start' } }
+$agree = @( (Invoke-Json GET '/api/v1/auth/agreements' $null $null).data.agreements | ForEach-Object { @{type=$_.type;version=$_.version} } )
+Write-Ev ("AGREE " + ($agree | ConvertTo-Json -Compress))
+try {
+  $null = Send-Sms $phone 'LOGIN'
+  $s2 = Send-Sms $phone 'LOGIN'
+  Record 'AUTH-05' ($s2.code -eq 42901) "second send code=$($s2.code) expect 42901"
+} catch { Record 'AUTH-05' $false "ex $($_.Exception.Message)" }
+Wait-Cooldown $cooldownSec
+try {
+  $null = Send-Sms $phone 'LOGIN'
+  $login = Invoke-Json POST '/api/v1/auth/sms/login' @{phone=$phone;code=$code;deviceId=$deviceId;agreementAcceptances=$agree}
+  Record 'AUTH-02' ($login.code -eq 200 -and $login.data.user.userId) "userId=$($login.data.user.userId)"
+  $uid = $login.data.user.userId; $at = $login.data.accessToken; $rt = $login.data.refreshToken
+  Wait-Cooldown $cooldownSec
+  $phoneC = '136' + (Get-Random -Minimum 10000000 -Maximum 99999999)
+  $null = Send-Sms $phoneC 'LOGIN'
+  $par = Invoke-ParallelSmsLogin -phoneNo $phoneC -smsCode $code -baseUrl $BaseUrl -agreements $agree -degree $ParallelDegree
+  $uc = Sql "SELECT COUNT(*) FROM sys_user WHERE phonenumber='$phoneC'"
+  Record 'AUTH-03' ([int]$uc -eq 1 -and (@($par|?{$_.code -eq 200}).Count -ge 1)) "codes=$(($par|%{$_.code}) -join ',') users=$uc"
+  $smsRows = Sql "SELECT code_hash FROM app_sms_code WHERE phone='$phone' ORDER BY id DESC LIMIT 1"
+  Record 'DB-01' (($smsRows -match '^[0-9a-f]{64}$') -and ($smsRows -notmatch [regex]::Escape($code))) "smsHash=$($smsRows.Substring(0,[Math]::Min(8,$smsRows.Length)))"
+  $rtRows = Sql "SELECT token_hash FROM app_refresh_session WHERE user_id=$uid ORDER BY id DESC LIMIT 1"
+  Record 'DB-02' (($rtRows -match '^[0-9a-f]{64}$') -and ($rtRows -notmatch [regex]::Escape($rt))) "refreshHashOk"
+  $me = Invoke-Json GET '/api/v1/auth/me' $null $at
+  Record 'AUTH-09' ($me.code -eq 200 -and $me.data.userId -eq $uid) "me=$($me.data.userId) masked=$($me.data.phoneMasked)"
+  Wait-Cooldown $cooldownSec
+  $null = Send-Sms $phone 'LOGIN'
+  $login2 = Invoke-Json POST '/api/v1/auth/sms/login' @{phone=$phone;code=$code;deviceId=$deviceId}
+  Record 'AUTH-01' ($login2.data.user.userId -eq $uid) "relogin=$($login2.data.user.userId)"
+  Wait-Cooldown $cooldownSec
+  $null = Send-Sms $phone 'LOGIN'
+  $e4=$null; try { $null = Invoke-Json POST '/api/v1/auth/sms/login' @{phone=$phone;code='000000';deviceId=$deviceId} } catch { $e4=Get-ErrCode $_ }
+  $loginUse=$null
+  try { $loginUse = Invoke-Json POST '/api/v1/auth/sms/login' @{phone=$phone;code=$code;deviceId=$deviceId} } catch { $loginUse=$null }
+  $e4b=$null
+  if ($loginUse -and $loginUse.code -eq 200) {
+    try { $null = Invoke-Json POST '/api/v1/auth/sms/login' @{phone=$phone;code=$code;deviceId=$deviceId} }
+    catch {
+      $e4b=Get-ErrCode $_
+      if (-not $e4b) {
+        $body=Get-ErrBody $_
+        if ($body -match '40901') { $e4b=40901 }
+        elseif ($body -match '40002') { $e4b=40002 }
+        elseif ($body -match '40001') { $e4b=40001 }
+        elseif ($_.Exception.Response) { $e4b=[int]$_.Exception.Response.StatusCode.value__ }
+      }
+    }
+  } else {
+    $e4b = 'consume-failed'
+  }
+  Record 'AUTH-04' (($e4 -eq 40001) -and ($e4b -eq 40901)) "wrong=$e4 used=$e4b loginUse=$($loginUse.code) expect wrong=40001 used=40901"
+  Wait-Cooldown $cooldownSec
+  $phoneD = '135' + (Get-Random -Minimum 10000000 -Maximum 99999999)
+  $null = Send-Sms $phoneD 'LOGIN'
+  $cons = Invoke-ParallelSmsLogin -phoneNo $phoneD -smsCode $code -baseUrl $BaseUrl -agreements $agree -degree $ParallelDegree
+  $succ = @($cons|?{$_.code -eq 200}).Count
+  $used = Sql "SELECT COUNT(*) FROM app_sms_code WHERE phone='$phoneD' AND used_at IS NOT NULL"
+  Record 'DB-04' ($succ -eq 1 -and [int]$used -eq 1) "succ=$succ used=$used codes=$(($cons|%{$_.code}) -join ',')"
+  Wait-Cooldown $cooldownSec
+  $null = Send-Sms $phone2 'REGISTER'
+  $reg = Invoke-Json POST '/api/v1/auth/register' @{phone=$phone2;code=$code;password=$pwd;deviceId=$deviceId;agreementAcceptances=$agree}
+  $ph = Sql "SELECT LEFT(password,4) FROM sys_user WHERE phonenumber='$phone2'"
+  $cc = Sql "SELECT COUNT(*) FROM app_user_consent WHERE user_id=$($reg.data.user.userId)"
+  Record 'AUTH-08' ($reg.code -eq 200 -and "$ph" -like '$2*' -and [int]$cc -ge 2) "hash=$ph consents=$cc"
+  $plogin = Invoke-Json POST '/api/v1/auth/password/login' @{phone=$phone2;password=$pwd;deviceId=$deviceId}
+  $m7=$null;$m7b=$null
+  try { $null = Invoke-Json POST '/api/v1/auth/password/login' @{phone=$phone2;password='WrongPass1';deviceId=$deviceId} } catch { $raw=Get-ErrBody $_; if($raw){$m7=($raw|ConvertFrom-Json).message} }
+  try { $null = Invoke-Json POST '/api/v1/auth/password/login' @{phone='13900000000';password=$pwd;deviceId=$deviceId} } catch { $raw=Get-ErrBody $_; if($raw){$m7b=($raw|ConvertFrom-Json).message} }
+  Record 'AUTH-07' ($plogin.code -eq 200 -and $m7 -and $m7 -eq $m7b) "unified=[$m7]"
+  $rt1=$login2.data.refreshToken
+  $ref1 = Invoke-Json POST '/api/v1/auth/token/refresh' @{refreshToken=$rt1;deviceId=$deviceId}
+  $hash1 = Sql "SELECT LOWER(SHA2('$rt1',256))"
+  $oldRows = Sql "SELECT IF(revoked_at IS NULL,'ACTIVE','REVOKED'), IFNULL(revoked_reason,'') FROM app_refresh_session WHERE token_hash='$hash1'"
+  Record 'AUTH-11' ($ref1.code -eq 200 -and $oldRows -match 'REVOKED') "old=[$oldRows]"
+  Record 'DB-03' ($oldRows -match 'ROTATED') "reason=[$oldRows]"
+  $e13=$null; try { $null = Invoke-Json POST '/api/v1/auth/token/refresh' @{refreshToken=$rt1;deviceId=$deviceId} } catch { $e13=Get-ErrCode $_ }
+  $family = Sql "SELECT family_id FROM app_refresh_session WHERE token_hash='$hash1'"
+  $af = Sql "SELECT COUNT(*) FROM app_refresh_session WHERE family_id='$family' AND revoked_at IS NULL"
+  Record 'AUTH-13' ($e13 -eq 40103 -and [int]$af -eq 0) "replay=$e13 activeFamily=$af"
+  $null = Invoke-Json POST '/api/v1/auth/logout' $null $ref1.data.accessToken
+  $e16a=$null;$e16b=$null
+  try { $null = Invoke-Json GET '/api/v1/auth/me' $null $ref1.data.accessToken } catch { $e16a=Get-ErrCode $_ }
+  try { $null = Invoke-Json POST '/api/v1/auth/token/refresh' @{refreshToken=$ref1.data.refreshToken;deviceId=$deviceId} } catch { $e16b=Get-ErrCode $_ }
+  Record 'AUTH-16' (($e16a -in 40100,40101) -and ($e16b -in 40102,40103,40100)) "me=$e16a refresh=$e16b"
+  # AUTH-17+ isolated try/catch so one 400 does not abort remaining cases
+  try {
+    Wait-Cooldown $cooldownSec
+    $phone17 = '134' + (Get-Random -Minimum 10000000 -Maximum 99999999)
+    $null = Send-Sms $phone17 'LOGIN'
+    $su17 = Invoke-Json POST '/api/v1/auth/sms/login' @{phone=$phone17;code=$code;deviceId=$deviceId;agreementAcceptances=$agree}
+    if ($su17.code -ne 200) { throw "sms login failed code=$($su17.code)" }
+    $null = Invoke-Json POST '/api/v1/auth/password/set' @{password=$pwd} $su17.data.accessToken
+    $hp2 = Sql "SELECT IF(LEFT(password,3)=CONCAT(CHAR(36),'2a') OR LEFT(password,3)=CONCAT(CHAR(36),'2y'),'BCRYPT','OTHER') FROM sys_user WHERE phonenumber='$phone17'"
+    Record 'AUTH-17' ("$hp2" -match 'BCRYPT') "hash=$hp2 phoneMask=$($phone17.Substring(0,3))****"
+  } catch { Record 'AUTH-17' $false "ex $($_.Exception.Message)" }
+
+  try {
+    Wait-Cooldown $cooldownSec
+    $phone18 = '133' + (Get-Random -Minimum 10000000 -Maximum 99999999)
+    $null = Send-Sms $phone18 'REGISTER'
+    $null = Invoke-Json POST '/api/v1/auth/register' @{phone=$phone18;code=$code;password=$pwd;deviceId=$deviceId;agreementAcceptances=$agree}
+    Wait-Cooldown $cooldownSec
+    $null = Send-Sms $phone18 'LOGIN'
+    $su = Invoke-Json POST '/api/v1/auth/sms/login' @{phone=$phone18;code=$code;deviceId=$deviceId}
+    $null = Invoke-Json POST '/api/v1/auth/password/change' @{oldPassword=$pwd;newPassword='NewPass99'} $su.data.accessToken
+    $e18=$null; try { $null = Invoke-Json GET '/api/v1/auth/me' $null $su.data.accessToken } catch { $e18=Get-ErrCode $_ }
+    Record 'AUTH-18' ($e18 -in 40100,40101,40301) "afterChange=$e18"
+  } catch { Record 'AUTH-18' $false "ex $($_.Exception.Message)" }
+
+  try {
+    Wait-Cooldown $cooldownSec
+    $null = Send-Sms $phone2 'RESET_PASSWORD'
+    $null = Invoke-Json POST '/api/v1/auth/password/reset' @{phone=$phone2;code=$code;newPassword='ResetPass1'}
+    $l19 = Invoke-Json POST '/api/v1/auth/password/login' @{phone=$phone2;password='ResetPass1';deviceId=$deviceId}
+    $oldFail=$false; try { $null = Invoke-Json POST '/api/v1/auth/password/login' @{phone=$phone2;password=$pwd;deviceId=$deviceId} } catch { $oldFail=$true }
+    try { $null = Invoke-Json POST '/api/v1/auth/password/login' @{phone=$phone2;password='Passw0rd123';deviceId=$deviceId} } catch { $oldFail=$true }
+    Record 'AUTH-19' ($l19.code -eq 200 -and $oldFail) 'reset+oldRejected'
+  } catch { Record 'AUTH-19' $false "ex $($_.Exception.Message)" }
+
+  try {
+    Wait-Cooldown $cooldownSec
+    $null = Send-Sms $phone2 'LOGIN'
+    $cl = Invoke-Json POST '/api/v1/auth/sms/login' @{phone=$phone2;code=$code;deviceId=$deviceId}
+    $refPar = Invoke-ParallelRefresh -refreshToken $cl.data.refreshToken -baseUrl $BaseUrl -degree $ParallelDegree
+    $rs = @($refPar|?{$_.code -eq 200}).Count
+    Record 'AUTH-12' ($rs -eq 1) "PARALLEL n=$ParallelDegree successes=$rs codes=$(($refPar|%{$_.code}) -join ',')"
+  } catch { Record 'AUTH-12' $false "ex $($_.Exception.Message)" }
+
+  try {
+    $e24=$null; try { $null = Invoke-Json POST '/api/v1/auth/oauth/wechat/login' @{} } catch { $e24=Get-ErrCode $_ }
+    Record 'AUTH-24' ($e24 -eq 50101) "oauth=$e24"
+    $e21=$null; try { $null = Invoke-Json GET '/api/v1/auth/me' $null 'not-a-valid-app-token' } catch { $e21=Get-ErrCode $_ }
+    Record 'AUTH-21' ($e21 -in 40100,40300) "garbage=$e21"
+  } catch { Record 'AUTH-24' $false "ex $($_.Exception.Message)"; Record 'AUTH-21' $false 'cascade' }
+
+  try {
+    $pcBody=$null;$pcHttp=$null
+    try { $r=Invoke-WebRequest -Uri "$BaseUrl/system/user/list" -Headers @{Authorization="Bearer $($cl.data.accessToken)"} -UseBasicParsing -TimeoutSec 10; $pcHttp=$r.StatusCode; $pcBody=$r.Content|ConvertFrom-Json }
+    catch { $pcHttp=$_.Exception.Response.StatusCode.value__; $raw=Get-ErrBody $_; if($raw){try{$pcBody=$raw|ConvertFrom-Json}catch{$pcBody=$raw}} }
+    $pcCode=$null; if($pcBody -and $pcBody.code){$pcCode=$pcBody.code} elseif($pcBody -is [string]){try{$pcCode=($pcBody|ConvertFrom-Json).code}catch{}}
+    Record 'AUTH-22' (($pcHttp -in 401,403) -or ($pcCode -in 401,403,40100)) "http=$pcHttp bodyCode=$pcCode"
+  } catch { Record 'AUTH-22' $false "ex $($_.Exception.Message)" }
+
+  try {
+    $sub="$($cl.data.user.userId)"; $now=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+    $c23=@{}
+    foreach($pair in @(
+      @{n='iss';t=(New-AppJwt -Secret $appSecret -Iss 'evil-issuer' -Aud $appAud -Sub $sub -Sid '1' -Jti 'ji' -ExpUnix ($now+3600))},
+      @{n='aud';t=(New-AppJwt -Secret $appSecret -Iss $appIss -Aud 'evil-aud' -Sub $sub -Sid '1' -Jti 'ja' -ExpUnix ($now+3600))},
+      @{n='type';t=(New-AppJwt -Secret $appSecret -Iss $appIss -Aud $appAud -Sub $sub -Sid '1' -Jti 'jt' -ExpUnix ($now+3600) -TokenType 'pc_access')},
+      @{n='sig';t=(New-AppJwt -Secret ('X'*[Math]::Max(32,$appSecret.Length)) -Iss $appIss -Aud $appAud -Sub $sub -Sid '1' -Jti 'js' -ExpUnix ($now+3600))},
+      @{n='algHS256';t=(New-AppJwt -Secret $appSecret -Iss $appIss -Aud $appAud -Sub $sub -Sid '1' -Jti 'j256' -ExpUnix ($now+3600) -Alg 'HS256')},
+      @{n='algNone';t=(New-AppJwt -Secret $appSecret -Iss $appIss -Aud $appAud -Sub $sub -Sid '1' -Jti 'jnone' -ExpUnix ($now+3600) -Alg 'none')}
+    )) {
+      try { $null = Invoke-Json GET '/api/v1/auth/me' $null $pair.t; $c23[$pair.n]=200 } catch { $c23[$pair.n]=Get-ErrCode $_ }
+    }
+    $allRej = @($c23.Values | ? { $_ -eq 200 }).Count -eq 0
+    Record 'AUTH-23' $allRej ("crafted " + (($c23.GetEnumerator()|%{"$($_.Key)=$($_.Value)"}) -join ','))
+    $exp = New-AppJwt -Secret $appSecret -Iss $appIss -Aud $appAud -Sub $sub -Sid '1' -Jti 'jexp' -ExpUnix ($now-60)
+    $e10=$null; try { $null = Invoke-Json GET '/api/v1/auth/me' $null $exp } catch { $e10=Get-ErrCode $_ }
+    Record 'AUTH-10' ($e10 -eq 40101) "expired=$e10"
+  } catch { Record 'AUTH-23' $false "ex $($_.Exception.Message)"; Record 'AUTH-10' $false 'cascade' }
+
+  try {
+    $e14=$null; try { $null = Invoke-Json POST '/api/v1/auth/token/refresh' @{refreshToken='deadbeef';deviceId=$deviceId} } catch { $e14=Get-ErrCode $_ }
+    Record 'AUTH-14' ($e14 -eq 40102) "invalid=$e14"
+  } catch { Record 'AUTH-14' $false "ex $($_.Exception.Message)" }
+
+  try {
+    Wait-Cooldown $cooldownSec
+    $phoneRate='137'+(Get-Random -Minimum 10000000 -Maximum 99999999)
+    $eventsBefore = [int](Sql "SELECT COUNT(*) FROM sys_logininfor WHERE LOCATE('SMS_PHONE_DAILY_LIMIT', msg) > 0")
+    $codes06=@()
+    1..([Math]::Max($phoneDaily+2,5)) | % { $r=Send-Sms $phoneRate 'LOGIN'; if($r.code){$codes06+=[int]$r.code}; Wait-Cooldown $cooldownSec }
+    Start-Sleep -Seconds 2
+    $eventsAfter = [int](Sql "SELECT COUNT(*) FROM sys_logininfor WHERE LOCATE('SMS_PHONE_DAILY_LIMIT', msg) > 0")
+    $eventsDelta = $eventsAfter - $eventsBefore
+    Record 'AUTH-06' (($codes06 -contains 42902) -and ($eventsDelta -ge 1)) "codes=$($codes06 -join ',') expect 42902; securityEvents+=$eventsDelta expect >=1"
+  } catch { Record 'AUTH-06' $false "ex $($_.Exception.Message)" }
+
+  try {
+    Wait-Cooldown $cooldownSec
+    $phone20 = '132' + (Get-Random -Minimum 10000000 -Maximum 99999999)
+    $null = Send-Sms $phone20 'LOGIN'
+    $su20 = Invoke-Json POST '/api/v1/auth/sms/login' @{phone=$phone20;code=$code;deviceId=$deviceId;agreementAcceptances=$agree}
+    $uid20 = $su20.data.user.userId
+    $at20 = $su20.data.accessToken
+    $rt20 = $su20.data.refreshToken
+
+    $pcToken = Get-PcAdminToken
+    $r20 = Invoke-Json PUT '/system/user/changeStatus' @{userId=$uid20;status='1'} $pcToken
+    # Disabled-account login needs its own fresh code: the first one is already consumed,
+    # so reusing it would return 40901 and never exercise the disabled-account branch.
+    Wait-Cooldown $cooldownSec
+    $null = Send-Sms $phone20 'LOGIN'
+    $e20=$null; try { $null = Invoke-Json POST '/api/v1/auth/sms/login' @{phone=$phone20;code=$code;deviceId=$deviceId} } catch { $e20=Get-ErrCode $_ }
+    $blockedAccess=$null; try { $null = Invoke-Json GET '/api/v1/auth/me' $null $at20; $blockedAccess=200 } catch { $blockedAccess=Get-ErrCode $_ }
+
+    # Re-enable: the revoked sessions must stay dead instead of resurrecting.
+    $r20re = Invoke-Json PUT '/system/user/changeStatus' @{userId=$uid20;status='0'} $pcToken
+    Start-Sleep -Seconds 2
+    $oldAccess=$null; try { $null = Invoke-Json GET '/api/v1/auth/me' $null $at20; $oldAccess=200 } catch { $oldAccess=Get-ErrCode $_ }
+    $oldRefresh=$null; try { $null = Invoke-Json POST '/api/v1/auth/token/refresh' @{refreshToken=$rt20;deviceId=$deviceId} $null; $oldRefresh=200 } catch { $oldRefresh=Get-ErrCode $_ }
+
+    # Durable proof of revocation on the disable path (not just a read-time rejection).
+    $revRows20 = Sql "SELECT COUNT(*) FROM app_refresh_session WHERE user_id=$uid20 AND revoked_at IS NOT NULL"
+    $activeRows20 = Sql "SELECT COUNT(*) FROM app_refresh_session WHERE user_id=$uid20 AND revoked_at IS NULL"
+
+    # Delete path: a logical delete must likewise end every App session.
+    Wait-Cooldown $cooldownSec
+    $phone20b = '131' + (Get-Random -Minimum 10000000 -Maximum 99999999)
+    $null = Send-Sms $phone20b 'LOGIN'
+    $su20b = Invoke-Json POST '/api/v1/auth/sms/login' @{phone=$phone20b;code=$code;deviceId=$deviceId;agreementAcceptances=$agree}
+    $uid20b = $su20b.data.user.userId
+    $at20b = $su20b.data.accessToken
+    $rt20b = $su20b.data.refreshToken
+    $r20del = Invoke-Json DELETE "/system/user/$uid20b" $null $pcToken
+    Start-Sleep -Seconds 2
+    $delAccess=$null; try { $null = Invoke-Json GET '/api/v1/auth/me' $null $at20b; $delAccess=200 } catch { $delAccess=Get-ErrCode $_ }
+    $delRefresh=$null; try { $null = Invoke-Json POST '/api/v1/auth/token/refresh' @{refreshToken=$rt20b;deviceId=$deviceId} $null; $delRefresh=200 } catch { $delRefresh=Get-ErrCode $_ }
+
+    $ok20 = ($e20 -eq 40301) -and ($blockedAccess -ne 200) -and ($oldAccess -ne 200) -and ($oldRefresh -ne 200) `
+            -and ([int]$revRows20 -ge 1) -and ([int]$activeRows20 -eq 0) `
+            -and ($delAccess -ne 200) -and ($delRefresh -ne 200) `
+            -and (($r20.code -eq 200) -and ($r20re.code -eq 200) -and ($r20del.code -eq 200))
+    Record 'AUTH-20' $ok20 "loginWhenDisabled=$e20 expect 40301; accessWhileDisabled=$blockedAccess expect !=200; oldAccessAfterReEnable=$oldAccess expect !=200; oldRefreshAfterReEnable=$oldRefresh expect !=200; revokedRows=$revRows20 activeRows=$activeRows20 expect revoked>=1/active=0; delAccess=$delAccess expect !=200; delRefresh=$delRefresh expect !=200; adminDisable=$($r20.code) adminEnable=$($r20re.code) adminDelete=$($r20del.code)"
+  } catch { Record 'AUTH-20' $false "ex $($_.Exception.Message)" }
+
+  try {
+    $ucnt = Sql "SELECT COUNT(*) FROM sys_user WHERE phonenumber IN ('$phone','$phone2')"
+    $dup = Sql "SELECT COUNT(*) FROM (SELECT phonenumber FROM sys_user WHERE phonenumber IS NOT NULL AND phonenumber<>'' GROUP BY phonenumber HAVING COUNT(*)>1) t"
+    Record 'DB-05' ([int]$ucnt -eq 2 -and [int]$dup -eq 0) "users=$ucnt dup=$dup"
+    $c6 = Sql "SELECT COUNT(*) FROM app_user_consent WHERE accepted_at IS NOT NULL"
+    $c6b = Sql "SELECT COUNT(DISTINCT agreement_type) FROM app_user_consent"
+    Record 'DB-06' ([int]$c6 -ge 2 -and [int]$c6b -ge 2) "rows=$c6 types=$c6b"
+    $c7 = Sql "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA='$db' AND TABLE_NAME='sys_user'"
+    Record 'DB-07' ([int]$c7 -eq 1) "sys_user=$c7"
+  } catch { Record 'DB-05' $false "ex $($_.Exception.Message)"; Record 'DB-06' $false 'cascade'; Record 'DB-07' $false 'cascade' }
+
+  try {
+    Wait-Cooldown $cooldownSec
+    $phone15 = '131' + (Get-Random -Minimum 10000000 -Maximum 99999999)
+    $null = Send-Sms $phone15 'LOGIN'
+    $pre = Invoke-Json POST '/api/v1/auth/sms/login' @{phone=$phone15;code=$code;deviceId=$deviceId;agreementAcceptances=$agree}
+    if ($pre.code -ne 200) { throw "pre-login code=$($pre.code)" }
+    $tablesBefore = Sql "SELECT GROUP_CONCAT(table_name ORDER BY table_name) FROM information_schema.TABLES WHERE TABLE_SCHEMA='$db'"
+    Write-Ev 'RESTART stop backend AUTH-15/DB-08'
+    Stop-Backend
+    Start-Sleep -Seconds 2
+    if (-not (Start-Backend)) { Record 'AUTH-15' $false 'restart fail'; Record 'DB-08' $false 'restart fail' }
+    else {
+      $r15=$null; try { $r15 = Invoke-Json POST '/api/v1/auth/token/refresh' @{refreshToken=$pre.data.refreshToken;deviceId=$deviceId} } catch { $r15=@{code=Get-ErrCode $_} }
+      $m15=$null; if($r15.code -eq 200){ try{$m15=Invoke-Json GET '/api/v1/auth/me' $null $r15.data.accessToken}catch{$m15=@{code=Get-ErrCode $_}} } else { $m15=@{code=$null} }
+      $sc = Sql "SELECT COUNT(*) FROM app_refresh_session"
+      Record 'AUTH-15' ($r15.code -eq 200 -and $m15.code -eq 200 -and [int]$sc -gt 0) "restart refresh=$($r15.code) me=$($m15.code) sessions=$sc"
+      $tablesAfter = Sql "SELECT GROUP_CONCAT(table_name ORDER BY table_name) FROM information_schema.TABLES WHERE TABLE_SCHEMA='$db'"
+      $a2 = Sql "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA='$db' AND TABLE_NAME IN ('app_sms_code','app_refresh_session','app_user_consent')"
+      $stable = ("$tablesBefore").Trim() -eq ("$tablesAfter").Trim()
+      Record 'DB-08' ($stable -and -not [string]::IsNullOrEmpty(("$tablesBefore").Trim()) -and [int]$a2 -eq 3) "schemaStable=$stable a2=$a2"
+    }
+  } catch { Record 'AUTH-15' $false "ex $($_.Exception.Message)"; Record 'DB-08' $false 'cascade' }
+} catch { Record 'MATRIX' $false "fatal $($_.Exception.Message) line=$($_.InvocationInfo.ScriptLineNumber)" }
+$expected=@(); 1..24|%{$expected+=('AUTH-{0:d2}' -f $_)}; 1..8|%{$expected+=('DB-{0:d2}' -f $_)}
+$seen=@($results|%{$_.id})
+foreach($id in $expected){ if($seen -notcontains $id){ Record $id $false 'missing execution - not claimed pass' } }
+$pass=@($results|?{$_.ok}).Count; $fail=@($results|?{-not $_.ok}).Count
+$ap=@($results|?{$_.id -match '^AUTH-\d{2}$' -and $_.ok}).Count; $at=@($results|?{$_.id -match '^AUTH-\d{2}$'}).Count
+$dp=@($results|?{$_.id -match '^DB-\d{2}$' -and $_.ok}).Count; $dt=@($results|?{$_.id -match '^DB-\d{2}$'}).Count
+Write-Ev ("SUMMARY PASS=$pass FAIL=$fail TOTAL=$($results.Count) AUTH=$ap/$at DB=$dp/$dt")
+$results | ConvertTo-Json -Depth 4 | Set-Content -Path (Join-Path $EvidenceDir 'a3-auth-matrix.json')
+Write-Ev "LOG $log"
+if ($fail -gt 0) { exit 1 } else { exit 0 }

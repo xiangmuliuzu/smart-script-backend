@@ -12,8 +12,8 @@ import org.springframework.context.annotation.EnableAspectJAutoProxy;
 @Configuration
 // 表示通过aop框架暴露该代理对象,AopContext能够访问
 @EnableAspectJAutoProxy(exposeProxy = true)
-// 指定要扫描的Mapper类的包的路径
-@MapperScan("com.ruoyi.**.mapper")
+// 指定要扫描的Mapper类的包的路径（A3：含 smartscript-user App 认证 Mapper）
+@MapperScan({"com.ruoyi.**.mapper", "com.smartscript.platform.**.mapper"})
 public class ApplicationConfig
 {
 }

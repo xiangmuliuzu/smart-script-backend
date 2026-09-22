@@ -21,7 +21,7 @@ server:
     # 应用的访问路径
     context-path: /
   tomcat:
-    # tomcat的URI编码
+    # tomcat进行HTTP编码
     uri-encoding: UTF-8
     # 连接数满后的排队数，默认为100
     accept-count: 1000
@@ -35,6 +35,7 @@ server:
 logging:
   level:
     com.ruoyi: debug
+    com.smartscript: info
     org.springframework: warn
 
 # 用户配置
@@ -89,10 +90,46 @@ token:
   secret: ${TOKEN_SECRET:}
   expireTime: ${TOKEN_EXPIRE_MINUTES:30}
 
+# A3 App 凭证域（变量名与默认上下限；密钥仅环境变量）
+app:
+  auth:
+    env: ${APP_AUTH_ENV:local}
+    token-secret: ${APP_TOKEN_SECRET:}
+    token-issuer: ${APP_TOKEN_ISSUER:}
+    token-audience: ${APP_TOKEN_AUDIENCE:}
+    access-token-ttl: ${APP_ACCESS_TOKEN_TTL:1800}
+    refresh-token-ttl: ${APP_REFRESH_TOKEN_TTL:1209600}
+    redis-key-prefix: ${APP_REDIS_KEY_PREFIX:}
+    sms:
+      provider: ${SMS_PROVIDER:mock}
+      access-key-id: ${SMS_ACCESS_KEY_ID:}
+      access-key-secret: ${SMS_ACCESS_KEY_SECRET:}
+      sign-name: ${SMS_SIGN_NAME:}
+      template-login: ${SMS_TEMPLATE_LOGIN:}
+      template-register: ${SMS_TEMPLATE_REGISTER:}
+      template-set-password: ${SMS_TEMPLATE_SET_PASSWORD:}
+      template-reset-password: ${SMS_TEMPLATE_RESET_PASSWORD:}
+      template-change-phone-old: ${SMS_TEMPLATE_CHANGE_PHONE_OLD:}
+      template-change-phone-new: ${SMS_TEMPLATE_CHANGE_PHONE_NEW:}
+      mock-fixed-code: ${APP_SMS_MOCK_CODE:}
+      cooldown-seconds: ${SMS_COOLDOWN_SECONDS:60}
+      code-ttl-seconds: ${SMS_CODE_TTL_SECONDS:300}
+      max-failed-attempts: ${SMS_MAX_FAILED_ATTEMPTS:5}
+      phone-daily-limit: ${SMS_PHONE_DAILY_LIMIT:10}
+      ip-hourly-limit: ${SMS_IP_HOURLY_LIMIT:30}
+      code-length: ${SMS_CODE_LENGTH:6}
+    agreement:
+      user-version: ${APP_AGREEMENT_USER_VERSION:1.0.0}
+      privacy-version: ${APP_AGREEMENT_PRIVACY_VERSION:1.0.0}
+      user-url: ${APP_AGREEMENT_USER_URL:https://example.invalid/app/user-agreement}
+      privacy-url: ${APP_AGREEMENT_PRIVACY_URL:https://example.invalid/app/privacy-policy}
+      user-title: ${APP_AGREEMENT_USER_TITLE:用户协议}
+      privacy-title: ${APP_AGREEMENT_PRIVACY_TITLE:隐私政策}
+
 # MyBatis配置
 mybatis:
   # 搜索指定包别名
-  typeAliasesPackage: com.ruoyi.**.domain
+  typeAliasesPackage: com.ruoyi.**.domain,com.smartscript.platform.**.domain
   # 配置mapper的扫描，找到所有的mapper.xml映射文件
   mapperLocations: classpath*:mapper/**/*Mapper.xml
   # 加载全局的配置文件
@@ -129,7 +166,7 @@ referer:
 xss:
   # 过滤开关
   enabled: true
-  # 排除链接（多个用逗号分隔）
-  excludes: /system/notice
-  # 匹配链接
+  # 排除路径（多个用逗号分隔）
+  excludes: /system/notice,/api/v1/auth/**
+  # 匹配路径
   urlPatterns: /system/*,/monitor/*,/tool/*
