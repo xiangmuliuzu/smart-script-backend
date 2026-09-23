@@ -152,6 +152,7 @@ public class AppAccessTokenService
         return new AppIdentityContext(
                 user.getUserId(),
                 user.getUserType(),
+                user.getStatus(),
                 AppHashes.maskPhone(user.getPhonenumber()),
                 user.getNickName(),
                 emptyToNull(user.getAvatar()),

@@ -60,6 +60,12 @@
             <artifactId>smartscript-user</artifactId>
         </dependency>
 
+        <!-- A6: 示例业务模块（内容/书城），演示通过 IdentityProvider 接入统一身份 -->
+        <dependency>
+            <groupId>com.smartscript</groupId>
+            <artifactId>smartscript-content</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>

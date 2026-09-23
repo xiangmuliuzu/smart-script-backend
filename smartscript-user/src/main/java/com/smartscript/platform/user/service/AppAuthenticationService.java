@@ -1,6 +1,7 @@
 package com.smartscript.platform.user.service;
 
 import java.util.Date;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
 import org.springframework.dao.DuplicateKeyException;
@@ -22,6 +23,7 @@ import com.smartscript.platform.user.exception.AppAuthException;
 import com.smartscript.platform.user.mapper.AppUserMapper;
 import com.smartscript.platform.user.security.AppIdentityContext;
 import com.smartscript.platform.user.service.RefreshSessionService.IssuedSession;
+import com.smartscript.platform.identity.IdentityContext;
 import com.smartscript.platform.user.util.AppHashes;
 
 @Service
@@ -33,13 +35,15 @@ public class AppAuthenticationService
     private final RefreshSessionService refreshSessionService;
     private final AppSessionRevocationService revocationService;
     private final BCryptPasswordEncoder passwordEncoder;
+    private final com.smartscript.platform.identity.IdentityProvider identityProvider;
 
     public AppAuthenticationService(AppUserMapper userMapper,
             SmsCodeService smsCodeService,
             AgreementService agreementService,
             RefreshSessionService refreshSessionService,
             AppSessionRevocationService revocationService,
-            BCryptPasswordEncoder passwordEncoder)
+            BCryptPasswordEncoder passwordEncoder,
+            com.smartscript.platform.identity.IdentityProvider identityProvider)
     {
         this.userMapper = userMapper;
         this.smsCodeService = smsCodeService;
@@ -47,6 +51,7 @@ public class AppAuthenticationService
         this.refreshSessionService = refreshSessionService;
         this.revocationService = revocationService;
         this.passwordEncoder = passwordEncoder;
+        this.identityProvider = identityProvider;
     }
 
     @Transactional
@@ -248,8 +253,15 @@ public class AppAuthenticationService
         dto.setNickname(user.getNickName());
         dto.setAvatar(user.getAvatar() == null || user.getAvatar().isBlank() ? null : user.getAvatar());
         dto.setPhoneMasked(AppHashes.maskPhone(user.getPhonenumber()));
-        dto.setRoles(new String[] {});
-        dto.setRealNameStatus("NOT_SUBMITTED");
+        // A5 起 /auth/me 返回真实角色与实名状态，供 App 统一身份能力使用
+        // （规格 §10：AuthState.currentUser.realNameStatus 与 hasRole）。
+        // A6 起补充权限标识与作者能力，并复用统一身份解析结果，避免同一份数据两处查询。
+        IdentityContext identity = identityProvider.currentIdentity();
+        dto.setRoles(identity.getRoleCodes().toArray(new String[0]));
+        dto.setPermissions(identity.getPermissionCodes().toArray(new String[0]));
+        dto.setAuthorCapability(identity.isAuthorCapability());
+        dto.setRealNameStatus(identity.getRealNameStatus());
+        dto.setHasPassword(user.getPassword() != null && !user.getPassword().isBlank());
         return dto;
     }
 

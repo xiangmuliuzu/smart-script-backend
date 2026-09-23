@@ -25,23 +25,43 @@ class SmartscriptUserModuleAssemblyTest
     }
 
     @Test
-    void moduleExposesAppAuthControllerOnly() throws Exception
+    void moduleExposesAppDomainControllersOnly() throws Exception
     {
         Path root = moduleMainJava();
+        String[] allowedPrefixes = {
+                "/api/v1/auth", "/api/v1/users", "/api/v1/messages", "/api/v1/feedback"
+        };
         try (Stream<Path> files = Files.walk(root))
         {
             files.filter(p -> p.toString().endsWith(".java")).forEach(p -> {
                 try
                 {
                     String src = Files.readString(p, StandardCharsets.UTF_8);
-                    boolean hasRest = src.contains("@RestController") || src.contains("@RequestMapping");
+                    // 异常处理器虽标注 @RestControllerAdvice（含 @RestController 子串），
+                    // 但不是控制器，且它引用的是本模块控制器，故先排除。
+                    boolean isAdvice = src.contains("@RestControllerAdvice") || src.contains("@ControllerAdvice");
+                    boolean hasRest = !isAdvice
+                            && (src.contains("@RestController") || src.contains("@RequestMapping"));
                     if (hasRest)
                     {
                         String path = p.toString().replace('\\', '/');
                         assertTrue(path.contains("/controller/"),
                                 "HTTP controllers must live under controller package: " + p);
-                        assertTrue(src.contains("/api/v1/auth") || src.contains("AppAuth"),
-                                "Only App auth controllers are allowed in A3 module: " + p);
+                        // A3 仅 /api/v1/auth；A5 用户中心按契约增加 users/messages/feedback，
+                        // 三者同属 App 凭证域；PC 管理接口不得出现在本模块。
+                        boolean allowed = false;
+                        for (String prefix : allowedPrefixes)
+                        {
+                            if (src.contains(prefix))
+                            {
+                                allowed = true;
+                                break;
+                            }
+                        }
+                        assertTrue(allowed,
+                                "Only App credential-domain controllers are allowed in this module: " + p);
+                        assertFalse(src.contains("/api/v1/admin"),
+                                "PC admin endpoints must not live in the App user module: " + p);
                     }
                 }
                 catch (Exception e)

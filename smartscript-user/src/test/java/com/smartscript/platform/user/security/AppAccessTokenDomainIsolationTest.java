@@ -164,6 +164,7 @@ class AppAccessTokenDomainIsolationTest
             {
                 return null;
             }
+
         };
     }
 
@@ -214,6 +215,7 @@ class AppAccessTokenDomainIsolationTest
             {
                 return null;
             }
+
         };
     }
 
