@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.trade.mapper.SysOrderMapper">
+
+    <resultMap type="com.smartscript.platform.trade.domain.SysOrder" id="SysOrderResult">
+        <result property="orderId"       column="order_id" />
+        <result property="orderNo"       column="order_no" />
+        <result property="contractId"    column="contract_id" />
+        <result property="escrowId"      column="escrow_id" />
+        <result property="inquiryId"     column="inquiry_id" />
+        <result property="quoteId"       column="quote_id" />
+        <result property="workId"        column="work_id" />
+        <result property="buyerId"       column="buyer_id" />
+        <result property="sellerId"      column="seller_id" />
+        <result property="orderType"     column="order_type" />
+        <result property="licenseType"   column="license_type" />
+        <result property="totalAmount"   column="total_amount" />
+        <result property="platformFee"   column="platform_fee" />
+        <result property="splitRate"     column="split_rate" />
+        <result property="sellerAmount"  column="seller_amount" />
+        <result property="status"        column="status" />
+        <result property="payTime"       column="pay_time" />
+        <result property="completeTime"  column="complete_time" />
+        <result property="extJson"       column="ext_json" />
+        <result property="createdAt"     column="created_at" />
+        <result property="updatedAt"     column="updated_at" />
+        <result property="createBy"      column="create_by" />
+        <result property="createTime"    column="create_time" />
+        <result property="updateBy"      column="update_by" />
+        <result property="updateTime"    column="update_time" />
+        <result property="remark"        column="remark" />
+        <result property="workTitle"     column="work_title" />
+        <result property="buyerName"     column="buyer_name" />
+        <result property="sellerName"    column="seller_name" />
+    </resultMap>
+
+    <select id="selectOrderList" parameterType="com.smartscript.platform.trade.domain.SysOrder" resultMap="SysOrderResult">
+        select o.order_id, o.order_no, o.inquiry_id, o.quote_id, o.work_id,
+               o.buyer_id, o.seller_id, o.order_type, o.license_type,
+               o.total_amount, o.platform_fee, o.split_rate, o.seller_amount,
+               o.status, o.pay_time, o.complete_time,
+               o.created_at, o.updated_at, o.create_by, o.create_time, o.remark,
+               w.title as work_title
+        from sys_order o
+        left join sys_work w on o.work_id = w.work_id
+        <where>
+            <if test="orderNo != null and orderNo != ''">AND o.order_no like concat('%', #{orderNo}, '%')</if>
+            <if test="status != null and status != ''">AND o.status = #{status}</if>
+            <if test="licenseType != null and licenseType != ''">AND o.license_type = #{licenseType}</if>
+            <if test="workTitle != null and workTitle != ''">AND w.title like concat('%', #{workTitle}, '%')</if>
+        </where>
+        order by o.created_at desc
+    </select>
+
+    <select id="selectOrderById" parameterType="Long" resultMap="SysOrderResult">
+        select o.*, w.title as work_title
+        from sys_order o
+        left join sys_work w on o.work_id = w.work_id
+        where o.order_id = #{orderId}
+    </select>
+
+    <select id="selectOrderByInquiryId" parameterType="Long" resultMap="SysOrderResult">
+        <include refid="selectOrderVo"/>
+        where o.inquiry_id = #{inquiryId}
+        limit 1
+    </select>
+
+    <sql id="selectOrderVo">
+        select o.order_id, o.order_no, o.inquiry_id, o.quote_id, o.work_id,
+               o.buyer_id, o.seller_id, o.order_type, o.license_type,
+               o.total_amount, o.platform_fee, o.split_rate, o.seller_amount,
+               o.status, o.pay_time, o.complete_time,
+               o.created_at, o.updated_at, o.create_by, o.create_time, o.remark,
+               w.title as work_title
+        from sys_order o
+        left join sys_work w on o.work_id = w.work_id
+    </sql>
+
+    <insert id="insertOrder" parameterType="com.smartscript.platform.trade.domain.SysOrder" useGeneratedKeys="true" keyProperty="orderId">
+        insert into sys_order (
+            order_no, contract_id, escrow_id, inquiry_id, quote_id, work_id,
+            buyer_id, seller_id, order_type, license_type,
+            total_amount, platform_fee, split_rate, seller_amount,
+            status, create_by, create_time, remark
+        ) values (
+            #{orderNo}, #{contractId}, #{escrowId}, #{inquiryId}, #{quoteId}, #{workId},
+            #{buyerId}, #{sellerId}, #{orderType}, #{licenseType},
+            #{totalAmount}, #{platformFee}, #{splitRate}, #{sellerAmount},
+            #{status}, #{createBy}, #{createTime}, #{remark}
+        )
+    </insert>
+
+    <update id="updateOrder" parameterType="com.smartscript.platform.trade.domain.SysOrder">
+        update sys_order
+        <set>
+            <if test="status != null">status = #{status},</if>
+            <if test="payTime != null">pay_time = #{payTime},</if>
+            <if test="completeTime != null">complete_time = #{completeTime},</if>
+            <if test="contractId != null">contract_id = #{contractId},</if>
+            <if test="escrowId != null">escrow_id = #{escrowId},</if>
+            <if test="updateBy != null">update_by = #{updateBy},</if>
+            <if test="updateTime != null">update_time = #{updateTime},</if>
+        </set>
+        where order_id = #{orderId}
+    </update>
+
+</mapper>

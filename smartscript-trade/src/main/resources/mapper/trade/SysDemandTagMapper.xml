@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.trade.mapper.SysDemandTagMapper">
+
+    <resultMap type="com.smartscript.platform.trade.domain.SysDemandTag" id="SysDemandTagResult">
+        <result property="tagId"      column="tag_id" />
+        <result property="tagName"    column="tag_name" />
+        <result property="usedCount"  column="used_count" />
+        <result property="createBy"   column="create_by" />
+        <result property="createTime" column="create_time" />
+        <result property="updateBy"   column="update_by" />
+        <result property="updateTime" column="update_time" />
+        <result property="remark"     column="remark" />
+    </resultMap>
+
+    <sql id="selectTagVo">
+        select tag_id, tag_name, used_count, create_by, create_time, update_by, update_time, remark
+        from sys_demand_tag
+    </sql>
+
+    <select id="selectDemandTagList" parameterType="com.smartscript.platform.trade.domain.SysDemandTag" resultMap="SysDemandTagResult">
+        <include refid="selectTagVo"/>
+        <where>
+            <if test="tagName != null and tagName != ''">
+                AND tag_name like concat('%', #{tagName}, '%')
+            </if>
+        </where>
+        order by used_count desc, tag_id asc
+    </select>
+
+    <select id="selectDemandTagById" parameterType="Long" resultMap="SysDemandTagResult">
+        <include refid="selectTagVo"/>
+        where tag_id = #{tagId}
+    </select>
+
+    <insert id="insertDemandTag" parameterType="com.smartscript.platform.trade.domain.SysDemandTag" useGeneratedKeys="true" keyProperty="tagId">
+        insert into sys_demand_tag (tag_name, used_count, create_by, create_time, remark)
+        values (#{tagName}, #{usedCount}, #{createBy}, #{createTime}, #{remark})
+    </insert>
+
+    <update id="updateDemandTag" parameterType="com.smartscript.platform.trade.domain.SysDemandTag">
+        update sys_demand_tag
+        <set>
+            <if test="tagName != null">tag_name = #{tagName},</if>
+            <if test="usedCount != null">used_count = #{usedCount},</if>
+            <if test="updateBy != null">update_by = #{updateBy},</if>
+            <if test="updateTime != null">update_time = #{updateTime},</if>
+            <if test="remark != null">remark = #{remark},</if>
+        </set>
+        where tag_id = #{tagId}
+    </update>
+
+    <delete id="deleteDemandTagByIds" parameterType="String">
+        delete from sys_demand_tag where tag_id in
+        <foreach item="tagId" collection="array" open="(" separator="," close=")">
+            #{tagId}
+        </foreach>
+    </delete>
+
+</mapper>

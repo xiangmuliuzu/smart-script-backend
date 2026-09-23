@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.trade.mapper.SysQuoteMapper">
+
+    <resultMap type="com.smartscript.platform.trade.domain.SysQuote" id="SysQuoteResult">
+        <result property="quoteId"     column="quote_id" />
+        <result property="quoteNo"     column="quote_no" />
+        <result property="inquiryId"   column="inquiry_id" />
+        <result property="sellerId"    column="seller_id" />
+        <result property="quoterId"    column="quoter_id" />
+        <result property="quoterRole"  column="quoter_role" />
+        <result property="price"       column="price" />
+        <result property="licenseType" column="license_type" />
+        <result property="validDays"   column="valid_days" />
+        <result property="description" column="description" />
+        <result property="status"      column="status" />
+        <result property="expireAt"    column="expire_at" />
+        <result property="createdAt"   column="created_at" />
+        <result property="createBy"    column="create_by" />
+        <result property="createTime"  column="create_time" />
+        <result property="updateBy"    column="update_by" />
+        <result property="updateTime"  column="update_time" />
+        <result property="remark"      column="remark" />
+        <result property="inquiryNo"   column="inquiry_no" />
+        <result property="workTitle"   column="work_title" />
+        <result property="quoterName"  column="quoter_name" />
+    </resultMap>
+
+    <select id="selectQuoteList" parameterType="com.smartscript.platform.trade.domain.SysQuote" resultMap="SysQuoteResult">
+        select q.quote_id, q.quote_no, q.inquiry_id, q.seller_id, q.quoter_id,
+               q.quoter_role, q.price, q.license_type, q.valid_days, q.description,
+               q.status, q.expire_at, q.created_at, q.create_by, q.create_time, q.remark,
+               i.inquiry_no as inquiry_no,
+               w.title as work_title
+        from sys_quote q
+        left join sys_inquiry i on q.inquiry_id = i.inquiry_id
+        left join sys_work w on i.work_id = w.work_id
+        <where>
+            <if test="inquiryId != null">AND q.inquiry_id = #{inquiryId}</if>
+            <if test="quoterRole != null and quoterRole != ''">AND q.quoter_role = #{quoterRole}</if>
+            <if test="status != null and status != ''">AND q.status = #{status}</if>
+            <if test="quoteNo != null and quoteNo != ''">AND q.quote_no like concat('%', #{quoteNo}, '%')</if>
+        </where>
+        order by q.created_at desc
+    </select>
+
+    <select id="selectQuoteById" parameterType="Long" resultMap="SysQuoteResult">
+        select q.*, i.inquiry_no as inquiry_no, w.title as work_title
+        from sys_quote q
+        left join sys_inquiry i on q.inquiry_id = i.inquiry_id
+        left join sys_work w on i.work_id = w.work_id
+        where q.quote_id = #{quoteId}
+    </select>
+
+    <insert id="insertQuote" parameterType="com.smartscript.platform.trade.domain.SysQuote" useGeneratedKeys="true" keyProperty="quoteId">
+        insert into sys_quote (
+            quote_no, inquiry_id, seller_id, quoter_id, quoter_role, price,
+            license_type, valid_days, description, status, expire_at,
+            create_by, create_time, remark
+        ) values (
+            #{quoteNo}, #{inquiryId}, #{sellerId}, #{quoterId}, #{quoterRole}, #{price},
+            #{licenseType}, #{validDays}, #{description}, #{status}, #{expireAt},
+            #{createBy}, #{createTime}, #{remark}
+        )
+    </insert>
+
+    <update id="updateQuote" parameterType="com.smartscript.platform.trade.domain.SysQuote">
+        update sys_quote
+        <set>
+            <if test="status != null">status = #{status},</if>
+            <if test="updateBy != null">update_by = #{updateBy},</if>
+            <if test="updateTime != null">update_time = #{updateTime},</if>
+        </set>
+        where quote_id = #{quoteId}
+    </update>
+
+</mapper>

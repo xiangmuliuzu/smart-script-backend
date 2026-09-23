@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.trade.mapper.SysWorkMapper">
+
+    <resultMap type="com.smartscript.platform.trade.domain.SysWork" id="SysWorkResult">
+        <result property="workId"            column="work_id" />
+        <result property="title"             column="title" />
+        <result property="cover"             column="cover" />
+        <result property="authorId"          column="author_id" />
+        <result property="genreId"           column="genre_id" />
+        <result property="workType"          column="work_type" />
+        <result property="lengthType"        column="length_type" />
+        <result property="price"             column="price" />
+        <result property="tradeType"         column="trade_type" />
+        <result property="tradeEnabled"      column="trade_enabled" />
+        <result property="negotiableMin"     column="negotiable_min" />
+        <result property="negotiableMax"     column="negotiable_max" />
+        <result property="quoteValidDays"    column="quote_valid_days" />
+        <result property="wordCount"         column="word_count" />
+        <result property="episodeCount"      column="episode_count" />
+        <result property="status"            column="status" />
+        <result property="viewCount"         column="view_count" />
+        <result property="favoriteCount"     column="favorite_count" />
+        <result property="saleCount"         column="sale_count" />
+        <result property="rating"            column="rating" />
+        <result property="isDeleted"         column="is_deleted" />
+        <result property="createdAt"         column="created_at" />
+        <result property="updatedAt"         column="updated_at" />
+        <result property="createBy"          column="create_by" />
+        <result property="createTime"        column="create_time" />
+        <result property="authorName"        column="author_name" />
+    </resultMap>
+
+    <select id="selectTradeWorkList" parameterType="com.smartscript.platform.trade.domain.SysWork" resultMap="SysWorkResult">
+        select w.work_id, w.title, w.cover, w.author_id, w.genre_id, w.work_type, w.length_type,
+               w.price, w.trade_type, w.trade_enabled, w.negotiable_min, w.negotiable_max,
+               w.quote_valid_days, w.word_count, w.episode_count, w.status,
+               w.view_count, w.favorite_count, w.sale_count, w.rating,
+               w.is_deleted, w.created_at, w.updated_at, w.create_by, w.create_time
+        from sys_work w
+        <where>
+            w.is_deleted = 0
+            <if test="title != null and title != ''">
+                AND w.title like concat('%', #{title}, '%')
+            </if>
+            <if test="tradeType != null and tradeType != ''">
+                AND w.trade_type = #{tradeType}
+            </if>
+            <if test="tradeEnabled != null">
+                AND w.trade_enabled = #{tradeEnabled}
+            </if>
+            <if test="status != null and status != ''">
+                AND w.status = #{status}
+            </if>
+        </where>
+        order by w.created_at desc
+    </select>
+
+    <select id="selectWorkById" parameterType="Long" resultMap="SysWorkResult">
+        select w.*, u.nick_name as author_name
+        from sys_work w
+        left join sys_user u on w.author_id = u.user_id
+        where w.work_id = #{workId} and w.is_deleted = 0
+    </select>
+
+    <update id="updateTradeSettings" parameterType="com.smartscript.platform.trade.domain.SysWork">
+        update sys_work
+        <set>
+            <if test="tradeType != null">trade_type = #{tradeType},</if>
+            <if test="tradeEnabled != null">trade_enabled = #{tradeEnabled},</if>
+            <if test="price != null">price = #{price},</if>
+            <if test="negotiableMin != null">negotiable_min = #{negotiableMin},</if>
+            <if test="negotiableMax != null">negotiable_max = #{negotiableMax},</if>
+            <if test="quoteValidDays != null">quote_valid_days = #{quoteValidDays},</if>
+            <if test="updateBy != null">update_by = #{updateBy},</if>
+            <if test="updateTime != null">update_time = #{updateTime},</if>
+        </set>
+        where work_id = #{workId}
+    </update>
+
+</mapper>

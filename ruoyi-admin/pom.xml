@@ -66,6 +66,12 @@
             <artifactId>smartscript-content</artifactId>
         </dependency>
 
+        <!-- C: smartscript-trade 交易前半段模块 -->
+        <dependency>
+            <groupId>com.smartscript</groupId>
+            <artifactId>smartscript-trade</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>

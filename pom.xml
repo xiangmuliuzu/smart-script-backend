@@ -191,6 +191,13 @@
                 <version>${ruoyi.version}</version>
             </dependency>
 
+            <!-- C: smartscript-trade 交易前半段模块 -->
+            <dependency>
+                <groupId>com.smartscript</groupId>
+                <artifactId>smartscript-trade</artifactId>
+                <version>${ruoyi.version}</version>
+            </dependency>
+
         </dependencies>
     </dependencyManagement>
 
@@ -203,6 +210,7 @@
         <module>ruoyi-common</module>
         <module>smartscript-user</module>
         <module>smartscript-content</module>
+        <module>smartscript-trade</module>
     </modules>
     <packaging>pom</packaging>
 
