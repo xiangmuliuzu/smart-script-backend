@@ -14,7 +14,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 import com.smartscript.platform.user.constant.AppAuthErrorCodes;
-import com.smartscript.platform.user.dto.AppApiResponse;
+import com.smartscript.platform.api.AppApiResponse;
 import com.smartscript.platform.user.dto.NotificationPreferenceUpdateRequest;
 import com.smartscript.platform.user.dto.PhoneChangeConfirmRequest;
 import com.smartscript.platform.user.dto.PhoneChangeNewPhoneRequest;

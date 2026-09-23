@@ -165,11 +165,6 @@ class AppAccessTokenDomainIsolationTest
                 return null;
             }
 
-            @Override
-            public java.util.List<String> selectRoleKeys(Long userId)
-            {
-                return java.util.List.of();
-            }
         };
     }
 
@@ -221,11 +216,6 @@ class AppAccessTokenDomainIsolationTest
                 return null;
             }
 
-            @Override
-            public java.util.List<String> selectRoleKeys(Long userId)
-            {
-                return java.util.List.of();
-            }
         };
     }
 

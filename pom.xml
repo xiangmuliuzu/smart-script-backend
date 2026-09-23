@@ -185,6 +185,11 @@
                 <artifactId>smartscript-user</artifactId>
                 <version>${ruoyi.version}</version>
             </dependency>
+            <dependency>
+                <groupId>com.smartscript</groupId>
+                <artifactId>smartscript-content</artifactId>
+                <version>${ruoyi.version}</version>
+            </dependency>
 
         </dependencies>
     </dependencyManagement>
@@ -197,6 +202,7 @@
         <module>ruoyi-generator</module>
         <module>ruoyi-common</module>
         <module>smartscript-user</module>
+        <module>smartscript-content</module>
     </modules>
     <packaging>pom</packaging>
 

@@ -26,9 +26,15 @@ import com.smartscript.platform.user.security.AppAuthEntryPoint;
 @Configuration
 public class AppAuthSecurityConfig
 {
-    /** App 凭证域覆盖的路径前缀；本链之外的前缀一律 denyAll。 */
+    /**
+     * App 凭证域覆盖的路径前缀；本链之外的前缀一律 denyAll。
+     *
+     * A6 起纳入 /api/v1/content/**：业务模块（B/C/D/E）的接口需要按 App 凭证域鉴权，
+     * 其中公开接口在过滤器白名单中登记（游客可读），私有接口默认需要 App 身份。
+     */
     static final String[] APP_PATH_PREFIXES = {
-            "/api/v1/auth/**", "/api/v1/users/**", "/api/v1/messages/**", "/api/v1/feedback/**"
+            "/api/v1/auth/**", "/api/v1/users/**", "/api/v1/messages/**", "/api/v1/feedback/**",
+            "/api/v1/content/**"
     };
 
     @Bean
@@ -55,9 +61,12 @@ public class AppAuthSecurityConfig
                         .requestMatchers(HttpMethod.POST,
                                 "/api/v1/auth/oauth/wechat/login",
                                 "/api/v1/auth/oauth/qq/login").permitAll()
-                        // App 用户中心 / 消息 / 反馈：全部要求 App Access Token
+                        // A6 业务模块公开接口：游客可读（无需 App Token）
+                        .requestMatchers(HttpMethod.GET, "/api/v1/content/works").permitAll()
+                        // App 用户中心 / 消息 / 反馈 / 业务模块私有接口：全部要求 App Access Token
                         .requestMatchers("/api/v1/auth/**", "/api/v1/users/**",
-                                "/api/v1/messages/**", "/api/v1/feedback/**").authenticated()
+                                "/api/v1/messages/**", "/api/v1/feedback/**",
+                                "/api/v1/content/**").authenticated()
                         .anyRequest().denyAll())
                 .addFilterBefore(appFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();

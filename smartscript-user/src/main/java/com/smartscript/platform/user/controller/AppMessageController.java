@@ -11,7 +11,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import com.smartscript.platform.user.constant.AppAuthErrorCodes;
 import com.smartscript.platform.user.constant.AppPageConstants;
-import com.smartscript.platform.user.dto.AppApiResponse;
+import com.smartscript.platform.api.AppApiResponse;
 import com.smartscript.platform.user.dto.PageResult;
 import com.smartscript.platform.user.exception.AppAuthException;
 import com.smartscript.platform.user.security.AppIdentityContext;

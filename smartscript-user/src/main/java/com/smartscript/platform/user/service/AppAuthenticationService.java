@@ -23,6 +23,7 @@ import com.smartscript.platform.user.exception.AppAuthException;
 import com.smartscript.platform.user.mapper.AppUserMapper;
 import com.smartscript.platform.user.security.AppIdentityContext;
 import com.smartscript.platform.user.service.RefreshSessionService.IssuedSession;
+import com.smartscript.platform.identity.IdentityContext;
 import com.smartscript.platform.user.util.AppHashes;
 
 @Service
@@ -34,13 +35,15 @@ public class AppAuthenticationService
     private final RefreshSessionService refreshSessionService;
     private final AppSessionRevocationService revocationService;
     private final BCryptPasswordEncoder passwordEncoder;
+    private final com.smartscript.platform.identity.IdentityProvider identityProvider;
 
     public AppAuthenticationService(AppUserMapper userMapper,
             SmsCodeService smsCodeService,
             AgreementService agreementService,
             RefreshSessionService refreshSessionService,
             AppSessionRevocationService revocationService,
-            BCryptPasswordEncoder passwordEncoder)
+            BCryptPasswordEncoder passwordEncoder,
+            com.smartscript.platform.identity.IdentityProvider identityProvider)
     {
         this.userMapper = userMapper;
         this.smsCodeService = smsCodeService;
@@ -48,6 +51,7 @@ public class AppAuthenticationService
         this.refreshSessionService = refreshSessionService;
         this.revocationService = revocationService;
         this.passwordEncoder = passwordEncoder;
+        this.identityProvider = identityProvider;
     }
 
     @Transactional
@@ -251,22 +255,14 @@ public class AppAuthenticationService
         dto.setPhoneMasked(AppHashes.maskPhone(user.getPhonenumber()));
         // A5 起 /auth/me 返回真实角色与实名状态，供 App 统一身份能力使用
         // （规格 §10：AuthState.currentUser.realNameStatus 与 hasRole）。
-        dto.setRoles(roleKeys(user.getUserId()));
-        dto.setRealNameStatus(realNameStatus(user.getUserId()));
+        // A6 起补充权限标识与作者能力，并复用统一身份解析结果，避免同一份数据两处查询。
+        IdentityContext identity = identityProvider.currentIdentity();
+        dto.setRoles(identity.getRoleCodes().toArray(new String[0]));
+        dto.setPermissions(identity.getPermissionCodes().toArray(new String[0]));
+        dto.setAuthorCapability(identity.isAuthorCapability());
+        dto.setRealNameStatus(identity.getRealNameStatus());
         dto.setHasPassword(user.getPassword() != null && !user.getPassword().isBlank());
         return dto;
-    }
-
-    private String[] roleKeys(Long userId)
-    {
-        List<String> roles = userMapper.selectRoleKeys(userId);
-        return roles == null || roles.isEmpty() ? new String[] {} : roles.toArray(new String[0]);
-    }
-
-    private String realNameStatus(Long userId)
-    {
-        String status = userMapper.selectRealNameStatus(userId);
-        return status == null || status.isBlank() ? AppRealNameService.STATUS_NOT_SUBMITTED : status;
     }
 
     private AppUserRecord requireUser(Long userId)

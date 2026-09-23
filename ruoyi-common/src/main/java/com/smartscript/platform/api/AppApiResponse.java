@@ -1,8 +1,14 @@
-package com.smartscript.platform.user.dto;
+package com.smartscript.platform.api;
 
 /**
- * A3 contract envelope: {code, message, data}.
- * Intentionally distinct from RuoYi AjaxResult (which uses "msg").
+ * App 契约响应信封：{code, message, data}。
+ *
+ * 刻意区别于若依 AjaxResult（后者用 "msg"）：
+ *   - App 与 PC 两个凭证域各自保持自己的响应结构（规格 §7.4）；
+ *   - 本类放在公共内核（ruoyi-common），使 A6 之后的下游业务模块
+ *     （smartscript-content 等）复用同一份信封定义，而不是各写一份重复实现。
+ *
+ * A3 起用于 /api/v1/auth、A5 用于用户中心、A6 起由内容等业务模块复用。
  */
 public class AppApiResponse<T>
 {
