@@ -7,4 +7,5 @@ public interface SysDemandMapper
 {
     List<SysDemand> selectDemandList(SysDemand demand);
     SysDemand selectDemandById(Long demandId);
+    int insertDemand(SysDemand demand);
 }
