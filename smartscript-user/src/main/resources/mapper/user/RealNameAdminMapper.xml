@@ -1,0 +1,140 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.user.mapper.RealNameAdminMapper">
+
+    <!--
+      A4 实名申请查询与审核（契约 §3.2 / §5.2）。
+
+      安全约束：
+        1. 列表不选择 material_ref；材料只在详情查询，由服务层按详情权限
+           决定是否换取短时授权引用（REAL-01 / REAL-06）。
+        2. 审核使用条件更新 status = expectedStatus，并发下只有一个成功（REAL-05）。
+        3. 列名映射遵循裁决 GAP-6：create_time -> submittedAt、
+           audited_at -> reviewedAt、auditor_id 关联 sys_user 取 reviewerName。
+           不改动 user_real_name_auth 的列名。
+        4. 手机号同样只以掩码形式出库。
+    -->
+
+    <sql id="phoneMaskExpr">
+        CASE
+          WHEN u.phonenumber IS NULL OR TRIM(u.phonenumber) = '' THEN NULL
+          WHEN CHAR_LENGTH(u.phonenumber) &gt;= 7
+            THEN CONCAT(LEFT(u.phonenumber, 3), '****', RIGHT(u.phonenumber, 4))
+          ELSE '***'
+        END
+    </sql>
+
+    <resultMap id="RealNameApplicationMap" type="com.smartscript.platform.user.domain.admin.RealNameApplication">
+        <id property="applicationId" column="application_id"/>
+        <result property="userId" column="user_id"/>
+        <result property="nickname" column="nickname"/>
+        <result property="phoneMasked" column="phone_masked"/>
+        <result property="status" column="status"/>
+        <result property="realNameMasked" column="real_name_masked"/>
+        <result property="idNumberMasked" column="id_number_masked"/>
+        <result property="rejectReason" column="reject_reason"/>
+        <result property="reviewerName" column="reviewer_name"/>
+        <result property="submittedAt" column="submitted_at"/>
+        <result property="reviewedAt" column="reviewed_at"/>
+        <!--
+          裁决 GAP-5：单值 material_ref 映射为零或单元素数组，禁止解析分隔符。
+          这里映射为标量，由服务层封装成数组；列表查询不选择该列，故其值为 null。
+        -->
+        <result property="materialRef" column="material_ref"/>
+    </resultMap>
+
+    <!--
+      列表：只返回掩码字段，不含 material_ref。
+      材料短时引用一律留给详情接口，避免列表越权携带敏感引用。
+    -->
+    <select id="selectApplicationPage" parameterType="map" resultMap="RealNameApplicationMap">
+        SELECT
+            rna.id AS application_id,
+            rna.user_id,
+            u.nick_name AS nickname,
+            <include refid="phoneMaskExpr"/> AS phone_masked,
+            rna.status,
+            rna.real_name_mask AS real_name_masked,
+            rna.id_number_mask AS id_number_masked,
+            rna.reject_reason,
+            au.nick_name AS reviewer_name,
+            rna.create_time AS submitted_at,
+            rna.audited_at AS reviewed_at
+        FROM user_real_name_auth rna
+        JOIN sys_user u ON u.user_id = rna.user_id
+        LEFT JOIN sys_user au ON au.user_id = rna.auditor_id
+        WHERE 1 = 1
+        <if test="status != null and status != ''">
+            AND rna.status = #{status}
+        </if>
+        <if test="keyword != null and keyword != ''">
+            AND (
+                 u.nick_name LIKE CONCAT('%', #{keyword}, '%')
+              OR u.user_name LIKE CONCAT('%', #{keyword}, '%')
+              OR u.phonenumber LIKE CONCAT('%', #{keyword}, '%')
+            )
+        </if>
+        <if test="beginTime != null and beginTime != ''">
+            AND rna.create_time &gt;= #{beginTime}
+        </if>
+        <if test="endTime != null and endTime != ''">
+            AND rna.create_time &lt;= #{endTime}
+        </if>
+        <if test="orderByColumn != null and orderByColumn != ''">
+            ORDER BY ${orderByColumn} ${isAsc}
+        </if>
+    </select>
+
+    <!-- 详情：唯一允许返回 material_ref 的位置，由服务层做权限与短时授权处理 -->
+    <select id="selectApplicationDetail" resultMap="RealNameApplicationMap">
+        SELECT
+            rna.id AS application_id,
+            rna.user_id,
+            u.nick_name AS nickname,
+            <include refid="phoneMaskExpr"/> AS phone_masked,
+            rna.status,
+            rna.real_name_mask AS real_name_masked,
+            rna.id_number_mask AS id_number_masked,
+            rna.material_ref AS material_ref,
+            rna.reject_reason,
+            au.nick_name AS reviewer_name,
+            rna.create_time AS submitted_at,
+            rna.audited_at AS reviewed_at
+        FROM user_real_name_auth rna
+        JOIN sys_user u ON u.user_id = rna.user_id
+        LEFT JOIN sys_user au ON au.user_id = rna.auditor_id
+        WHERE rna.id = #{applicationId}
+        LIMIT 1
+    </select>
+
+    <select id="selectApplicationStatus" resultType="java.lang.String">
+        SELECT rna.status
+        FROM user_real_name_auth rna
+        WHERE rna.id = #{applicationId}
+        LIMIT 1
+    </select>
+
+    <!--
+      条件审核：status = expectedStatus 参与 WHERE。
+      并发审核时只有一个事务能命中，另一个影响 0 行 -> 服务层转 409。
+    -->
+    <update id="decideIfPending">
+        UPDATE user_real_name_auth rna
+        SET rna.status = #{status},
+            rna.auditor_id = #{auditorId},
+            rna.audited_at = NOW(),
+            rna.reject_reason = #{rejectReason},
+            rna.update_time = NOW()
+        WHERE rna.id = #{applicationId}
+          AND rna.status = #{expectedStatus}
+    </update>
+
+    <select id="countPendingByUser" resultType="int">
+        SELECT COUNT(*)
+        FROM user_real_name_auth rna
+        WHERE rna.user_id = #{userId}
+          AND rna.status = 'PENDING'
+    </select>
+
+</mapper>

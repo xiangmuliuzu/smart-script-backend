@@ -1,0 +1,30 @@
+# 数据库初始化步骤清单（唯一执行顺序来源）
+#
+# 格式: <步骤ID>|<闸门>|仓库根相对路径>|<说明>
+#   exit    : 只要求 mysql 退出码为 0（基础结构导入、纯数据种子、迁移写入步骤）
+#   summary : 要求退出码为 0，且输出末尾出现 SUMMARY=PASS（fail_cnt=0），
+#             同时输出中不得出现 FAIL 汇总行或 *_ABORTED 中止标记
+# 以 # 开头的行与空行会被忽略。
+#
+# 顺序依据（不得随意调整）:
+#   A1 种子必须在 A4 之前：A4 前置检查要求顶级 path='user' 目录唯一，
+#     该目录由 A1 种子 menu_id=5142 提供。
+#   PC 侧边栏必须在 A4 之后：它按 menu_id 重排并改名 A4 菜单 3000-3015。
+#   PC 侧边栏必须在 A1 之后：它重挂 A1 的产品菜单并补写被种子跳过的 5142。
+#   A2 必须最先：A1/A4 都依赖 A2 归一后的 sys_user 账号域。
+
+ry-baseline|exit|sql/ry_20260320.sql|若依基础结构 + 初始数据（20 张系统表）
+a2-precheck|summary|sql/migrations/a2/A2_20260921_001__a2_precheck.sql|A2 前置只读检查
+a2-migrate|exit|sql/migrations/a2/A2_20260921_001__a2_migrate.sql|A2 结构加固 + App 表骨架
+a2-verify|summary|sql/migrations/a2/A2_20260921_001__a2_verify.sql|A2 迁移校验
+a1-menu-seed|exit|sql/migrations/a1/A1_20260921_001__p5_menu_seed.sql|A1 产品菜单与受限运营角色种子
+a1-menu-verify|summary|sql/migrations/a1/A1_20260921_001__p5_menu_verify.sql|A1 种子校验
+a4-precheck|summary|sql/migrations/a4/A4_20260922_001__a4_precheck.sql|A4 前置只读检查
+a4-migrate|exit|sql/migrations/a4/A4_20260922_001__a4_migrate.sql|A4 结构增量（GAP-1/2/3）
+a4-verify|summary|sql/migrations/a4/A4_20260922_001__a4_verify.sql|A4 结构校验
+a4-permissions|exit|sql/migrations/a4/A4_20260922_002__a4_permissions.sql|A4 菜单与 15 个权限标识
+a4-permissions-verify|summary|sql/migrations/a4/A4_20260922_002__a4_permissions_verify.sql|A4 权限校验
+a4-grantable-role|exit|sql/migrations/a4/A4_20260922_003__app_grantable_role.sql|A4 角色可授权标记
+a4-grantable-role-verify|summary|sql/migrations/a4/A4_20260922_003__app_grantable_role_verify.sql|A4 角色标记校验
+pc-sidebar|exit|sql/migrations/pc/PC_20260923_001__sidebar_ia.sql|PC 侧边栏信息架构对齐
+pc-sidebar-verify|summary|sql/migrations/pc/PC_20260923_001__sidebar_ia_verify.sql|PC 侧边栏最终校验

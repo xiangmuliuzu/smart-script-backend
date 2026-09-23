@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.user.mapper.AppIdentityMapper">
+
+    <!--
+      A6 统一身份：角色 / 权限 / 作者能力解析（契约 A6-IDENTITY-CONTRACT-v1 §1.3）。
+
+      安全约束：
+        1. 全部按 user_id 参数绑定，不接受外部拼接；
+        2. 角色排除超管 `admin`：App 与 PC 共用 sys_user_role，越权暴露管理端角色
+           必须在 SQL 层杜绝，不能依赖调用方自觉；
+        3. 权限只取启用菜单的非空 perms，避免空串进入权限集合被误判为「有权限」；
+        4. 作者能力只输出 enabled 标记，不输出操作人与原因（属 A4 管理端职责）。
+    -->
+
+    <select id="selectRoleCodes" resultType="java.lang.String">
+        SELECT r.role_key
+        FROM sys_user_role ur
+        JOIN sys_role r ON r.role_id = ur.role_id
+        WHERE ur.user_id = #{userId}
+          AND r.status = '0'
+          AND r.del_flag = '0'
+          AND r.role_key &lt;&gt; 'admin'
+        ORDER BY r.role_id
+    </select>
+
+    <select id="selectPermissionCodes" resultType="java.lang.String">
+        SELECT DISTINCT m.perms
+        FROM sys_user_role ur
+        JOIN sys_role r ON r.role_id = ur.role_id
+        JOIN sys_role_menu rm ON rm.role_id = r.role_id
+        JOIN sys_menu m ON m.menu_id = rm.menu_id
+        WHERE ur.user_id = #{userId}
+          AND r.status = '0'
+          AND r.del_flag = '0'
+          AND r.role_key &lt;&gt; 'admin'
+          AND m.status = '0'
+          AND m.perms IS NOT NULL
+          AND TRIM(m.perms) &lt;&gt; ''
+        ORDER BY m.perms
+    </select>
+
+    <select id="selectAuthorCapabilityEnabled" resultType="java.lang.Boolean">
+        SELECT uac.enabled
+        FROM user_author_capability uac
+        WHERE uac.user_id = #{userId}
+        LIMIT 1
+    </select>
+
+</mapper>

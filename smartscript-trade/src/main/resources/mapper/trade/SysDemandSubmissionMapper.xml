@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.trade.mapper.SysDemandSubmissionMapper">
+
+    <resultMap type="com.smartscript.platform.trade.domain.SysDemandSubmission" id="SysDemandSubmissionResult">
+        <result property="submissionId"   column="submission_id" />
+        <result property="demandId"       column="demand_id" />
+        <result property="workId"         column="work_id" />
+        <result property="submitterId"    column="submitter_id" />
+        <result property="status"         column="status" />
+        <result property="submitMessage"  column="submit_message" />
+        <result property="reviewRemark"   column="review_remark" />
+        <result property="reviewedAt"     column="reviewed_at" />
+        <result property="createdAt"      column="created_at" />
+        <result property="updatedAt"      column="updated_at" />
+        <result property="createBy"       column="create_by" />
+        <result property="createTime"     column="create_time" />
+        <result property="remark"         column="remark" />
+        <result property="workTitle"      column="work_title" />
+        <result property="submitterName"  column="submitter_name" />
+    </resultMap>
+
+    <select id="selectSubmissionsByDemandId" parameterType="Long" resultMap="SysDemandSubmissionResult">
+        select s.submission_id, s.demand_id, s.work_id, s.submitter_id,
+               s.status, s.submit_message, s.review_remark, s.reviewed_at,
+               s.created_at, s.updated_at, s.create_by, s.create_time, s.remark,
+               w.title as work_title
+        from sys_demand_submission s
+        left join sys_work w on s.work_id = w.work_id
+        where s.demand_id = #{demandId}
+        order by s.created_at desc
+    </select>
+
+</mapper>

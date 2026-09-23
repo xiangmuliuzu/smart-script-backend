@@ -1,0 +1,195 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.user.mapper.AdminNotificationMapper">
+
+    <!--
+      A4 用户消息（契约 §3.4 / §5.4）。
+
+      安全约束：
+        1. request_id 唯一（uk_user_notification_request_id）作为幂等键；
+           幂等签名用于区分「等价重试」与「同键不同内容」。
+        2. 收件人必须存在、未删除且属于 App 账号域（01/02/03），
+           校验不通过时整体失败，不留半成品（MSG-03）。
+        3. receiverCount 由聚合 COUNT 派生，不设冗余列（裁决 GAP-4）。
+        4. 历史行兼容（裁决 GAP-2）：business_type/business_id 为 NULL 时
+           回落到 biz_ref 作为 businessId，businessType 保持 NULL，不解析分隔符。
+        5. 收件人摘要只返回昵称与掩码手机号，不回传全量敏感资料。
+    -->
+
+    <sql id="phoneMaskExpr">
+        CASE
+          WHEN u.phonenumber IS NULL OR TRIM(u.phonenumber) = '' THEN NULL
+          WHEN CHAR_LENGTH(u.phonenumber) &gt;= 7
+            THEN CONCAT(LEFT(u.phonenumber, 3), '****', RIGHT(u.phonenumber, 4))
+          ELSE '***'
+        END
+    </sql>
+
+    <resultMap id="AdminNotificationMap" type="com.smartscript.platform.user.domain.admin.AdminNotification">
+        <id property="notificationId" column="notification_id"/>
+        <result property="requestId" column="request_id"/>
+        <result property="type" column="type"/>
+        <result property="title" column="title"/>
+        <result property="content" column="content"/>
+        <result property="businessType" column="business_type"/>
+        <result property="businessId" column="business_id"/>
+        <result property="receiverCount" column="receiver_count"/>
+        <result property="createdBy" column="created_by"/>
+        <result property="createdAt" column="created_at"/>
+    </resultMap>
+
+    <sql id="notificationColumns">
+        n.id AS notification_id,
+        n.request_id,
+        n.type,
+        n.title,
+        n.body AS content,
+        n.business_type,
+        <!-- 历史行双列为空时回落到 biz_ref，仅作为 businessId 使用 -->
+        COALESCE(n.business_id, n.biz_ref) AS business_id,
+        n.create_by AS created_by,
+        n.create_time AS created_at
+    </sql>
+
+    <select id="selectNotificationPage" parameterType="map" resultMap="AdminNotificationMap">
+        SELECT
+            <include refid="notificationColumns"/>,
+            (SELECT COUNT(*)
+               FROM user_notification_receiver r
+              WHERE r.notification_id = n.id
+                AND r.deleted_flag = 0) AS receiver_count
+        FROM user_notification n
+        WHERE 1 = 1
+        <if test="type != null and type != ''">
+            AND n.type = #{type}
+        </if>
+        <if test="createdBy != null and createdBy != ''">
+            AND n.create_by = #{createdBy}
+        </if>
+        <if test="beginTime != null and beginTime != ''">
+            AND n.create_time &gt;= #{beginTime}
+        </if>
+        <if test="endTime != null and endTime != ''">
+            AND n.create_time &lt;= #{endTime}
+        </if>
+        <if test="orderByColumn != null and orderByColumn != ''">
+            ORDER BY ${orderByColumn} ${isAsc}
+        </if>
+    </select>
+
+    <select id="selectNotificationDetail" resultMap="AdminNotificationMap">
+        SELECT
+            <include refid="notificationColumns"/>,
+            (SELECT COUNT(*)
+               FROM user_notification_receiver r
+              WHERE r.notification_id = n.id
+                AND r.deleted_flag = 0) AS receiver_count
+        FROM user_notification n
+        WHERE n.id = #{notificationId}
+        LIMIT 1
+    </select>
+
+    <!-- 脱敏收件人摘要：昵称 + 掩码手机号，不回传完整资料 -->
+    <resultMap id="ReceiverBriefMap"
+               type="com.smartscript.platform.user.domain.admin.NotificationReceiverBrief">
+        <id property="userId" column="user_id"/>
+        <result property="nickname" column="nickname"/>
+        <result property="phoneMasked" column="phone_masked"/>
+        <result property="readAt" column="read_at"/>
+    </resultMap>
+
+    <select id="selectReceiverBriefs" resultMap="ReceiverBriefMap">
+        SELECT
+            r.user_id,
+            u.nick_name AS nickname,
+            <include refid="phoneMaskExpr"/> AS phone_masked,
+            r.read_at
+        FROM user_notification_receiver r
+        JOIN sys_user u ON u.user_id = r.user_id
+        WHERE r.notification_id = #{notificationId}
+          AND r.deleted_flag = 0
+        ORDER BY r.id
+    </select>
+
+    <select id="selectByRequestId" resultMap="AdminNotificationMap">
+        SELECT
+            <include refid="notificationColumns"/>,
+            (SELECT COUNT(*)
+               FROM user_notification_receiver r
+              WHERE r.notification_id = n.id
+                AND r.deleted_flag = 0) AS receiver_count
+        FROM user_notification n
+        WHERE n.request_id = #{requestId}
+        LIMIT 1
+    </select>
+
+    <!--
+      幂等签名原文：由服务层对该原文计算 SHA-256 后与既有消息比较。
+      这样 SQL 与 Java 只在一处（拼接规则）耦合，不在哈希实现上重复。
+
+      拼接顺序固定为 type|title|body|business_type|COALESCE(business_id,biz_ref)|收件人升序逗号列表，
+      与 UserNotificationAdminService#signature 完全一致。
+    -->
+    <select id="selectIdempotencySignature" resultType="java.lang.String">
+        SELECT CONCAT_WS('|',
+                   IFNULL(n.type, ''),
+                   IFNULL(n.title, ''),
+                   IFNULL(n.body, ''),
+                   IFNULL(n.business_type, ''),
+                   IFNULL(COALESCE(n.business_id, n.biz_ref), ''),
+                   IFNULL((SELECT GROUP_CONCAT(r.user_id ORDER BY r.user_id)
+                             FROM user_notification_receiver r
+                            WHERE r.notification_id = n.id
+                              AND r.deleted_flag = 0), '')
+               )
+        FROM user_notification n
+        WHERE n.request_id = #{requestId}
+        LIMIT 1
+    </select>
+
+    <!-- request_id 唯一索引保证同一幂等键只落一行 -->
+    <insert id="insertNotification" parameterType="com.smartscript.platform.user.domain.admin.AdminNotification"
+            useGeneratedKeys="true" keyProperty="notificationId">
+        INSERT INTO user_notification
+            (request_id, type, title, body, business_type, business_id, create_by, create_time)
+        VALUES
+            (#{requestId}, #{type}, #{title}, #{content}, #{businessType}, #{businessId},
+             #{createdBy}, NOW())
+    </insert>
+
+    <!-- 收件人去重后写入；唯一键 uk_user_notification_receiver 再兜一层 -->
+    <insert id="insertReceivers">
+        INSERT INTO user_notification_receiver
+            (notification_id, user_id, deleted_flag, create_by, create_time)
+        VALUES
+        <foreach collection="userIds" item="userId" separator=",">
+            (#{notificationId}, #{userId}, 0, 'a4-admin', NOW())
+        </foreach>
+    </insert>
+
+    <!--
+      收件人合法性：不存在、已删除或不属于 App 账号域的数量。
+      非 0 时服务层整体回滚，不产生半成品消息。
+    -->
+    <select id="countInvalidReceivers" resultType="int">
+        SELECT COUNT(*)
+        FROM (
+            <foreach collection="userIds" item="userId" separator=" UNION ALL ">
+                SELECT #{userId} AS user_id
+            </foreach>
+        ) want
+        LEFT JOIN sys_user u ON u.user_id = want.user_id
+        WHERE u.user_id IS NULL
+           OR u.del_flag &lt;&gt; '0'
+           OR u.user_type NOT IN ('01', '02', '03')
+    </select>
+
+    <select id="countReceivers" resultType="int">
+        SELECT COUNT(*)
+        FROM user_notification_receiver r
+        WHERE r.notification_id = #{notificationId}
+          AND r.deleted_flag = 0
+    </select>
+
+</mapper>

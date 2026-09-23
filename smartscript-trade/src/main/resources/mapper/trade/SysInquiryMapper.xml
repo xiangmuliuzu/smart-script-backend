@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.trade.mapper.SysInquiryMapper">
+
+    <resultMap type="com.smartscript.platform.trade.domain.SysInquiry" id="SysInquiryResult">
+        <result property="inquiryId"    column="inquiry_id" />
+        <result property="inquiryNo"    column="inquiry_no" />
+        <result property="workId"       column="work_id" />
+        <result property="buyerId"      column="buyer_id" />
+        <result property="sellerId"     column="seller_id" />
+        <result property="licenseType"  column="license_type" />
+        <result property="intendedUse"  column="intended_use" />
+        <result property="budget"       column="budget" />
+        <result property="message"      column="message" />
+        <result property="status"       column="status" />
+        <result property="expireAt"     column="expire_at" />
+        <result property="createdAt"    column="created_at" />
+        <result property="updatedAt"    column="updated_at" />
+        <result property="createBy"     column="create_by" />
+        <result property="createTime"   column="create_time" />
+        <result property="remark"       column="remark" />
+        <result property="workTitle"    column="work_title" />
+        <result property="buyerName"    column="buyer_name" />
+        <result property="sellerName"   column="seller_name" />
+    </resultMap>
+
+    <select id="selectInquiryList" parameterType="com.smartscript.platform.trade.domain.SysInquiry" resultMap="SysInquiryResult">
+        select i.inquiry_id, i.inquiry_no, i.work_id, i.buyer_id, i.seller_id,
+               i.license_type, i.intended_use, i.budget, i.message, i.status,
+               i.expire_at, i.created_at, i.updated_at, i.create_by, i.create_time, i.remark,
+               w.title as work_title
+        from sys_inquiry i
+        left join sys_work w on i.work_id = w.work_id
+        <where>
+            <if test="inquiryNo != null and inquiryNo != ''">AND i.inquiry_no like concat('%', #{inquiryNo}, '%')</if>
+            <if test="status != null and status != ''">AND i.status = #{status}</if>
+            <if test="licenseType != null and licenseType != ''">AND i.license_type = #{licenseType}</if>
+            <if test="workTitle != null and workTitle != ''">AND w.title like concat('%', #{workTitle}, '%')</if>
+        </where>
+        order by i.created_at desc
+    </select>
+
+    <select id="selectInquiryById" parameterType="Long" resultMap="SysInquiryResult">
+        select i.*, w.title as work_title
+        from sys_inquiry i
+        left join sys_work w on i.work_id = w.work_id
+        where i.inquiry_id = #{inquiryId}
+    </select>
+
+    <insert id="insertInquiry" parameterType="com.smartscript.platform.trade.domain.SysInquiry" useGeneratedKeys="true" keyProperty="inquiryId">
+        insert into sys_inquiry (
+            inquiry_no, work_id, buyer_id, seller_id, license_type, intended_use,
+            budget, message, status, expire_at, create_by, create_time, remark
+        ) values (
+            #{inquiryNo}, #{workId}, #{buyerId}, #{sellerId}, #{licenseType}, #{intendedUse},
+            #{budget}, #{message}, #{status}, #{expireAt}, #{createBy}, #{createTime}, #{remark}
+        )
+    </insert>
+
+    <update id="updateInquiry" parameterType="com.smartscript.platform.trade.domain.SysInquiry">
+        update sys_inquiry
+        <set>
+            <if test="status != null">status = #{status},</if>
+            <if test="updateBy != null">update_by = #{updateBy},</if>
+            <if test="updateTime != null">update_time = #{updateTime},</if>
+        </set>
+        where inquiry_id = #{inquiryId}
+    </update>
+
+</mapper>

@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.trade.mapper.SysBusinessFollowMapper">
+
+    <resultMap type="com.smartscript.platform.trade.domain.SysBusinessFollow" id="SysBusinessFollowResult">
+        <result property="followId"          column="follow_id" />
+        <result property="partnerId"         column="partner_id" />
+        <result property="followerId"        column="follower_id" />
+        <result property="followType"        column="follow_type" />
+        <result property="content"           column="content" />
+        <result property="nextFollowDate"    column="next_follow_date" />
+        <result property="nextFollowContent" column="next_follow_content" />
+        <result property="status"            column="status" />
+        <result property="followTime"        column="follow_time" />
+        <result property="createdAt"         column="created_at" />
+        <result property="createBy"          column="create_by" />
+        <result property="createTime"        column="create_time" />
+        <result property="remark"            column="remark" />
+        <result property="partnerName"       column="partner_name" />
+        <result property="followerName"      column="follower_name" />
+    </resultMap>
+
+    <select id="selectFollowList" parameterType="com.smartscript.platform.trade.domain.SysBusinessFollow" resultMap="SysBusinessFollowResult">
+        select f.follow_id, f.partner_id, f.follower_id, f.follow_type, f.content,
+               f.next_follow_date, f.next_follow_content, f.status, f.follow_time,
+               f.created_at, f.create_by, f.create_time, f.remark,
+               p.partner_name as partner_name
+        from sys_business_follow f
+        left join sys_partner p on f.partner_id = p.partner_id
+        <where>
+            <if test="partnerId != null">AND f.partner_id = #{partnerId}</if>
+            <if test="status != null and status != ''">AND f.status = #{status}</if>
+            <if test="followType != null and followType != ''">AND f.follow_type = #{followType}</if>
+        </where>
+        order by f.follow_time desc
+    </select>
+
+    <select id="selectFollowById" parameterType="Long" resultMap="SysBusinessFollowResult">
+        select f.follow_id, f.partner_id, f.follower_id, f.follow_type, f.content,
+               f.next_follow_date, f.next_follow_content, f.status, f.follow_time,
+               f.created_at, f.create_by, f.create_time, f.remark,
+               p.partner_name as partner_name
+        from sys_business_follow f
+        left join sys_partner p on f.partner_id = p.partner_id
+        where f.follow_id = #{followId}
+    </select>
+
+    <insert id="insertFollow" parameterType="com.smartscript.platform.trade.domain.SysBusinessFollow" useGeneratedKeys="true" keyProperty="followId">
+        insert into sys_business_follow (
+            partner_id, follower_id, follow_type, content, next_follow_date,
+            next_follow_content, status, follow_time, create_by, create_time, remark
+        ) values (
+            #{partnerId}, #{followerId}, #{followType}, #{content}, #{nextFollowDate},
+            #{nextFollowContent}, #{status}, #{followTime}, #{createBy}, #{createTime}, #{remark}
+        )
+    </insert>
+
+</mapper>
