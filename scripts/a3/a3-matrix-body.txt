@@ -8,6 +8,10 @@ param(
 $ErrorActionPreference = 'Stop'
 $dbPass = $env:DB_PASSWORD
 if ([string]::IsNullOrEmpty($dbPass)) { throw 'DB_PASSWORD env required' }
+$invalidRefreshToken = 'invalid-test-refresh-token'
+if ([string]::IsNullOrEmpty($env:A3_TEST_PASSWORD)) { throw 'A3_TEST_PASSWORD env required' }
+if ([string]::IsNullOrEmpty($env:A3_TEST_PASSWORD_NEXT)) { throw 'A3_TEST_PASSWORD_NEXT env required' }
+if ([string]::IsNullOrEmpty($env:A3_WRONG_PASSWORD)) { throw 'A3_WRONG_PASSWORD env required' }
 $code = $env:APP_SMS_MOCK_CODE
 if ([string]::IsNullOrEmpty($code)) { throw 'APP_SMS_MOCK_CODE env required' }
 $appSecret = $env:APP_TOKEN_SECRET
@@ -23,7 +27,7 @@ $db = $DbName
 $phone = '139' + (Get-Random -Minimum 10000000 -Maximum 99999999)
 $phone2 = '138' + (Get-Random -Minimum 10000000 -Maximum 99999999)
 $deviceId = 'it-device-01'
-$pwd = 'Passw0rd123'
+$pwd = $env:A3_TEST_PASSWORD
 $results = New-Object System.Collections.Generic.List[object]
 function Get-ErrBody($err) {
   if ($err.ErrorDetails -and $err.ErrorDetails.Message -and $err.ErrorDetails.Message.Trim()) { return $err.ErrorDetails.Message }
@@ -231,7 +235,7 @@ try {
   Record 'AUTH-08' ($reg.code -eq 200 -and "$ph" -like '$2*' -and [int]$cc -ge 2) "hash=$ph consents=$cc"
   $plogin = Invoke-Json POST '/api/v1/auth/password/login' @{phone=$phone2;password=$pwd;deviceId=$deviceId}
   $m7=$null;$m7b=$null
-  try { $null = Invoke-Json POST '/api/v1/auth/password/login' @{phone=$phone2;password='WrongPass1';deviceId=$deviceId} } catch { $raw=Get-ErrBody $_; if($raw){$m7=($raw|ConvertFrom-Json).message} }
+  try { $null = Invoke-Json POST '/api/v1/auth/password/login' @{phone=$phone2;password=$env:A3_WRONG_PASSWORD;deviceId=$deviceId} } catch { $raw=Get-ErrBody $_; if($raw){$m7=($raw|ConvertFrom-Json).message} }
   try { $null = Invoke-Json POST '/api/v1/auth/password/login' @{phone='13900000000';password=$pwd;deviceId=$deviceId} } catch { $raw=Get-ErrBody $_; if($raw){$m7b=($raw|ConvertFrom-Json).message} }
   Record 'AUTH-07' ($plogin.code -eq 200 -and $m7 -and $m7 -eq $m7b) "unified=[$m7]"
   $rt1=$login2.data.refreshToken
@@ -269,7 +273,7 @@ try {
     Wait-Cooldown $cooldownSec
     $null = Send-Sms $phone18 'LOGIN'
     $su = Invoke-Json POST '/api/v1/auth/sms/login' @{phone=$phone18;code=$code;deviceId=$deviceId}
-    $null = Invoke-Json POST '/api/v1/auth/password/change' @{oldPassword=$pwd;newPassword='NewPass99'} $su.data.accessToken
+    $null = Invoke-Json POST '/api/v1/auth/password/change' @{oldPassword=$pwd;newPassword=$env:A3_TEST_PASSWORD_NEXT} $su.data.accessToken
     $e18=$null; try { $null = Invoke-Json GET '/api/v1/auth/me' $null $su.data.accessToken } catch { $e18=Get-ErrCode $_ }
     Record 'AUTH-18' ($e18 -in 40100,40101,40301) "afterChange=$e18"
   } catch { Record 'AUTH-18' $false "ex $($_.Exception.Message)" }
@@ -277,10 +281,10 @@ try {
   try {
     Wait-Cooldown $cooldownSec
     $null = Send-Sms $phone2 'RESET_PASSWORD'
-    $null = Invoke-Json POST '/api/v1/auth/password/reset' @{phone=$phone2;code=$code;newPassword='ResetPass1'}
-    $l19 = Invoke-Json POST '/api/v1/auth/password/login' @{phone=$phone2;password='ResetPass1';deviceId=$deviceId}
+    $null = Invoke-Json POST '/api/v1/auth/password/reset' @{phone=$phone2;code=$code;newPassword=$env:A3_TEST_PASSWORD_NEXT}
+    $l19 = Invoke-Json POST '/api/v1/auth/password/login' @{phone=$phone2;password=$env:A3_TEST_PASSWORD_NEXT;deviceId=$deviceId}
     $oldFail=$false; try { $null = Invoke-Json POST '/api/v1/auth/password/login' @{phone=$phone2;password=$pwd;deviceId=$deviceId} } catch { $oldFail=$true }
-    try { $null = Invoke-Json POST '/api/v1/auth/password/login' @{phone=$phone2;password='Passw0rd123';deviceId=$deviceId} } catch { $oldFail=$true }
+    try { $null = Invoke-Json POST '/api/v1/auth/password/login' @{phone=$phone2;password=$pwd;deviceId=$deviceId} } catch { $oldFail=$true }
     Record 'AUTH-19' ($l19.code -eq 200 -and $oldFail) 'reset+oldRejected'
   } catch { Record 'AUTH-19' $false "ex $($_.Exception.Message)" }
 
@@ -329,7 +333,7 @@ try {
   } catch { Record 'AUTH-23' $false "ex $($_.Exception.Message)"; Record 'AUTH-10' $false 'cascade' }
 
   try {
-    $e14=$null; try { $null = Invoke-Json POST '/api/v1/auth/token/refresh' @{refreshToken='deadbeef';deviceId=$deviceId} } catch { $e14=Get-ErrCode $_ }
+    $e14=$null; try { $null = Invoke-Json POST '/api/v1/auth/token/refresh' @{refreshToken=$invalidRefreshToken;deviceId=$deviceId} } catch { $e14=Get-ErrCode $_ }
     Record 'AUTH-14' ($e14 -eq 40102) "invalid=$e14"
   } catch { Record 'AUTH-14' $false "ex $($_.Exception.Message)" }
 

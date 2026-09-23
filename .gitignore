@@ -44,6 +44,11 @@ nbdist/
 *.xml.versionsBackup
 *.swp
 
+# 本地私有环境变量（见 .env.example 与 README「环境变量」）
+# 必须忽略：其中会放 TOKEN_SECRET / APP_TOKEN_SECRET 等本机密钥
+.env.local
+.env.*.local
+
 !*/build/*.java
 !*/build/*.html
 !*/build/*.xml
