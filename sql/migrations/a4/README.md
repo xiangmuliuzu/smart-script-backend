@@ -174,3 +174,22 @@ SET @a4_force_rollback = 1;
 | 角色标记回滚（无占用） | 列移除，角色数据与 `system:role:edit` 菜单完好 |
 
 证据目录：`D:\build\shared\a4-evidence`（`10`～`14` 号日志）。
+
+## 9. 初始化流程引入后的校验项调整
+
+为支持「全新空库一次跑通、每步 `SUMMARY` 必须 `PASS`」，`A4_20260922_001__a4_verify.sql`
+的账号域检查做了一处语义修正：
+
+| 项目 | 原实现 | 现实现 |
+| --- | --- | --- |
+| check_id | `app_user_domain_nonempty` | `app_user_domain_count`（信息项，不参与判定） |
+| 条件 | `COUNT(*) > 0` 才 `PASS` | 恒为 `PASS`，`detail` 报出 `app_user_rows=N` |
+
+原因：本迁移只做 `user_notification` / `user_feedback` / `sys_role` 的增量，
+**不创建任何用户**。App 域（`user_type` 为 `01/02/03`）用户由 App 注册流程产生，
+因此全新初始化的若依基线该计数必然为 0。原判定实际断言的是「联调库里已灌入 App 用户」
+这一测试环境条件，会让空库初始化无法通过，不属于迁移不变式。
+
+保留下来的强制项：`account_domain_defined` 仍要求所有 `sys_user.user_type` 取值合法
+（`00/01/02/03`），取值非法即 `FAIL`。A4 的其余 20 项结构校验未做任何放宽。
+

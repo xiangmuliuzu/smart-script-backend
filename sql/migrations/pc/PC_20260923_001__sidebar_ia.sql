@@ -1,8 +1,10 @@
 -- PC 侧边栏信息架构对齐原型
--- 原型：D:\转移\下载\pc\pc\src\layout\MainLayout.vue（侧边栏名称与分组）
--- 目标库：PC 后端实际连接的开发库（当前为 ruoyi_dev_a5_test，见 information_schema.PROCESSLIST）
+-- 依据：原型侧边栏 MainLayout 的名称与分组（分组顺序、目录层级、三个改名）
+-- 目标库：PC 后端实际连接的开发库（启动后可用 information_schema.PROCESSLIST 核对）
 --
--- 前提：产品菜单已由 shared/sql/a1-p5-menu-seed.sql 写入（menu_id 5000-5152）。
+-- 前提：产品菜单已由 sql/migrations/a1/A1_20260921_001__p5_menu_seed.sql 写入
+--       （menu_id 5000-5152），且 A4 菜单 3000-3015 已由
+--       A4_20260922_002__a4_permissions.sql 写入。
 -- 本脚本只改 sys_menu 的展示属性，不动 menu_type / perms / visible / status，
 -- 也不动任何页面组件，因此不改变权限判定与页面实现。
 --
@@ -15,6 +17,7 @@
 --   4) A4 迭代菜单去掉 "A4" 前缀，顶级目录「A4用户管理」改名「用户中心」
 --
 -- 全部按 menu_id 定位并带原值校验，可重复执行；回滚见 U20260923_001__sidebar_ia_rollback.sql
+-- 最终校验见 PC_20260923_001__sidebar_ia_verify.sql（SUMMARY 必须 PASS）
 SET NAMES utf8mb4;
 
 -- ---------------------------------------------------------------------

@@ -177,10 +177,16 @@ SELECT 'account_domain_defined',
 FROM sys_user
 WHERE user_type IS NULL OR user_type NOT IN ('00','01','02','03');
 
+-- 10b) App 账号域计数 —— 信息项，不参与 FAIL 判定
+--      本迁移只做 user_notification / user_feedback / sys_role 的增量，不创建 App 用户；
+--      App 域用户由 App 注册流程产生。因此「刚初始化的若依基线里 01/02/03 为空」
+--      是合法状态，不能作为迁移失败依据（原实现按 >0 判定，只对已灌入 App 用户的
+--      联调库成立，会让全新空库初始化无法通过）。账号域取值合法性由上面
+--      account_domain_defined 强制，这里只报计数供人工核对。
 INSERT INTO tmp_a4_verify
-SELECT 'app_user_domain_nonempty',
-       IF(COUNT(*) > 0, 'PASS', 'FAIL'),
-       CONCAT('app_user_rows=', COUNT(*))
+SELECT 'app_user_domain_count',
+       'PASS',
+       CONCAT('app_user_rows=', COUNT(*), ' (informational)')
 FROM sys_user WHERE user_type IN ('01','02','03') AND del_flag = '0';
 
 -- 11) 实名/作者能力状态域

@@ -1,0 +1,21 @@
+# A3 App 认证联调专用步骤清单（子集，非正式初始化）
+#
+# 用途：给 A3 联调建隔离测试库（只需若依基线 + A2），不引入 A1 产品菜单、
+#       A4 用户中心与 PC 侧边栏数据。正式初始化请用 scripts/db/init-steps.txt。
+#
+# 用法（示例，库名与账号按本机实际替换）：
+#   export DB_PASSWORD='<口令>'
+#   ./scripts/db/init-database.sh -d ruoyi_dev_a3_test -u root \
+#       --steps scripts/a3/init-steps-a3.txt
+#
+# 注意：新工具只写不存在或完全为空的库，拒绝在非空库上执行，也不会 DROP 任何库。
+#       反复联调需要重建测试库时，请先自行确认并删除该测试库：
+#         mysql -e "DROP DATABASE IF EXISTS \`ruoyi_dev_a3_test\`;"
+#       破坏性动作不藏在脚本里，是为了避免误删非测试库。
+#
+# 格式与 scripts/db/init-steps.txt 一致：<步骤ID>|<闸门>|<仓库根相对路径>|<说明>
+
+ry-baseline|exit|sql/ry_20260320.sql|若依基础结构 + 初始数据
+a2-precheck|summary|sql/migrations/a2/A2_20260921_001__a2_precheck.sql|A2 前置只读检查
+a2-migrate|exit|sql/migrations/a2/A2_20260921_001__a2_migrate.sql|A2 结构加固 + App 表骨架
+a2-verify|summary|sql/migrations/a2/A2_20260921_001__a2_verify.sql|A2 迁移校验

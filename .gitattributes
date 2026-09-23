@@ -1,0 +1,11 @@
+# 换行符策略：只固定会影响「能否执行」的文件类型，
+# 其余交由各人 core.autocrlf，避免大面积重写既有文件的换行符。
+
+# POSIX shell 脚本必须 LF：CRLF 会让 Git Bash / WSL 报 "$'\r': command not found"，
+# 即使 blob 存的是 LF，core.autocrlf=true 的机器检出后也会变成 CRLF。
+*.sh text eol=lf
+
+# Windows 原生脚本固定 CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
