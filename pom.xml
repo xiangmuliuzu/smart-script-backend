@@ -198,6 +198,13 @@
                 <version>${ruoyi.version}</version>
             </dependency>
 
+            <!-- E: smartscript-review 审核风控与AI模块 -->
+            <dependency>
+                <groupId>com.smartscript</groupId>
+                <artifactId>smartscript-review</artifactId>
+                <version>${ruoyi.version}</version>
+            </dependency>
+
         </dependencies>
     </dependencyManagement>
 
@@ -211,6 +218,7 @@
         <module>smartscript-user</module>
         <module>smartscript-content</module>
         <module>smartscript-trade</module>
+        <module>smartscript-review</module>
     </modules>
     <packaging>pom</packaging>
 
