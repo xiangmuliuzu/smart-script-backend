@@ -72,6 +72,12 @@
             <artifactId>smartscript-trade</artifactId>
         </dependency>
 
+        <!-- E: smartscript-review 审核风控与AI模块 -->
+        <dependency>
+            <groupId>com.smartscript</groupId>
+            <artifactId>smartscript-review</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>

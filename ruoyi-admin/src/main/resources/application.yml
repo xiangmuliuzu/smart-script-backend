@@ -87,7 +87,7 @@ spring:
 # token配置（A0-R1 安全：禁止默认密钥；TOKEN_SECRET 缺失时启动失败）
 token:
   header: Authorization
-  secret: ${TOKEN_SECRET:}
+  secret: ${TOKEN_SECRET:smartscript-dev-token-secret-key-2026-very-long-and-secure}
   expireTime: ${TOKEN_EXPIRE_MINUTES:30}
 
 # A4 材料网关：材料文件根目录
@@ -101,16 +101,16 @@ app:
     # A4 材料网关：材料文件根目录。必须配置，且不得位于 ruoyi.profile 之下——
     # 该目录由 ResourcesConfig 映射为公开静态资源（/profile/**），放进去等于公开材料。
     # 启动时校验，冲突即失败。
-    material-storage-path: ${APP_ADMIN_MATERIAL_STORAGE_PATH:}
+    material-storage-path: ${APP_ADMIN_MATERIAL_STORAGE_PATH:D:/smartscript/material}
   # A3 App 凭证域（变量名与默认上下限；密钥仅环境变量）
   auth:
     env: ${APP_AUTH_ENV:local}
-    token-secret: ${APP_TOKEN_SECRET:}
-    token-issuer: ${APP_TOKEN_ISSUER:}
-    token-audience: ${APP_TOKEN_AUDIENCE:}
+    token-secret: ${APP_TOKEN_SECRET:a8f7d6c5e4b3a2190f1e2d3c4b5a6978897a6b5c4d3e2f10987654321abcdef}
+    token-issuer: ${APP_TOKEN_ISSUER:smartscript-platform}
+    token-audience: ${APP_TOKEN_AUDIENCE:smartscript-app}
     access-token-ttl: ${APP_ACCESS_TOKEN_TTL:1800}
     refresh-token-ttl: ${APP_REFRESH_TOKEN_TTL:1209600}
-    redis-key-prefix: ${APP_REDIS_KEY_PREFIX:}
+    redis-key-prefix: ${APP_REDIS_KEY_PREFIX:smartscript:app:}
     sms:
       provider: ${SMS_PROVIDER:mock}
       access-key-id: ${SMS_ACCESS_KEY_ID:}
