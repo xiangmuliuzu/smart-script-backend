@@ -44,4 +44,16 @@
         where demand_id = #{demandId}
     </select>
 
+    <insert id="insertDemand" parameterType="com.smartscript.platform.trade.domain.SysDemand" useGeneratedKeys="true" keyProperty="demandId">
+        insert into sys_demand (
+            demand_no, client_id, title, genre_id, budget, deadline,
+            requirement, contact_info, submission_count, status,
+            create_by, create_time, remark
+        ) values (
+            #{demandNo}, #{clientId}, #{title}, #{genreId}, #{budget}, #{deadline},
+            #{requirement}, #{contactInfo}, #{submissionCount}, #{status},
+            #{createBy}, #{createTime}, #{remark}
+        )
+    </insert>
+
 </mapper>

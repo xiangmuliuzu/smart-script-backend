@@ -34,4 +34,9 @@ public class TradeDemandService
     {
         return submissionMapper.selectSubmissionsByDemandId(demandId);
     }
+
+    public int insertDemand(SysDemand demand)
+    {
+        return demandMapper.insertDemand(demand);
+    }
 }

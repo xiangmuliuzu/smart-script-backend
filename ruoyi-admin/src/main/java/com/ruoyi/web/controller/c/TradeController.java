@@ -282,6 +282,24 @@ public class TradeController extends BaseController
         return getDataTable(list);
     }
 
+    /** Accept a quote */
+    @PreAuthorize("@ss.hasPermi('trade:quote:edit')")
+    @PutMapping("/trade/quote/{quoteId}/accept")
+    public AjaxResult acceptQuote(@PathVariable Long quoteId)
+    {
+        int rows = quoteService.updateQuoteStatus(quoteId, "accepted");
+        return toAjax(rows);
+    }
+
+    /** Reject a quote */
+    @PreAuthorize("@ss.hasPermi('trade:quote:edit')")
+    @PutMapping("/trade/quote/{quoteId}/reject")
+    public AjaxResult rejectQuote(@PathVariable Long quoteId)
+    {
+        int rows = quoteService.updateQuoteStatus(quoteId, "rejected");
+        return toAjax(rows);
+    }
+
     /* ==================== Demand / Submissions (documented gap) ==================== */
 
     /** Demand project list */
@@ -301,5 +319,20 @@ public class TradeController extends BaseController
     {
         List<SysDemandSubmission> list = demandService.selectSubmissionsByDemandId(demandId);
         return getDataTable(list);
+    }
+
+    /** Create demand project */
+    @PreAuthorize("@ss.hasPermi('trade:demand:add')")
+    @PostMapping("/trade/demand")
+    public AjaxResult createDemand(@RequestBody SysDemand demand)
+    {
+        String demandNo = "DM" + System.currentTimeMillis();
+        demand.setDemandNo(demandNo);
+        demand.setSubmissionCount(0);
+        demand.setStatus("open");
+        demand.setCreateBy(getUsername());
+        demand.setCreateTime(new java.util.Date());
+        int rows = demandService.insertDemand(demand);
+        return toAjax(rows);
     }
 }
