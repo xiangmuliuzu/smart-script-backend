@@ -67,6 +67,11 @@
     <update id="updateQuote" parameterType="com.smartscript.platform.trade.domain.SysQuote">
         update sys_quote
         <set>
+            <if test="price != null">price = #{price},</if>
+            <if test="licenseType != null">license_type = #{licenseType},</if>
+            <if test="validDays != null">valid_days = #{validDays},</if>
+            <if test="description != null">description = #{description},</if>
+            <if test="expireAt != null">expire_at = #{expireAt},</if>
             <if test="status != null">status = #{status},</if>
             <if test="updateBy != null">update_by = #{updateBy},</if>
             <if test="updateTime != null">update_time = #{updateTime},</if>

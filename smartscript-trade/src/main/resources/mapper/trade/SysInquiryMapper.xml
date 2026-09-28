@@ -61,10 +61,24 @@
         update sys_inquiry
         <set>
             <if test="status != null">status = #{status},</if>
+            <if test="remark != null">remark = #{remark},</if>
             <if test="updateBy != null">update_by = #{updateBy},</if>
             <if test="updateTime != null">update_time = #{updateTime},</if>
         </set>
         where inquiry_id = #{inquiryId}
+    </update>
+
+    <!-- P1-08：扫描过期询盘（status ∈ pending/accepted/quoted 且 expire_at < now）批量置 closed。
+         由 Quartz 任务 tradeInquiryTask.closeExpiredInquiries 定时调用（见迁移 C_20260928_005）。
+         deal/rejected/closed 为终态，不再处理。 -->
+    <update id="closeExpiredInquiries">
+        update sys_inquiry
+        set status = 'closed',
+            update_by = 'quartz-inquiry-expire',
+            update_time = now()
+        where status in ('pending', 'accepted', 'quoted')
+          and expire_at is not null
+          and expire_at &lt; now()
     </update>
 
 </mapper>

@@ -159,6 +159,17 @@ public class TradeController extends BaseController
         return toAjax(rows);
     }
 
+    /** Update partner (documented gap; front-end edit reuses this instead of create) */
+    @PreAuthorize("@ss.hasPermi('trade:partners:edit')")
+    @Log(title = "C-Partner", businessType = BusinessType.UPDATE)
+    @PutMapping("/trade/partners/{partnerId}")
+    public AjaxResult updatePartner(@PathVariable Long partnerId, @RequestBody SysPartner partner)
+    {
+        partner.setPartnerId(partnerId);
+        int rows = partnerService.updatePartner(partner);
+        return toAjax(rows);
+    }
+
     /* ==================== 2.37 Demand Tags ==================== */
 
     /** 2.37 Demand tag list */
@@ -249,15 +260,19 @@ public class TradeController extends BaseController
         return AjaxResult.success(inquiry);
     }
 
-    /** Follow up on inquiry (placeholder - updates inquiry status/remark) */
+    /** Follow up on inquiry: records a follow entry and appends to inquiry remark */
     @PreAuthorize("@ss.hasPermi('trade:inquiry:edit')")
     @Log(title = "C-Inquiry", businessType = BusinessType.UPDATE)
     @PostMapping("/trade/inquiry/follow-up/{id}")
-    public AjaxResult followUpInquiry(@PathVariable Long id, @RequestBody SysInquiry inquiry)
+    public AjaxResult followUpInquiry(@PathVariable Long id, @RequestBody java.util.Map<String, Object> body)
     {
-        inquiry.setInquiryId(id);
-        // For now, just update inquiry fields (status, remark)
-        return AjaxResult.success();
+        Object content = body.get("content");
+        if (content == null)
+        {
+            content = body.get("remark");
+        }
+        int rows = inquiryService.followUp(id, content != null ? content.toString() : "");
+        return toAjax(rows);
     }
 
     /** Convert inquiry to order (idempotent) */
@@ -268,6 +283,43 @@ public class TradeController extends BaseController
     {
         SysOrder order = inquiryService.convertToOrder(id);
         return AjaxResult.success(order);
+    }
+
+    /** Create inquiry (documented gap; 分工条目 9, PRD APP-TRADE-02) */
+    @PreAuthorize("@ss.hasPermi('trade:inquiry:add')")
+    @Log(title = "C-Inquiry", businessType = BusinessType.INSERT)
+    @PostMapping("/trade/inquiry")
+    public AjaxResult createInquiry(@RequestBody SysInquiry inquiry)
+    {
+        SysInquiry created = inquiryService.createInquiry(inquiry);
+        return AjaxResult.success(created);
+    }
+
+    /** Accept inquiry (分工条目 12): pending -> accepted */
+    @PreAuthorize("@ss.hasPermi('trade:inquiry:edit')")
+    @Log(title = "C-Inquiry", businessType = BusinessType.UPDATE)
+    @PutMapping("/trade/inquiry/{id}/accept")
+    public AjaxResult acceptInquiry(@PathVariable Long id)
+    {
+        return toAjax(inquiryService.acceptInquiry(id));
+    }
+
+    /** Reject inquiry (分工条目 12): pending -> rejected */
+    @PreAuthorize("@ss.hasPermi('trade:inquiry:edit')")
+    @Log(title = "C-Inquiry", businessType = BusinessType.UPDATE)
+    @PutMapping("/trade/inquiry/{id}/reject")
+    public AjaxResult rejectInquiry(@PathVariable Long id)
+    {
+        return toAjax(inquiryService.rejectInquiry(id));
+    }
+
+    /** Close inquiry (分工条目 12): -> closed */
+    @PreAuthorize("@ss.hasPermi('trade:inquiry:edit')")
+    @Log(title = "C-Inquiry", businessType = BusinessType.UPDATE)
+    @PutMapping("/trade/inquiry/{id}/close")
+    public AjaxResult closeInquiry(@PathVariable Long id)
+    {
+        return toAjax(inquiryService.closeInquiry(id));
     }
 
     /* ==================== Quote (documented gap) ==================== */
@@ -282,21 +334,50 @@ public class TradeController extends BaseController
         return getDataTable(list);
     }
 
-    /** Accept a quote */
+    /** Create quote (分工条目 17, PRD APP-TRADE-03): seller-role quote */
+    @PreAuthorize("@ss.hasPermi('trade:quote:add')")
+    @Log(title = "C-Quote", businessType = BusinessType.INSERT)
+    @PostMapping("/trade/quote")
+    public AjaxResult createQuote(@RequestBody SysQuote quote)
+    {
+        return AjaxResult.success(quoteService.createQuote(quote));
+    }
+
+    /** Buyer counter-offer (分工条目 19): inserts a buyer-role quote, preserves history */
+    @PreAuthorize("@ss.hasPermi('trade:quote:add')")
+    @Log(title = "C-Quote-Counter", businessType = BusinessType.INSERT)
+    @PostMapping("/trade/quote/counter-offer")
+    public AjaxResult counterOffer(@RequestBody SysQuote quote)
+    {
+        return AjaxResult.success(quoteService.counterOffer(quote));
+    }
+
+    /** Modify quote (分工条目 18): only pending quotes */
     @PreAuthorize("@ss.hasPermi('trade:quote:edit')")
+    @Log(title = "C-Quote", businessType = BusinessType.UPDATE)
+    @PutMapping("/trade/quote/{quoteId}")
+    public AjaxResult modifyQuote(@PathVariable Long quoteId, @RequestBody SysQuote quote)
+    {
+        return toAjax(quoteService.modifyQuote(quoteId, quote));
+    }
+
+    /** Accept a quote: validates state/expiry, generates order (idempotent), sets quote accepted */
+    @PreAuthorize("@ss.hasPermi('trade:quote:edit')")
+    @Log(title = "C-Quote", businessType = BusinessType.UPDATE)
     @PutMapping("/trade/quote/{quoteId}/accept")
     public AjaxResult acceptQuote(@PathVariable Long quoteId)
     {
-        int rows = quoteService.updateQuoteStatus(quoteId, "accepted");
-        return toAjax(rows);
+        SysOrder order = quoteService.acceptQuote(quoteId);
+        return AjaxResult.success(order);
     }
 
-    /** Reject a quote */
+    /** Reject a quote: validates state, sets quote rejected */
     @PreAuthorize("@ss.hasPermi('trade:quote:edit')")
+    @Log(title = "C-Quote", businessType = BusinessType.UPDATE)
     @PutMapping("/trade/quote/{quoteId}/reject")
     public AjaxResult rejectQuote(@PathVariable Long quoteId)
     {
-        int rows = quoteService.updateQuoteStatus(quoteId, "rejected");
+        int rows = quoteService.rejectQuote(quoteId);
         return toAjax(rows);
     }
 
