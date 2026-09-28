@@ -31,6 +31,9 @@ a4-grantable-role|exit|sql/migrations/a4/A4_20260922_003__app_grantable_role.sql
 a4-grantable-role-verify|summary|sql/migrations/a4/A4_20260922_003__app_grantable_role_verify.sql|A4 角色标记校验
 pc-sidebar|exit|sql/migrations/pc/PC_20260923_001__sidebar_ia.sql|PC 侧边栏信息架构对齐
 pc-sidebar-verify|summary|sql/migrations/pc/PC_20260923_001__sidebar_ia_verify.sql|PC 侧边栏最终校验
+a5-bio-precheck|summary|sql/migrations/a5/A5_20260928_001__user_profile_bio_precheck.sql|A5 个人简介加列前置检查
+a5-bio-migrate|exit|sql/migrations/a5/A5_20260928_001__user_profile_bio_migrate.sql|A5 sys_user 新增 bio 列
+a5-bio-verify|summary|sql/migrations/a5/A5_20260928_001__user_profile_bio_verify.sql|A5 bio 列迁移校验
 b-content-menu|exit|sql/migrations/b/B_20260928_001__content_category_tag_menu.sql|B 模块分类/标签 PC 菜单与权限
 b-content-menu-verify|summary|sql/migrations/b/B_20260928_001__content_category_tag_menu_verify.sql|B 模块分类/标签菜单校验
 c-trade-tables|exit|sql/migrations/c/C_20260923_000__c_trade_tables.sql|C 交易域 14 张业务表建表（其余 c/ 迁移的前置）

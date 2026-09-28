@@ -15,6 +15,9 @@ public class AppUserRecord
     private String status;
     private String delFlag;
 
+    /** 个人简介（A5，2026-09-28 迁移新增列）。 */
+    private String bio;
+
     public Long getUserId()
     {
         return userId;
@@ -73,6 +76,16 @@ public class AppUserRecord
     public void setUserType(String userType)
     {
         this.userType = userType;
+    }
+
+    public String getBio()
+    {
+        return bio;
+    }
+
+    public void setBio(String bio)
+    {
+        this.bio = bio;
     }
 
     public String getAvatar()

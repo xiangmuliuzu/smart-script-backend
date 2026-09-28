@@ -36,6 +36,9 @@ public interface AppUserCenterMapper
     /** 头像变更；返回影响行数。 */
     int updateAvatar(@Param("userId") Long userId, @Param("avatar") String avatar);
 
+    /** 个人简介变更（空串表示清空）；返回影响行数。 */
+    int updateBio(@Param("userId") Long userId, @Param("bio") String bio);
+
     /** 手机号占用判定（排除逻辑删除与指定的自身用户）。 */
     int countPhoneTaken(@Param("phone") String phone, @Param("excludeUserId") Long excludeUserId);
 

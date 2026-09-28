@@ -6,6 +6,9 @@ public class CurrentUserDto
     private String userType;
     private String nickname;
     private String avatar;
+
+    /** 个人简介（2026-09-28 契约修订新增）；null 表示未填写。 */
+    private String bio;
     private String phoneMasked;
     private String[] roles;
 
@@ -73,6 +76,16 @@ public class CurrentUserDto
     public void setAvatar(String avatar)
     {
         this.avatar = avatar;
+    }
+
+    public String getBio()
+    {
+        return bio;
+    }
+
+    public void setBio(String bio)
+    {
+        this.bio = bio;
     }
 
     public String getPhoneMasked()

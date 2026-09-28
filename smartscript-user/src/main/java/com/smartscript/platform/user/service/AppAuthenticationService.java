@@ -344,6 +344,7 @@ public class AppAuthenticationService
         dto.setUserType(normalizeUserType(user.getUserType()));
         dto.setNickname(user.getNickName());
         dto.setAvatar(user.getAvatar() == null || user.getAvatar().isBlank() ? null : user.getAvatar());
+        dto.setBio(user.getBio() == null || user.getBio().isBlank() ? null : user.getBio());
         dto.setPhoneMasked(AppHashes.maskPhone(user.getPhonenumber()));
         // A5 起 /auth/me 返回真实角色与实名状态，供 App 统一身份能力使用
         // （规格 §10：AuthState.currentUser.realNameStatus 与 hasRole）。

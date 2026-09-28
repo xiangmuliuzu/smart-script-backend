@@ -15,10 +15,13 @@ import com.smartscript.platform.user.util.AppHashes;
 /**
  * A5 个人资料（契约 §1.2，规格 §8.3）。
  *
- * 只允许修改昵称与头像：
+ * 允许修改昵称、头像与简介：
  *   - 手机号、角色、实名状态不在请求对象内，因此无法经此接口修改；
+ *   - 目标用户始终取自当前登录身份（currentUserId），请求体不含 userId，
+ *     不存在提交他人 userId 越权修改的可能；
  *   - 头像只接受平台上传服务返回的 http(s) 地址或空串（清空头像）；
- *   - 昵称去首尾空白并限制长度，空昵称拒绝（避免列表出现无名用户）。
+ *   - 昵称去首尾空白并限制长度，空昵称拒绝（避免列表出现无名用户）；
+ *   - 简介去首尾空白，允许空串（清空），长度上限 200。
  */
 @Service
 public class AppUserProfileService
@@ -28,6 +31,9 @@ public class AppUserProfileService
 
     /** 头像地址长度上限，与 sys_user.avatar 列宽（100）一致。 */
     private static final int AVATAR_MAX = 100;
+
+    /** 个人简介长度上限，与 A5 迁移（sys_user.bio VARCHAR(200)）一致。 */
+    public static final int BIO_MAX = 200;
 
     private final AppUserMapper userMapper;
     private final AppUserCenterMapper centerMapper;
@@ -50,7 +56,7 @@ public class AppUserProfileService
     @Transactional
     public UserProfileDto updateProfile(Long userId, UserProfileUpdateRequest request)
     {
-        if (request == null || (request.getNickname() == null && request.getAvatar() == null))
+        if (request == null || (request.getNickname() == null && request.getAvatar() == null && request.getBio() == null))
         {
             throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "no updatable field");
         }
@@ -66,6 +72,12 @@ public class AppUserProfileService
             String avatar = normalizeAvatar(request.getAvatar());
             centerMapper.updateAvatar(userId, avatar);
             user.setAvatar(avatar);
+        }
+        if (request.getBio() != null)
+        {
+            String bio = normalizeBio(request.getBio());
+            centerMapper.updateBio(userId, bio);
+            user.setBio(bio);
         }
         return toProfile(user);
     }
@@ -109,6 +121,20 @@ public class AppUserProfileService
         return value;
     }
 
+    /**
+     * 简介规范化：去首尾空白；允许空串（清空）；上限 {@link #BIO_MAX}。
+     * 与昵称不同，空简介合法（用户可随时清空）。
+     */
+    static String normalizeBio(String raw)
+    {
+        String value = raw == null ? "" : raw.trim();
+        if (value.length() > BIO_MAX)
+        {
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "bio too long");
+        }
+        return value;
+    }
+
     private AppUserRecord requireUser(Long userId)
     {
         AppUserRecord user = userMapper.selectById(userId);
@@ -125,6 +151,7 @@ public class AppUserProfileService
         dto.setUserId(user.getUserId());
         dto.setNickname(user.getNickName());
         dto.setAvatar(emptyToNull(user.getAvatar()));
+        dto.setBio(emptyToNull(user.getBio()));
         dto.setPhoneMasked(AppHashes.maskPhone(user.getPhonenumber()));
         dto.setUserType(AppAuthenticationService.normalizeUserType(user.getUserType()));
         dto.setRealNameStatus(realNameStatus(user.getUserId()));

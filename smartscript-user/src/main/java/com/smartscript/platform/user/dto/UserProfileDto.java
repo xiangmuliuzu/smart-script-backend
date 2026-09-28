@@ -11,6 +11,9 @@ public class UserProfileDto
     private Long userId;
     private String nickname;
     private String avatar;
+
+    /** 个人简介；null 表示未填写。 */
+    private String bio;
     private String phoneMasked;
     private String userType;
     private String realNameStatus;
@@ -43,6 +46,16 @@ public class UserProfileDto
     public void setAvatar(String avatar)
     {
         this.avatar = avatar;
+    }
+
+    public String getBio()
+    {
+        return bio;
+    }
+
+    public void setBio(String bio)
+    {
+        this.bio = bio;
     }
 
     public String getPhoneMasked()
