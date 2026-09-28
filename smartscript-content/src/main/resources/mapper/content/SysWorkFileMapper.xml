@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.content.mapper.SysWorkFileMapper">
+
+	<!--
+	  依据：云端 script_platform_dev 库 sys_work_file 表。
+	  反推处理点：created_at 不映射（DB 默认值维护）；
+	  is_preview tinyint ↔ String；file_id bigint ↔ Long。
+	-->
+	<resultMap type="SysWorkFile" id="SysWorkFileResult">
+		<id     property="fileId"        column="file_id"        />
+		<result property="workId"        column="work_id"        />
+		<result property="fileName"      column="file_name"      />
+		<result property="fileUrl"        column="file_url"       />
+		<result property="fileType"       column="file_type"      />
+		<result property="fileSize"      column="file_size"      />
+		<result property="isPreview"     column="is_preview"     />
+		<result property="sort"          column="sort"           />
+		<result property="createBy"      column="create_by"      />
+		<result property="createTime"    column="create_time"    />
+		<result property="updateBy"      column="update_by"      />
+		<result property="updateTime"    column="update_time"    />
+		<result property="remark"        column="remark"         />
+	</resultMap>
+
+	<sql id="selectFileVo">
+		select file_id, work_id, file_name, file_url, file_type, file_size, is_preview, sort,
+		       create_by, create_time, update_by, update_time, remark
+		from sys_work_file
+	</sql>
+
+	<select id="selectFileList" parameterType="SysWorkFile" resultMap="SysWorkFileResult">
+		<include refid="selectFileVo"/>
+		<where>
+			<if test="workId != null">
+				AND work_id = #{workId}
+			</if>
+			<if test="fileType != null and fileType != ''">
+				AND file_type = #{fileType}
+			</if>
+			<if test="isPreview != null and isPreview != ''">
+				AND is_preview = #{isPreview}
+			</if>
+		</where>
+		order by sort, file_id
+	</select>
+
+	<select id="selectFileById" parameterType="Long" resultMap="SysWorkFileResult">
+		<include refid="selectFileVo"/>
+		where file_id = #{fileId}
+	</select>
+
+</mapper>
