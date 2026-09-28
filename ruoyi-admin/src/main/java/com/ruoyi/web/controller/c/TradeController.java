@@ -21,11 +21,13 @@ import com.smartscript.platform.trade.domain.SysDemand;
 import com.smartscript.platform.trade.domain.SysDemandSubmission;
 import com.smartscript.platform.trade.domain.SysDemandTag;
 import com.smartscript.platform.trade.domain.SysInquiry;
+import com.smartscript.platform.trade.domain.SysOfflineCooperation;
 import com.smartscript.platform.trade.domain.SysOrder;
 import com.smartscript.platform.trade.domain.SysOrderStatusLog;
 import com.smartscript.platform.trade.domain.SysPartner;
 import com.smartscript.platform.trade.domain.SysQuote;
 import com.smartscript.platform.trade.domain.SysWork;
+import com.smartscript.platform.trade.service.TradeCooperationService;
 import com.smartscript.platform.trade.service.TradeDemandService;
 import com.smartscript.platform.trade.service.TradeDemandTagService;
 import com.smartscript.platform.trade.service.TradeFollowUpService;
@@ -56,6 +58,7 @@ public class TradeController extends BaseController
     @Autowired private TradeInquiryService inquiryService;
     @Autowired private TradeQuoteService quoteService;
     @Autowired private TradeDemandService demandService;
+    @Autowired private TradeCooperationService cooperationService;
 
     /* ==================== 2.25 / 2.26 / 2.27 Trade Works ==================== */
 
@@ -233,6 +236,53 @@ public class TradeController extends BaseController
     {
         int rows = followUpService.insertFollow(follow);
         return toAjax(rows);
+    }
+
+    /* ==================== Cooperation records (分工 15 线上合作意向 / 16 线下谈判) ==================== */
+    // 数据源 sys_offline_cooperation（C 主导表），source 区分 online 线上合作意向 / offline 线下谈判。
+    // PC 商务跟进页以只读列表/详情消费；create/update 供 APP 侧（APP-TRADE-04）复用同一 Service。
+    // 权限沿用商务跟进页的 trade:followups:*（同一页面内展示，无独立菜单）。
+
+    /** 合作记录列表（source=online 线上合作记录 / source=offline 线下谈判记录） */
+    @PreAuthorize("@ss.hasPermi('trade:followups:list')")
+    @GetMapping("/trade/cooperation/list")
+    public TableDataInfo listCooperations(SysOfflineCooperation cooperation)
+    {
+        startPage();
+        List<SysOfflineCooperation> list = cooperationService.selectCooperationList(cooperation);
+        return getDataTable(list);
+    }
+
+    /** 合作记录详情 */
+    @PreAuthorize("@ss.hasPermi('trade:followups:list')")
+    @GetMapping("/trade/cooperation/{id}")
+    public AjaxResult getCooperationDetail(@PathVariable Long id)
+    {
+        SysOfflineCooperation cooperation = cooperationService.selectCooperationById(id);
+        if (cooperation == null)
+        {
+            return AjaxResult.error("Cooperation record not found");
+        }
+        return AjaxResult.success(cooperation);
+    }
+
+    /** 新增合作记录（分工 16 线下谈判录入；APP 复用，PC 商务跟进页只读不发起） */
+    @PreAuthorize("@ss.hasPermi('trade:followups:add')")
+    @Log(title = "C-Cooperation", businessType = BusinessType.INSERT)
+    @PostMapping("/trade/cooperation")
+    public AjaxResult createCooperation(@RequestBody SysOfflineCooperation cooperation)
+    {
+        return AjaxResult.success(cooperationService.insertCooperation(cooperation));
+    }
+
+    /** 更新合作记录 */
+    @PreAuthorize("@ss.hasPermi('trade:followups:add')")
+    @Log(title = "C-Cooperation", businessType = BusinessType.UPDATE)
+    @PutMapping("/trade/cooperation/{id}")
+    public AjaxResult updateCooperation(@PathVariable Long id, @RequestBody SysOfflineCooperation cooperation)
+    {
+        cooperation.setCooperationId(id);
+        return toAjax(cooperationService.updateCooperation(cooperation));
     }
 
     /* ==================== Inquiry (documented gap 3.2) ==================== */

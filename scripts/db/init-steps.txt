@@ -13,7 +13,7 @@
 #   PC 侧边栏必须在 A1 之后：它重挂 A1 的产品菜单并补写被种子跳过的 5142。
 #   A2 必须最先：A1/A4 都依赖 A2 归一后的 sys_user 账号域。
 #   C 必须在 PC 之后：C 的菜单迁移（002/003/004）在 A1/PC 建好的 sys_menu 结构上重挂与补齐。
-#   C 建表（000）必须是 c/ 内第一个：C_20260928_003 改 sys_order、C_20260928_006 改 sys_work，均依赖它。
+#   C 建表（000）必须是 c/ 内第一个：C_20260928_003 改 sys_order、C_20260928_006 改 sys_work、C_20260928_007 改 sys_offline_cooperation，均依赖它。
 #   H12 只新增 sys_user 覆盖索引，无菜单/表依赖，置于最后；其 verify 无 SUMMARY 行，按 exit 闸门。
 
 ry-baseline|exit|sql/ry_20260320.sql|若依基础结构 + 初始数据（20 张系统表）
@@ -42,5 +42,6 @@ c-order-inquiry-unique|exit|sql/migrations/c/C_20260928_003__c_order_inquiry_uni
 c-trade-perms-ops|exit|sql/migrations/c/C_20260928_004__c_trade_perms_ops.sql|C 交易写操作权限
 c-inquiry-expire-job|exit|sql/migrations/c/C_20260928_005__c_inquiry_expire_job.sql|C 询盘过期定时任务
 c-work-trade-setting-extra|exit|sql/migrations/c/C_20260928_006__work_trade_setting_extra.sql|C 作品交易设置列（置顶/推荐/排序）
+c-cooperation-negotiation|exit|sql/migrations/c/C_20260928_007__offline_cooperation_negotiation.sql|C 线下谈判列（地点/联系人/联系方式）+ 合作记录来源/状态字典
 h12-user-type-index|exit|sql/migrations/h12/H12_20260928_001__sys_user_type_delflag_index.sql|H12 sys_user(user_type,del_flag) 覆盖索引
 h12-user-type-index-verify|exit|sql/migrations/h12/H12_20260928_001__sys_user_type_delflag_index_verify.sql|H12 索引校验（无 SUMMARY，按 exit 闸门）
