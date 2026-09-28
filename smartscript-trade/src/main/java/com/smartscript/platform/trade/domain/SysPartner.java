@@ -61,4 +61,9 @@ public class SysPartner extends BaseEntity
     public void setCreatedAt(Date createdAt) { this.createdAt = createdAt; }
     public Date getUpdatedAt() { return updatedAt; }
     public void setUpdatedAt(Date updatedAt) { this.updatedAt = updatedAt; }
+
+    /** Transient: unified fuzzy keyword for list filtering (not a column) */
+    private String keyword;
+    public String getKeyword() { return keyword; }
+    public void setKeyword(String keyword) { this.keyword = keyword; }
 }

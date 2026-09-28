@@ -138,4 +138,23 @@ public class SysWork extends BaseEntity
     public void setUpdatedAt(Date updatedAt) { this.updatedAt = updatedAt; }
     public String getAuthorName() { return authorName; }
     public void setAuthorName(String authorName) { this.authorName = authorName; }
+
+    /** Trade setting: pinned to top of trade hall */
+    private Integer isTop;
+    /** Trade setting: recommended flag */
+    private Integer isRecommend;
+    /** Trade setting: manual sort weight (asc) */
+    private Integer sortOrder;
+
+    /** Transient: unified fuzzy keyword for list filtering (not a column) */
+    private String keyword;
+
+    public Integer getIsTop() { return isTop; }
+    public void setIsTop(Integer isTop) { this.isTop = isTop; }
+    public Integer getIsRecommend() { return isRecommend; }
+    public void setIsRecommend(Integer isRecommend) { this.isRecommend = isRecommend; }
+    public Integer getSortOrder() { return sortOrder; }
+    public void setSortOrder(Integer sortOrder) { this.sortOrder = sortOrder; }
+    public String getKeyword() { return keyword; }
+    public void setKeyword(String keyword) { this.keyword = keyword; }
 }

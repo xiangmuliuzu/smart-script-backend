@@ -43,6 +43,11 @@
             <if test="status != null and status != ''">
                 AND status = #{status}
             </if>
+            <if test="keyword != null and keyword != ''">
+                AND (partner_name like concat('%', #{keyword}, '%')
+                     or partner_no like concat('%', #{keyword}, '%')
+                     or contact_person like concat('%', #{keyword}, '%'))
+            </if>
         </where>
         order by created_at desc
     </select>

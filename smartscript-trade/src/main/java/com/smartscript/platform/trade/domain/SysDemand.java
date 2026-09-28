@@ -65,4 +65,9 @@ public class SysDemand extends BaseEntity
     public void setUpdatedAt(Date updatedAt) { this.updatedAt = updatedAt; }
     public String getClientName() { return clientName; }
     public void setClientName(String clientName) { this.clientName = clientName; }
+
+    /** Transient: unified fuzzy keyword for list filtering (not a column) */
+    private String keyword;
+    public String getKeyword() { return keyword; }
+    public void setKeyword(String keyword) { this.keyword = keyword; }
 }

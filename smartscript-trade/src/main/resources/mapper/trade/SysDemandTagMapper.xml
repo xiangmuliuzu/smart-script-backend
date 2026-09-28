@@ -24,6 +24,9 @@
             <if test="tagName != null and tagName != ''">
                 AND tag_name like concat('%', #{tagName}, '%')
             </if>
+            <if test="keyword != null and keyword != ''">
+                AND tag_name like concat('%', #{keyword}, '%')
+            </if>
         </where>
         order by used_count desc, tag_id asc
     </select>

@@ -20,4 +20,9 @@ public class SysDemandTag extends BaseEntity
     public void setTagName(String tagName) { this.tagName = tagName; }
     public Integer getUsedCount() { return usedCount; }
     public void setUsedCount(Integer usedCount) { this.usedCount = usedCount; }
+
+    /** Transient: unified fuzzy keyword for list filtering (not a column) */
+    private String keyword;
+    public String getKeyword() { return keyword; }
+    public void setKeyword(String keyword) { this.keyword = keyword; }
 }
