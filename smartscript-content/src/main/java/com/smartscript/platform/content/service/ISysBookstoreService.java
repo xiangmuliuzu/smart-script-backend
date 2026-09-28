@@ -8,7 +8,7 @@ import com.smartscript.platform.content.domain.SysWork;
  *
  * 依据：云端 script_platform_dev 库 sys_work 表 + PC 功能清单（书城作品管理页：
  * 列表、详情、上下架状态、交易开关、扩展JSON 调整；清单未列删除，故不提供）。
- * 复用 SysWorkMapper（书城与作品管理共享 sys_work 表），不单建 BookstoreMapper。
+ * 复用 SysContentWorkMapper（书城与作品管理共享 sys_work 表），不单建 BookstoreMapper。
  *
  * @author xiangsipeng
  */

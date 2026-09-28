@@ -2,7 +2,7 @@
 <!DOCTYPE mapper
 PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
-<mapper namespace="com.smartscript.platform.content.mapper.SysWorkMapper">
+<mapper namespace="com.smartscript.platform.content.mapper.SysContentWorkMapper">
 
 	<!--
 	  依据：云端 script_platform_dev 库 sys_work 表（附件5.1 表3-14，42 字段含若依5通用字段）。

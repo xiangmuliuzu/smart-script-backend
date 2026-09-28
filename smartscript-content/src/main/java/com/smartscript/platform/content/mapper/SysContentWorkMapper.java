@@ -9,9 +9,13 @@ import com.smartscript.platform.content.domain.SysWork;
  * 依据：云端 script_platform_dev 库 sys_work 表。
  * 同时服务于作品管理（只读）和书城作品管理（写 status/trade_enabled/ext_json）。
  *
+ * 命名说明：原 SysWorkMapper 与 smartscript-trade 模块的 SysWorkMapper 类名短名相同，
+ * MyBatis MapperScanner 按类名注册 bean（sysWorkMapper）导致冲突启动失败，
+ * 故 content 模块改名为 SysContentWorkMapper，bean 名 sysContentWorkMapper 唯一。
+ *
  * @author xiangsipeng
  */
-public interface SysWorkMapper
+public interface SysContentWorkMapper
 {
     /**
      * 查询作品列表（含 authorName/genreName，JOIN sys_user + sys_category）

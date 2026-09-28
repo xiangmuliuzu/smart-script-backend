@@ -6,7 +6,7 @@ import org.springframework.stereotype.Service;
 import com.smartscript.platform.content.domain.SysWork;
 import com.smartscript.platform.content.domain.SysWorkChapter;
 import com.smartscript.platform.content.mapper.SysWorkChapterMapper;
-import com.smartscript.platform.content.mapper.SysWorkMapper;
+import com.smartscript.platform.content.mapper.SysContentWorkMapper;
 import com.smartscript.platform.content.service.ISysWorkService;
 
 /**
@@ -22,7 +22,7 @@ import com.smartscript.platform.content.service.ISysWorkService;
 public class SysWorkServiceImpl implements ISysWorkService
 {
     @Autowired
-    private SysWorkMapper workMapper;
+    private SysContentWorkMapper workMapper;
 
     @Autowired
     private SysWorkChapterMapper chapterMapper;

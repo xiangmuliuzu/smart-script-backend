@@ -4,14 +4,14 @@ import java.util.List;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import com.smartscript.platform.content.domain.SysWork;
-import com.smartscript.platform.content.mapper.SysWorkMapper;
+import com.smartscript.platform.content.mapper.SysContentWorkMapper;
 import com.smartscript.platform.content.service.ISysBookstoreService;
 
 /**
  * 书城作品管理 服务层处理
  *
  * 依据：云端 script_platform_dev 库 sys_work 表。
- * 反推处理点：书城与作品管理共享 sys_work 表，复用 SysWorkMapper，不单建 Mapper。
+ * 反推处理点：书城与作品管理共享 sys_work 表，复用 SysContentWorkMapper，不单建 Mapper。
  * status/trade_enabled/ext_json 三处写操作均做防御性裁剪，避免调用方误传其他字段
  * 被动态 SQL 一并更新。
  *
@@ -21,7 +21,7 @@ import com.smartscript.platform.content.service.ISysBookstoreService;
 public class SysBookstoreServiceImpl implements ISysBookstoreService
 {
     @Autowired
-    private SysWorkMapper workMapper;
+    private SysContentWorkMapper workMapper;
 
     @Override
     public List<SysWork> selectBookstoreList(SysWork query)
