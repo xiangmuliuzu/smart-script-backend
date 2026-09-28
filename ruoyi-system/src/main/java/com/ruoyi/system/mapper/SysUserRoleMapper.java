@@ -44,6 +44,14 @@ public interface SysUserRoleMapper
     public int batchUserRole(List<SysUserRole> userRoleList);
 
     /**
+     * 批量授权前置查询：查询这些用户已持有的用户-角色关联。
+     *
+     * @param userIds 用户ID列表（非空）
+     * @return 关联列表
+     */
+    public List<SysUserRole> selectUserRolesByUserIds(@Param("userIds") List<Long> userIds);
+
+    /**
      * 删除用户和角色关联信息
      * 
      * @param userRole 用户和角色关联信息
