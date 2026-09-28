@@ -39,8 +39,9 @@ mysql -h <host> -P <port> -u <user> -p <db> \
 | 2 | A1 产品菜单与受限运营角色 | `a1/` | 种子必须先于 A4；`SUMMARY` 必须 `PASS` |
 | 3 | A4 PC 管理能力 | `a4/` | 001 → 002 → 003，各自 verify `SUMMARY` 必须 `PASS` |
 | 4 | PC 侧边栏信息架构 | `pc/` | 先执行迁移，再跑 `..._sidebar_ia_verify.sql` |
-| 5 | C 交易域（建表 + 菜单/字典/权限/任务/交易设置/线下谈判列） | `c/` | 按文件名序 `000 → 007`；均为写入型脚本，退出码 0 即可 |
-| 6 | H12 `sys_user` 覆盖索引 | `h12/` | 先 migrate，再跑 `..._verify.sql`（仅留证，无 SUMMARY 判定） |
+| 5 | B 模块分类/标签 PC 菜单 | `b/` | 依赖 A1 种子提供的 `5001/5102`；先迁移后校验 |
+| 6 | C 交易域（建表 + 菜单/字典/权限/任务/交易设置/线下谈判列） | `c/` | 按文件名序 `000 → 007`；均为写入型脚本，退出码 0 即可 |
+| 7 | H12 `sys_user` 覆盖索引 | `h12/` | 先 migrate，再跑 `..._verify.sql`（仅留证，无 SUMMARY 判定） |
 
 依赖原因（改动顺序前先读）：
 
@@ -92,12 +93,13 @@ A1 种子同样幂等，但它**有意**保留重复 `component`（`common/Modul
 
 ## 6. 回滚顺序（与升级相反）
 
-1. `a4/U20260922_003__app_grantable_role_rollback.sql`
-2. `a4/U20260922_002__a4_permissions_rollback.sql`
-3. `a4/U20260922_001__a4_rollback.sql`
-4. `pc/U20260923_001__sidebar_ia_rollback.sql`
-5. `a1/U20260921_001__p5_menu_rollback.sql`
-6. `a2/U20260921_001__a2_rollback.sql`
+1. `b/U20260928_001__content_category_tag_menu_rollback.sql`
+2. `a4/U20260922_003__app_grantable_role_rollback.sql`
+3. `a4/U20260922_002__a4_permissions_rollback.sql`
+4. `a4/U20260922_001__a4_rollback.sql`
+5. `pc/U20260923_001__sidebar_ia_rollback.sql`
+6. `a1/U20260921_001__p5_menu_rollback.sql`
+7. `a2/U20260921_001__a2_rollback.sql`
 
 A4 与 PC 的回滚默认拒绝破坏性操作（输出 `ROLLBACK_ABORTED` / `REFUSE_IN_USE`）：
 若相关能力已投入使用，需显式设置脚本头部声明的开关才继续。回滚脚本都不删除
@@ -123,6 +125,7 @@ A2 建的业务表，也不修改 `sys_user` 业务数据。
 | `a1/` | A1 产品菜单种子、前置快照、校验、回滚，含 README |
 | `a4/` | A4 结构增量（001）、菜单权限（002）、角色可授权标记（003）及各自校验与回滚，含 README |
 | `pc/` | PC 侧边栏信息架构迁移、最终校验、回滚，含 README |
+| `b/` | B 模块分类/标签 PC 菜单与权限的迁移、校验、回滚，含 README |
 | `c/` | C 交易域：`000` 建 14 张业务表，`001-004` 菜单/需求标签，`20260928_001-007` 权限/字典/唯一索引/定时任务/交易设置列/线下谈判列与合作记录字典 |
 | `h12/` | H12 `sys_user(user_type,del_flag)` 覆盖索引迁移、校验、回滚 |
 
