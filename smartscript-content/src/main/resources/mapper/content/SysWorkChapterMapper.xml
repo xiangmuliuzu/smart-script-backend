@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.content.mapper.SysWorkChapterMapper">
+
+	<!--
+	  依据：云端 script_platform_dev 库 sys_work_chapter 表（附件5.1 表3-16）。
+	  作品管理页"章节查看"只读，列表不返回 content 全文。
+	  反推处理点：created_at/updated_at 不映射；is_free/status tinyint ↔ String。
+	-->
+	<resultMap type="SysWorkChapter" id="SysWorkChapterResult">
+		<id     property="chapterId"     column="chapter_id"     />
+		<result property="workId"        column="work_id"        />
+		<result property="chapterNo"     column="chapter_no"     />
+		<result property="chapterTitle"  column="chapter_title"  />
+		<result property="wordCount"     column="word_count"     />
+		<result property="isFree"        column="is_free"        />
+		<result property="status"        column="status"         />
+		<result property="createBy"      column="create_by"      />
+		<result property="createTime"    column="create_time"    />
+		<result property="updateBy"      column="update_by"      />
+		<result property="updateTime"    column="update_time"    />
+		<result property="remark"        column="remark"         />
+	</resultMap>
+
+	<!-- 章节列表：不返回 content 全文，仅摘要字段 -->
+	<sql id="selectChapterVo">
+		select chapter_id, work_id, chapter_no, chapter_title, word_count, is_free, status,
+		       create_by, create_time, update_by, update_time, remark
+		from sys_work_chapter
+	</sql>
+
+	<select id="selectChapterListByWorkId" parameterType="SysWorkChapter" resultMap="SysWorkChapterResult">
+		<include refid="selectChapterVo"/>
+		<where>
+			<if test="workId != null">
+				AND work_id = #{workId}
+			</if>
+			<if test="status != null and status != ''">
+				AND status = #{status}
+			</if>
+		</where>
+		order by chapter_no
+	</select>
+
+</mapper>
