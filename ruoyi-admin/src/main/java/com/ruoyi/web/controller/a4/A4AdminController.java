@@ -25,6 +25,7 @@ import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.common.core.page.TableDataInfo;
 import com.ruoyi.common.enums.BusinessType;
 import com.ruoyi.common.utils.SecurityUtils;
+import com.smartscript.platform.user.constant.AppAdminAuditParams;
 import com.smartscript.platform.user.constant.AppAdminConstants;
 import com.smartscript.platform.user.domain.admin.AdminFeedback;
 import com.smartscript.platform.user.domain.admin.AdminNotification;
@@ -58,6 +59,30 @@ import com.smartscript.platform.user.service.UserNotificationAdminService;
  *   - 令牌走请求体而非 URL 路径，并对该参数 excludeParamNames；
  *     放在路径里会被 oper_url 完整记录。
  *   - 兑换接口只回材料类型，真实地址留在服务端待材料网关换签。
+ *   - 全部写接口的 @Log 额外排除 §9.3 点名的敏感键名（验证码/Token/手机号/身份证号，见
+ *     {@link AppAdminAuditParams}）：请求体是 Map，框架只排除 4 个密码字段名，
+ *     未声明的敏感键名会原样进入 oper_param（H9-LOG-02）。
+ *   - 全部写接口在业务读取前先把请求体收敛为契约字段白名单（{@link A4AuditParamProjection}）：
+ *     白名单外的键（含未知敏感键）与嵌套结构一律丢弃，因此它们结构上不可能进入日志——
+ *     这是 H9-LOG-02 的系统性收敛，excludeParamNames 保留为第二道防线。
+ *   - 实名审核响应体会回带 rejectReason，故该接口 isSaveResponseData = false，
+ *     避免已从 oper_param 排除的驳回原因经 json_result 回流进同一日志行（H9-LOG-01）。
+ *   - 消息创建的 title/content 是自由文本正文，同样声明排除（H10-REV-02）：
+ *     正文已存业务表，日志保留 requestId/type/userIds 足以还原操作，无需重复正文。
+ *   - 消息创建的 requestId/businessType/businessId 是客户端可控自由字符串，其**值**可承载令牌；
+ *     控制器在业务读取后按「值级默认拒绝」重写日志投影（H12-REV-01、H13-REV-01，见
+ *     {@link A4AuditParamProjection#sanitizeNotificationLog}）：自由字符串一律指纹、受控枚举
+ *     `type` 仅保留契约枚举值、整数数组 `userIds` 仅保留数字元素，其余取值也一律指纹。
+ *     日志只记 fp:… ，服务层仍取原值，故幂等与业务结果不变、审计仍可凭指纹关联。
+ *   - 其余写接口的非枚举字段同口径收敛（第 14 批，H-07 值级残余）：用户状态 `status`、
+ *     实名审核 `decision`/`expectedStatus`、反馈处理 `action`/`expectedStatus`、作者能力
+ *     `enabled` 在业务读取后按值级默认拒绝重写日志投影（见
+ *     {@link A4AuditParamProjection#sanitizeStatusChangeLog} 等四个方法）——
+ *     契约枚举/布尔保持可读，其余取值一律不可逆指纹，服务层仍取原值。
+ *     另按契约 §5.3 在业务写入前严格校验 `enabled` 类型（H14-REV-02）：非布尔取值
+ *     返回 400，不再被 {@code Boolean.parseBoolean} 静默解析为 false 关闭有效用户能力。
+ *   - A4 写接口的输入一律在 JSON 请求体；查询参数不是契约输入，且会被 LogAspect 原样记入
+ *     oper_param，故由 {@code A4WriteQueryParamFilter} 对非 GET 的管理域请求屏蔽（H13-REV-02）。
  */
 @RestController
 @RequestMapping("/api/v1/admin")
@@ -105,11 +130,15 @@ public class A4AdminController extends BaseController
      */
     @PreAuthorize("@ss.hasAnyPermi('" + AppAdminConstants.PERM_REALNAME_QUERY + ","
             + AppAdminConstants.PERM_FEEDBACK_QUERY + "')")
-    @Log(title = "A4-敏感材料兑换", businessType = BusinessType.OTHER,
-         excludeParamNames = { "token", "body" }, isSaveResponseData = false)
+    @Log(title = "A4-敏感材料兑换", businessType = BusinessType.OTHER, isSaveResponseData = false,
+         excludeParamNames = { AppAdminAuditParams.TOKEN, AppAdminAuditParams.BODY, AppAdminAuditParams.ACCESS_TOKEN,
+             AppAdminAuditParams.REFRESH_TOKEN, AppAdminAuditParams.CODE, AppAdminAuditParams.SMS_CODE,
+             AppAdminAuditParams.CAPTCHA, AppAdminAuditParams.PHONE, AppAdminAuditParams.ID_NUMBER })
     @PostMapping("/material-refs/redeem")
     public AjaxResult redeemMaterialRef(@RequestBody Map<String, Object> body)
     {
+        // H9-LOG-02：业务读取前收敛为契约白名单，未知/嵌套键不入 oper_param，也不参与后续处理
+        A4AuditParamProjection.retain(body, A4AuditParamProjection.MATERIAL_REDEEM);
         String token = str(body.get("token"));
         if (!MaterialAccessTokenService.looksLikeToken(token))
         {
@@ -229,23 +258,36 @@ public class A4AdminController extends BaseController
     }
 
     @PreAuthorize("@ss.hasPermi('" + AppAdminConstants.PERM_APP_STATUS + "')")
-    @Log(title = "A4-App用户状态", businessType = BusinessType.UPDATE, excludeParamNames = { "reason" })
+    @Log(title = "A4-App用户状态", businessType = BusinessType.UPDATE,
+         excludeParamNames = { AppAdminAuditParams.REASON, AppAdminAuditParams.TOKEN, AppAdminAuditParams.ACCESS_TOKEN,
+             AppAdminAuditParams.REFRESH_TOKEN, AppAdminAuditParams.CODE, AppAdminAuditParams.SMS_CODE,
+             AppAdminAuditParams.CAPTCHA, AppAdminAuditParams.PHONE, AppAdminAuditParams.ID_NUMBER })
     @PutMapping("/app-users/{userId}/status")
     public AjaxResult changeStatus(@PathVariable Long userId, @RequestBody Map<String, Object> body)
     {
+        A4AuditParamProjection.retain(body, A4AuditParamProjection.APP_USER_STATUS);
         String status = str(body.get("status"));
         String reason = str(body.get("reason"));
+        // 业务读取后值级默认拒绝（第 14 批）：status 仅保留契约枚举 "0"/"1"，
+        // 其余取值（可承载令牌/PII）在日志投影中指纹化，服务层仍取原值。
+        A4AuditParamProjection.sanitizeStatusChangeLog(body);
         boolean changed = appUserAdminService.changeStatus(userId, status, reason, SecurityUtils.getUsername());
         return resultWithChange(changed);
     }
 
     @PreAuthorize("@ss.hasPermi('" + AppAdminConstants.PERM_APP_GRANT + "')")
-    @Log(title = "A4-用户角色授权", businessType = BusinessType.GRANT)
+    @Log(title = "A4-用户角色授权", businessType = BusinessType.GRANT,
+         excludeParamNames = { AppAdminAuditParams.REASON, AppAdminAuditParams.TOKEN, AppAdminAuditParams.ACCESS_TOKEN,
+             AppAdminAuditParams.REFRESH_TOKEN, AppAdminAuditParams.CODE, AppAdminAuditParams.SMS_CODE,
+             AppAdminAuditParams.CAPTCHA, AppAdminAuditParams.PHONE, AppAdminAuditParams.ID_NUMBER })
     @PutMapping("/app-users/{userId}/roles")
     public AjaxResult grantRoles(@PathVariable Long userId, @RequestBody Map<String, Object> body)
     {
+        A4AuditParamProjection.retain(body, A4AuditParamProjection.APP_USER_ROLES);
         String reason = str(body.get("reason"));
         List<Long> roleIds = longList(body.get("roleIds"));
+        // 业务读取后指纹化日志投影：roleIds 数字元素同样可承载纯数字令牌（H13-REV-03）。
+        A4AuditParamProjection.sanitizeRoleGrantLog(body);
         boolean changed = appUserAdminService.grantRoles(userId, roleIds, reason, SecurityUtils.getUsername());
         return resultWithChange(changed);
     }
@@ -277,14 +319,24 @@ public class A4AdminController extends BaseController
     }
 
     @PreAuthorize("@ss.hasPermi('" + AppAdminConstants.PERM_REALNAME_AUDIT + "')")
-    @Log(title = "A4-实名审核", businessType = BusinessType.UPDATE, excludeParamNames = { "rejectReason" })
+    // H9-LOG-01：审核响应体会回带 rejectReason，LogAspect 用 fastjson2 原样序列化响应（不识别 Jackson 注解），
+    // 会把已从 oper_param 排除的驳回原因重新写进 json_result。故本接口不记录响应体，
+    // 与 realNameDetail / feedbackDetail / readMaterialContent 对含敏感内容响应的处理一致。
+    @Log(title = "A4-实名审核", businessType = BusinessType.UPDATE, isSaveResponseData = false,
+         excludeParamNames = { AppAdminAuditParams.REJECT_REASON, AppAdminAuditParams.TOKEN, AppAdminAuditParams.ACCESS_TOKEN,
+             AppAdminAuditParams.REFRESH_TOKEN, AppAdminAuditParams.CODE, AppAdminAuditParams.SMS_CODE,
+             AppAdminAuditParams.CAPTCHA, AppAdminAuditParams.PHONE, AppAdminAuditParams.ID_NUMBER })
     @PutMapping("/real-name-applications/{applicationId}/decision")
     public AjaxResult decideRealName(@PathVariable Long applicationId, @RequestBody Map<String, Object> body)
     {
+        A4AuditParamProjection.retain(body, A4AuditParamProjection.REAL_NAME_DECISION);
         String decision = str(body.get("decision"));
         String rejectReason = str(body.get("rejectReason"));
         // 客户端 expectedStatus 必须传入并被校验：错误值返回 409，不静默按 PENDING 放行
         String expectedStatus = str(body.get("expectedStatus"));
+        // 业务读取后值级默认拒绝（第 14 批）：decision/expectedStatus 仅保留契约枚举值，
+        // 其余取值在日志投影中指纹化，服务层仍取原值做枚举与状态机校验。
+        A4AuditParamProjection.sanitizeRealNameDecisionLog(body);
         RealNameApplication updated = realNameReviewService.decide(applicationId, decision, rejectReason,
                 SecurityUtils.getUserId(), expectedStatus);
         return AjaxResult.success(updated);
@@ -304,11 +356,24 @@ public class A4AdminController extends BaseController
     }
 
     @PreAuthorize("@ss.hasPermi('" + AppAdminConstants.PERM_CREATOR_UPDATE + "')")
-    @Log(title = "A4-作者能力", businessType = BusinessType.UPDATE, excludeParamNames = { "reason" })
+    @Log(title = "A4-作者能力", businessType = BusinessType.UPDATE,
+         excludeParamNames = { AppAdminAuditParams.REASON, AppAdminAuditParams.TOKEN, AppAdminAuditParams.ACCESS_TOKEN,
+             AppAdminAuditParams.REFRESH_TOKEN, AppAdminAuditParams.CODE, AppAdminAuditParams.SMS_CODE,
+             AppAdminAuditParams.CAPTCHA, AppAdminAuditParams.PHONE, AppAdminAuditParams.ID_NUMBER })
     @PutMapping("/author-capabilities/{userId}")
     public AjaxResult updateAuthorCapability(@PathVariable Long userId, @RequestBody Map<String, Object> body)
     {
-        boolean enabled = boolValue(body.get("enabled"));
+        A4AuditParamProjection.retain(body, A4AuditParamProjection.AUTHOR_CAPABILITY);
+        // 失败请求同样经 @Log @AfterThrowing 序列化请求体，故先做值级指纹化再校验（H14-REV-02）
+        A4AuditParamProjection.sanitizeAuthorCapabilityLog(body);
+        // 契约 §5.3：enabled 必须是 JSON 布尔。此前 boolValue 把任何非 "true" 取值（含令牌字符串、
+        // JSON 数字）静默解析为 false 并真实关闭有效用户的作者能力（H14-REV-02）。
+        // H14-REV-02 复核收紧：字符串 "true"/"false"（任意大小写）同样拒绝——维持契约布尔口径，
+        // 若需字符串兼容须先由负责人更新契约（rules.md §2.3/§2.5）；PC 端实际发送 JSON 布尔，不受影响。
+        if (!(body.get(AppAdminAuditParams.ENABLED) instanceof Boolean enabled))
+        {
+            throw AppAdminException.badRequest("请求参数无效");
+        }
         String reason = str(body.get("reason"));
         boolean changed = authorCapabilityService.setEnabled(userId, enabled, reason,
                 SecurityUtils.getUserId(), SecurityUtils.getUsername());
@@ -337,19 +402,27 @@ public class A4AdminController extends BaseController
     }
 
     @PreAuthorize("@ss.hasPermi('" + AppAdminConstants.PERM_MESSAGE_ADD + "')")
-    @Log(title = "A4-用户消息", businessType = BusinessType.INSERT)
+    @Log(title = "A4-用户消息", businessType = BusinessType.INSERT,
+         excludeParamNames = { AppAdminAuditParams.TITLE, AppAdminAuditParams.CONTENT, AppAdminAuditParams.TOKEN,
+             AppAdminAuditParams.ACCESS_TOKEN, AppAdminAuditParams.REFRESH_TOKEN, AppAdminAuditParams.CODE,
+             AppAdminAuditParams.SMS_CODE, AppAdminAuditParams.CAPTCHA, AppAdminAuditParams.PHONE,
+             AppAdminAuditParams.ID_NUMBER })
     @PostMapping("/notifications")
     public AjaxResult createNotification(@RequestBody Map<String, Object> body)
     {
+        A4AuditParamProjection.retain(body, A4AuditParamProjection.NOTIFICATION_CREATE);
+        // 业务读取必须先于日志指纹化：requestId 是幂等键、businessType/businessId 是业务引用，
+        // 服务层需要原值。@Log 在方法返回后才序列化参数，故随后的指纹化只作用于 oper_param（H12-REV-01）。
+        String requestId = str(body.get("requestId"));
+        String type = str(body.get("type"));
+        String title = str(body.get("title"));
+        String content = str(body.get("content"));
+        String businessType = str(body.get("businessType"));
+        String businessId = str(body.get("businessId"));
+        List<Long> userIds = longList(body.get("userIds"));
+        A4AuditParamProjection.sanitizeNotificationLog(body);
         UserNotificationAdminService.CreateResult result = notificationService.create(
-                str(body.get("requestId")),
-                str(body.get("type")),
-                str(body.get("title")),
-                str(body.get("content")),
-                str(body.get("businessType")),
-                str(body.get("businessId")),
-                longList(body.get("userIds")),
-                SecurityUtils.getUsername());
+                requestId, type, title, content, businessType, businessId, userIds, SecurityUtils.getUsername());
         return AjaxResult.success(Map.of(
                 "notificationId", result.getNotificationId(),
                 "receiverCount", result.getReceiverCount(),
@@ -383,15 +456,25 @@ public class A4AdminController extends BaseController
     }
 
     @PreAuthorize("@ss.hasPermi('" + AppAdminConstants.PERM_FEEDBACK_HANDLE + "')")
-    @Log(title = "A4-用户反馈处理", businessType = BusinessType.UPDATE, excludeParamNames = { "reply" })
+    @Log(title = "A4-用户反馈处理", businessType = BusinessType.UPDATE,
+         excludeParamNames = { AppAdminAuditParams.REPLY, AppAdminAuditParams.TOKEN, AppAdminAuditParams.ACCESS_TOKEN,
+             AppAdminAuditParams.REFRESH_TOKEN, AppAdminAuditParams.CODE, AppAdminAuditParams.SMS_CODE,
+             AppAdminAuditParams.CAPTCHA, AppAdminAuditParams.PHONE, AppAdminAuditParams.ID_NUMBER })
     @PutMapping("/feedback/{feedbackId}/handle")
     public AjaxResult handleFeedback(@PathVariable Long feedbackId, @RequestBody Map<String, Object> body)
     {
+        A4AuditParamProjection.retain(body, A4AuditParamProjection.FEEDBACK_HANDLE);
+        String action = str(body.get("action"));
+        String reply = str(body.get("reply"));
+        String expectedStatus = str(body.get("expectedStatus"));
+        // 业务读取后值级默认拒绝（第 14 批）：action/expectedStatus 仅保留契约枚举值，
+        // 其余取值（可承载令牌/PII）在日志投影中指纹化，服务层仍取原值。
+        A4AuditParamProjection.sanitizeFeedbackHandleLog(body);
         UserFeedbackAdminService.HandleResult result = feedbackService.handle(
                 feedbackId,
-                str(body.get("action")),
-                str(body.get("reply")),
-                str(body.get("expectedStatus")),
+                action,
+                reply,
+                expectedStatus,
                 SecurityUtils.getUserId());
         return AjaxResult.success(Map.of(
                 "feedbackId", result.getFeedbackId(),
@@ -435,15 +518,6 @@ public class A4AdminController extends BaseController
     private String str(Object value)
     {
         return value == null ? null : String.valueOf(value);
-    }
-
-    private boolean boolValue(Object value)
-    {
-        if (value instanceof Boolean b)
-        {
-            return b;
-        }
-        return value != null && Boolean.parseBoolean(String.valueOf(value));
     }
 
     private int intValue(Object value, int fallback)
