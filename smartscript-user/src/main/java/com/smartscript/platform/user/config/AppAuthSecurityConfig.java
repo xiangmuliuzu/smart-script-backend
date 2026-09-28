@@ -1,5 +1,6 @@
 package com.smartscript.platform.user.config;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
@@ -8,6 +9,7 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import com.ruoyi.framework.security.handle.AuthenticationFailureAuditor;
 import com.smartscript.platform.user.security.AppAccessTokenService;
 import com.smartscript.platform.user.security.AppAuthAuthenticationFilter;
 import com.smartscript.platform.user.security.AppAuthEntryPoint;
@@ -27,6 +29,13 @@ import com.smartscript.platform.user.security.AppAuthEntryPoint;
 public class AppAuthSecurityConfig
 {
     /**
+     * 过滤器链层 401 审计回调（H9-LOG-04 残余，第 11 批）。可选注入：
+     * 未装配时过滤器仍正常拒绝，只是不写审计行。
+     */
+    @Autowired(required = false)
+    private AuthenticationFailureAuditor authenticationFailureAuditor;
+
+    /**
      * App 凭证域覆盖的路径前缀；本链之外的前缀一律 denyAll。
      *
      * A6 起纳入 /api/v1/content/**：业务模块（B/C/D/E）的接口需要按 App 凭证域鉴权，
@@ -43,7 +52,7 @@ public class AppAuthSecurityConfig
             AppAccessTokenService accessTokenService,
             AppAuthEntryPoint appAuthEntryPoint) throws Exception
     {
-        AppAuthAuthenticationFilter appFilter = new AppAuthAuthenticationFilter(accessTokenService);
+        AppAuthAuthenticationFilter appFilter = new AppAuthAuthenticationFilter(accessTokenService, authenticationFailureAuditor);
         http.securityMatcher(APP_PATH_PREFIXES)
                 .csrf(csrf -> csrf.disable())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))

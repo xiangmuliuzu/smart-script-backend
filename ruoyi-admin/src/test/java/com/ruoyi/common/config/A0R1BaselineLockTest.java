@@ -13,7 +13,8 @@ import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 
 /**
- * A0-R1：锁定 Spring Boot 4.1.0 / JDBC 8.0.33，且仓库配置不得包含默认密钥/默认口令。
+ * A0-R1：锁定 Spring Boot 4.1.0 / JDBC 8.2.0（H-09 P1，2026-09-28 负责人批准由 8.0.33 升级），
+ * 且仓库配置不得包含默认密钥/默认口令。
  */
 class A0R1BaselineLockTest
 {
@@ -23,8 +24,8 @@ class A0R1BaselineLockTest
         Properties p = loadPomProperties();
         assertEquals("4.1.0", p.getProperty("spring-boot.version"),
                 "rules.md requires Spring Boot 4.1.0");
-        assertEquals("8.0.33", p.getProperty("mysql.connector.version"),
-                "rules.md requires JDBC driver 8.0.33");
+        assertEquals("8.2.0", p.getProperty("mysql.connector.version"),
+                "rules.md requires JDBC driver 8.2.0");
         assertEquals("17", p.getProperty("java.version"));
     }
 

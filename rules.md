@@ -20,7 +20,7 @@
 | JDK | OpenJDK 17 LTS | Java运行环境 |
 | Maven | 3.8.8 | 后端项目构建工具 |
 | MySQL | 8.0.36 | 项目核心业务数据库，所有业务数据统一存储 |
-| mysql-connector-java | 8.0.33 | MySQL JDBC驱动 |
+| mysql-connector-java（坐标 com.mysql:mysql-connector-j） | 8.2.0 | MySQL JDBC驱动（H-09 P1，2026-09-28 负责人批准由 8.0.33 升级，消除 CVE-2023-22102 HIGH；A0R1 基线锁测试同步） |
 
 > 后端约束：后端基于若依多端框架开发，需要同时支持Web管理后台、Flutter App两端调用。AI生成后端接口必须遵循若依权限、统一响应封装、Controller/Service/Mapper分层；接口需要考虑两端复用性，禁止硬编码绑定单端逻辑。
 

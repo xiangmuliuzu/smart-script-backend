@@ -14,6 +14,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smartscript.platform.user.constant.AppAuthErrorCodes;
 import com.smartscript.platform.api.AppApiResponse;
 import com.smartscript.platform.user.exception.AppAuthException;
+import com.ruoyi.framework.security.handle.AuthenticationFailureAuditor;
 
 /**
  * Validates App Access Tokens for App credential-domain endpoints.
@@ -28,6 +29,12 @@ public class AppAuthAuthenticationFilter extends OncePerRequestFilter
 {
     private final AppAccessTokenService accessTokenService;
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    /**
+     * 过滤器链层 401 审计回调（H9-LOG-04 残余，第 11 批）。可为 null（单测/未装配时）。
+     * 本过滤器直接短路写响应，不进入 MVC，故必须在此处回调审计。
+     */
+    private final AuthenticationFailureAuditor authFailureAuditor;
 
     /**
      * 完全公开端点（与 AppAuthSecurityConfig 的 permitAll 规则一致）：
@@ -60,7 +67,13 @@ public class AppAuthAuthenticationFilter extends OncePerRequestFilter
 
     public AppAuthAuthenticationFilter(AppAccessTokenService accessTokenService)
     {
+        this(accessTokenService, null);
+    }
+
+    public AppAuthAuthenticationFilter(AppAccessTokenService accessTokenService, AuthenticationFailureAuditor authFailureAuditor)
+    {
         this.accessTokenService = accessTokenService;
+        this.authFailureAuditor = authFailureAuditor;
     }
 
     @Override
@@ -89,7 +102,7 @@ public class AppAuthAuthenticationFilter extends OncePerRequestFilter
                 filterChain.doFilter(request, response);
                 return;
             }
-            writeError(response, AppAuthErrorCodes.UNAUTHORIZED, "unauthorized");
+            writeError(request, response, AppAuthErrorCodes.UNAUTHORIZED, "unauthorized");
             return;
         }
         String token = header.substring(7).trim();
@@ -101,7 +114,7 @@ public class AppAuthAuthenticationFilter extends OncePerRequestFilter
         }
         catch (AppAuthException e)
         {
-            writeError(response, e.getCode(), e.getMessage());
+            writeError(request, response, e.getCode(), e.getMessage());
         }
     }
 
@@ -157,13 +170,36 @@ public class AppAuthAuthenticationFilter extends OncePerRequestFilter
         return uri.startsWith("/api/v1") ? uri.substring("/api/v1".length()) : uri;
     }
 
-    private void writeError(HttpServletResponse response, int code, String message) throws IOException
+    private void writeError(HttpServletRequest request, HttpServletResponse response, int code, String message) throws IOException
     {
-        response.setStatus(code == AppAuthErrorCodes.ACCOUNT_DISABLED || code == AppAuthErrorCodes.DOMAIN_OR_PERMISSION
+        int status = code == AppAuthErrorCodes.ACCOUNT_DISABLED || code == AppAuthErrorCodes.DOMAIN_OR_PERMISSION
                 ? 403
-                : 401);
+                : 401;
+        response.setStatus(status);
         response.setCharacterEncoding(StandardCharsets.UTF_8.name());
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         response.getWriter().write(objectMapper.writeValueAsString(AppApiResponse.fail(code, message)));
+        // 响应写完之后才回调审计；回调只读请求、不得改动响应（见 AuthenticationFailureAuditor 约定）。
+        // 第 15 批：403（凭证域不符/账号禁用）按事件类型携带 reason，由审计器落一条可定位的安全事件。
+        if (authFailureAuditor != null)
+        {
+            authFailureAuditor.record(request, AuthenticationFailureAuditor.DOMAIN_APP, status, auditReason(code));
+        }
+    }
+
+    /**
+     * 把 App 业务错误码映射为审计事件类型标记；401 类不携带（沿用第 11 批 401 口径）。
+     */
+    static String auditReason(int code)
+    {
+        if (code == AppAuthErrorCodes.DOMAIN_OR_PERMISSION)
+        {
+            return AuthenticationFailureAuditor.REASON_DOMAIN_OR_PERMISSION;
+        }
+        if (code == AppAuthErrorCodes.ACCOUNT_DISABLED)
+        {
+            return AuthenticationFailureAuditor.REASON_ACCOUNT_DISABLED;
+        }
+        return null;
     }
 }

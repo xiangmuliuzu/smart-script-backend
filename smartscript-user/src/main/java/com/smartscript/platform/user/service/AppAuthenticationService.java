@@ -36,6 +36,11 @@ public class AppAuthenticationService
     private final AppSessionRevocationService revocationService;
     private final BCryptPasswordEncoder passwordEncoder;
     private final com.smartscript.platform.identity.IdentityProvider identityProvider;
+    /**
+     * H15-REV-03（§9.3）：登录成功/失败、禁用账号登录的安全审计。可为 null（单测构造兜底）。
+     * 事件落 sys_logininfor：actor 为掩码手机号，detail 只含场景/原因/用户 id，绝不含口令/验证码/令牌。
+     */
+    private final AppSecurityEventRecorder securityEvents;
 
     public AppAuthenticationService(AppUserMapper userMapper,
             SmsCodeService smsCodeService,
@@ -43,7 +48,8 @@ public class AppAuthenticationService
             RefreshSessionService refreshSessionService,
             AppSessionRevocationService revocationService,
             BCryptPasswordEncoder passwordEncoder,
-            com.smartscript.platform.identity.IdentityProvider identityProvider)
+            com.smartscript.platform.identity.IdentityProvider identityProvider,
+            AppSecurityEventRecorder securityEvents)
     {
         this.userMapper = userMapper;
         this.smsCodeService = smsCodeService;
@@ -52,12 +58,64 @@ public class AppAuthenticationService
         this.revocationService = revocationService;
         this.passwordEncoder = passwordEncoder;
         this.identityProvider = identityProvider;
+        this.securityEvents = securityEvents;
+    }
+
+    private void audit(String actorMaskedPhone, String ip, String event, String detail)
+    {
+        if (securityEvents != null)
+        {
+            securityEvents.record(actorMaskedPhone, ip, event, detail);
+        }
+    }
+
+    /**
+     * H15-REV-05：成功事件必须对应**已成功提交**的会话。事务内注册 afterCommit 回调——
+     * 会话签发失败或事务回滚时回调不触发，不产生虚假成功行；无事务上下文时（单测/非事务路径）直接落行。
+     * 失败类事件（{@link #audit}）不走此路径：失败尝试本身必须留痕，异步落库不受回滚影响。
+     */
+    private void auditLoginSuccessAfterCommit(String actorMaskedPhone, String ip, String detail)
+    {
+        if (securityEvents == null)
+        {
+            return;
+        }
+        if (org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive())
+        {
+            org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+                    new org.springframework.transaction.support.TransactionSynchronization()
+                    {
+                        @Override
+                        public void afterCommit()
+                        {
+                            securityEvents.recordSuccess(actorMaskedPhone, ip, "APP_LOGIN_SUCCESS", detail);
+                        }
+                    });
+        }
+        else
+        {
+            securityEvents.recordSuccess(actorMaskedPhone, ip, "APP_LOGIN_SUCCESS", detail);
+        }
+    }
+
+    private static String maskPhone(String phone)
+    {
+        return phone == null ? "***" : AppHashes.maskPhone(phone);
     }
 
     @Transactional
     public AuthSessionDto smsLogin(SmsLoginRequest request, String ip)
     {
-        smsCodeService.consumeOnce(request.getPhone(), "LOGIN", request.getCode());
+        try
+        {
+            smsCodeService.consumeOnce(request.getPhone(), "LOGIN", request.getCode());
+        }
+        catch (AppAuthException e)
+        {
+            // H15-REV-03：验证码失败即登录失败，须留安全审计（事件关键字 + 失败原因码），随后原样抛出
+            audit(maskPhone(request.getPhone()), ip, "APP_LOGIN_FAIL", "scene=LOGIN reason=" + e.getCode());
+            throw e;
+        }
         AppUserRecord user = userMapper.selectByPhone(request.getPhone());
         if (user == null)
         {
@@ -67,6 +125,7 @@ public class AppAuthenticationService
         }
         else if (!user.isUsable())
         {
+            audit(maskPhone(request.getPhone()), ip, "APP_LOGIN_DISABLED", "scene=LOGIN userId=" + user.getUserId());
             throw new AppAuthException(AppAuthErrorCodes.ACCOUNT_DISABLED, 403, "account disabled");
         }
         else if (request.getAgreementAcceptances() != null && !request.getAgreementAcceptances().isEmpty()
@@ -74,6 +133,7 @@ public class AppAuthenticationService
         {
             agreementService.recordAcceptances(user.getUserId(), request.getAgreementAcceptances(), ip, request.getDeviceId());
         }
+        auditLoginSuccessAfterCommit(maskPhone(request.getPhone()), ip, "scene=LOGIN userId=" + user.getUserId());
         return issueSession(user, request.getDeviceId(), request.getDeviceName(), ip);
     }
 
@@ -85,12 +145,15 @@ public class AppAuthenticationService
         if (user == null || user.getPassword() == null || user.getPassword().isBlank()
                 || !passwordEncoder.matches(request.getPassword(), user.getPassword()))
         {
+            audit(maskPhone(request.getPhone()), ip, "APP_LOGIN_FAIL", "scene=PASSWORD reason=BAD_CREDENTIAL");
             throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "phone or password incorrect");
         }
         if (!user.isUsable())
         {
+            audit(maskPhone(request.getPhone()), ip, "APP_LOGIN_DISABLED", "scene=PASSWORD userId=" + user.getUserId());
             throw new AppAuthException(AppAuthErrorCodes.ACCOUNT_DISABLED, 403, "account disabled");
         }
+        auditLoginSuccessAfterCommit(maskPhone(request.getPhone()), ip, "scene=PASSWORD userId=" + user.getUserId());
         return issueSession(user, request.getDeviceId(), request.getDeviceName(), ip);
     }
 
@@ -110,12 +173,13 @@ public class AppAuthenticationService
         return issueSession(user, request.getDeviceId(), request.getDeviceName(), ip);
     }
 
-    public AuthSessionDto refresh(TokenRefreshRequest request)
+    public AuthSessionDto refresh(TokenRefreshRequest request, String ip)
     {
-        IssuedSession session = refreshSessionService.rotate(request.getRefreshToken(), request.getDeviceId(), request.getDeviceName());
+        IssuedSession session = refreshSessionService.rotate(request.getRefreshToken(), request.getDeviceId(), request.getDeviceName(), ip);
         AppUserRecord user = userMapper.selectById(session.getUserId());
         if (user == null || !user.isUsable())
         {
+            audit("user-" + session.getUserId(), ip, "APP_LOGIN_DISABLED", "scene=REFRESH userId=" + session.getUserId());
             throw new AppAuthException(AppAuthErrorCodes.ACCOUNT_DISABLED, 403, "account disabled");
         }
         return toAuthSession(session, user);

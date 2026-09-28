@@ -63,6 +63,43 @@ class OperLogSanitizerTest
                 "unregistered long segment must be redacted by default: " + out);
     }
 
+    /**
+     * H13-REV-04：A4 写接口路径变量是自增主键，客户端可填入手机号样式数字。
+     * 11 位数字短于 16 字符阈值，必须由「纯数字 PII」规则兜住。
+     */
+    @Test
+    void phoneNumberShapedPathSegmentIsRedacted()
+    {
+        String out = OperLogSanitizer.redactUrl("/api/v1/admin/app-users/13900001234/status");
+        assertFalse(out.contains("13900001234"), "phone-like path segment must be redacted: " + out);
+        assertEquals("/api/v1/admin/app-users/{redacted}/status", out);
+        assertTrue(OperLogSanitizer.containsUnredactedTokenShape(
+                "/api/v1/admin/app-users/13900001234/status"));
+    }
+
+    @Test
+    void idNumberShapedPathSegmentIsRedacted()
+    {
+        String idNumber = "110101199001011234";
+        String out = OperLogSanitizer.redactUrl("/api/v1/admin/author-capabilities/" + idNumber);
+        assertFalse(out.contains(idNumber), "id-number-like path segment must be redacted: " + out);
+        assertEquals("/api/v1/admin/author-capabilities/{redacted}", out);
+    }
+
+    /** 短于手机号量级的自增主键（含 10 位）必须保留，否则日志失去定位价值。 */
+    @Test
+    void shortNumericIdsAreNotOverRedacted()
+    {
+        assertEquals("/api/v1/admin/app-users/100/status",
+                OperLogSanitizer.redactUrl("/api/v1/admin/app-users/100/status"));
+        assertEquals("/api/v1/admin/real-name-applications/9101/decision",
+                OperLogSanitizer.redactUrl("/api/v1/admin/real-name-applications/9101/decision"));
+        assertEquals("/api/v1/admin/app-users/1234567890/status",
+                OperLogSanitizer.redactUrl("/api/v1/admin/app-users/1234567890/status"));
+        assertFalse(OperLogSanitizer.containsUnredactedTokenShape(
+                "/api/v1/admin/app-users/1234567890/status"));
+    }
+
     /** 正常业务路由不得被误脱敏，否则日志失去定位价值。 */
     @Test
     void normalRoutesArePreserved()
@@ -112,6 +149,54 @@ class OperLogSanitizerTest
         OperLogSanitizer.sanitize(null);
         SysOperLog blank = new SysOperLog();
         OperLogSanitizer.sanitize(blank);
+    }
+
+    /**
+     * H13-REV-04：路径变量还会作为方法实参进入 oper_param（`13900001234 {"status":"1"}`），
+     * 故 A4 管理域的 oper_param 也须脱敏长数字串；短自增 id 保留可读。
+     */
+    @Test
+    void pathVariableNumericPiiInA4OperParamIsRedacted()
+    {
+        SysOperLog log = new SysOperLog();
+        log.setOperUrl("/api/v1/admin/app-users/{redacted}/status");
+        log.setOperParam("13900001234 {\"status\":\"1\"} ");
+        OperLogSanitizer.sanitize(log);
+        assertFalse(String.valueOf(log.getOperParam()).contains("13900001234"),
+                "phone-like path variable must be redacted in oper_param: " + log.getOperParam());
+        assertTrue(String.valueOf(log.getOperParam()).contains("{redacted}"));
+
+        SysOperLog shortId = new SysOperLog();
+        shortId.setOperUrl("/api/v1/admin/app-users/100/status");
+        shortId.setOperParam("100 {\"status\":\"1\"} ");
+        OperLogSanitizer.sanitize(shortId);
+        assertTrue(String.valueOf(shortId.getOperParam()).contains("100 "),
+                "short self-increment id must stay readable: " + shortId.getOperParam());
+    }
+
+    /** 项目指纹原子在全数字时也不得被数字脱敏误伤。 */
+    @Test
+    void fingerprintAtomsAreProtectedFromDigitRedaction()
+    {
+        SysOperLog log = new SysOperLog();
+        log.setOperUrl("/api/v1/admin/notifications");
+        log.setOperParam("{\"userIds\":[\"fp:123456789012\"],\"requestId\":\"fp:000000000001\"}");
+        OperLogSanitizer.sanitize(log);
+        String out = String.valueOf(log.getOperParam());
+        assertTrue(out.contains("fp:123456789012"), "fingerprint must be preserved: " + out);
+        assertTrue(out.contains("fp:000000000001"), "fingerprint must be preserved: " + out);
+    }
+
+    /** 非 A4 管理域（如 C 模块）的 oper_param 不在本轮范围，不得被改动。 */
+    @Test
+    void nonA4OperParamIsNotDigitRedacted()
+    {
+        SysOperLog log = new SysOperLog();
+        log.setOperUrl("/api/v1/admin/trade/works");
+        log.setOperParam("{\"ref\":\"13900001234\"}");
+        OperLogSanitizer.sanitize(log);
+        assertTrue(String.valueOf(log.getOperParam()).contains("13900001234"),
+                "C module oper_param must be untouched this round: " + log.getOperParam());
     }
 
     @Test

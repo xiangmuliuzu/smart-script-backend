@@ -17,6 +17,9 @@ public final class AppUserErrorCodes
     /** 400 参数、长度或格式无效（沿用 A3 的同值码）。 */
     public static final int PARAM = 40000;
 
+    /** 413 上传内容超出大小上限（容器 max-file-size 被触发，由全局上传超限处理器返回）。 */
+    public static final int PAYLOAD_TOO_LARGE = 41300;
+
     /** 401 未登录或凭证无效（沿用 A3 的同值码）。 */
     public static final int UNAUTHORIZED = 40100;
 
@@ -49,4 +52,7 @@ public final class AppUserErrorCodes
 
     /** 400 通用文案。 */
     public static final String INVALID_PARAM = "请求参数无效";
+
+    /** 413 上传超限文案（不暴露容器上限与异常细节）。 */
+    public static final String PAYLOAD_TOO_LARGE_TEXT = "文件超出大小上限";
 }
