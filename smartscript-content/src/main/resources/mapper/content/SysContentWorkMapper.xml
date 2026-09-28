@@ -11,7 +11,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 	  2. status varchar(20) 原样持有；trade_enabled/is_free/preview_enabled/is_copyrighted/is_deleted
 	     tinyint ↔ String。
 	  3. ext_json json 类型，String 透传（MySQL 隐式转换合法 JSON 字符串）。
-	  4. authorName/genreName 为 JOIN 扩展字段（sys_user.nickname / sys_category.category_name）。
+	  4. authorName/genreName 为 JOIN 扩展字段（sys_user.nick_name / sys_category.category_name）。
 	  5. recommendStatus/showScope 为书城 ext_json 解析扩展字段（JSON_EXTRACT）。
 	-->
 	<resultMap type="SysContentWork" id="SysWorkResult">
@@ -72,7 +72,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		       w.rating, w.quality_level, w.reviewer_id, w.review_time, w.reject_reason,
 		       w.ext_json, w.is_deleted,
 		       w.create_by, w.create_time, w.update_by, w.update_time, w.remark,
-		       u.nickname as author_name,
+		       u.nick_name as author_name,
 		       c.category_name as genre_name
 		from sys_work w
 		left join sys_user u on u.user_id = w.author_id
@@ -114,7 +114,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		       w.trade_type, w.price, w.word_count, w.episode_count, w.view_count,
 		       w.favorite_count, w.sale_count, w.rating, w.ext_json,
 		       w.create_by, w.create_time, w.update_by, w.update_time, w.remark,
-		       u.nickname as author_name,
+		       u.nick_name as author_name,
 		       JSON_UNQUOTE(JSON_EXTRACT(w.ext_json, '$.recommendStatus')) as recommend_status,
 		       JSON_EXTRACT(w.ext_json, '$.showScope') as show_scope
 		from sys_work w
