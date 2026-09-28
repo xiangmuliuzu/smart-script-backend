@@ -14,7 +14,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 	  4. authorName/genreName 为 JOIN 扩展字段（sys_user.nickname / sys_category.category_name）。
 	  5. recommendStatus/showScope 为书城 ext_json 解析扩展字段（JSON_EXTRACT）。
 	-->
-	<resultMap type="SysWork" id="SysWorkResult">
+	<resultMap type="SysContentWork" id="SysWorkResult">
 		<id     property="workId"           column="work_id"           />
 		<result property="title"            column="title"             />
 		<result property="cover"            column="cover"             />
@@ -80,7 +80,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		where w.is_deleted = 0
 	</sql>
 
-	<select id="selectWorkList" parameterType="SysWork" resultMap="SysWorkResult">
+	<select id="selectWorkList" parameterType="SysContentWork" resultMap="SysWorkResult">
 		<include refid="selectWorkVo"/>
 		<if test="title != null and title != ''">
 			AND w.title like concat('%', #{title}, '%')
@@ -122,7 +122,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		where w.is_deleted = 0
 	</sql>
 
-	<select id="selectBookstoreList" parameterType="SysWork" resultMap="SysWorkResult">
+	<select id="selectBookstoreList" parameterType="SysContentWork" resultMap="SysWorkResult">
 		<include refid="selectBookstoreVo"/>
 		<if test="title != null and title != ''">
 			AND w.title like concat('%', #{title}, '%')
@@ -145,7 +145,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 	</select>
 
 	<!-- 修改上下架状态（单一职责：仅改 status） -->
-	<update id="updateWorkStatus" parameterType="SysWork">
+	<update id="updateWorkStatus" parameterType="SysContentWork">
 		update sys_work
 		set status = #{status},
 		    update_by = #{updateBy},
@@ -154,7 +154,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 	</update>
 
 	<!-- 修改交易开关（单一职责：仅改 trade_enabled） -->
-	<update id="updateWorkTradeEnabled" parameterType="SysWork">
+	<update id="updateWorkTradeEnabled" parameterType="SysContentWork">
 		update sys_work
 		set trade_enabled = #{tradeEnabled},
 		    update_by = #{updateBy},
@@ -163,7 +163,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 	</update>
 
 	<!-- 修改扩展JSON（单一职责：整体替换 ext_json） -->
-	<update id="updateWorkExtJson" parameterType="SysWork">
+	<update id="updateWorkExtJson" parameterType="SysContentWork">
 		update sys_work
 		set ext_json = #{extJson},
 		    update_by = #{updateBy},

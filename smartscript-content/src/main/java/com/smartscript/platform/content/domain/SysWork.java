@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.util.Date;
 import org.apache.commons.lang3.builder.ToStringBuilder;
 import org.apache.commons.lang3.builder.ToStringStyle;
+import org.apache.ibatis.type.Alias;
 import com.fasterxml.jackson.annotation.JsonFormat;
 import com.ruoyi.common.core.domain.BaseEntity;
 
@@ -12,6 +13,11 @@ import com.ruoyi.common.core.domain.BaseEntity;
  *
  * 依据：云端 script_platform_dev 库 sys_work 表（附件5.1 表3-14）。
  * 表注释：作品表。
+ *
+ * 别名说明：@Alias("SysContentWork") 显式指定 MyBatis 类型别名，避免与
+ * smartscript-trade 模块 com.smartscript.platform.trade.domain.SysWork 同短名
+ * 冲突（typeAliasesPackage 按短名注册，两个 SysWork 别名重复导致启动失败）。
+ * 类名保持 SysWork 不变，Mapper XML 中引用别名需用 SysContentWork。
  *
  * 说明（无文档依据，反推处理点）：
  * 1. created_at/updated_at 由数据库默认值维护，代码不读不写；Entity 只映射若依5通用字段
@@ -26,6 +32,7 @@ import com.ruoyi.common.core.domain.BaseEntity;
  *
  * @author xiangsipeng
  */
+@Alias("SysContentWork")
 public class SysWork extends BaseEntity
 {
     private static final long serialVersionUID = 1L;
