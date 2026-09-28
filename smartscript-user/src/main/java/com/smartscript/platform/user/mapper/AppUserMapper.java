@@ -11,6 +11,9 @@ public interface AppUserMapper
 {
     AppUserRecord selectByPhone(@Param("phone") String phone);
 
+    /** PC 统一登录用：按用户名或手机号解析账号（仅未删除账号）。 */
+    AppUserRecord selectByLoginIdentifier(@Param("identifier") String identifier);
+
     AppUserRecord selectById(@Param("userId") Long userId);
 
     int insertAppUser(AppUserRecord user);

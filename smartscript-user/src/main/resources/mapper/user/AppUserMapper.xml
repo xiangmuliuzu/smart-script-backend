@@ -26,6 +26,16 @@
         LIMIT 1
     </select>
 
+    <select id="selectByLoginIdentifier" resultMap="AppUserResult">
+        SELECT <include refid="appUserColumns"/>
+        FROM sys_user
+        WHERE del_flag = '0'
+          AND (user_name = #{identifier} OR phonenumber = #{identifier})
+        <!-- 用户名与手机号同时命中不同账号时，确定性取用户名命中的记录，保证分流结果稳定 -->
+        ORDER BY CASE WHEN user_name = #{identifier} THEN 0 ELSE 1 END
+        LIMIT 1
+    </select>
+
     <select id="selectById" resultMap="AppUserResult">
         SELECT <include refid="appUserColumns"/>
         FROM sys_user

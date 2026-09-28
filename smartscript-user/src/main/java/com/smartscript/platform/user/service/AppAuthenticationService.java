@@ -157,6 +157,34 @@ public class AppAuthenticationService
         return issueSession(user, request.getDeviceId(), request.getDeviceName(), ip);
     }
 
+    /**
+     * A 模块 PC 统一登录的 App 域入口：01/02/03 账号在 PC 网页上凭用户名或手机号 + 密码登录，
+     * 签发 App 凭证域令牌（与 App 端同一套 access/refresh 体系），绝不签发若依管理端 Token。
+     * 账号域判定由调用方（PcUnifiedLoginController）依据 user_type 完成，此处再防御一次：
+     * 非 01/02/03 一律按凭据错误处理，避免管理端账号误入 App 凭证域。
+     */
+    @Transactional
+    public AuthSessionDto pcPasswordLogin(String identifier, String password, String ip)
+    {
+        AppUserRecord user = userMapper.selectByLoginIdentifier(identifier);
+        boolean credentialOk = user != null
+                && com.smartscript.platform.user.constant.AppAdminConstants.isManagedUserType(user.getUserType())
+                && user.getPassword() != null && !user.getPassword().isBlank()
+                && passwordEncoder.matches(password, user.getPassword());
+        if (!credentialOk)
+        {
+            audit(identifier, ip, "APP_LOGIN_FAIL", "scene=PC_PASSWORD reason=BAD_CREDENTIAL");
+            throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "用户不存在/密码错误");
+        }
+        if (!user.isUsable())
+        {
+            audit(identifier, ip, "APP_LOGIN_DISABLED", "scene=PC_PASSWORD userId=" + user.getUserId());
+            throw new AppAuthException(AppAuthErrorCodes.ACCOUNT_DISABLED, 403, "账号已停用，请联系管理员");
+        }
+        auditLoginSuccessAfterCommit(identifier, ip, "scene=PC_PASSWORD userId=" + user.getUserId());
+        return issueSession(user, "pc-web", "PC Web", ip);
+    }
+
     @Transactional
     public AuthSessionDto register(RegisterRequest request, String ip)
     {

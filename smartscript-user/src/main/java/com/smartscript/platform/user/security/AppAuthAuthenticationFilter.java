@@ -50,6 +50,7 @@ public class AppAuthAuthenticationFilter extends OncePerRequestFilter
             "/auth/agreements",
             "/auth/oauth/wechat/login",
             "/auth/oauth/qq/login",
+            "/pc-auth/login",
     };
 
     /**

@@ -21,6 +21,7 @@ import com.smartscript.platform.user.security.AppAuthEntryPoint;
  *   /api/v1/users/**    资料、实名、账号安全（含换绑手机号）、通知偏好
  *   /api/v1/messages/** 消息中心
  *   /api/v1/feedback/** 意见反馈
+ *   /api/v1/pc-auth/**  PC 统一登录（仅 POST /login 公开；01/02/03 从这里拿 App 域令牌）
  *
  * 边界不变：PC 管理接口（/api/v1/admin/**）与若依原生接口仍走若依过滤链，
  * 因此 App Token 访问管理端仍被拒绝，PC Token 访问 App 私有接口也不被本链接受。
@@ -43,7 +44,7 @@ public class AppAuthSecurityConfig
      */
     static final String[] APP_PATH_PREFIXES = {
             "/api/v1/auth/**", "/api/v1/users/**", "/api/v1/messages/**", "/api/v1/feedback/**",
-            "/api/v1/content/**"
+            "/api/v1/content/**", "/api/v1/pc-auth/**"
     };
 
     @Bean
@@ -64,7 +65,8 @@ public class AppAuthSecurityConfig
                                 "/api/v1/auth/password/login",
                                 "/api/v1/auth/password/reset",
                                 "/api/v1/auth/register",
-                                "/api/v1/auth/token/refresh").permitAll()
+                                "/api/v1/auth/token/refresh",
+                                "/api/v1/pc-auth/login").permitAll()
                         .requestMatchers(HttpMethod.GET,
                                 "/api/v1/auth/agreements").permitAll()
                         .requestMatchers(HttpMethod.POST,
