@@ -36,6 +36,9 @@ public class UserConstants
     /** 字典正常状态 */
     public static final String DICT_NORMAL = "0";
 
+    /** PC 管理员账号域（sys_user.user_type），批量授权只接受明确为该值的账号 */
+    public static final String USER_TYPE_PC_ADMIN = "00";
+
     /** 是否为系统默认（是） */
     public static final String YES = "Y";
 

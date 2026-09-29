@@ -70,7 +70,10 @@ public class AppUserAdminService
         List<AppUserSummary> rows = mapper.selectAppUserPage(safe);
         if (rows == null || rows.isEmpty())
         {
-            return new ArrayList<>();
+            // H-12-01（2026-09-28 负责人选方案 A）：空结果也必须保留 PageHelper 的 Page 类型，
+            // 否则 Controller 的 new PageInfo(list).getTotal() 退化为 0，越界页丢失真实 total；
+            // 仅 null 时兜底空列表（与 RealNameReviewService 等同类实现一致）。
+            return rows == null ? new ArrayList<>() : rows;
         }
         List<Long> ids = rows.stream().map(AppUserSummary::getUserId).toList();
         Map<Long, List<String>> roleMap = loadRoleCodes(ids);

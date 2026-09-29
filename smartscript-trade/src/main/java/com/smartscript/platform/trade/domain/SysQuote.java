@@ -70,4 +70,9 @@ public class SysQuote extends BaseEntity
     public void setWorkTitle(String workTitle) { this.workTitle = workTitle; }
     public String getQuoterName() { return quoterName; }
     public void setQuoterName(String quoterName) { this.quoterName = quoterName; }
+
+    /** Transient: unified fuzzy keyword for list filtering (not a column) */
+    private String keyword;
+    public String getKeyword() { return keyword; }
+    public void setKeyword(String keyword) { this.keyword = keyword; }
 }

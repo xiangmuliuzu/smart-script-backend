@@ -24,6 +24,9 @@
         <result property="saleCount"         column="sale_count" />
         <result property="rating"            column="rating" />
         <result property="isDeleted"         column="is_deleted" />
+        <result property="isTop"             column="is_top" />
+        <result property="isRecommend"       column="is_recommend" />
+        <result property="sortOrder"         column="sort_order" />
         <result property="createdAt"         column="created_at" />
         <result property="updatedAt"         column="updated_at" />
         <result property="createBy"          column="create_by" />
@@ -36,12 +39,16 @@
                w.price, w.trade_type, w.trade_enabled, w.negotiable_min, w.negotiable_max,
                w.quote_valid_days, w.word_count, w.episode_count, w.status,
                w.view_count, w.favorite_count, w.sale_count, w.rating,
-               w.is_deleted, w.created_at, w.updated_at, w.create_by, w.create_time
+               w.is_deleted, w.created_at, w.updated_at, w.create_by, w.create_time,
+               w.is_top, w.is_recommend, w.sort_order
         from sys_work w
         <where>
             w.is_deleted = 0
             <if test="title != null and title != ''">
                 AND w.title like concat('%', #{title}, '%')
+            </if>
+            <if test="keyword != null and keyword != ''">
+                AND w.title like concat('%', #{keyword}, '%')
             </if>
             <if test="tradeType != null and tradeType != ''">
                 AND w.trade_type = #{tradeType}
@@ -53,7 +60,7 @@
                 AND w.status = #{status}
             </if>
         </where>
-        order by w.created_at desc
+        order by w.is_top desc, w.sort_order asc, w.created_at desc
     </select>
 
     <select id="selectWorkById" parameterType="Long" resultMap="SysWorkResult">
@@ -72,6 +79,9 @@
             <if test="negotiableMin != null">negotiable_min = #{negotiableMin},</if>
             <if test="negotiableMax != null">negotiable_max = #{negotiableMax},</if>
             <if test="quoteValidDays != null">quote_valid_days = #{quoteValidDays},</if>
+            <if test="isTop != null">is_top = #{isTop},</if>
+            <if test="isRecommend != null">is_recommend = #{isRecommend},</if>
+            <if test="sortOrder != null">sort_order = #{sortOrder},</if>
             <if test="updateBy != null">update_by = #{updateBy},</if>
             <if test="updateTime != null">update_time = #{updateTime},</if>
         </set>

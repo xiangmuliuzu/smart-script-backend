@@ -92,8 +92,17 @@ public class SysLoginService
         {
             AuthenticationContextHolder.clearContext();
         }
-        AsyncManager.me().execute(AsyncFactory.recordLogininfor(username, Constants.LOGIN_SUCCESS, MessageUtils.message("user.login.success")));
         LoginUser loginUser = (LoginUser) authentication.getPrincipal();
+        // 账号域隔离：App 用户（01/02/03）只能通过统一登录 /api/v1/pc-auth/login 获取 App 凭证域令牌，
+        // 不得直接调管理端 /login 换取若依 Token（否则会出现同一账号双域持牌）。
+        // 成功审计必须放在类型校验之后，避免被拒账号留下「先成功后失败」的矛盾记录。
+        String userType = loginUser.getUser() == null ? null : loginUser.getUser().getUserType();
+        if (StringUtils.isNotEmpty(userType) && !"00".equals(userType))
+        {
+            AsyncManager.me().execute(AsyncFactory.recordLogininfor(username, Constants.LOGIN_FAIL, "账号类型不允许登录管理端"));
+            throw new ServiceException("该账号类型不允许在管理端登录");
+        }
+        AsyncManager.me().execute(AsyncFactory.recordLogininfor(username, Constants.LOGIN_SUCCESS, MessageUtils.message("user.login.success")));
         recordLoginInfo(loginUser.getUserId());
         // 生成token
         return tokenService.createToken(loginUser);

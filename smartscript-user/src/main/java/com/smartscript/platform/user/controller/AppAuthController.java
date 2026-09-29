@@ -82,9 +82,9 @@ public class AppAuthController
     }
 
     @PostMapping("/token/refresh")
-    public AppApiResponse<AuthSessionDto> refresh(@Valid @RequestBody TokenRefreshRequest request)
+    public AppApiResponse<AuthSessionDto> refresh(@Valid @RequestBody TokenRefreshRequest request, HttpServletRequest http)
     {
-        return AppApiResponse.ok(authenticationService.refresh(request));
+        return AppApiResponse.ok(authenticationService.refresh(request, clientIp(http)));
     }
 
     @PostMapping("/logout")

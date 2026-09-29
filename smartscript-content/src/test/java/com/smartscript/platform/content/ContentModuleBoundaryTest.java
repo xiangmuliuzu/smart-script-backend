@@ -87,7 +87,7 @@ class ContentModuleBoundaryTest
     }
 
     @Test
-    void moduleControllersLiveUnderControllerPackageAndUseAppPrefix() throws Exception
+    void moduleControllersUseTheirAuthDomainPrefix() throws Exception
     {
         for (String file : sourceFiles())
         {
@@ -96,8 +96,10 @@ class ContentModuleBoundaryTest
             if (hasRest)
             {
                 assertTrue(file.contains("/controller/"), "控制器必须位于 controller 包: " + file);
-                assertTrue(src.contains("/api/v1/content"),
-                        "业务模块控制器必须挂在 /api/v1/content 之下: " + file);
+                String expectedPrefix = file.contains("/controller/admin/")
+                        ? "/api/v1/admin/content" : "/api/v1/content";
+                assertTrue(src.contains(expectedPrefix),
+                        "业务模块控制器必须挂在 " + expectedPrefix + " 之下: " + file);
             }
         }
     }

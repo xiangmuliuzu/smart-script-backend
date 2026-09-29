@@ -9,6 +9,7 @@
     </parent>
     <modelVersion>4.0.0</modelVersion>
 
+    <groupId>com.smartscript</groupId>
     <artifactId>smartscript-review</artifactId>
     <description>智能剧本创作平台 - 审核风控与AI模块</description>
 

@@ -5,10 +5,15 @@ import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.multipart.MultipartException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import com.smartscript.platform.user.constant.AppAuthErrorCodes;
 import com.smartscript.platform.user.constant.AppUserErrorCodes;
 import com.smartscript.platform.api.AppApiResponse;
@@ -46,6 +51,24 @@ public class AppAuthExceptionHandler
     }
 
     /**
+     * 非法参数类异常统一为 400/40000（§5.3 / §10）：
+     *   - 路径变量或查询参数类型不匹配（如 `/messages/{id}` 传非数字）；
+     *   - multipart 请求缺少必需部件（如头像上传缺 `file`）；
+     *   - 缺少必需请求参数 / 请求体不可解析。
+     *
+     * 类型不匹配和 MultipartException 属于运行时异常；缺失 multipart 部件继承 ServletException。
+     * 显式映射可避免这些非法输入落入 500 错误信封。
+     */
+    @ExceptionHandler({ MethodArgumentTypeMismatchException.class, MissingServletRequestPartException.class,
+            MissingServletRequestParameterException.class, MultipartException.class,
+            HttpMessageNotReadableException.class })
+    public ResponseEntity<AppApiResponse<Object>> handleIllegalParameter(Exception e)
+    {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(AppApiResponse.fail(AppAuthErrorCodes.PARAM, "invalid request"));
+    }
+
+    /**
      * Unexpected errors from App auth controllers only. Does not intercept PC controllers.
      */
     @ExceptionHandler(RuntimeException.class)
@@ -72,6 +95,7 @@ public class AppAuthExceptionHandler
             case AppUserErrorCodes.RESOURCE_NOT_FOUND -> AppUserErrorCodes.RESOURCE_NOT_FOUND_TEXT;
             case AppUserErrorCodes.REAL_NAME_CONFLICT -> AppUserErrorCodes.REAL_NAME_CONFLICT_TEXT;
             case AppUserErrorCodes.DUPLICATE_SUBMIT -> AppUserErrorCodes.DUPLICATE_SUBMIT_TEXT;
+            case AppUserErrorCodes.PAYLOAD_TOO_LARGE -> AppUserErrorCodes.PAYLOAD_TOO_LARGE_TEXT;
             case AppAuthErrorCodes.PARAM -> "invalid request";
             case AppAuthErrorCodes.SMS_CODE_INVALID -> "sms code invalid";
             case AppAuthErrorCodes.SMS_CODE_EXPIRED -> "sms code expired";

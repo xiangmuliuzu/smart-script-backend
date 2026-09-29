@@ -32,6 +32,9 @@
             <if test="title != null and title != ''">AND title like concat('%', #{title}, '%')</if>
             <if test="status != null and status != ''">AND status = #{status}</if>
             <if test="demandNo != null and demandNo != ''">AND demand_no like concat('%', #{demandNo}, '%')</if>
+            <if test="keyword != null and keyword != ''">
+                AND (title like concat('%', #{keyword}, '%') or demand_no like concat('%', #{keyword}, '%'))
+            </if>
         </where>
         order by created_at desc
     </select>

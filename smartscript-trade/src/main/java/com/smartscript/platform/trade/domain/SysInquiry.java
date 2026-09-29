@@ -72,4 +72,9 @@ public class SysInquiry extends BaseEntity
     public void setBuyerName(String buyerName) { this.buyerName = buyerName; }
     public String getSellerName() { return sellerName; }
     public void setSellerName(String sellerName) { this.sellerName = sellerName; }
+
+    /** Transient: unified fuzzy keyword for list filtering (not a column) */
+    private String keyword;
+    public String getKeyword() { return keyword; }
+    public void setKeyword(String keyword) { this.keyword = keyword; }
 }

@@ -25,16 +25,30 @@ public class RefreshSessionService
     private final AppRefreshSessionMapper mapper;
     private final AppAccessTokenService accessTokenService;
     private final AppSessionRevocationService revocationService;
+    /** H15-REV-03（§9.3）：重放检测必须留安全审计。可为 null（单测构造兜底）。 */
+    private final AppSecurityEventRecorder securityEvents;
 
     public RefreshSessionService(AppAuthProperties properties,
             AppRefreshSessionMapper mapper,
             AppAccessTokenService accessTokenService,
-            AppSessionRevocationService revocationService)
+            AppSessionRevocationService revocationService,
+            AppSecurityEventRecorder securityEvents)
     {
         this.properties = properties;
         this.mapper = mapper;
         this.accessTokenService = accessTokenService;
         this.revocationService = revocationService;
+        this.securityEvents = securityEvents;
+    }
+
+    /** 重放安全审计：actor 用内部用户标识（此处无手机号可掩码），detail 只含 familyId，绝不含令牌原文。 */
+    private void auditReplay(Long userId, String familyId, String ip)
+    {
+        if (securityEvents != null)
+        {
+            securityEvents.record("user-" + userId, ip, "APP_REFRESH_REPLAY",
+                    "family=" + familyId + " userId=" + userId);
+        }
     }
 
     @Transactional
@@ -61,7 +75,7 @@ public class RefreshSessionService
      * Family revocation must persist even when the call ends with a business error.
      */
     @Transactional(noRollbackFor = AppAuthException.class)
-    public IssuedSession rotate(String refreshToken, String deviceId, String deviceName)
+    public IssuedSession rotate(String refreshToken, String deviceId, String deviceName, String ip)
     {
         String hash = AppHashes.sha256Hex(refreshToken);
         AppRefreshSession locked;
@@ -82,6 +96,8 @@ public class RefreshSessionService
         {
             mapper.revokeFamily(locked.getFamilyId(), "REPLAY", new Date());
             revocationService.revokeAllForUser(locked.getUserId(), "REPLAY");
+            // H15-REV-03：重放检测留安全审计（家族/全量吊销为业务记录，事件落 sys_logininfor）
+            auditReplay(locked.getUserId(), locked.getFamilyId(), ip);
             // more precise: revoke family sessions only
             throw new AppAuthException(AppAuthErrorCodes.REFRESH_REPLAY, 401, "refresh token replay detected");
         }
@@ -94,6 +110,7 @@ public class RefreshSessionService
         if (revoked == 0)
         {
             mapper.revokeFamily(locked.getFamilyId(), "REPLAY", new Date());
+            auditReplay(locked.getUserId(), locked.getFamilyId(), ip);
             throw new AppAuthException(AppAuthErrorCodes.REFRESH_REPLAY, 401, "refresh token replay detected");
         }
 
@@ -114,6 +131,7 @@ public class RefreshSessionService
         catch (DuplicateKeyException e)
         {
             mapper.revokeFamily(locked.getFamilyId(), "REPLAY", new Date());
+            auditReplay(locked.getUserId(), locked.getFamilyId(), ip);
             throw new AppAuthException(AppAuthErrorCodes.REFRESH_REPLAY, 401, "refresh token replay detected");
         }
         mapper.markReplaced(locked.getId(), successor.getId());

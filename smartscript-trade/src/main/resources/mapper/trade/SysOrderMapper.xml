@@ -40,9 +40,13 @@
                o.total_amount, o.platform_fee, o.split_rate, o.seller_amount,
                o.status, o.pay_time, o.complete_time,
                o.created_at, o.updated_at, o.create_by, o.create_time, o.remark,
-               w.title as work_title
+               w.title as work_title,
+               ub.nick_name as buyer_name,
+               us.nick_name as seller_name
         from sys_order o
         left join sys_work w on o.work_id = w.work_id
+        left join sys_user ub on o.buyer_id = ub.user_id
+        left join sys_user us on o.seller_id = us.user_id
         <where>
             <if test="orderNo != null and orderNo != ''">AND o.order_no like concat('%', #{orderNo}, '%')</if>
             <if test="status != null and status != ''">AND o.status = #{status}</if>
@@ -53,9 +57,13 @@
     </select>
 
     <select id="selectOrderById" parameterType="Long" resultMap="SysOrderResult">
-        select o.*, w.title as work_title
+        select o.*, w.title as work_title,
+               ub.nick_name as buyer_name,
+               us.nick_name as seller_name
         from sys_order o
         left join sys_work w on o.work_id = w.work_id
+        left join sys_user ub on o.buyer_id = ub.user_id
+        left join sys_user us on o.seller_id = us.user_id
         where o.order_id = #{orderId}
     </select>
 
@@ -71,9 +79,13 @@
                o.total_amount, o.platform_fee, o.split_rate, o.seller_amount,
                o.status, o.pay_time, o.complete_time,
                o.created_at, o.updated_at, o.create_by, o.create_time, o.remark,
-               w.title as work_title
+               w.title as work_title,
+               ub.nick_name as buyer_name,
+               us.nick_name as seller_name
         from sys_order o
         left join sys_work w on o.work_id = w.work_id
+        left join sys_user ub on o.buyer_id = ub.user_id
+        left join sys_user us on o.seller_id = us.user_id
     </sql>
 
     <insert id="insertOrder" parameterType="com.smartscript.platform.trade.domain.SysOrder" useGeneratedKeys="true" keyProperty="orderId">

@@ -40,6 +40,11 @@
             <if test="quoterRole != null and quoterRole != ''">AND q.quoter_role = #{quoterRole}</if>
             <if test="status != null and status != ''">AND q.status = #{status}</if>
             <if test="quoteNo != null and quoteNo != ''">AND q.quote_no like concat('%', #{quoteNo}, '%')</if>
+            <if test="keyword != null and keyword != ''">
+                AND (q.quote_no like concat('%', #{keyword}, '%')
+                     or i.inquiry_no like concat('%', #{keyword}, '%')
+                     or w.title like concat('%', #{keyword}, '%'))
+            </if>
         </where>
         order by q.created_at desc
     </select>
@@ -67,6 +72,11 @@
     <update id="updateQuote" parameterType="com.smartscript.platform.trade.domain.SysQuote">
         update sys_quote
         <set>
+            <if test="price != null">price = #{price},</if>
+            <if test="licenseType != null">license_type = #{licenseType},</if>
+            <if test="validDays != null">valid_days = #{validDays},</if>
+            <if test="description != null">description = #{description},</if>
+            <if test="expireAt != null">expire_at = #{expireAt},</if>
             <if test="status != null">status = #{status},</if>
             <if test="updateBy != null">update_by = #{updateBy},</if>
             <if test="updateTime != null">update_time = #{updateTime},</if>

@@ -64,7 +64,11 @@ public class AppFileUploadService
         }
         if (file.getSize() > MAX_AVATAR_BYTES)
         {
-            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "图片不能超过 5MB");
+            // H-04 决策甲（2026-09-28 负责人批准）：服务层 5MB 预检与容器 10MB 兜底统一为
+            // 413/41300 与同一安全文案（原为 400/40000「图片不能超过 5MB」），
+            // 使客户端可用同一状态码/业务码判别"超限"这一类错误。
+            throw new AppAuthException(AppUserErrorCodes.PAYLOAD_TOO_LARGE, 413,
+                    AppUserErrorCodes.PAYLOAD_TOO_LARGE_TEXT);
         }
         final String storedPath;
         try

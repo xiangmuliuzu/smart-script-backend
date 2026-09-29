@@ -34,6 +34,10 @@ public class SysBusinessFollow extends BaseEntity
     private String partnerName;
     /** Transient: follower name joined from sys_user */
     private String followerName;
+    /** Transient: query-only follow_time range start (interface 2.38 startDate, yyyy-MM-dd) */
+    private String startDate;
+    /** Transient: query-only follow_time range end (interface 2.38 endDate, yyyy-MM-dd) */
+    private String endDate;
 
     public Long getFollowId() { return followId; }
     public void setFollowId(Long followId) { this.followId = followId; }
@@ -59,4 +63,8 @@ public class SysBusinessFollow extends BaseEntity
     public void setPartnerName(String partnerName) { this.partnerName = partnerName; }
     public String getFollowerName() { return followerName; }
     public void setFollowerName(String followerName) { this.followerName = followerName; }
+    public String getStartDate() { return startDate; }
+    public void setStartDate(String startDate) { this.startDate = startDate; }
+    public String getEndDate() { return endDate; }
+    public void setEndDate(String endDate) { this.endDate = endDate; }
 }

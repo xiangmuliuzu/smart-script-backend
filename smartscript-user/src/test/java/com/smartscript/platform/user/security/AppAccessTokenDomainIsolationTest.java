@@ -136,6 +136,12 @@ class AppAccessTokenDomainIsolationTest
             }
 
             @Override
+            public AppUserRecord selectByLoginIdentifier(String identifier)
+            {
+                return null;
+            }
+
+            @Override
             public AppUserRecord selectById(Long userId)
             {
                 return null;
@@ -174,6 +180,12 @@ class AppAccessTokenDomainIsolationTest
         {
             @Override
             public AppUserRecord selectByPhone(String phone)
+            {
+                return null;
+            }
+
+            @Override
+            public AppUserRecord selectByLoginIdentifier(String identifier)
             {
                 return null;
             }

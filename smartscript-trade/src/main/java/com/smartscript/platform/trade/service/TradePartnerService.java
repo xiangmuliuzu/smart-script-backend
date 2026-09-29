@@ -36,4 +36,11 @@ public class TradePartnerService
         if (partner.getStatus() == null) { partner.setStatus("active"); }
         return partnerMapper.insertPartner(partner);
     }
+
+    public int updatePartner(SysPartner partner)
+    {
+        partner.setUpdateBy(SecurityUtils.getUsername());
+        partner.setUpdateTime(new Date());
+        return partnerMapper.updatePartner(partner);
+    }
 }

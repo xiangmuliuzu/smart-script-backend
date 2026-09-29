@@ -1,0 +1,137 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.content.mapper.SysRankingSnapshotMapper">
+
+	<!--
+	  依据：云端 script_platform_dev 库 sys_ranking_snapshot 表（附件5.1 表3-86）。
+	  反推处理点：
+	  1. 表无 created_at/updated_at，仅有若依5通用字段（create_by/create_time 等）。
+	  2. status tinyint ↔ String（"0"=失效 "1"=有效）；DB 查询用整数 0/1。
+	  3. view_count/bookshelf_count bigint ↔ Long。
+	  4. workTitle 为 JOIN sys_work.title 扩展字段。
+	-->
+	<resultMap type="SysRankingSnapshot" id="SysRankingSnapshotResult">
+		<id     property="rankingId"       column="ranking_id"       />
+		<result property="rankingType"     column="ranking_type"     />
+		<result property="periodStart"     column="period_start"     />
+		<result property="periodEnd"       column="period_end"       />
+		<result property="workId"          column="work_id"          />
+		<result property="rankNo"          column="rank_no"          />
+		<result property="score"           column="score"            />
+		<result property="viewCount"       column="view_count"       />
+		<result property="bookshelfCount"  column="bookshelf_count"  />
+		<result property="growthScore"     column="growth_score"     />
+		<result property="snapshotTime"    column="snapshot_time"    />
+		<result property="status"          column="status"           />
+		<result property="createBy"        column="create_by"        />
+		<result property="createTime"      column="create_time"      />
+		<result property="updateBy"        column="update_by"        />
+		<result property="updateTime"      column="update_time"      />
+		<result property="remark"          column="remark"           />
+		<result property="workTitle"       column="work_title"       />
+	</resultMap>
+
+	<!-- 榜单列表：含 workTitle（JOIN sys_work） -->
+	<sql id="selectRankingVo">
+		select s.ranking_id, s.ranking_type, s.period_start, s.period_end, s.work_id,
+		       s.rank_no, s.score, s.view_count, s.bookshelf_count, s.growth_score,
+		       s.snapshot_time, s.status,
+		       s.create_by, s.create_time, s.update_by, s.update_time, s.remark,
+		       w.title as work_title
+		from sys_ranking_snapshot s
+		left join sys_work w on w.work_id = s.work_id
+	</sql>
+
+	<select id="selectRankingList" parameterType="SysRankingSnapshot" resultMap="SysRankingSnapshotResult">
+		<include refid="selectRankingVo"/>
+		<where>
+			<if test="rankingType != null and rankingType != ''">
+				AND s.ranking_type = #{rankingType}
+			</if>
+			<if test="periodStart != null">
+				AND s.period_start = #{periodStart}
+			</if>
+			<if test="periodEnd != null">
+				AND s.period_end = #{periodEnd}
+			</if>
+			<if test="status != null and status != ''">
+				AND s.status = #{status}
+			</if>
+		</where>
+		order by s.ranking_type, s.period_start desc, s.rank_no
+	</select>
+
+	<select id="selectRankingById" parameterType="Long" resultMap="SysRankingSnapshotResult">
+		<include refid="selectRankingVo"/>
+		where s.ranking_id = #{rankingId}
+	</select>
+
+	<!-- 调整排名（单一职责：仅改 rank_no） -->
+	<update id="updateRankNo" parameterType="SysRankingSnapshot">
+		update sys_ranking_snapshot
+		set rank_no = #{rankNo},
+		    update_by = #{updateBy},
+		    update_time = sysdate()
+		where ranking_id = #{rankingId}
+	</update>
+
+	<!-- ================ 重算（recompute）聚合查询 ================ -->
+
+	<!-- 所有未删作品的浏览量（metric=view_count） -->
+	<select id="selectWorkViewCounts" resultType="java.util.Map">
+		select work_id, view_count
+		from sys_work
+		where is_deleted = 0
+	</select>
+
+	<!-- 每作品的收藏数（metric=bookshelf_count，走 sys_subscribe GROUP BY） -->
+	<select id="selectSubscribeCounts" resultType="java.util.Map">
+		select work_id, count(*) as bookshelf_count
+		from sys_subscribe
+		group by work_id
+	</select>
+
+	<!-- 同榜单类型上一期快照的浏览量（metric=growth_score，取 period_end < 当前 periodStart 的最近一期） -->
+	<select id="selectLatestPrevSnapshotViewCounts" resultType="java.util.Map">
+		select s.work_id, s.view_count
+		from sys_ranking_snapshot s
+		inner join (
+			select max(period_end) as max_period_end
+			from sys_ranking_snapshot
+			where ranking_type = #{rankingType}
+			  and period_end &lt; #{periodStart}
+			  and status = 1
+		) t on s.period_end = t.max_period_end
+		where s.ranking_type = #{rankingType}
+		  and s.status = 1
+	</select>
+
+	<!-- 使旧快照失效（单一职责：仅改 status=0） -->
+	<update id="invalidateSnapshots">
+		update sys_ranking_snapshot
+		set status = 0,
+		    update_by = 'system-recompute',
+		    update_time = sysdate()
+		where ranking_type = #{rankingType}
+		  and period_start = #{periodStart}
+		  and period_end = #{periodEnd}
+	</update>
+
+	<!-- 批量插入新快照 -->
+	<insert id="batchInsertSnapshots" parameterType="java.util.List">
+		insert into sys_ranking_snapshot
+			(ranking_type, period_start, period_end, work_id, rank_no, score,
+			 view_count, bookshelf_count, growth_score, snapshot_time, status,
+			 create_by, create_time)
+		values
+		<foreach collection="list" item="item" separator=",">
+			(#{item.rankingType}, #{item.periodStart}, #{item.periodEnd}, #{item.workId},
+			 #{item.rankNo}, #{item.score}, #{item.viewCount}, #{item.bookshelfCount},
+			 #{item.growthScore}, #{item.snapshotTime}, #{item.status},
+			 #{item.createBy}, sysdate())
+		</foreach>
+	</insert>
+
+</mapper>

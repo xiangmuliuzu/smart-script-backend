@@ -31,6 +31,8 @@
             <if test="partnerId != null">AND f.partner_id = #{partnerId}</if>
             <if test="status != null and status != ''">AND f.status = #{status}</if>
             <if test="followType != null and followType != ''">AND f.follow_type = #{followType}</if>
+            <if test="startDate != null and startDate != ''">AND f.follow_time &gt;= #{startDate}</if>
+            <if test="endDate != null and endDate != ''">AND f.follow_time &lt;= CONCAT(#{endDate}, ' 23:59:59')</if>
         </where>
         order by f.follow_time desc
     </select>

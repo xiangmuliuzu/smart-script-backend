@@ -6,12 +6,12 @@
 
 | 文档 | 路径 | 版本/状态 |
 | --- | --- | --- |
-| A 用户与认证开发规格 | `D:\build\shared\A用户与认证开发规格.md` | v1.5，A3 当前规格 |
-| A 用户与认证评审验收标准 | `D:\build\shared\A用户与认证评审验收标准.md` | v1.4 |
-| A3 实施方案 | `D:\build\shared\A3-App认证迁移实施方案.md` | 允许开发，待 G3 |
-| A3 API 契约 | `D:\build\shared\A3-认证接口契约.md` | `A3-AUTH-CONTRACT-v1` |
-| A3 测试矩阵 | `D:\build\shared\A3-G3-测试矩阵.md` | AUTH/DB/APP 矩阵 |
-| A3 验收记录 | `D:\build\shared\A3-G3-评审验收记录.md` | 不通过，待开发与评审 |
+| A 用户与认证开发规格 | [`../shared/A用户与认证开发规格.md`](../shared/A用户与认证开发规格.md) | v1.7 |
+| A 用户与认证评审验收标准 | [`../shared/A用户与认证评审验收标准.md`](../shared/A用户与认证评审验收标准.md) | v1.6 |
+| A3 认证接口契约 | [`../shared/A3-认证接口契约.md`](../shared/A3-认证接口契约.md) | `A3-AUTH-CONTRACT-v1`；G3 已关闭 |
+| A4 管理接口契约 | [`../shared/A4-管理接口契约.md`](../shared/A4-管理接口契约.md) | G4 已关闭 |
+| A5 / A6 交付记录 | [`../shared/A5-G5-快速阶段交付与冒烟记录.md`](../shared/A5-G5-快速阶段交付与冒烟记录.md)、[`../shared/A6-G6G7-交付与校验记录.md`](../shared/A6-G6G7-交付与校验记录.md) | 快速阶段通过；后续加固见 [`../shared/A5-A7-后续加固清单.md`](../shared/A5-A7-后续加固清单.md) |
+| A7 发布准备 | [`../shared/A7-安全回归与发布准备实施方案.md`](../shared/A7-安全回归与发布准备实施方案.md)、[`../shared/A7-G8-交付与发布准备记录.md`](../shared/A7-G8-交付与发布准备记录.md)、[`../shared/A7-最小部署说明.md`](../shared/A7-最小部署说明.md)、[`../shared/A7-PR-后端.md`](../shared/A7-PR-后端.md) | A7 快速阶段通过；release 由项目经理决定，尚未合并 |
 
 ## 仓库边界
 
@@ -24,15 +24,15 @@
 
 | 字段 | 值 |
 | --- | --- |
-| 主分支 | `main@f50359b` |
-| A3 分支 | `a3/app-auth-migration` |
+| 主分支（2026-09-23） | `main@ae3ebc0` |
+| 阶段状态 | A3/G3、A4/G4 已关闭；A5 `7c765ae`、A6 `d15d541`、A7 验证基线均已合入 `main`；`main` 另含 C 模块提交（A7 未验证，见 A7 记录 A7-Q1/A7-Q5） |
 | 基线 | RuoYi-Vue `v3.9.2` |
 | Commit SHA | `0e2d75c23c0d7a1fa85f660f06a59a4dd1ba14c0` |
 | Spring Boot | `4.1.0` |
 | JDK | 17 |
 | 官方源 | `https://gitee.com/y_project/RuoYi-Vue` |
 
-当前 `main` 已完成 A0-R1、A1/G1、A2/G2 与 A4/A5/A6 的已合入部分。A3 只在功能分支实现 App 认证，完成 G3 前不得合入 `release`。
+当前 `main` 已完成 A0-R1、A1/G1、A2/G2、A3/G3、A4/G4，并包含 A5/A6 快速阶段交付；A7 已在上述基线上完成基础构建、空库初始化、启动与主流程冒烟（见 A7 记录）。A5–A7 后续安全与测试加固仍按共享清单跟踪；快速阶段通过不代表加固或发布门禁已完成。
 
 **仓库边界（强制）**：本仓 **不包含** 若依上游附带的 `ruoyi-ui` 或任何 PC/App 构建工程。权威 PC 管理端仅位于 `smart-script-web`（RuoYi-Vue3）。
 
@@ -145,6 +145,15 @@ $env:DB_PASSWORD = '<本机私有口令>'
 全新空库跑完后：**表 36、用户 2、角色 3、菜单 133、角色菜单 105**。
 其中包含若依原生 `admin`（超级管理员）与 `ry` 两个账号、`a1_operator` 受限运营角色，
 以及 `menu_id` 段 `3000-3015` 的 A4 用户中心菜单。
+
+> **默认测试账号**：`admin` / `admin123`（`ry` 同为 `admin123`）。
+> 哈希来自 `sql/ry_20260320.sql` 内置种子数据，任何人按上述流程初始化即可直接登录，
+> 无需手工插入账号。仅限本地/测试环境使用，生产环境部署后请立即修改。
+
+> **已知限制（A7 复核）**：本清单**不包含 C 模块**（`sql/migrations/c/`）步骤，而 C 模块代码引用的
+> `sys_demand`、`sys_quote`、`sys_order`、`sys_partner` 等表在仓库内没有版本化迁移脚本。
+> 按本清单初始化的全新库不含这些表，C 模块接口在全新环境不可用。该问题登记在
+> `../shared/A7-G8-交付与发布准备记录.md` 的 A7-Q1，由 C 模块负责人补齐后并入本清单。
 
 ---
 

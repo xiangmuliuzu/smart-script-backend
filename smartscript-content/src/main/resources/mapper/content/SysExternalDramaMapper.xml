@@ -1,0 +1,203 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.content.mapper.SysExternalDramaMapper">
+
+	<!--
+	  依据：云端 script_platform_dev 库 sys_external_drama 表。
+	  反推处理点：
+	  1. created_at/updated_at 由 DB 默认值维护不映射；create_time/update_time 为若依字段正常映射。
+	  2. status 为 varchar(20) 原样持有；authorization_status/sync_status/source_type 同样 varchar，String 原样持有。
+	  3. related_work_id 为可空外键，未绑定时为 NULL。
+	  4. drama_id bigint ↔ Long；channel_id int ↔ Integer。
+	  5. relatedWorkTitle/channelName 为 JOIN 扩展字段（sys_work.title / sys_drama_channel.channel_name）。
+	  6. totalPlayCount/subscribeCount/episodeCount/workTitle 为 Stats 跨表聚合扩展字段。
+	-->
+	<resultMap type="SysExternalDrama" id="SysExternalDramaResult">
+		<id     property="dramaId"             column="drama_id"             />
+		<result property="channelId"           column="channel_id"           />
+		<result property="externalContentId"   column="external_content_id"  />
+		<result property="title"              column="title"                />
+		<result property="coverFileId"        column="cover_file_id"        />
+		<result property="externalUrl"         column="external_url"         />
+		<result property="relatedWorkId"      column="related_work_id"      />
+		<result property="sourceType"         column="source_type"          />
+		<result property="authorizationStatus" column="authorization_status" />
+		<result property="syncStatus"         column="sync_status"          />
+		<result property="copyrightNote"      column="copyright_note"       />
+		<result property="status"             column="status"               />
+		<result property="createBy"           column="create_by"            />
+		<result property="createTime"         column="create_time"          />
+		<result property="updateBy"           column="update_by"            />
+		<result property="updateTime"         column="update_time"          />
+		<result property="remark"             column="remark"               />
+		<result property="relatedWorkTitle"   column="related_work_title"   />
+		<result property="channelName"        column="channel_name"         />
+		<result property="totalPlayCount"     column="total_play_count"     />
+		<result property="subscribeCount"     column="subscribe_count"      />
+		<result property="episodeCount"       column="episode_count"        />
+		<result property="workTitle"          column="work_title"           />
+	</resultMap>
+
+	<!-- 列表/详情：含 relatedWorkTitle/channelName，LEFT JOIN sys_work + sys_drama_channel -->
+	<sql id="selectDramaVo">
+		select d.drama_id, d.channel_id, d.external_content_id, d.title, d.cover_file_id,
+		       d.external_url, d.related_work_id, d.source_type, d.authorization_status,
+		       d.sync_status, d.copyright_note, d.status,
+		       d.create_by, d.create_time, d.update_by, d.update_time, d.remark,
+		       w.title as related_work_title,
+		       dc.channel_name as channel_name
+		from sys_external_drama d
+		left join sys_drama_channel dc on dc.channel_id = d.channel_id
+		left join sys_work w on w.work_id = d.related_work_id
+	</sql>
+
+	<!--
+	  内容管理列表 / 绑定列表 / 状态列表共用同一查询，按入参过滤项区分：
+	  - 绑定场景入参 unboundOnly="1" 时仅查 related_work_id IS NULL 的未绑定记录。
+	  - 状态列表通过 syncStatus 过滤，内容管理通过 sourceType/authorizationStatus 过滤。
+	-->
+	<select id="selectDramaList" parameterType="SysExternalDrama" resultMap="SysExternalDramaResult">
+		<include refid="selectDramaVo"/>
+		<where>
+			<if test="channelId != null">
+				AND d.channel_id = #{channelId}
+			</if>
+			<if test="title != null and title != ''">
+				AND d.title like concat('%', #{title}, '%')
+			</if>
+			<if test="sourceType != null and sourceType != ''">
+				AND d.source_type = #{sourceType}
+			</if>
+			<if test="authorizationStatus != null and authorizationStatus != ''">
+				AND d.authorization_status = #{authorizationStatus}
+			</if>
+			<if test="status != null and status != ''">
+				AND d.status = #{status}
+			</if>
+			<if test="syncStatus != null and syncStatus != ''">
+				AND d.sync_status = #{syncStatus}
+			</if>
+			<if test="unboundOnly != null and unboundOnly == '1'">
+				AND d.related_work_id IS NULL
+			</if>
+		</where>
+		order by d.create_time desc
+	</select>
+
+	<select id="selectDramaById" parameterType="Long" resultMap="SysExternalDramaResult">
+		<include refid="selectDramaVo"/>
+		where d.drama_id = #{dramaId}
+	</select>
+
+	<!--
+	  新增：所有 NOT NULL 字段；related_work_id 可空；created_at/updated_at 不写。
+	  cover_file_id 为 bigint 可空，coverFileId 透传。
+	-->
+	<insert id="insertDrama" parameterType="SysExternalDrama" useGeneratedKeys="true" keyProperty="dramaId">
+		insert into sys_external_drama(
+			channel_id, external_content_id, title, cover_file_id, external_url, related_work_id,
+			source_type, authorization_status, sync_status, copyright_note, status,
+			create_by, create_time, remark
+		) values (
+			#{channelId}, #{externalContentId}, #{title}, #{coverFileId}, #{externalUrl}, #{relatedWorkId},
+			#{sourceType}, #{authorizationStatus}, #{syncStatus}, #{copyrightNote}, #{status},
+			#{createBy}, sysdate(), #{remark}
+		)
+	</insert>
+
+	<!-- 动态更新：仅更新非空字段；改状态/改绑定各自走独立语句（单一职责在 Service 层拆分） -->
+	<update id="updateDrama" parameterType="SysExternalDrama">
+		update sys_external_drama
+		<set>
+			<if test="channelId != null">channel_id = #{channelId},</if>
+			<if test="externalContentId != null and externalContentId != ''">external_content_id = #{externalContentId},</if>
+			<if test="title != null and title != ''">title = #{title},</if>
+			<if test="coverFileId != null">cover_file_id = #{coverFileId},</if>
+			<if test="externalUrl != null and externalUrl != ''">external_url = #{externalUrl},</if>
+			<if test="relatedWorkId != null">related_work_id = #{relatedWorkId},</if>
+			<if test="sourceType != null and sourceType != ''">source_type = #{sourceType},</if>
+			<if test="authorizationStatus != null and authorizationStatus != ''">authorization_status = #{authorizationStatus},</if>
+			<if test="syncStatus != null and syncStatus != ''">sync_status = #{syncStatus},</if>
+			<if test="copyrightNote != null">copyright_note = #{copyrightNote},</if>
+			<if test="status != null and status != ''">status = #{status},</if>
+			<if test="updateBy != null and updateBy != ''">update_by = #{updateBy},</if>
+			<if test="remark != null">remark = #{remark},</if>
+			update_time = sysdate()
+		</set>
+		where drama_id = #{dramaId}
+	</update>
+
+	<!--
+	  修改关联作品ID（单一职责：仅改 related_work_id）。
+	  用于绑定/解绑：解绑时 service 传 relatedWorkId=null，本语句 SET related_work_id = #{relatedWorkId}
+	  会将其置为 NULL（MySQL 行为）。
+	-->
+	<update id="updateRelatedWorkId" parameterType="SysExternalDrama">
+		update sys_external_drama
+		set related_work_id = #{relatedWorkId},
+		    update_by = #{updateBy},
+		    update_time = sysdate()
+		where drama_id = #{dramaId}
+	</update>
+
+	<!-- 修改外部视频状态（单一职责：仅改 status） -->
+	<update id="updateDramaStatus" parameterType="SysExternalDrama">
+		update sys_external_drama
+		set status = #{status},
+		    update_by = #{updateBy},
+		    update_time = sysdate()
+		where drama_id = #{dramaId}
+	</update>
+
+	<!-- 批量修改同步状态（同步触发时将所选记录置为 syncing） -->
+	<update id="batchUpdateSyncStatus">
+		update sys_external_drama
+		set sync_status = #{syncStatus},
+		    update_by = #{updateBy},
+		    update_time = sysdate()
+		where drama_id in
+		<foreach collection="dramaIds" item="dramaId" open="(" separator="," close=")">
+			#{dramaId}
+		</foreach>
+	</update>
+
+	<!--
+	  统计聚合列表：按 related_work_id 聚合，仅统计已绑定（related_work_id IS NOT NULL）的记录。
+	  - total_play_count: SUM(sys_episode.play_count) WHERE work_id = d.related_work_id
+	  - subscribe_count: COUNT(sys_subscribe) WHERE work_id = d.related_work_id
+	  - episode_count: COUNT(sys_episode) WHERE work_id = d.related_work_id
+	  - work_title: sys_work.title ON w.work_id = d.related_work_id
+	  group by d.related_work_id 避免重复（一个作品可能对应多条外部视频，聚合到作品粒度）。
+	-->
+	<sql id="selectDramaStatsVo">
+		select d.related_work_id as work_id,
+		       w.title as work_title,
+		       (select ifnull(sum(play_count), 0) from sys_episode where work_id = d.related_work_id) as total_play_count,
+		       (select count(*) from sys_subscribe where work_id = d.related_work_id) as subscribe_count,
+		       (select count(*) from sys_episode where work_id = d.related_work_id) as episode_count
+		from sys_external_drama d
+		left join sys_work w on w.work_id = d.related_work_id
+		where d.related_work_id is not null
+	</sql>
+
+	<select id="selectDramaStatsList" parameterType="SysExternalDrama" resultMap="SysExternalDramaResult">
+		<include refid="selectDramaStatsVo"/>
+		<if test="channelId != null">
+			AND d.channel_id = #{channelId}
+		</if>
+		<if test="relatedWorkId != null">
+			AND d.related_work_id = #{relatedWorkId}
+		</if>
+		group by d.related_work_id
+	</select>
+
+	<select id="selectDramaStatsById" parameterType="Long" resultMap="SysExternalDramaResult">
+		<include refid="selectDramaStatsVo"/>
+		and d.related_work_id = #{workId}
+		group by d.related_work_id
+		limit 1
+	</select>
+
+</mapper>

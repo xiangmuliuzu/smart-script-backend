@@ -1,5 +1,6 @@
 package com.smartscript.platform.user.config;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
@@ -8,6 +9,7 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import com.ruoyi.framework.security.handle.AuthenticationFailureAuditor;
 import com.smartscript.platform.user.security.AppAccessTokenService;
 import com.smartscript.platform.user.security.AppAuthAuthenticationFilter;
 import com.smartscript.platform.user.security.AppAuthEntryPoint;
@@ -19,6 +21,7 @@ import com.smartscript.platform.user.security.AppAuthEntryPoint;
  *   /api/v1/users/**    资料、实名、账号安全（含换绑手机号）、通知偏好
  *   /api/v1/messages/** 消息中心
  *   /api/v1/feedback/** 意见反馈
+ *   /api/v1/pc-auth/**  PC 统一登录（仅 POST /login 公开；01/02/03 从这里拿 App 域令牌）
  *
  * 边界不变：PC 管理接口（/api/v1/admin/**）与若依原生接口仍走若依过滤链，
  * 因此 App Token 访问管理端仍被拒绝，PC Token 访问 App 私有接口也不被本链接受。
@@ -27,6 +30,13 @@ import com.smartscript.platform.user.security.AppAuthEntryPoint;
 public class AppAuthSecurityConfig
 {
     /**
+     * 过滤器链层 401 审计回调（H9-LOG-04 残余，第 11 批）。可选注入：
+     * 未装配时过滤器仍正常拒绝，只是不写审计行。
+     */
+    @Autowired(required = false)
+    private AuthenticationFailureAuditor authenticationFailureAuditor;
+
+    /**
      * App 凭证域覆盖的路径前缀；本链之外的前缀一律 denyAll。
      *
      * A6 起纳入 /api/v1/content/**：业务模块（B/C/D/E）的接口需要按 App 凭证域鉴权，
@@ -34,7 +44,7 @@ public class AppAuthSecurityConfig
      */
     static final String[] APP_PATH_PREFIXES = {
             "/api/v1/auth/**", "/api/v1/users/**", "/api/v1/messages/**", "/api/v1/feedback/**",
-            "/api/v1/content/**"
+            "/api/v1/content/**", "/api/v1/pc-auth/**"
     };
 
     @Bean
@@ -43,7 +53,7 @@ public class AppAuthSecurityConfig
             AppAccessTokenService accessTokenService,
             AppAuthEntryPoint appAuthEntryPoint) throws Exception
     {
-        AppAuthAuthenticationFilter appFilter = new AppAuthAuthenticationFilter(accessTokenService);
+        AppAuthAuthenticationFilter appFilter = new AppAuthAuthenticationFilter(accessTokenService, authenticationFailureAuditor);
         http.securityMatcher(APP_PATH_PREFIXES)
                 .csrf(csrf -> csrf.disable())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -55,7 +65,8 @@ public class AppAuthSecurityConfig
                                 "/api/v1/auth/password/login",
                                 "/api/v1/auth/password/reset",
                                 "/api/v1/auth/register",
-                                "/api/v1/auth/token/refresh").permitAll()
+                                "/api/v1/auth/token/refresh",
+                                "/api/v1/pc-auth/login").permitAll()
                         .requestMatchers(HttpMethod.GET,
                                 "/api/v1/auth/agreements").permitAll()
                         .requestMatchers(HttpMethod.POST,

@@ -41,6 +41,13 @@
           AND del_flag = '0'
     </update>
 
+    <update id="updateBio">
+        UPDATE sys_user
+        SET bio = #{bio}, update_by = 'app-user-center', update_time = NOW()
+        WHERE user_id = #{userId}
+          AND del_flag = '0'
+    </update>
+
     <!-- 排除自身，允许把手机号改回原值（等价于未变更） -->
     <select id="countPhoneTaken" resultType="int">
         SELECT COUNT(*)
