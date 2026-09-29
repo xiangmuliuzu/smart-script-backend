@@ -87,4 +87,20 @@ public class BlacklistController {
         result.put("msg", "操作成功");
         return result;
     }
+
+    /**
+     * 启用/停用黑名单
+     */
+    @PostMapping("/toggle-status/{id}")
+    public Map<String, Object> toggleStatus(@PathVariable("id") Long id, @RequestBody Map<String, Object> params) {
+        Map<String, Object> result = new HashMap<>();
+        String status = params.get("status").toString();
+        Blacklist blacklist = new Blacklist();
+        blacklist.setId(id);
+        blacklist.setStatus(status);
+        blacklistService.updateBlacklist(blacklist);
+        result.put("code", 200);
+        result.put("msg", "状态更新成功");
+        return result;
+    }
 }

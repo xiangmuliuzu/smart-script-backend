@@ -103,4 +103,32 @@ public class ReviewController {
         result.put("msg", "审核操作成功");
         return result;
     }
+
+    /**
+     * 批量分配审核任务
+     */
+    @PostMapping("/batch-assign")
+    public Map<String, Object> batchAssign(@RequestBody Map<String, Object> params) {
+        Map<String, Object> result = new HashMap<>();
+        List<Long> reviewIds = (List<Long>) params.get("reviewIds");
+        Long reviewerId = Long.valueOf(params.get("reviewerId").toString());
+        reviewService.batchAssign(reviewIds, reviewerId);
+        result.put("code", 200);
+        result.put("msg", "批量分配成功");
+        return result;
+    }
+
+    /**
+     * 审核日志查询
+     */
+    @GetMapping("/logs")
+    public Map<String, Object> logs(Long reviewId) {
+        Map<String, Object> result = new HashMap<>();
+        List<Map<String, Object>> logs = reviewService.selectReviewLogs(reviewId);
+        result.put("code", 200);
+        result.put("msg", "操作成功");
+        result.put("rows", logs);
+        result.put("total", logs.size());
+        return result;
+    }
 }

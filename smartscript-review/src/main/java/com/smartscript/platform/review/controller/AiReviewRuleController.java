@@ -87,4 +87,20 @@ public class AiReviewRuleController {
         result.put("msg", "操作成功");
         return result;
     }
+
+    /**
+     * 启用/停用规则
+     */
+    @PostMapping("/toggle-status/{ruleId}")
+    public Map<String, Object> toggleStatus(@PathVariable("ruleId") Long ruleId, @RequestBody Map<String, Object> params) {
+        Map<String, Object> result = new HashMap<>();
+        String status = params.get("status").toString();
+        AiReviewRule rule = new AiReviewRule();
+        rule.setRuleId(ruleId);
+        rule.setStatus(status);
+        aiReviewRuleService.updateAiReviewRule(rule);
+        result.put("code", 200);
+        result.put("msg", "状态更新成功");
+        return result;
+    }
 }

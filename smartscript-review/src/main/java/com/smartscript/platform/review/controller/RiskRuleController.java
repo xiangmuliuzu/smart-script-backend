@@ -87,4 +87,34 @@ public class RiskRuleController {
         result.put("msg", "操作成功");
         return result;
     }
+
+    /**
+     * 全局风控页面整体数据查询
+     */
+    @GetMapping("/dashboard")
+    public Map<String, Object> dashboard() {
+        Map<String, Object> result = new HashMap<>();
+        Map<String, Object> data = new HashMap<>();
+        // 统计数据
+        data.put("totalRules", riskRuleService.selectRiskRuleList(new RiskRule()).size());
+        data.put("activeRules", 0);
+        data.put("violationToday", 0);
+        data.put("pendingHandle", 0);
+        result.put("code", 200);
+        result.put("msg", "操作成功");
+        result.put("data", data);
+        return result;
+    }
+
+    /**
+     * 违规内容处置
+     */
+    @PostMapping("/handle-violation")
+    public Map<String, Object> handleViolation(@RequestBody Map<String, Object> params) {
+        Map<String, Object> result = new HashMap<>();
+        // 临时处理逻辑，后续完善
+        result.put("code", 200);
+        result.put("msg", "违规处置成功");
+        return result;
+    }
 }
