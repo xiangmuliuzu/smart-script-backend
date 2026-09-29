@@ -7,7 +7,7 @@
  规则：
    1. 只允许针对「不存在」或「已存在但一张表都没有」的库。
       库中已有任何表即立刻拒绝退出，永不 DROP DATABASE，永不覆盖数据。
-   2. 已有数据的库请走升级路径：见 sql\migrations\README.md。
+   2. 空库走完整初始化；已有库自动进入幂等增量模式（只补缺，不删不覆盖）。
    3. 口令只从环境变量或参数读入，写入仅当前用户可读的临时配置文件后传给
       mysql，不进入命令行参数、不进入任何日志，退出时删除。
 
@@ -205,17 +205,10 @@ try {
         $tableCnt = Invoke-Scalar -Query "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = '$Database';"
         if ($tableCnt -ne '0') {
             Write-Host ''
-            Write-Host "init-database.ps1: 拒绝初始化。" -ForegroundColor Red
-            Write-Host "  库 ``$Database`` 已存在且包含 $tableCnt 张表。"
-            Write-Host '  初始化只允许写入不存在或完全为空的库；本工具永不执行 DROP DATABASE，'
-            Write-Host '  也不会覆盖任何既有数据。'
-            Write-Host ''
-            Write-Host '已有库请走升级路径：'
-            Write-Host '  sql\migrations\README.md'
-            Write-Host "  先备份：mysqldump.exe --single-transaction --routines --triggers $Database > backup.sql"
-            exit 2
+            Write-Host "库状态    : 已存在且包含 $tableCnt 张表（增量升级模式）"
+            Write-Host '            脚本为幂等增量：仅补齐缺失的表/列/菜单/字典，不删除、不覆盖既有数据。'
+            Write-Host "            执行前建议备份：mysqldump.exe --single-transaction --routines --triggers $Database > backup.sql"
         }
-        Write-Host '库状态    : 已存在且为 0 张表（视为空库）'
     }
 
     if ($DryRun) {

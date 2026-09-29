@@ -7,7 +7,7 @@
 # 规则：
 #   1. 只允许针对「不存在」或「已存在但一张表都没有」的库。
 #      库中已有任何表即立刻拒绝退出，永不 DROP DATABASE，永不覆盖数据。
-#   2. 已有数据的库请走升级路径：见 sql/migrations/README.md。
+#   2. 空库走完整初始化；已有库自动进入幂等增量模式（只补缺，不删不覆盖）。
 #   3. 口令只从环境变量或参数读入，写入 0600 临时配置文件后传给 mysql，
 #      不进入命令行参数、不进入任何日志，退出时删除。
 #
@@ -165,20 +165,10 @@ if [ "$db_exists" = "0" ]; then
 else
     table_cnt=$(scalar -e "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = '$db_name';")
     if [ "$table_cnt" != "0" ]; then
-        cat >&2 <<EOF
-
-$PROG: 拒绝初始化。
-  库 \`$db_name\` 已存在且包含 $table_cnt 张表。
-  初始化只允许写入不存在或完全为空的库；本工具永不执行 DROP DATABASE，
-  也不会覆盖任何既有数据。
-
-已有库请走升级路径：
-  sql/migrations/README.md
-  先备份：mysqldump --single-transaction --routines --triggers \`$db_name\` > backup.sql
-EOF
-        exit 2
+        echo "库状态    : 已存在且包含 $table_cnt 张表（增量升级模式）"
+        echo "            脚本为幂等增量：仅补齐缺失的表/列/菜单/字典，不删除、不覆盖既有数据。"
+        echo "            执行前建议备份：mysqldump --single-transaction --routines --triggers \`$db_name\` > backup.sql"
     fi
-    echo "库状态    : 已存在且为 0 张表（视为空库）"
 fi
 
 if [ "$dry_run" = "1" ]; then
