@@ -21,30 +21,35 @@
         <result property="updateBy"        column="update_by" />
         <result property="updateTime"      column="update_time" />
         <result property="remark"          column="remark" />
+        <result property="clientName"      column="client_name" />
     </resultMap>
 
     <select id="selectDemandList" parameterType="com.smartscript.platform.trade.domain.SysDemand" resultMap="SysDemandResult">
-        select demand_id, demand_no, client_id, title, genre_id, budget, deadline,
-               requirement, contact_info, submission_count, status,
-               created_at, updated_at, create_by, create_time, update_by, update_time, remark
-        from sys_demand
+        select d.demand_id, d.demand_no, d.client_id, d.title, d.genre_id, d.budget, d.deadline,
+               d.requirement, d.contact_info, d.submission_count, d.status,
+               d.created_at, d.updated_at, d.create_by, d.create_time, d.update_by, d.update_time, d.remark,
+               uc.nick_name as client_name
+        from sys_demand d
+        left join sys_user uc on d.client_id = uc.user_id
         <where>
-            <if test="title != null and title != ''">AND title like concat('%', #{title}, '%')</if>
-            <if test="status != null and status != ''">AND status = #{status}</if>
-            <if test="demandNo != null and demandNo != ''">AND demand_no like concat('%', #{demandNo}, '%')</if>
+            <if test="title != null and title != ''">AND d.title like concat('%', #{title}, '%')</if>
+            <if test="status != null and status != ''">AND d.status = #{status}</if>
+            <if test="demandNo != null and demandNo != ''">AND d.demand_no like concat('%', #{demandNo}, '%')</if>
             <if test="keyword != null and keyword != ''">
-                AND (title like concat('%', #{keyword}, '%') or demand_no like concat('%', #{keyword}, '%'))
+                AND (d.title like concat('%', #{keyword}, '%') or d.demand_no like concat('%', #{keyword}, '%'))
             </if>
         </where>
-        order by created_at desc
+        order by d.created_at desc
     </select>
 
     <select id="selectDemandById" parameterType="Long" resultMap="SysDemandResult">
-        select demand_id, demand_no, client_id, title, genre_id, budget, deadline,
-               requirement, contact_info, submission_count, status,
-               created_at, updated_at, create_by, create_time, update_by, update_time, remark
-        from sys_demand
-        where demand_id = #{demandId}
+        select d.demand_id, d.demand_no, d.client_id, d.title, d.genre_id, d.budget, d.deadline,
+               d.requirement, d.contact_info, d.submission_count, d.status,
+               d.created_at, d.updated_at, d.create_by, d.create_time, d.update_by, d.update_time, d.remark,
+               uc.nick_name as client_name
+        from sys_demand d
+        left join sys_user uc on d.client_id = uc.user_id
+        where d.demand_id = #{demandId}
     </select>
 
     <insert id="insertDemand" parameterType="com.smartscript.platform.trade.domain.SysDemand" useGeneratedKeys="true" keyProperty="demandId">
