@@ -1091,7 +1091,7 @@ UPDATE sys_role SET app_grantable = 0 WHERE (role_id = 1 OR role_key = 'admin') 
 -- =====================================================================
 INSERT INTO sys_menu (menu_id, menu_name, parent_id, order_num, path, component, query, is_frame, is_cache, menu_type, visible, status, perms, icon, create_by, remark) VALUES
 (5000, '工作台',       0, 1, 'workspace',   NULL, '', 1, 0, 'M', '0', '0', NULL, 'dashboard', 'A1', 'A1SEED'),
-(5001, '内容与作品',   0, 2, 'content',     NULL, '', 1, 0, 'M', '0', '0', NULL, 'Document',  'A1', 'A1SEED'),
+(2000, '内容管理',     0, 2, 'content',     NULL, '', 1, 0, 'M', '0', '0', NULL, 'Document',  'b-migration', 'B模块内容管理目录（替代原 A1 内容与作品）'),
 (5003, '版权审核管理', 0, 3, 'copyright',   NULL, '', 1, 0, 'M', '0', '0', NULL, 'Stamp',     'A1', 'A1SEED'),
 (5004, '交易商务管理', 0, 4, 'trade',       NULL, '', 1, 0, 'M', '0', '0', NULL, 'Sell',      'A1', 'A1SEED'),
 (5005, '平台运维管理', 0, 5, 'operation',   NULL, '', 1, 0, 'M', '0', '0', NULL, 'Operation', 'A1', 'A1SEED'),
@@ -1105,11 +1105,19 @@ UPDATE sys_menu SET order_num = 8 WHERE menu_id = 1 AND menu_type = 'M';
 
 INSERT INTO sys_menu (menu_id, menu_name, parent_id, order_num, path, component, query, is_frame, is_cache, menu_type, visible, status, perms, icon, create_by, remark) VALUES
 (5100, '数据总览',           5000, 1, '/dashboard', 'dashboard/Dashboard',            '', 1, 0, 'C', '0', '0', 'smartscript:dashboard:view',   'DataLine', 'A1', 'A1SEED'),
-(5101, '作品内容管理',       5001, 1, 'works',          'common/ModuleScaffold',      '', 1, 0, 'C', '0', '0', 'smartscript:content:works',    'Document',   'A1', 'A1SEED'),
-(5102, '分类管理',           5001, 2, 'category',       'content/category/index',     '', 1, 0, 'C', '0', '0', 'content:category:list',        'Collection', 'A1', 'A1SEED'),
-(5105, '标签管理',           5001, 3, 'tag',            'content/tag/index',          '', 1, 0, 'C', '0', '0', 'content:tag:list',             'Tag',        'b-migration', 'B模块内容管理菜单（B_20260928_001）'),
-(5103, '排行榜管理',         5001, 4, 'ranking',        'common/ModuleScaffold',      '', 1, 0, 'C', '0', '0', 'smartscript:content:ranking',  'Trophy',     'A1', 'A1SEED'),
-(5104, '外部漫剧发行',       5001, 5, 'external-video', 'operation/ShortDrama',       '', 1, 0, 'C', '0', '0', 'smartscript:content:video',    'VideoPlay',  'A1', 'A1SEED'),
+(2010, '分类管理',           2000, 1, 'category',       'content/category/index',     '', 1, 0, 'C', '0', '0', 'content:category:list',        'Collection', 'b-migration', 'B模块内容管理菜单'),
+(2011, '标签管理',           2000, 2, 'tag',            'content/tag/index',          '', 1, 0, 'C', '0', '0', 'content:tag:list',             'Tag',        'b-migration', 'B模块内容管理菜单'),
+(2013, '作品管理',           2000, 3, 'work',           'content/work/index',         '', 1, 0, 'C', '0', '0', 'content:work:list',            'Document',   'b-migration', 'B模块内容管理菜单'),
+(2014, '书城作品管理',       2000, 4, 'bookstore',      'content/bookstore/index',    '', 1, 0, 'C', '0', '0', 'content:bookstore:list',       'ShoppingCart','b-migration', 'B模块内容管理菜单'),
+(2015, '排行榜管理',         2000, 5, 'ranking',        'content/ranking/index',      '', 1, 0, 'C', '0', '0', 'content:ranking:list',         'Chart',      'b-migration', 'B模块内容管理菜单'),
+(2016, 'Banner管理',         2000, 6, 'banner',         'content/banner/index',       '', 1, 0, 'C', '0', '0', 'content:banner:list',          'Picture',    'b-migration', 'B模块内容管理菜单'),
+(2017, '作品上传资料',       2000, 7, 'workfile',       'content/workfile/index',     '', 1, 0, 'C', '0', '0', 'content:workfile:list',        'Upload',     'b-migration', 'B模块内容管理菜单'),
+(2012, '外部视频管理',       2000, 8, 'external-drama', NULL,                         '', 1, 0, 'M', '0', '0', NULL,                           'VideoCamera','b-migration', 'B模块外部视频管理目录'),
+(2018, '渠道管理',           2012, 1, 'channel',        'content/external-drama/channel/index', '', 1, 0, 'C', '0', '0', 'content:channel:list',    'Guide',      'b-migration', 'B模块外部视频菜单'),
+(2019, '视频内容管理',       2012, 2, 'drama',          'content/external-drama/drama/index',   '', 1, 0, 'C', '0', '0', 'content:drama:list',      'VideoPlay',  'b-migration', 'B模块外部视频菜单'),
+(2027, '关联剧本',           2012, 3, 'bind',           'content/external-drama/bind/index',    '', 1, 0, 'C', '0', '0', 'content:dramabind:list',  'Link',       'b-migration', 'B模块外部视频菜单'),
+(2028, '上下架管理',         2012, 4, 'status',         'content/external-drama/status/index',  '', 1, 0, 'C', '0', '0', 'content:dramastatus:list','Switch',     'b-migration', 'B模块外部视频菜单'),
+(2029, '播放数据',           2012, 5, 'stats',          'content/external-drama/stats/index',   '', 1, 0, 'C', '0', '0', 'content:dramastats:list', 'DataLine',   'b-migration', 'B模块外部视频菜单'),
 (5110, '运营数据总览',       5002, 1, 'overview', 'statistics/OperationOverview', '', 1, 0, 'C', '0', '0', 'smartscript:stats:overview', 'DataLine', 'A1', 'A1SEED'),
 (5111, '明细数据查询',       5002, 2, 'detail',   'statistics/DetailQuery',       '', 1, 0, 'C', '0', '0', 'smartscript:stats:detail',   'Search',   'A1', 'A1SEED'),
 (5125, 'AI初审+人工复核',    5003, 1, 'ai-review', NULL,                          '', 1, 0, 'M', '0', '0', NULL,                             'Stamp', 'A1', 'A1SEED'),
@@ -1162,13 +1170,33 @@ ON DUPLICATE KEY UPDATE
   perms=VALUES(perms), icon=VALUES(icon), remark=VALUES(remark);
 
 INSERT INTO sys_menu (menu_id, menu_name, parent_id, order_num, path, component, query, route_name, is_frame, is_cache, menu_type, visible, status, perms, icon, create_by, remark) VALUES
-(5160, '分类查询', 5102, 1, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'content:category:query', '#', 'b-migration', 'B模块内容管理菜单（B_20260928_001）'),
-(5161, '分类新增', 5102, 2, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'content:category:add',   '#', 'b-migration', 'B模块内容管理菜单（B_20260928_001）'),
-(5162, '分类编辑', 5102, 3, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'content:category:edit',  '#', 'b-migration', 'B模块内容管理菜单（B_20260928_001）'),
-(5163, '标签查询', 5105, 1, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'content:tag:query',      '#', 'b-migration', 'B模块内容管理菜单（B_20260928_001）'),
-(5164, '标签新增', 5105, 2, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'content:tag:add',        '#', 'b-migration', 'B模块内容管理菜单（B_20260928_001）'),
-(5165, '标签编辑', 5105, 3, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'content:tag:edit',       '#', 'b-migration', 'B模块内容管理菜单（B_20260928_001）'),
-(5166, '标签删除', 5105, 4, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'content:tag:remove',     '#', 'b-migration', 'B模块内容管理菜单（B_20260928_001）'),
+(2020, '分类查询', 2010, 1, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'content:category:query',  '#', 'b-migration', 'B模块内容管理按钮权限'),
+(2021, '分类新增', 2010, 2, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'content:category:add',    '#', 'b-migration', 'B模块内容管理按钮权限'),
+(2022, '分类编辑', 2010, 3, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'content:category:edit',   '#', 'b-migration', 'B模块内容管理按钮权限'),
+(2023, '标签查询', 2011, 1, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'content:tag:query',       '#', 'b-migration', 'B模块内容管理按钮权限'),
+(2024, '标签新增', 2011, 2, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'content:tag:add',         '#', 'b-migration', 'B模块内容管理按钮权限'),
+(2025, '标签编辑', 2011, 3, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'content:tag:edit',        '#', 'b-migration', 'B模块内容管理按钮权限'),
+(2026, '标签删除', 2011, 4, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'content:tag:remove',      '#', 'b-migration', 'B模块内容管理按钮权限'),
+(2030, '作品查询',   2013, 1, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'content:work:query',      '#', 'b-migration', 'B模块内容管理按钮权限'),
+(2031, '书城查询',   2014, 1, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'content:bookstore:query', '#', 'b-migration', 'B模块内容管理按钮权限'),
+(2032, '书城编辑',   2014, 2, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'content:bookstore:edit',  '#', 'b-migration', 'B模块内容管理按钮权限'),
+(2033, '排行榜查询', 2015, 1, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'content:ranking:query',   '#', 'b-migration', 'B模块内容管理按钮权限'),
+(2034, '排行榜编辑', 2015, 2, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'content:ranking:edit',    '#', 'b-migration', 'B模块内容管理按钮权限'),
+(2035, 'Banner查询', 2016, 1, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'content:banner:query',    '#', 'b-migration', 'B模块内容管理按钮权限'),
+(2036, 'Banner新增', 2016, 2, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'content:banner:add',      '#', 'b-migration', 'B模块内容管理按钮权限'),
+(2037, 'Banner编辑', 2016, 3, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'content:banner:edit',     '#', 'b-migration', 'B模块内容管理按钮权限'),
+(2039, '上传资料查询', 2017, 1, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'content:workfile:query', '#', 'b-migration', 'B模块内容管理按钮权限'),
+(2040, '渠道查询',   2018, 1, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'content:channel:query',     '#', 'b-migration', 'B模块外部视频按钮权限'),
+(2041, '渠道新增',   2018, 2, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'content:channel:add',       '#', 'b-migration', 'B模块外部视频按钮权限'),
+(2042, '渠道编辑',   2018, 3, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'content:channel:edit',      '#', 'b-migration', 'B模块外部视频按钮权限'),
+(2043, '视频查询',   2019, 1, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'content:drama:query',       '#', 'b-migration', 'B模块外部视频按钮权限'),
+(2044, '视频新增',   2019, 2, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'content:drama:add',         '#', 'b-migration', 'B模块外部视频按钮权限'),
+(2045, '视频编辑',   2019, 3, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'content:drama:edit',        '#', 'b-migration', 'B模块外部视频按钮权限'),
+(2046, '关联查询',   2027, 1, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'content:dramabind:query',   '#', 'b-migration', 'B模块外部视频按钮权限'),
+(2047, '关联编辑',   2027, 2, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'content:dramabind:edit',    '#', 'b-migration', 'B模块外部视频按钮权限'),
+(2048, '上下架查询', 2028, 1, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'content:dramastatus:query', '#', 'b-migration', 'B模块外部视频按钮权限'),
+(2049, '上下架编辑', 2028, 2, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'content:dramastatus:edit',  '#', 'b-migration', 'B模块外部视频按钮权限'),
+(2050, '播放数据查询', 2029, 1, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'content:dramastats:query', '#', 'b-migration', 'B模块外部视频按钮权限'),
 (5180, '交易作品新增',   5130, 1, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'trade:works:add',       '#', 'c-perm-migration', 'C 模块交易按钮权限'),
 (5181, '交易作品编辑',   5130, 2, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'trade:works:edit',      '#', 'c-perm-migration', 'C 模块交易按钮权限'),
 (5182, '授权订单查询',   5131, 1, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'trade:orders:query',    '#', 'c-perm-migration', 'C 模块交易按钮权限'),
@@ -1213,9 +1241,17 @@ CROSS JOIN (
   UNION ALL SELECT 3004 UNION ALL SELECT 3005 UNION ALL SELECT 3006 UNION ALL SELECT 3007
   UNION ALL SELECT 3008 UNION ALL SELECT 3009 UNION ALL SELECT 3010 UNION ALL SELECT 3011
   UNION ALL SELECT 3012 UNION ALL SELECT 3013 UNION ALL SELECT 3014 UNION ALL SELECT 3015
-  UNION ALL SELECT 5102 UNION ALL SELECT 5105
-  UNION ALL SELECT 5160 UNION ALL SELECT 5161 UNION ALL SELECT 5162 UNION ALL SELECT 5163
-  UNION ALL SELECT 5164 UNION ALL SELECT 5165 UNION ALL SELECT 5166
+  UNION ALL SELECT 2000 UNION ALL SELECT 2010 UNION ALL SELECT 2011 UNION ALL SELECT 2012
+  UNION ALL SELECT 2013 UNION ALL SELECT 2014 UNION ALL SELECT 2015 UNION ALL SELECT 2016 UNION ALL SELECT 2017
+  UNION ALL SELECT 2018 UNION ALL SELECT 2019
+  UNION ALL SELECT 2020 UNION ALL SELECT 2021 UNION ALL SELECT 2022
+  UNION ALL SELECT 2023 UNION ALL SELECT 2024 UNION ALL SELECT 2025 UNION ALL SELECT 2026
+  UNION ALL SELECT 2027 UNION ALL SELECT 2028 UNION ALL SELECT 2029
+  UNION ALL SELECT 2030 UNION ALL SELECT 2031 UNION ALL SELECT 2032 UNION ALL SELECT 2033 UNION ALL SELECT 2034
+  UNION ALL SELECT 2035 UNION ALL SELECT 2036 UNION ALL SELECT 2037 UNION ALL SELECT 2039
+  UNION ALL SELECT 2040 UNION ALL SELECT 2041 UNION ALL SELECT 2042 UNION ALL SELECT 2043 UNION ALL SELECT 2044
+  UNION ALL SELECT 2045 UNION ALL SELECT 2046 UNION ALL SELECT 2047 UNION ALL SELECT 2048 UNION ALL SELECT 2049
+  UNION ALL SELECT 2050
   UNION ALL SELECT 5130 UNION ALL SELECT 5131 UNION ALL SELECT 5132 UNION ALL SELECT 5133
   UNION ALL SELECT 5135 UNION ALL SELECT 5136 UNION ALL SELECT 5137 UNION ALL SELECT 5138
   UNION ALL SELECT 5180 UNION ALL SELECT 5181 UNION ALL SELECT 5182 UNION ALL SELECT 5183
