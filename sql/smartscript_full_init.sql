@@ -5,6 +5,8 @@
 --   1) 全新空库：完整导入若依基线 + 平台全部结构/菜单/权限/字典/任务。
 --   2) 已有库（含历史版本建的库）：自动补齐缺失的表/列/索引/菜单/字典，
 --      不删除、不覆盖任何既有业务数据。
+--      例外：第 1/2/7 部分的「存量归一」会按已定稿的枚举口径纠正历史脏值
+--      （如已退役的授权类型 negotiable → non_exclusive），属显式决策，非覆盖用户数据。
 -- 建议通过 scripts/db/init-database.sh / .ps1 执行（内部按本清单跑这一个文件）；
 -- 也可直接： mysql -h<host> -u<user> -p <库名> < sql/smartscript_full_init.sql
 --
@@ -16,7 +18,7 @@
 --   第 4 部分  产品/用户中心/内容/交易菜单（A1+PC+A4-002+B1+C 最终形态，upsert）
 --   第 5 部分  角色与授权（A1 受限运营角色、超管授权）
 --   第 6 部分  C 交易域 15 张业务表（含列补齐与唯一索引）
---   第 7 部分  交易字典（14 类型 / 52 项）
+--   第 7 部分  交易字典（14 类型 / 50 项）+ 7.1 授权类型枚举收敛归一
 --   第 8 部分  询盘过期自动关闭定时任务
 -- 与历史迁移脚本的差异：
 --   - 原迁移的控制表/快照表（a2_/a4_ 前缀）为升级回滚记账服务，此处不需要，已省略。
@@ -1915,7 +1917,9 @@ FROM (
   UNION ALL SELECT 1,'独家','exclusive','trade_license_type','default'
   UNION ALL SELECT 2,'非独家','non_exclusive','trade_license_type','default'
   UNION ALL SELECT 3,'改编','adaptation','trade_license_type','default'
-  UNION ALL SELECT 4,'可议价','negotiable','trade_license_type','default'
+  -- 2026-09-30 用户决策：原第 4 项 negotiable「可议价」退役，故不再插入。
+  -- 议价不是一种授权类型，而是所有作品共有的能力，改由 sys_work.negotiable_min/max 表达区间
+  -- （填了则双方出价须落在区间内，留空为不限）；存量脏值由下方 7.1 归一。
   UNION ALL SELECT 1,'已上架','listed','trade_work_listing_status','success'
   UNION ALL SELECT 2,'已下架','offline','trade_work_listing_status','info'
   UNION ALL SELECT 1,'进行中','ongoing','trade_follow_status','success'
@@ -1940,6 +1944,26 @@ FROM (
 ) t
 LEFT JOIN sys_dict_data d ON d.dict_type = t.dict_type AND d.dict_value = t.dict_value
 WHERE d.dict_code IS NULL;
+
+-- ---------------------------------------------------------------------
+-- 7.1 授权类型枚举收敛归一（2026-09-30 用户决策，幂等可重跑）
+-- ---------------------------------------------------------------------
+-- negotiable「可议价」从授权类型中退役：议价是所有作品共有的能力，由 negotiable_min/max
+-- 表达区间，不再是一种授权类型。
+-- 依据：分工第 4 条「完成授权类型、授权价格和可议价范围展示」；附件6.1 接口 2.25
+-- 只给出示例值 exclusive，从未将 negotiable 列为授权类型取值。
+-- 存量脏值统一归一为 non_exclusive（非独家，库中占比最高的取值）。
+-- 字典项沿用既有惯例（2026-09-29 trade_inquiry_status.accepted 先例）停用而非物理删除，
+-- 保留一行可回滚记录；停用后若依字典下拉与前端均不再出现该项。
+-- 注：sys_copyright_authorization.license_type 属 D 版权财务域（当前 0 行），按分工边界不在此动。
+UPDATE sys_work    SET trade_type   = 'non_exclusive' WHERE trade_type   = 'negotiable';
+UPDATE sys_inquiry SET license_type = 'non_exclusive' WHERE license_type = 'negotiable';
+UPDATE sys_quote   SET license_type = 'non_exclusive' WHERE license_type = 'negotiable';
+UPDATE sys_order   SET license_type = 'non_exclusive' WHERE license_type = 'negotiable';
+UPDATE sys_dict_data
+   SET status = '1', update_by = 'c-dict-migration', update_time = NOW(),
+       remark = '2026-09-30 退役：议价改为所有作品共有能力，由 negotiable_min/max 表达区间'
+ WHERE dict_type = 'trade_license_type' AND dict_value = 'negotiable';
 
 -- =====================================================================
 -- 第 8 部分：询盘过期自动关闭定时任务（幂等）

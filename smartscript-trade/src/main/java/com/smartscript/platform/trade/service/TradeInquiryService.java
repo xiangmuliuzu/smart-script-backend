@@ -7,15 +7,13 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import com.ruoyi.common.utils.SecurityUtils;
 import com.ruoyi.common.utils.uuid.Seq;
-import com.smartscript.platform.trade.domain.SysBusinessFollow;
 import com.smartscript.platform.trade.domain.SysInquiry;
 import com.smartscript.platform.trade.domain.SysOrder;
-import com.smartscript.platform.trade.mapper.SysBusinessFollowMapper;
 import com.smartscript.platform.trade.mapper.SysInquiryMapper;
 
 /**
  * C module: inquiry management service.
- * Handles inquiry CRUD, follow-up recording and inquiry-to-order conversion.
+ * Handles inquiry CRUD, status transitions and inquiry-to-order conversion.
  *
  * 状态枚举（2026-09-29 用户决策收敛）：pending（待回复）/ quoted（议价中）
  * / rejected（已拒绝）/ closed（已关闭）/ deal（已达成）。
@@ -27,8 +25,6 @@ public class TradeInquiryService
 {
     /** 询盘达成（已转订单）状态 */
     public static final String INQUIRY_STATUS_DEAL = "deal";
-    /** 询盘跟进记录类型标记（写入 sys_business_follow.follow_type） */
-    public static final String FOLLOW_TYPE_INQUIRY = "inquiry";
 
     /* 询盘状态枚举（2026-09-29 收敛，与前端 tradeEnum.js / 字典 trade_inquiry_status 一致） */
     public static final String INQUIRY_STATUS_PENDING = "pending";
@@ -44,9 +40,6 @@ public class TradeInquiryService
 
     @Autowired
     private SysInquiryMapper inquiryMapper;
-
-    @Autowired
-    private SysBusinessFollowMapper followMapper;
 
     @Autowired
     private TradeOrderService orderService;
@@ -181,41 +174,6 @@ public class TradeInquiryService
         java.util.Calendar c = java.util.Calendar.getInstance();
         c.add(java.util.Calendar.DAY_OF_MONTH, days);
         return c.getTime();
-    }
-
-    /**
-     * 记录询盘跟进：落一条 sys_business_follow（follow_type=inquiry），并把跟进内容追加到询盘 remark。
-     * 修复原空壳实现（P0-03）。
-     */
-    @Transactional
-    public int followUp(Long inquiryId, String content)
-    {
-        SysInquiry inquiry = inquiryMapper.selectInquiryById(inquiryId);
-        if (inquiry == null)
-        {
-            throw new RuntimeException("询盘不存在: " + inquiryId);
-        }
-
-        SysBusinessFollow follow = new SysBusinessFollow();
-        follow.setPartnerId(null);
-        follow.setFollowerId(SecurityUtils.getUserId());
-        follow.setFollowType(FOLLOW_TYPE_INQUIRY);
-        follow.setContent(content);
-        follow.setStatus("ongoing");
-        follow.setFollowTime(new Date());
-        follow.setCreateBy(SecurityUtils.getUsername());
-        follow.setCreateTime(new Date());
-        follow.setRemark("询盘 " + inquiry.getInquiryNo() + " 跟进");
-        followMapper.insertFollow(follow);
-
-        // 同步把最新跟进追加到询盘备注，便于详情展示
-        SysInquiry update = new SysInquiry();
-        update.setInquiryId(inquiryId);
-        String oldRemark = inquiry.getRemark() == null ? "" : inquiry.getRemark() + "\n";
-        update.setRemark(oldRemark + "[" + SecurityUtils.getUsername() + "] " + content);
-        update.setUpdateBy(SecurityUtils.getUsername());
-        update.setUpdateTime(new Date());
-        return inquiryMapper.updateInquiry(update);
     }
 
     /**

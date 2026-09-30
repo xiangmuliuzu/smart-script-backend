@@ -131,4 +131,79 @@ public class ReviewController {
         result.put("total", logs.size());
         return result;
     }
+
+    /**
+     * 审核统计（工作台总览卡片数据）
+     */
+    @GetMapping("/statistics")
+    public Map<String, Object> statistics() {
+        Map<String, Object> result = new HashMap<>();
+        // 模拟统计数据，后续建表后改为真实统计查询
+        result.put("code", 200);
+        result.put("msg", "操作成功");
+        result.put("pending", 12);
+        result.put("aiReviewing", 8);
+        result.put("approved", 156);
+        result.put("rejected", 23);
+        return result;
+    }
+
+    /**
+     * 导出审核报告（CSV下载）
+     */
+    @GetMapping("/export")
+    public void export(jakarta.servlet.http.HttpServletResponse response) {
+        try {
+            List<ReviewRecord> list = reviewService.selectReviewRecordList(new ReviewRecord());
+            StringBuilder sb = new StringBuilder();
+            sb.append("编号,作品名称,类型,题材,作者,提交时间,AI评分,状态\n");
+            for (ReviewRecord r : list) {
+                sb.append(r.getReviewId()).append(",")
+                  .append(nullSafe(r.getWorkTitle())).append(",")
+                  .append(nullSafe(r.getWorkType())).append(",")
+                  .append(nullSafe(r.getGenreName())).append(",")
+                  .append(nullSafe(r.getAuthorName())).append(",")
+                  .append(r.getCreateTime() == null ? "" : r.getCreateTime()).append(",")
+                  .append(r.getAiScore() == null ? "" : r.getAiScore()).append(",")
+                  .append(nullSafe(r.getStatus())).append("\n");
+            }
+            response.setContentType("text/csv;charset=UTF-8");
+            response.setHeader("Content-Disposition", "attachment;filename=review_report.csv");
+            response.getWriter().write("\uFEFF" + sb.toString());
+        } catch (Exception e) {
+            throw new RuntimeException("导出审核报告失败", e);
+        }
+    }
+
+    /**
+     * 导出审核日志（CSV下载）
+     */
+    @GetMapping("/logs/export")
+    public void exportLogs(jakarta.servlet.http.HttpServletResponse response) {
+        try {
+            List<Map<String, Object>> logs = reviewService.selectReviewLogs(null);
+            StringBuilder sb = new StringBuilder();
+            sb.append("时间,操作人,审核记录ID,操作,变更前状态,变更后状态\n");
+            for (Map<String, Object> log : logs) {
+                sb.append(nullSafe(String.valueOf(log.get("createTime")))).append(",")
+                  .append(nullSafe(String.valueOf(log.get("operator")))).append(",")
+                  .append(nullSafe(String.valueOf(log.get("reviewId")))).append(",")
+                  .append(nullSafe(String.valueOf(log.get("action")))).append(",")
+                  .append(nullSafe(String.valueOf(log.get("beforeStatus")))).append(",")
+                  .append(nullSafe(String.valueOf(log.get("afterStatus")))).append("\n");
+            }
+            response.setContentType("text/csv;charset=UTF-8");
+            response.setHeader("Content-Disposition", "attachment;filename=review_logs.csv");
+            response.getWriter().write("\uFEFF" + sb.toString());
+        } catch (Exception e) {
+            throw new RuntimeException("导出审核日志失败", e);
+        }
+    }
+
+    /**
+     * null安全转换
+     */
+    private String nullSafe(String value) {
+        return value == null ? "" : value;
+    }
 }

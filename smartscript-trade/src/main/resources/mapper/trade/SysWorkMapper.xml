@@ -40,8 +40,10 @@
                w.quote_valid_days, w.word_count, w.episode_count, w.status,
                w.view_count, w.favorite_count, w.sale_count, w.rating,
                w.is_deleted, w.created_at, w.updated_at, w.create_by, w.create_time,
-               w.is_top, w.is_recommend, w.sort_order
+               w.is_top, w.is_recommend, w.sort_order,
+               u.nick_name as author_name
         from sys_work w
+        left join sys_user u on w.author_id = u.user_id
         <where>
             w.is_deleted = 0
             <if test="title != null and title != ''">
@@ -76,8 +78,20 @@
             <if test="tradeType != null">trade_type = #{tradeType},</if>
             <if test="tradeEnabled != null">trade_enabled = #{tradeEnabled},</if>
             <if test="price != null">price = #{price},</if>
-            <if test="negotiableMin != null">negotiable_min = #{negotiableMin},</if>
-            <if test="negotiableMax != null">negotiable_max = #{negotiableMax},</if>
+            <!-- 议价区间（2026-09-30 决策）：议价范围与 trade_type 彻底解绑，所有作品均可议价，
+                 区间仅由 negotiable_min/negotiable_max 表达（留空=不限，允许只填单边）。
+                 原 TRADE_WORK_002「非 negotiable 强制置空上下限」已作废。
+                 negotiableRangeProvided=true（交易设置表单整体提交）时无条件写入，使前端可以把区间清空为「不限」；
+                 否则仅写非 NULL 值，保证 enableTrade 上架 / 下架等局部更新不会误清已设区间。 -->
+            <choose>
+                <when test="negotiableRangeProvided != null and negotiableRangeProvided">
+                    negotiable_min = #{negotiableMin}, negotiable_max = #{negotiableMax},
+                </when>
+                <otherwise>
+                    <if test="negotiableMin != null">negotiable_min = #{negotiableMin},</if>
+                    <if test="negotiableMax != null">negotiable_max = #{negotiableMax},</if>
+                </otherwise>
+            </choose>
             <if test="quoteValidDays != null">quote_valid_days = #{quoteValidDays},</if>
             <if test="isTop != null">is_top = #{isTop},</if>
             <if test="isRecommend != null">is_recommend = #{isRecommend},</if>
