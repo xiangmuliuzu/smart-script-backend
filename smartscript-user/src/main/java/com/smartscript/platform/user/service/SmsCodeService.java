@@ -144,7 +144,7 @@ public class SmsCodeService
         {
             throw new AppAuthException(AppAuthErrorCodes.SMS_CODE_USED, 409, "sms code already used");
         }
-        if (latest.getExpiresAt() != null && latest.getExpiresAt().before(now))
+        if (latest.getExpiresAt() == null || !latest.getExpiresAt().after(now))
         {
             throw new AppAuthException(AppAuthErrorCodes.SMS_CODE_EXPIRED, 400, "sms code expired");
         }

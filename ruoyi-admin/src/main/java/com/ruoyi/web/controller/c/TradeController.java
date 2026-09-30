@@ -72,25 +72,14 @@ public class TradeController extends BaseController
         return getDataTable(list);
     }
 
-    /** 2.26 List a work for trade (enable trade on an approved work) */
+    /** 2.26 List a work for trade (enable trade on an approved/on_shelf work) */
     @PreAuthorize("@ss.hasPermi('trade:works:add')")
     @Log(title = "C-Trade", businessType = BusinessType.INSERT)
     @PostMapping("/trade/works")
     public AjaxResult createTradeWork(@RequestBody SysWork work)
     {
-        // Validate: work must be approved and not deleted
-        SysWork existing = workService.selectWorkById(work.getWorkId());
-        if (existing == null)
-        {
-            return AjaxResult.error("Work not found");
-        }
-        if (!"approved".equals(existing.getStatus()))
-        {
-            return AjaxResult.error("Only approved works can be listed for trade");
-        }
-        work.setTradeEnabled(1);
-        int rows = workService.updateTradeSettings(work);
-        return toAjax(rows);
+        // 审核前置校验与 trade_enabled 置位统一收敛到 Service.enableTrade（白名单 approved/on_shelf，分状态中文提示）
+        return toAjax(workService.enableTrade(work));
     }
 
     /** 2.27 Update trade settings for a work */
@@ -310,22 +299,13 @@ public class TradeController extends BaseController
         return AjaxResult.success(inquiry);
     }
 
-    /** Follow up on inquiry: records a follow entry and appends to inquiry remark */
-    @PreAuthorize("@ss.hasPermi('trade:inquiry:edit')")
-    @Log(title = "C-Inquiry", businessType = BusinessType.UPDATE)
-    @PostMapping("/trade/inquiry/follow-up/{id}")
-    public AjaxResult followUpInquiry(@PathVariable Long id, @RequestBody java.util.Map<String, Object> body)
-    {
-        Object content = body.get("content");
-        if (content == null)
-        {
-            content = body.get("remark");
-        }
-        int rows = inquiryService.followUp(id, content != null ? content.toString() : "");
-        return toAjax(rows);
-    }
-
-    /** Convert inquiry to order (idempotent) */
+    /**
+     * Convert inquiry to order (idempotent).
+     *
+     * @deprecated 2026-09-29 用户决策：取消「转为订单」功能，订单一律在接受报价时生成。
+     * 本端点仅为兼容接口文档保留（Service 已收紧为仅 deal 可调），PC 页面入口已下线。
+     */
+    @Deprecated
     @PreAuthorize("@ss.hasPermi('trade:inquiry:convert')")
     @Log(title = "C-Inquiry-Convert", businessType = BusinessType.INSERT)
     @PostMapping("/trade/inquiry/convert-order/{id}")
@@ -408,7 +388,8 @@ public class TradeController extends BaseController
     @PutMapping("/trade/quote/{quoteId}")
     public AjaxResult modifyQuote(@PathVariable Long quoteId, @RequestBody SysQuote quote)
     {
-        return toAjax(quoteService.modifyQuote(quoteId, quote));
+        // 本端为甲方 PC（买方视角）：仅可修改买方议价，卖方报价由卖方在客户端修改
+        return toAjax(quoteService.modifyQuote(quoteId, quote, TradeQuoteService.OPERATOR_ROLE_BUYER));
     }
 
     /** Accept a quote: validates state/expiry, generates order (idempotent), sets quote accepted */
@@ -428,6 +409,30 @@ public class TradeController extends BaseController
     public AjaxResult rejectQuote(@PathVariable Long quoteId)
     {
         int rows = quoteService.rejectQuote(quoteId);
+        return toAjax(rows);
+    }
+
+    /**
+     * 卖方接受买方议价（2026-09-29 用户决策：任意一方接受即直接生成订单）。
+     * 供客户端（卖方端）调用：仅可接受 buyer + pending_seller 的议价，接受后生成订单、询盘置 deal。
+     * 甲方 PC 页面暂不露出本端点。
+     */
+    @PreAuthorize("@ss.hasPermi('trade:quote:edit')")
+    @Log(title = "C-Quote-SellerConfirm", businessType = BusinessType.UPDATE)
+    @PutMapping("/trade/quote/{quoteId}/seller-accept")
+    public AjaxResult sellerAcceptQuote(@PathVariable Long quoteId)
+    {
+        SysOrder order = quoteService.acceptQuote(quoteId, TradeQuoteService.OPERATOR_ROLE_SELLER);
+        return AjaxResult.success(order);
+    }
+
+    /** 卖方拒绝买方议价（供客户端调用）：仅置 rejected，不生成订单，询盘可继续议价 */
+    @PreAuthorize("@ss.hasPermi('trade:quote:edit')")
+    @Log(title = "C-Quote-SellerConfirm", businessType = BusinessType.UPDATE)
+    @PutMapping("/trade/quote/{quoteId}/seller-reject")
+    public AjaxResult sellerRejectQuote(@PathVariable Long quoteId)
+    {
+        int rows = quoteService.rejectQuote(quoteId, TradeQuoteService.OPERATOR_ROLE_SELLER);
         return toAjax(rows);
     }
 
@@ -457,12 +462,7 @@ public class TradeController extends BaseController
     @PostMapping("/trade/demand")
     public AjaxResult createDemand(@RequestBody SysDemand demand)
     {
-        String demandNo = "DM" + System.currentTimeMillis();
-        demand.setDemandNo(demandNo);
-        demand.setSubmissionCount(0);
-        demand.setStatus("open");
-        demand.setCreateBy(getUsername());
-        demand.setCreateTime(new java.util.Date());
+        // 默认值与必填校验统一收敛到 Service.insertDemand（含 client_id NOT NULL 兜底，修复 COLLECT_001）
         int rows = demandService.insertDemand(demand);
         return toAjax(rows);
     }

@@ -117,6 +117,18 @@ class SmsCodeConsumeTest
     }
 
     @Test
+    void missingExpiryIsRejectedWith40002()
+    {
+        StubMapper mapper = new StubMapper();
+        mapper.newest = row(CODE, null, null);
+
+        AppAuthException ex = assertThrows(AppAuthException.class,
+                () -> service(mapper).consumeOnce("13900000001", "LOGIN", CODE));
+        assertEquals(AppAuthErrorCodes.SMS_CODE_EXPIRED, ex.getCode());
+        assertEquals(0, mapper.consumeCalls);
+    }
+
+    @Test
     void wrongCodeIsRejectedWith40001()
     {
         StubMapper mapper = new StubMapper();
@@ -126,6 +138,17 @@ class SmsCodeConsumeTest
                 () -> service(mapper).consumeOnce("13900000001", "LOGIN", "000000"));
         assertEquals(AppAuthErrorCodes.SMS_CODE_INVALID, ex.getCode());
         assertEquals(1, mapper.newest.getFailedAttempts());
+    }
+
+    @Test
+    void shortButWellFormedWrongCodeIsRejectedWith40001()
+    {
+        StubMapper mapper = new StubMapper();
+        mapper.newest = row(CODE, null, future());
+
+        AppAuthException ex = assertThrows(AppAuthException.class,
+                () -> service(mapper).consumeOnce("13900000001", "LOGIN", "1234"));
+        assertEquals(AppAuthErrorCodes.SMS_CODE_INVALID, ex.getCode());
     }
 
     @Test

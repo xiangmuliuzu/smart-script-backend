@@ -28,9 +28,13 @@
         select i.inquiry_id, i.inquiry_no, i.work_id, i.buyer_id, i.seller_id,
                i.license_type, i.intended_use, i.budget, i.message, i.status,
                i.expire_at, i.created_at, i.updated_at, i.create_by, i.create_time, i.remark,
-               w.title as work_title
+               w.title as work_title,
+               ub.nick_name as buyer_name,
+               us.nick_name as seller_name
         from sys_inquiry i
         left join sys_work w on i.work_id = w.work_id
+        left join sys_user ub on i.buyer_id = ub.user_id
+        left join sys_user us on i.seller_id = us.user_id
         <where>
             <if test="inquiryNo != null and inquiryNo != ''">AND i.inquiry_no like concat('%', #{inquiryNo}, '%')</if>
             <if test="status != null and status != ''">AND i.status = #{status}</if>
@@ -44,9 +48,12 @@
     </select>
 
     <select id="selectInquiryById" parameterType="Long" resultMap="SysInquiryResult">
-        select i.*, w.title as work_title
+        select i.*, w.title as work_title,
+               ub.nick_name as buyer_name, us.nick_name as seller_name
         from sys_inquiry i
         left join sys_work w on i.work_id = w.work_id
+        left join sys_user ub on i.buyer_id = ub.user_id
+        left join sys_user us on i.seller_id = us.user_id
         where i.inquiry_id = #{inquiryId}
     </select>
 

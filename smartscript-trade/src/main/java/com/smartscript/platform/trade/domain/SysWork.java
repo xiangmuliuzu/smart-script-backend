@@ -149,6 +149,13 @@ public class SysWork extends BaseEntity
     /** Transient: unified fuzzy keyword for list filtering (not a column) */
     private String keyword;
 
+    /**
+     * Transient 写入信号（非列）：本次请求是否显式提交了议价区间。
+     * 为 true 时 updateTradeSettings 无条件写 negotiable_min/negotiable_max（含 NULL，即清空为「不限」）；
+     * 为 false/null 时仅写非 NULL 值，避免上架/下架等只传部分字段的局部更新误清已设区间。
+     */
+    private Boolean negotiableRangeProvided;
+
     public Integer getIsTop() { return isTop; }
     public void setIsTop(Integer isTop) { this.isTop = isTop; }
     public Integer getIsRecommend() { return isRecommend; }
@@ -157,4 +164,6 @@ public class SysWork extends BaseEntity
     public void setSortOrder(Integer sortOrder) { this.sortOrder = sortOrder; }
     public String getKeyword() { return keyword; }
     public void setKeyword(String keyword) { this.keyword = keyword; }
+    public Boolean getNegotiableRangeProvided() { return negotiableRangeProvided; }
+    public void setNegotiableRangeProvided(Boolean negotiableRangeProvided) { this.negotiableRangeProvided = negotiableRangeProvided; }
 }

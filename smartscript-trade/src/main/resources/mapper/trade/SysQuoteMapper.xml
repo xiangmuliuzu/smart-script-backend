@@ -31,10 +31,12 @@
                q.quoter_role, q.price, q.license_type, q.valid_days, q.description,
                q.status, q.expire_at, q.created_at, q.create_by, q.create_time, q.remark,
                i.inquiry_no as inquiry_no,
-               w.title as work_title
+               w.title as work_title,
+               uq.nick_name as quoter_name
         from sys_quote q
         left join sys_inquiry i on q.inquiry_id = i.inquiry_id
         left join sys_work w on i.work_id = w.work_id
+        left join sys_user uq on q.quoter_id = uq.user_id
         <where>
             <if test="inquiryId != null">AND q.inquiry_id = #{inquiryId}</if>
             <if test="quoterRole != null and quoterRole != ''">AND q.quoter_role = #{quoterRole}</if>
@@ -50,10 +52,12 @@
     </select>
 
     <select id="selectQuoteById" parameterType="Long" resultMap="SysQuoteResult">
-        select q.*, i.inquiry_no as inquiry_no, w.title as work_title
+        select q.*, i.inquiry_no as inquiry_no, w.title as work_title,
+               uq.nick_name as quoter_name
         from sys_quote q
         left join sys_inquiry i on q.inquiry_id = i.inquiry_id
         left join sys_work w on i.work_id = w.work_id
+        left join sys_user uq on q.quoter_id = uq.user_id
         where q.quote_id = #{quoteId}
     </select>
 

@@ -1,52 +1,15 @@
 # 数据库初始化步骤清单（唯一执行顺序来源）
 #
 # 格式: <步骤ID>|<闸门>|仓库根相对路径>|<说明>
-#   exit    : 只要求 mysql 退出码为 0（基础结构导入、纯数据种子、迁移写入步骤）
+#   exit    : 只要求 mysql 退出码为 0
 #   summary : 要求退出码为 0，且输出末尾出现 SUMMARY=PASS（fail_cnt=0），
 #             同时输出中不得出现 FAIL 汇总行或 *_ABORTED 中止标记
 # 以 # 开头的行与空行会被忽略。
 #
-# 顺序依据（不得随意调整）:
-#   A1 种子必须在 A4 之前：A4 前置检查要求顶级 path='user' 目录唯一，
-#     该目录由 A1 种子 menu_id=5142 提供。
-#   PC 侧边栏必须在 A4 之后：它按 menu_id 重排并改名 A4 菜单 3000-3015。
-#   PC 侧边栏必须在 A1 之后：它重挂 A1 的产品菜单并补写被种子跳过的 5142。
-#   A2 必须最先：A1/A4 都依赖 A2 归一后的 sys_user 账号域。
-#   C 必须在 PC 之后：C 的菜单迁移（002/003/004）在 A1/PC 建好的 sys_menu 结构上重挂与补齐。
-#   C 建表（000）必须是 c/ 内第一个：C_20260928_003 改 sys_order、C_20260928_006 改 sys_work、C_20260928_007 改 sys_offline_cooperation，均依赖它。
-#   H12 只新增 sys_user 覆盖索引，无菜单/表依赖，置于最后；其 verify 无 SUMMARY 行，按 exit 闸门。
+# 说明：
+#   平台全部结构/菜单/权限/字典/任务已合并进 sql/smartscript_full_init.sql
+#   （自幂等：空库完整初始化；已有库自动补齐缺失部分，不删不覆盖任何数据）。
+#   可重复执行；后续字段/菜单变更直接修改该文件即可，不要再堆一次性迁移脚本。
+#   sql/ry_20260320.sql 仅为 A3 联调子集与上游参照保留。
 
-ry-baseline|exit|sql/ry_20260320.sql|若依基础结构 + 初始数据（20 张系统表）
-a2-precheck|summary|sql/migrations/a2/A2_20260921_001__a2_precheck.sql|A2 前置只读检查
-a2-migrate|exit|sql/migrations/a2/A2_20260921_001__a2_migrate.sql|A2 结构加固 + App 表骨架
-a2-verify|summary|sql/migrations/a2/A2_20260921_001__a2_verify.sql|A2 迁移校验
-a1-menu-seed|exit|sql/migrations/a1/A1_20260921_001__p5_menu_seed.sql|A1 产品菜单与受限运营角色种子
-a1-menu-verify|summary|sql/migrations/a1/A1_20260921_001__p5_menu_verify.sql|A1 种子校验
-a4-precheck|summary|sql/migrations/a4/A4_20260922_001__a4_precheck.sql|A4 前置只读检查
-a4-migrate|exit|sql/migrations/a4/A4_20260922_001__a4_migrate.sql|A4 结构增量（GAP-1/2/3）
-a4-verify|summary|sql/migrations/a4/A4_20260922_001__a4_verify.sql|A4 结构校验
-a4-permissions|exit|sql/migrations/a4/A4_20260922_002__a4_permissions.sql|A4 菜单与 15 个权限标识
-a4-permissions-verify|summary|sql/migrations/a4/A4_20260922_002__a4_permissions_verify.sql|A4 权限校验
-a4-grantable-role|exit|sql/migrations/a4/A4_20260922_003__app_grantable_role.sql|A4 角色可授权标记
-a4-grantable-role-verify|summary|sql/migrations/a4/A4_20260922_003__app_grantable_role_verify.sql|A4 角色标记校验
-pc-sidebar|exit|sql/migrations/pc/PC_20260923_001__sidebar_ia.sql|PC 侧边栏信息架构对齐
-pc-sidebar-verify|summary|sql/migrations/pc/PC_20260923_001__sidebar_ia_verify.sql|PC 侧边栏最终校验
-a5-bio-precheck|summary|sql/migrations/a5/A5_20260928_001__user_profile_bio_precheck.sql|A5 个人简介加列前置检查
-a5-bio-migrate|exit|sql/migrations/a5/A5_20260928_001__user_profile_bio_migrate.sql|A5 sys_user 新增 bio 列
-a5-bio-verify|summary|sql/migrations/a5/A5_20260928_001__user_profile_bio_verify.sql|A5 bio 列迁移校验
-b-content-menu|exit|sql/migrations/b/B_20260928_001__content_category_tag_menu.sql|B 模块分类/标签 PC 菜单与权限
-b-content-menu-verify|summary|sql/migrations/b/B_20260928_001__content_category_tag_menu_verify.sql|B 模块分类/标签菜单校验
-c-trade-tables|exit|sql/migrations/c/C_20260923_000__c_trade_tables.sql|C 交易域 14 张业务表建表（其余 c/ 迁移的前置）
-c-demand-tag|exit|sql/migrations/c/C_20260923_001__demand_tag.sql|C 需求标签表
-c-trade-menu|exit|sql/migrations/c/C_20260923_002__c_trade_menu.sql|C 交易菜单挂载与补齐
-c-menu-reorganize|exit|sql/migrations/c/C_20260923_003__menu_reorganize.sql|C 菜单归组重排
-c-copyright-review-nesting|exit|sql/migrations/c/C_20260923_004__copyright_review_nesting.sql|C 版权审核菜单嵌套
-c-trade-perms|exit|sql/migrations/c/C_20260928_001__c_trade_perms.sql|C 交易权限标识与 F 按钮
-c-trade-dict|exit|sql/migrations/c/C_20260928_002__c_trade_dict.sql|C 交易字典类型与数据
-c-order-inquiry-unique|exit|sql/migrations/c/C_20260928_003__c_order_inquiry_unique.sql|C 订单-询盘唯一索引
-c-trade-perms-ops|exit|sql/migrations/c/C_20260928_004__c_trade_perms_ops.sql|C 交易写操作权限
-c-inquiry-expire-job|exit|sql/migrations/c/C_20260928_005__c_inquiry_expire_job.sql|C 询盘过期定时任务
-c-work-trade-setting-extra|exit|sql/migrations/c/C_20260928_006__work_trade_setting_extra.sql|C 作品交易设置列（置顶/推荐/排序）
-c-cooperation-negotiation|exit|sql/migrations/c/C_20260928_007__offline_cooperation_negotiation.sql|C 线下谈判列（地点/联系人/联系方式）+ 合作记录来源/状态字典
-h12-user-type-index|exit|sql/migrations/h12/H12_20260928_001__sys_user_type_delflag_index.sql|H12 sys_user(user_type,del_flag) 覆盖索引
-h12-user-type-index-verify|exit|sql/migrations/h12/H12_20260928_001__sys_user_type_delflag_index_verify.sql|H12 索引校验（无 SUMMARY，按 exit 闸门）
+smartscript-init|exit|sql/smartscript_full_init.sql|平台全量初始化/幂等增量升级（基线 + 全部增量）

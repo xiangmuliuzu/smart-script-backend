@@ -93,11 +93,10 @@
 
 ### 规则（强制）
 
-- 初始化**只允许**针对「不存在」或「已存在但一张表都没有」的库。
-- 检测到库中已有**任何一张表**即立刻拒绝退出（退出码 `2`），
-  **永不执行 `DROP DATABASE`，永不覆盖既有数据**。
-- 已有业务数据的库**禁止**导入 `sql/ry_20260320.sql`（该文件会 `drop table` 重建）。
-  已有库请走升级路径：见 [`sql/migrations/README.md`](sql/migrations/README.md)。
+- 初始化脚本**自幂等**：空库做完整初始化；已有库自动进入**增量升级模式**，
+  只补齐缺失的表/列/索引/菜单/字典，**不删除、不覆盖任何既有数据**，可重复执行。
+- 即便如此，对有业务数据的库执行前仍建议先备份：
+  `mysqldump --single-transaction --routines --triggers <库名> > backup.sql`。
 
 ### 执行
 
@@ -120,40 +119,37 @@ $env:DB_PASSWORD = '<本机私有口令>'
 
 ### 脚本做了什么
 
-按 [`scripts/db/init-steps.txt`](scripts/db/init-steps.txt) 顺序执行 15 步，**顺序只有这一处定义**，
-两个脚本共用：
+按 [`scripts/db/init-steps.txt`](scripts/db/init-steps.txt) 执行唯一一步，**顺序只有这一处定义**，
+两个脚本共用：[`sql/smartscript_full_init.sql`](sql/smartscript_full_init.sql)。
 
-| 顺序 | 阶段 | 校验闸门 |
-| ---: | --- | --- |
-| 1 | 若依基础结构 + 初始数据（`sql/ry_20260320.sql`） | 退出码 |
-| 2–4 | A2：前置检查 → 迁移 → 校验 | precheck / verify 要求 `SUMMARY=PASS` |
-| 5–6 | A1：产品菜单与受限运营角色种子 → 校验 | verify 要求 `SUMMARY=PASS` |
-| 7–13 | A4：001 结构增量、002 菜单与权限、003 角色可授权标记，各自 前置检查/迁移/校验 | 各 verify 要求 `SUMMARY=PASS` |
-| 14–15 | PC：侧边栏信息架构迁移 → 最终校验 | 最终校验要求 `SUMMARY=PASS` |
+该文件自上而下共 9 部分，全部幂等（空库完整导入；已有库跳过已有结构、只补缺失部分）：
 
-每一步都检查 mysql 退出码；带 `summary` 闸门的步骤还要求输出出现
-`SUMMARY=PASS`（`fail_cnt=0`），且不得出现 `FAIL` 汇总行或 `*_ABORTED` 中止标记。
+| 部分 | 内容 |
+| ---: | --- |
+| 0 | 若依基线（仅当 `sys_dept` 不存在即空库时导入，已有库整体跳过） |
+| 1–2 | `sys_user` 加固与数据归一、App/用户域 11 张表（原 A2/A4 迁移） |
+| 3 | `sys_user.bio`（A5）、`(user_type, del_flag)` 覆盖索引（H12）、`sys_role.app_grantable`（A4） |
+| 4–5 | 产品/用户中心/内容/交易菜单与角色授权（A1+PC+B1+C 最终形态，upsert） |
+| 6–8 | C 交易域 15 张业务表、交易字典 14 类型/52 项、询盘过期定时任务 |
+
 **任一步失败立即停止**，并打印该步输出尾部与完整日志路径（失败时保留临时日志目录，
-查看后自行删除）。
+查看后自行删除）。也可以绕过脚本直接执行：
+`mysql -h<host> -u<user> -p <库名> < sql/smartscript_full_init.sql`。
 
-顺序依赖：A1 必须早于 A4（A4 前置检查要求顶级 `path='user'` 目录唯一，由 A1 的
-`menu_id=5142` 提供）；PC 必须晚于 A1 与 A4（它重挂 A1 产品菜单并重排/改名 A4 菜单）。
-详见 `sql/migrations/README.md` 第 3 节。
+历史演进：原 `sql/migrations/` 下 15 步迁移流程（含 precheck/verify/回滚脚本）已全部
+蒸馏合并进该文件，历史版本可通过 git 记录回看。后续新增字段/菜单直接修改该文件，
+不要再往仓库里堆一次性迁移脚本。
 
 ### 初始化后的期望状态
 
-全新空库跑完后：**表 36、用户 2、角色 3、菜单 133、角色菜单 105**。
+全新空库跑完后：**表 46、用户 2、角色 3、菜单 162、角色菜单 139**。
 其中包含若依原生 `admin`（超级管理员）与 `ry` 两个账号、`a1_operator` 受限运营角色，
-以及 `menu_id` 段 `3000-3015` 的 A4 用户中心菜单。
+`menu_id` 段 `3000-3015` 的 A4 用户中心菜单、`5000-5196` 的产品/内容/交易菜单，
+以及 C 模块交易域 15 张业务表与交易字典。
 
 > **默认测试账号**：`admin` / `admin123`（`ry` 同为 `admin123`）。
 > 哈希来自 `sql/ry_20260320.sql` 内置种子数据，任何人按上述流程初始化即可直接登录，
 > 无需手工插入账号。仅限本地/测试环境使用，生产环境部署后请立即修改。
-
-> **已知限制（A7 复核）**：本清单**不包含 C 模块**（`sql/migrations/c/`）步骤，而 C 模块代码引用的
-> `sys_demand`、`sys_quote`、`sys_order`、`sys_partner` 等表在仓库内没有版本化迁移脚本。
-> 按本清单初始化的全新库不含这些表，C 模块接口在全新环境不可用。该问题登记在
-> `../shared/A7-G8-交付与发布准备记录.md` 的 A7-Q1，由 C 模块负责人补齐后并入本清单。
 
 ---
 
@@ -170,14 +166,14 @@ java -jar ruoyi-admin/target/ruoyi-admin.jar
 # 默认端口 8080，健康检查：curl http://127.0.0.1:8080/captchaImage
 ```
 
-数据库迁移只使用 `sql/migrations` 中已评审的脚本；应用启动不自动改表。
+数据库结构变更统一维护在 `sql/smartscript_full_init.sql`（幂等）；应用启动不自动改表。
 
 ## 目录导航
 
 | 路径 | 内容 |
 | --- | --- |
-| `sql/ry_20260320.sql` | 若依基础结构与初始数据（仅空库初始化使用） |
-| `sql/migrations/` | 初始化与已有库升级用到的全部 SQL，含各阶段 README 与回滚脚本 |
+| `sql/smartscript_full_init.sql` | 平台数据库唯一初始化/增量升级入口（基线 + 全部增量，自幂等） |
+| `sql/ry_20260320.sql` | 若依基线原文（已内嵌进全量脚本；仅为 A3 联调子集与上游参照保留） |
 | `scripts/db/` | 初始化脚本（`.sh` / `.ps1`）与全量步骤清单 `init-steps.txt` |
 | `scripts/a3/` | A3 联调脚手架（后端启动器、环境变量模板、测试矩阵、A3 专用步骤子集 `init-steps-a3.txt`） |
 | `docs/` | 安全与设计说明 |
