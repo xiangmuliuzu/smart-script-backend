@@ -1,5 +1,6 @@
 package com.smartscript.platform.trade.service;
 
+import java.math.BigDecimal;
 import java.util.Date;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -10,8 +11,10 @@ import com.ruoyi.common.utils.uuid.Seq;
 import com.smartscript.platform.trade.domain.SysInquiry;
 import com.smartscript.platform.trade.domain.SysOrder;
 import com.smartscript.platform.trade.domain.SysQuote;
+import com.smartscript.platform.trade.domain.SysWork;
 import com.smartscript.platform.trade.mapper.SysInquiryMapper;
 import com.smartscript.platform.trade.mapper.SysQuoteMapper;
+import com.smartscript.platform.trade.mapper.SysWorkMapper;
 
 /**
  * C module: quote/negotiation service.
@@ -22,6 +25,10 @@ import com.smartscript.platform.trade.mapper.SysQuoteMapper;
  * 状态机：仅 pending（待买方确认）可在甲方 PC 端被接受/拒绝；接受即生成订单（幂等，委托 TradeOrderService）。
  * pending_seller（买方议价）需卖方在客户端确认，本端不可接受/拒绝，仅可修改金额。
  * 过期报价（expireAt 早于当前时间）不可接受。
+ *
+ * 议价区间约束（2026-09-30 用户决策）：所有作品均可议价，区间与授权类型无关；
+ * 作品一旦设置 negotiable_min/negotiable_max，则卖方报价、买方议价、修改报价
+ * 三者的金额都必须落在区间内（只填单边则只约束该边），两边留空表示不限。
  */
 @Service
 public class TradeQuoteService
@@ -51,6 +58,9 @@ public class TradeQuoteService
 
     @Autowired
     private SysInquiryMapper inquiryMapper;
+
+    @Autowired
+    private SysWorkMapper workMapper;
 
     @Autowired
     private TradeOrderService orderService;
@@ -123,6 +133,9 @@ public class TradeQuoteService
         {
             throw new RuntimeException("询盘已过期，不可报价");
         }
+        // 议价区间守卫：卖方报价与买方议价同样受作品 negotiable_min/max 约束
+        assertPriceWithinNegotiableRange(inquiry.getWorkId(), quote.getPrice(),
+                QUOTER_ROLE_BUYER.equals(forcedRole) ? "议价" : "报价");
 
         quote.setQuoterRole(forcedRole);
         quote.setSellerId(inquiry.getSellerId());
@@ -188,6 +201,17 @@ public class TradeQuoteService
             throw new RuntimeException("仅待确认报价可修改，当前状态: " + quote.getStatus());
         }
         assertQuoteOwner(quote, operatorRole, "修改");
+        SysInquiry inquiry = inquiryMapper.selectInquiryById(quote.getInquiryId());
+        if (inquiry == null)
+        {
+            throw new RuntimeException("报价关联的询盘不存在: " + quote.getInquiryId());
+        }
+        assertInquiryNegotiable(inquiry, "修改报价");
+        // 改价同样受作品议价区间约束（2026-09-30 决策：双方所有出价都须在区间内）
+        if (patch.getPrice() != null)
+        {
+            assertPriceWithinNegotiableRange(inquiry.getWorkId(), patch.getPrice(), "修改报价");
+        }
         SysQuote update = new SysQuote();
         update.setQuoteId(quoteId);
         update.setPrice(patch.getPrice());
@@ -268,6 +292,7 @@ public class TradeQuoteService
         {
             throw new RuntimeException("报价关联的询盘不存在: " + quote.getInquiryId());
         }
+        assertInquiryNegotiable(inquiry, "接受报价");
 
         SysOrder order = orderService.generateOrderFromInquiry(
                 inquiry, quoteId, quote.getPrice(), "quote", "Quote accepted, order generated");
@@ -329,6 +354,61 @@ public class TradeQuoteService
             throw new RuntimeException((sellerSide ? "卖方端" : "买方端") + "仅可" + action
                     + "待本方确认的对方报价（当前报价方: " + quote.getQuoterRole()
                     + "，状态: " + quote.getStatus() + "）");
+        }
+    }
+
+    /**
+     * 询盘可议价守卫（修复 TRADE_INQUIRY_002）：仅 pending（待回复）/ quoted（议价中）的询盘可继续改价/接受报价。
+     * deal（已成交）/ closed（已关闭）/ rejected（已拒绝）的询盘不得再议价，否则会出现已成交/已关闭询盘下报价被修改的脏操作。
+     */
+    private void assertInquiryNegotiable(SysInquiry inquiry, String action)
+    {
+        String st = inquiry.getStatus();
+        if (TradeInquiryService.INQUIRY_STATUS_DEAL.equals(st))
+        {
+            throw new RuntimeException("询盘已成交，不可" + action);
+        }
+        if (TradeInquiryService.INQUIRY_STATUS_CLOSED.equals(st))
+        {
+            throw new RuntimeException("询盘已关闭，不可" + action);
+        }
+        if (TradeInquiryService.INQUIRY_STATUS_REJECTED.equals(st))
+        {
+            throw new RuntimeException("询盘已被拒绝，不可" + action);
+        }
+    }
+
+    /**
+     * 议价区间守卫（2026-09-30 用户决策）：作品设置了 negotiable_min/negotiable_max 时，
+     * 双方任何出价（卖方报价 / 买方议价 / 修改报价）都必须落在区间内；
+     * 只填单边则只约束该边，两边都留空表示不限。作品不存在或已软删除时不阻断主流程。
+     */
+    private void assertPriceWithinNegotiableRange(Long workId, BigDecimal price, String action)
+    {
+        if (workId == null || price == null)
+        {
+            return;
+        }
+        SysWork work = workMapper.selectWorkById(workId);
+        if (work == null)
+        {
+            return;
+        }
+        BigDecimal min = work.getNegotiableMin();
+        BigDecimal max = work.getNegotiableMax();
+        if (min == null && max == null)
+        {
+            return;
+        }
+        if (min != null && price.compareTo(min) < 0)
+        {
+            throw new RuntimeException(action + "金额 " + price.toPlainString() + " 低于作品「"
+                    + work.getTitle() + "」的议价下限 " + min.toPlainString() + "，请在议价范围内出价");
+        }
+        if (max != null && price.compareTo(max) > 0)
+        {
+            throw new RuntimeException(action + "金额 " + price.toPlainString() + " 高于作品「"
+                    + work.getTitle() + "」的议价上限 " + max.toPlainString() + "，请在议价范围内出价");
         }
     }
 
