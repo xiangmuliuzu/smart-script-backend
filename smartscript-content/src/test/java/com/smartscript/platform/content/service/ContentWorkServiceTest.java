@@ -2,8 +2,6 @@ package com.smartscript.platform.content.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.util.List;
 import java.util.Map;
@@ -17,9 +15,9 @@ import com.smartscript.platform.identity.IdentityProvider;
  *
  * 覆盖 G7 快速门禁的关键点：
  *   - 业务模块通过 IdentityProvider 读取身份，用户 ID 只来自身份而非请求体；
- *   - 游客可读公开列表且不伪造用户 ID；
+ *   - 私有书架拒绝游客；公开列表已迁至 AppWorkController；
  *   - 实名状态用于业务准入，与角色授权独立；
- *   - 公开响应不下发身份中的敏感字段。
+ *   - 书架身份摘要不下发敏感字段。
  */
 class ContentWorkServiceTest
 {
@@ -34,33 +32,16 @@ class ContentWorkServiceTest
     }
 
     @Test
-    void guestCanReadPublicWorksWithoutFabricatedUserId()
-    {
-        Map<String, Object> result = service(IdentityContext.guest()).listPublicWorks();
-
-        assertFalse((Boolean) result.get("personalized"));
-        assertNotNull(result.get("works"));
-        assertTrue((Integer) result.get("total") > 0);
-
-        @SuppressWarnings("unchecked")
-        Map<String, Object> identity = (Map<String, Object>) result.get("identity");
-        assertEquals(Boolean.FALSE, identity.get("authenticated"));
-        assertEquals(Boolean.TRUE, identity.get("guest"));
-        assertNull(identity.get("userId"));
-        assertEquals(IdentityContext.REAL_NAME_NOT_SUBMITTED, identity.get("realNameStatus"));
-    }
-
-    @Test
-    void authenticatedReaderSeesPersonalizedFlagAndOwnIdentity()
+    void authenticatedShelfResponseContainsOwnIdentity()
     {
         IdentityContext identity = IdentityContext.authenticated(
                 321L, "02", "0", List.of("author"), List.of("content:work:query"),
                 IdentityContext.REAL_NAME_APPROVED, true);
-        Map<String, Object> result = service(identity).listPublicWorks();
-
-        assertEquals(Boolean.TRUE, result.get("personalized"));
+        Map<String, Object> result = service(identity).shelf();
         @SuppressWarnings("unchecked")
         Map<String, Object> summary = (Map<String, Object>) result.get("identity");
+        assertEquals(Boolean.TRUE, summary.get("authenticated"));
+        assertEquals(Boolean.FALSE, summary.get("guest"));
         assertEquals(321L, summary.get("userId"));
         assertEquals("02", summary.get("accountType"));
         assertEquals(IdentityContext.REAL_NAME_APPROVED, summary.get("realNameStatus"));
@@ -69,17 +50,19 @@ class ContentWorkServiceTest
     }
 
     @Test
-    void publicResponseOmitsSensitiveIdentityFields()
+    void shelfIdentitySummaryOmitsSensitiveFields()
     {
-        Map<String, Object> result = service(IdentityContext.guest()).listPublicWorks();
+        IdentityContext identity = IdentityContext.authenticated(
+                321L, "01", "0", List.of(), List.of(), IdentityContext.REAL_NAME_NOT_SUBMITTED, false);
+        Map<String, Object> result = service(identity).shelf();
         @SuppressWarnings("unchecked")
         Map<String, Object> summary = (Map<String, Object>) result.get("identity");
 
-        // 公开接口不得下发手机号、昵称、头像或任何凭证
+        // 身份摘要不得下发手机号、昵称、头像或任何凭证
         for (String forbidden : List.of("phoneMasked", "phone", "nickname", "nickName", "avatar",
                 "accessToken", "refreshToken", "token", "sessionId", "jti"))
         {
-            assertFalse(summary.containsKey(forbidden), "公开身份摘要不得包含字段: " + forbidden);
+            assertFalse(summary.containsKey(forbidden), "身份摘要不得包含字段: " + forbidden);
         }
     }
 

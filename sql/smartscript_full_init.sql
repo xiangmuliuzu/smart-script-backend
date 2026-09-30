@@ -958,6 +958,23 @@ CREATE TABLE IF NOT EXISTS user_author_capability (
   UNIQUE KEY uk_user_author_capability_user (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='作者能力开关';
 
+-- A4 用户中心：创作者资料只读投影（开发文档 §4.4/§5.2）。
+-- 按 user_id 一对一；本次仅读取，维护来源待项目协作确认后接入。
+CREATE TABLE IF NOT EXISTS user_creator_profile (
+  id BIGINT NOT NULL AUTO_INCREMENT,
+  user_id BIGINT NOT NULL,
+  pen_name VARCHAR(64) NULL COMMENT '笔名；NULL/空表示未填写',
+  specialties VARCHAR(500) NULL COMMENT '擅长创作类型代码，逗号分隔；NULL/空表示未填写',
+  profile_intro VARCHAR(1000) NULL COMMENT '创作者介绍；NULL/空表示未填写',
+  create_by VARCHAR(64) NOT NULL DEFAULT 'system',
+  create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  update_by VARCHAR(64) NOT NULL DEFAULT '',
+  update_time DATETIME NULL,
+  remark VARCHAR(500) NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_user_creator_profile_user (user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='创作者资料';
+
 CREATE TABLE IF NOT EXISTS user_notification (
   id BIGINT NOT NULL AUTO_INCREMENT,
   request_id VARCHAR(64) NULL COMMENT 'A4 创建幂等键；历史行为 NULL',
@@ -1984,6 +2001,7 @@ SELECT 'SMARTSCRIPT_INIT_DONE' AS step,
          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN
            ('app_sms_code','app_refresh_session','app_user_consent','app_user_oauth',
             'user_real_name_auth','user_phone_change_log','user_author_capability',
+            'user_creator_profile',
             'user_notification','user_notification_receiver','user_notification_preference',
             'user_feedback')) AS app_tables,
        (SELECT COUNT(*) FROM information_schema.TABLES

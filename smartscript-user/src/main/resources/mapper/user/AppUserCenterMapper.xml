@@ -27,6 +27,24 @@
 
     <!-- ================= 个人资料 ================= -->
 
+    <!--
+      创作者资料投影（A4 用户中心）：user_creator_profile 按 user_id 一对一，
+      只读；无资料行返回 null，不凭作品记录或账号类型推断笔名。
+    -->
+    <resultMap id="UserCreatorProfileMap" type="com.smartscript.platform.user.domain.UserCreatorProfile">
+        <id property="userId" column="user_id"/>
+        <result property="penName" column="pen_name"/>
+        <result property="specialties" column="specialties"/>
+        <result property="profileIntro" column="profile_intro"/>
+    </resultMap>
+
+    <select id="selectCreatorProfile" resultMap="UserCreatorProfileMap">
+        SELECT user_id, pen_name, specialties, profile_intro
+        FROM user_creator_profile
+        WHERE user_id = #{userId}
+        LIMIT 1
+    </select>
+
     <update id="updateNickName">
         UPDATE sys_user
         SET nick_name = #{nickName}, update_by = 'app-user-center', update_time = NOW()

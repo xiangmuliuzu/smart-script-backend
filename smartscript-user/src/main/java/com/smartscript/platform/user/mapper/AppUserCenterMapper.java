@@ -8,6 +8,7 @@ import com.smartscript.platform.user.domain.UserFeedback;
 import com.smartscript.platform.user.domain.UserMessage;
 import com.smartscript.platform.user.domain.UserNotificationPreference;
 import com.smartscript.platform.user.domain.UserPhoneChangeLog;
+import com.smartscript.platform.user.domain.UserCreatorProfile;
 import com.smartscript.platform.user.domain.UserRealNameAuth;
 
 /**
@@ -38,6 +39,12 @@ public interface AppUserCenterMapper
 
     /** 个人简介变更（空串表示清空）；返回影响行数。 */
     int updateBio(@Param("userId") Long userId, @Param("bio") String bio);
+
+    /**
+     * 创作者资料投影（A4 用户中心，user_creator_profile 按 user_id 一对一）。
+     * 无资料行返回 null；本次只读，不提供写入语句。
+     */
+    UserCreatorProfile selectCreatorProfile(@Param("userId") Long userId);
 
     /** 手机号占用判定（排除逻辑删除与指定的自身用户）。 */
     int countPhoneTaken(@Param("phone") String phone, @Param("excludeUserId") Long excludeUserId);

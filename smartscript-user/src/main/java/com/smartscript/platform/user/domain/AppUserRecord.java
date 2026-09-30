@@ -1,5 +1,7 @@
 package com.smartscript.platform.user.domain;
 
+import java.time.LocalDateTime;
+
 /**
  * Lean sys_user projection for App auth. Does not redefine RuoYi SysUser entity.
  */
@@ -17,6 +19,15 @@ public class AppUserRecord
 
     /** 个人简介（A5，2026-09-28 迁移新增列）。 */
     private String bio;
+
+    /**
+     * 注册时间（A4 用户中心，sys_user.create_time）。
+     *
+     * 用 LocalDateTime 承接数据库墙钟值，不做 JDBC 层时区换算；
+     * 时区归属由展示层按数据库会话时区（serverTimezone=GMT+8）标注。
+     * 历史数据可能为 NULL，返回 null 由前端显示「—」。
+     */
+    private LocalDateTime createTime;
 
     public Long getUserId()
     {
@@ -86,6 +97,16 @@ public class AppUserRecord
     public void setBio(String bio)
     {
         this.bio = bio;
+    }
+
+    public LocalDateTime getCreateTime()
+    {
+        return createTime;
+    }
+
+    public void setCreateTime(LocalDateTime createTime)
+    {
+        this.createTime = createTime;
     }
 
     public String getAvatar()

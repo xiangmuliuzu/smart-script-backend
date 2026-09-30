@@ -83,7 +83,9 @@ class AppUserProfileBioTest
     {
         AppUserMapper userMapper = Mockito.mock(AppUserMapper.class);
         AppUserCenterMapper centerMapper = Mockito.mock(AppUserCenterMapper.class);
-        AppUserProfileService service = new AppUserProfileService(userMapper, centerMapper);
+        com.smartscript.platform.user.mapper.AuthorCapabilityAdminMapper capabilityMapper =
+                Mockito.mock(com.smartscript.platform.user.mapper.AuthorCapabilityAdminMapper.class);
+        AppUserProfileService service = new AppUserProfileService(userMapper, centerMapper, capabilityMapper);
         when(userMapper.selectById(1001L)).thenReturn(appUser(1001L, null));
 
         UserProfileUpdateRequest request = new UserProfileUpdateRequest();
@@ -102,7 +104,9 @@ class AppUserProfileBioTest
     {
         AppUserMapper userMapper = Mockito.mock(AppUserMapper.class);
         AppUserCenterMapper centerMapper = Mockito.mock(AppUserCenterMapper.class);
-        AppUserProfileService service = new AppUserProfileService(userMapper, centerMapper);
+        com.smartscript.platform.user.mapper.AuthorCapabilityAdminMapper capabilityMapper =
+                Mockito.mock(com.smartscript.platform.user.mapper.AuthorCapabilityAdminMapper.class);
+        AppUserProfileService service = new AppUserProfileService(userMapper, centerMapper, capabilityMapper);
         when(userMapper.selectById(1002L)).thenReturn(appUser(1002L, "旧简介"));
 
         UserProfileUpdateRequest request = new UserProfileUpdateRequest();
@@ -118,7 +122,9 @@ class AppUserProfileBioTest
     {
         AppUserMapper userMapper = Mockito.mock(AppUserMapper.class);
         AppUserCenterMapper centerMapper = Mockito.mock(AppUserCenterMapper.class);
-        AppUserProfileService service = new AppUserProfileService(userMapper, centerMapper);
+        com.smartscript.platform.user.mapper.AuthorCapabilityAdminMapper capabilityMapper =
+                Mockito.mock(com.smartscript.platform.user.mapper.AuthorCapabilityAdminMapper.class);
+        AppUserProfileService service = new AppUserProfileService(userMapper, centerMapper, capabilityMapper);
 
         UserProfileUpdateRequest empty = new UserProfileUpdateRequest();
         AppAuthException e = assertThrows(AppAuthException.class,
@@ -132,7 +138,9 @@ class AppUserProfileBioTest
     {
         AppUserMapper userMapper = Mockito.mock(AppUserMapper.class);
         AppUserCenterMapper centerMapper = Mockito.mock(AppUserCenterMapper.class);
-        AppUserProfileService service = new AppUserProfileService(userMapper, centerMapper);
+        com.smartscript.platform.user.mapper.AuthorCapabilityAdminMapper capabilityMapper =
+                Mockito.mock(com.smartscript.platform.user.mapper.AuthorCapabilityAdminMapper.class);
+        AppUserProfileService service = new AppUserProfileService(userMapper, centerMapper, capabilityMapper);
         when(userMapper.selectById(1004L)).thenReturn(appUser(1004L, null));
 
         UserProfileUpdateRequest request = new UserProfileUpdateRequest();

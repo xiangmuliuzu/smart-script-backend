@@ -1,8 +1,14 @@
 package com.smartscript.platform.user.service;
 
+import java.awt.image.BufferedImage;
 import java.io.IOException;
+import java.io.InputStream;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import javax.imageio.ImageIO;
+import javax.imageio.ImageReader;
+import javax.imageio.stream.ImageInputStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -33,6 +39,8 @@ import com.smartscript.platform.user.exception.AppAuthException;
  * 强制边界：
  *   - 只允许图片扩展名（bmp/gif/jpg/jpeg/png）；
  *   - 先校验大小再落盘，超限返回 400 而不是依赖容器异常；
+ *   - 扩展名与 MIME 由客户端可控（校验标准 P09）：落盘前用实际字节验证
+ *     图片可解码，损坏或伪装内容在此拒绝，不落盘；
  *   - 不把底层异常文案与原始文件名写入日志。
  */
 @Service
@@ -42,6 +50,12 @@ public class AppFileUploadService
 
     /** 头像大小上限：小于容器 10MB 上限，避免走到容器层才被拒。 */
     public static final long MAX_AVATAR_BYTES = 5 * 1024 * 1024L;
+
+    /**
+     * 头像像素规模上限（长×宽）：防解压炸弹；头像场景 4096×4096 足够，
+     * 超过即拒绝，避免整体解码占用的内存失控。
+     */
+    static final long MAX_IMAGE_PIXELS = 4096L * 4096L;
 
     private final ServerConfig serverConfig;
 
@@ -70,6 +84,17 @@ public class AppFileUploadService
             throw new AppAuthException(AppUserErrorCodes.PAYLOAD_TOO_LARGE, 413,
                     AppUserErrorCodes.PAYLOAD_TOO_LARGE_TEXT);
         }
+        final byte[] content;
+        try
+        {
+            content = file.getBytes();
+        }
+        catch (IOException e)
+        {
+            log.warn("a5-avatar content read failed: {}", e.getClass().getSimpleName());
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "图片格式或大小不符合要求");
+        }
+        validateImageContent(content);
         final String storedPath;
         try
         {
@@ -95,5 +120,58 @@ public class AppFileUploadService
         result.put("url", url);
         result.put("path", storedPath);
         return result;
+    }
+
+    /**
+     * 图片内容校验（P09 / 缺陷 F01）：客户端可控的扩展名与 MIME 不作为依据。
+     * 先由 ImageReader 按实际字节识别格式并限制像素规模（防解压炸弹），
+     * 再整体解码一次验证内容完整可解码；伪装成图片的文本或损坏文件在此拒绝。
+     */
+    static void validateImageContent(byte[] content)
+    {
+        try (InputStream in = new java.io.ByteArrayInputStream(content);
+             ImageInputStream imageIn = ImageIO.createImageInputStream(in))
+        {
+            Iterator<ImageReader> readers = ImageIO.getImageReaders(imageIn);
+            if (!readers.hasNext())
+            {
+                throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "图片格式或大小不符合要求");
+            }
+            ImageReader reader = readers.next();
+            try
+            {
+                reader.setInput(imageIn);
+                int width = reader.getWidth(0);
+                int height = reader.getHeight(0);
+                if (width <= 0 || height <= 0 || (long) width * (long) height > MAX_IMAGE_PIXELS)
+                {
+                    throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "图片格式或大小不符合要求");
+                }
+            }
+            finally
+            {
+                reader.dispose();
+            }
+        }
+        catch (IOException e)
+        {
+            log.warn("a5-avatar content inspect failed: {}", e.getClass().getSimpleName());
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "图片格式或大小不符合要求");
+        }
+        // 头部合法但正文损坏的文件同样不能落盘：整体解码验证一次
+        BufferedImage decoded;
+        try
+        {
+            decoded = ImageIO.read(new java.io.ByteArrayInputStream(content));
+        }
+        catch (IOException e)
+        {
+            log.warn("a5-avatar decode failed: {}", e.getClass().getSimpleName());
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "图片格式或大小不符合要求");
+        }
+        if (decoded == null)
+        {
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "图片格式或大小不符合要求");
+        }
     }
 }
