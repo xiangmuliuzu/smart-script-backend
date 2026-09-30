@@ -63,7 +63,17 @@ public class AppAuthAuthenticationFilter extends OncePerRequestFilter
      */
     private static final String[] OPTIONAL_IDENTITY_PATHS = {
             // 业务模块（B/C/D/E）的公开接口
+            // B 模块书城浏览主链路（第一批）：Banner / 分类 / 标签 / 作品列表与详情 / 榜单。
+            // 均为只读公开接口，游客可读；已登录用户带 Token 时仍建立身份，便于后续按身份返回个性化字段。
+            "/content/banners",
+            "/content/categories",
+            "/content/tags",
             "/content/works",
+            "/content/rankings",
+            // B 模块试读链路（第二批）：章节目录落在 /content/works/** 内，
+            // 章节正文为独立路径 /content/chapters/{chapterId}，必须在此登记，
+            // 否则过滤器会先于授权规则按「需要身份」拒绝（401），permitAll 规则永远不生效。
+            "/content/chapters",
     };
 
     public AppAuthAuthenticationFilter(AppAccessTokenService accessTokenService)

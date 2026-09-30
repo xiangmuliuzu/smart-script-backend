@@ -72,8 +72,18 @@ public class AppAuthSecurityConfig
                         .requestMatchers(HttpMethod.POST,
                                 "/api/v1/auth/oauth/wechat/login",
                                 "/api/v1/auth/oauth/qq/login").permitAll()
-                        // A6 业务模块公开接口：游客可读（无需 App Token）
-                        .requestMatchers(HttpMethod.GET, "/api/v1/content/works").permitAll()
+                        // A6/B 业务模块公开接口：游客可读（无需 App Token）
+                        // B 模块书城浏览主链路（第一批）：Banner / 分类 / 标签 / 作品列表 / 作品详情 / 榜单
+                        // B 模块试读链路（第二批）：作品章节目录落在 /works/** 内，章节正文单列
+                        .requestMatchers(HttpMethod.GET,
+                                "/api/v1/content/banners",
+                                "/api/v1/content/categories",
+                                "/api/v1/content/tags",
+                                "/api/v1/content/works",
+                                "/api/v1/content/works/**",
+                                "/api/v1/content/chapters",
+                                "/api/v1/content/chapters/**",
+                                "/api/v1/content/rankings").permitAll()
                         // App 用户中心 / 消息 / 反馈 / 业务模块私有接口：全部要求 App Access Token
                         .requestMatchers("/api/v1/auth/**", "/api/v1/users/**",
                                 "/api/v1/messages/**", "/api/v1/feedback/**",
