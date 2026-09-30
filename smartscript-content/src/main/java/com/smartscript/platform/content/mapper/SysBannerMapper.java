@@ -21,6 +21,16 @@ public interface SysBannerMapper
     public List<SysBanner> selectBannerList(SysBanner query);
 
     /**
+     * App 首页 Banner 轮播列表（只读）
+     *
+     * 固定条件：status = 'on'，且在展示时间窗内（start_time 为空或已到，end_time 为空或未过）。
+     *
+     * @param query 查询条件（position 精确，可选）
+     * @return Banner集合（按 sort_order 升序）
+     */
+    public List<SysBanner> selectAppBannerList(SysBanner query);
+
+    /**
      * 通过BannerID查询详情
      *
      * @param bannerId BannerID

@@ -92,4 +92,20 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		</foreach>
 	</delete>
 
+	<!--
+	  App 侧标签列表（只读，书城筛选用）。
+	  固定条件：status = '0'（PC 端口径：'0'=正常 '1'=停用，见标签管理页）；
+	  按 use_count 降序（热度高的在前）。
+	-->
+	<select id="selectAppTagList" parameterType="SysTag" resultMap="SysTagResult">
+		<include refid="selectTagVo"/>
+		<where>
+			status = '0'
+			<if test="tagType != null and tagType != ''">
+				AND tag_type = #{tagType}
+			</if>
+		</where>
+		order by use_count desc, sort, tag_id
+	</select>
+
 </mapper>

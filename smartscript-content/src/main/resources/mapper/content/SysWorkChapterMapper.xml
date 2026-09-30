@@ -44,4 +44,15 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		order by chapter_no
 	</select>
 
+	<!--
+	  App 章节正文（只读，接口文档 2.7.8 免费试读）：含 content 全文。
+	  不带作品可见性条件，由服务层判定作品是否上架后决定 404 语义。
+	-->
+	<select id="selectChapterDetail" parameterType="Long" resultMap="SysWorkChapterResult">
+		select chapter_id, work_id, chapter_no, chapter_title, content, word_count, is_free, status,
+		       create_by, create_time, update_by, update_time, remark
+		from sys_work_chapter
+		where chapter_id = #{chapterId}
+	</select>
+
 </mapper>

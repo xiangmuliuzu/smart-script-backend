@@ -1,0 +1,17 @@
+# 测试数据插入步骤清单（不进 init-steps.txt，不参与平台初始化）
+#
+# 格式与 init-steps.txt 一致：<步骤ID>|<闸门>|仓库根相对路径>|<说明>
+#   summary : 要求退出码 0，且输出中出现 PASS	fail_cnt=0，不得出现 FAIL 行或 *_ABORTED
+#
+# 用途：为 B 模块书城「作品列表标签筛选」准备可验证的 sys_work_tag 关联数据。
+#       为 B 模块书城「免费试读」准备 sys_work_chapter / sys_work_file / 试读开关数据。
+#       为 B 模块书城「首页 Banner 轮播」准备 sys_banner 数据（含过滤边界样例）。
+# 幂等，可重复执行；只建关联，不建作品与标签。
+#
+# 执行：
+#   $env:DB_PASSWORD = '<口令>'
+#   .\scripts\db\init-database.ps1 -d script_platform_dev -u <账号> -h <主机> -Steps scripts\db\seed-steps.txt
+
+seed-content-tag-testdata|summary|sql/seed_content_tag_testdata.sql|B 模块标签筛选测试数据（sys_work_tag 关联）
+seed-content-chapter-testdata|summary|sql/seed_content_chapter_testdata.sql|B 模块免费试读测试数据（sys_work_chapter + 试读开关 + sys_work_file）
+seed-content-banner-testdata|summary|sql/seed_content_banner_testdata.sql|B 模块首页 Banner 测试数据（sys_banner，含时间窗/状态/位置过滤边界）

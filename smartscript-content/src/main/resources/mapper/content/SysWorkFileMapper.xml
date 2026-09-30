@@ -52,4 +52,11 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		where file_id = #{fileId}
 	</select>
 
+	<!-- App 免费试读附件（只读）：固定 is_preview=1，按 sort 升序 -->
+	<select id="selectPreviewFilesByWorkId" parameterType="Long" resultMap="SysWorkFileResult">
+		<include refid="selectFileVo"/>
+		where work_id = #{workId} and is_preview = 1
+		order by sort, file_id
+	</select>
+
 </mapper>

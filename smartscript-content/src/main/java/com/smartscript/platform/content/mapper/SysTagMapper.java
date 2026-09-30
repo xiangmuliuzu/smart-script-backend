@@ -21,6 +21,16 @@ public interface SysTagMapper
     public List<SysTag> selectTagList(SysTag query);
 
     /**
+     * App 侧标签列表（只读）
+     *
+     * 固定条件：status = '1'；按 use_count 降序（筛选用，热度高的在前）。
+     *
+     * @param query 查询条件（tagType 精确，可选）
+     * @return 标签集合
+     */
+    public List<SysTag> selectAppTagList(SysTag query);
+
+    /**
      * 通过标签ID查询标签
      *
      * @param tagId 标签ID

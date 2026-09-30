@@ -15,7 +15,8 @@ import com.smartscript.platform.identity.IdentityProvider;
  *
  * 本类是 B 模块接入统一身份的**参考实现**，演示了 §10 的三条使用规则：
  *   1. 用户 ID 只从 {@link IdentityProvider} 取得，不接受请求体传入（{@link #shelf()}）；
- *   2. 游客身份正常可读公开列表，其 userId 为 null，本模块不伪造用户 ID；
+ *   2. 游客身份正常可读公开列表，其 userId 为 null，本模块不伪造用户 ID
+ *      （公开列表已迁至 AppWorkController，改为查询真实库）；
  *   3. 角色/权限用于授权，实名状态用于业务准入，两者分别判断（{@link #shelf()} 中体现）。
  *
  * 边界：本模块不依赖 smartscript-user，也不读认证表、Token 表与实名材料表；
@@ -34,23 +35,6 @@ public class ContentWorkService
     {
         this.workRepository = workRepository;
         this.identityProvider = identityProvider;
-    }
-
-    /**
-     * 公开作品列表 + 当前身份摘要（游客可读）。
-     *
-     * 已登录时 `personalized=true`，由身份决定是否附带个性化标记；
-     * 公开接口只返回身份的**非敏感**摘要（不含手机号、昵称、Token）。
-     */
-    public Map<String, Object> listPublicWorks()
-    {
-        IdentityContext identity = identityProvider.currentIdentity();
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("identity", identitySummary(identity));
-        result.put("works", workRepository.listPublic());
-        result.put("total", workRepository.count());
-        result.put("personalized", identity.isAuthenticated());
-        return result;
     }
 
     /**

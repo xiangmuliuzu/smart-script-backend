@@ -40,10 +40,4 @@ public class SampleWorkRepository
         }
         return WORKS.stream().filter(w -> workId.equals(w.getWorkId())).findFirst();
     }
-
-    /** 示例数据总量，用于分页返回 total。 */
-    public int count()
-    {
-        return WORKS.size();
-    }
 }

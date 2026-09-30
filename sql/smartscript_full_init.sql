@@ -1656,6 +1656,173 @@ CREATE TABLE IF NOT EXISTS sys_demand_tag (
   UNIQUE KEY `uk_tag_name` (`tag_name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='需求标签';
 
+-- 作品标签关联表（依据 附件5.1 表3-13；云端 script_platform_dev 已存在该表，
+-- 此前漏在初始化脚本外，新环境装库会缺表导致 App 书城标签筛选报 SQL 错。
+-- 唯一键按索引名 uk_work_tag 补全为 (work_id, tag_id)：文档「表索引」只列了首列 work_id，
+-- 若真按单列建，一个作品将永远只能关联一个标签，与作品标签业务不符）
+CREATE TABLE IF NOT EXISTS sys_work_tag (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `work_id` bigint NOT NULL,
+  `tag_id` int NOT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `create_by` varchar(64) DEFAULT NULL,
+  `create_time` datetime DEFAULT NULL,
+  `update_by` varchar(64) DEFAULT NULL,
+  `update_time` datetime DEFAULT NULL,
+  `remark` varchar(500) DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_work_tag` (`work_id`,`tag_id`),
+  KEY `idx_tag_id` (`tag_id`) USING BTREE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='作品标签关联表';
+
+-- ---------------------------------------------------------------------
+-- B 模块（内容与作品）内容域建表
+--
+-- 依据：附件5.1 数据库设计文档 —— 表3-9 sys_category、表3-12 sys_tag、
+--       表3-37 sys_episode、表3-39 sys_play_history、表3-86 sys_ranking_snapshot、
+--       表3-88 sys_banner；另与仓库内按云端库实现的 domain/Mapper
+--       （SysCategory/SysTag/SysEpisode/SysPlayHistory/SysRankingSnapshot/SysBanner）
+--       逐列核对；并已直连云端 script_platform_dev，用 information_schema 复核列名、类型、
+--       可空性、默认值、EXTRA 与索引，逐项一致。
+-- 此前这批表漏在初始化脚本外，新环境装库会缺表，导致 App 书城与剧集相关接口启动即报错。
+--
+-- 索引说明：文档「表索引」的「对应字段」列对复合索引只填了首列（已解压原始 docx
+--   逐格核对，确系文档本身如此）。以下定义已与云端 script_platform_dev 实际结构比对一致：
+--     uk_work_episode_no     -> (work_id, episode_no)                              复合，云端一致
+--     uk_ranking_work_period -> (ranking_type, period_start, period_end, work_id)  复合，云端一致
+--     idx_ranking_period     -> (ranking_type)                                     单列，与文档一致
+-- ---------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS sys_category (
+  `category_id` int NOT NULL AUTO_INCREMENT,
+  `category_name` varchar(30) NOT NULL,
+  `category_type` varchar(20) NOT NULL,
+  `parent_id` int NOT NULL,
+  `sort` int NOT NULL,
+  `status` tinyint NOT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `create_by` varchar(64) DEFAULT NULL,
+  `create_time` datetime DEFAULT NULL,
+  `update_by` varchar(64) DEFAULT NULL,
+  `update_time` datetime DEFAULT NULL,
+  `remark` varchar(500) DEFAULT NULL,
+  PRIMARY KEY (`category_id`),
+  UNIQUE KEY `uk_category_name` (`category_name`) USING BTREE,
+  KEY `idx_category_type` (`category_type`) USING BTREE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='剧本分类表（APP 分类不包含外部视频）';
+
+CREATE TABLE IF NOT EXISTS sys_tag (
+  `tag_id` int NOT NULL AUTO_INCREMENT,
+  `tag_name` varchar(30) NOT NULL,
+  `tag_type` varchar(20) NOT NULL,
+  `use_count` int NOT NULL,
+  `sort` int NOT NULL,
+  `status` tinyint NOT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `create_by` varchar(64) DEFAULT NULL,
+  `create_time` datetime DEFAULT NULL,
+  `update_by` varchar(64) DEFAULT NULL,
+  `update_time` datetime DEFAULT NULL,
+  `remark` varchar(500) DEFAULT NULL,
+  PRIMARY KEY (`tag_id`),
+  UNIQUE KEY `uk_tag_name` (`tag_name`) USING BTREE,
+  KEY `idx_tag_type` (`tag_type`) USING BTREE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='标签表';
+
+CREATE TABLE IF NOT EXISTS sys_episode (
+  `episode_id` bigint NOT NULL AUTO_INCREMENT,
+  `work_id` bigint NOT NULL,
+  `episode_no` int NOT NULL,
+  `title` varchar(100) NOT NULL,
+  `video_url` varchar(500) NOT NULL,
+  `cover_url` varchar(255) NOT NULL,
+  `duration` int NOT NULL,
+  `is_free` tinyint NOT NULL,
+  `unlock_type` varchar(20) DEFAULT NULL,
+  `price` decimal(10,2) DEFAULT NULL,
+  `play_count` int NOT NULL,
+  `like_count` int NOT NULL,
+  `comment_count` int NOT NULL,
+  `completion_rate` decimal(5,2) DEFAULT NULL,
+  `status` tinyint NOT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `create_by` varchar(64) DEFAULT NULL,
+  `create_time` datetime DEFAULT NULL,
+  `update_by` varchar(64) DEFAULT NULL,
+  `update_time` datetime DEFAULT NULL,
+  `remark` varchar(500) DEFAULT NULL,
+  PRIMARY KEY (`episode_id`),
+  UNIQUE KEY `uk_work_episode_no` (`work_id`,`episode_no`) USING BTREE,
+  KEY `idx_work_id` (`work_id`) USING BTREE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='短剧剧集表（一个作品 work_id 下多集短剧）';
+
+CREATE TABLE IF NOT EXISTS sys_play_history (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `user_id` bigint NOT NULL,
+  `episode_id` bigint NOT NULL,
+  `work_id` bigint NOT NULL,
+  `play_time` datetime DEFAULT CURRENT_TIMESTAMP,
+  `create_by` varchar(64) DEFAULT NULL,
+  `create_time` datetime DEFAULT NULL,
+  `update_by` varchar(64) DEFAULT NULL,
+  `update_time` datetime DEFAULT NULL,
+  `remark` varchar(500) DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_user` (`user_id`) USING BTREE,
+  KEY `idx_work` (`work_id`) USING BTREE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='用户播放历史表（用户观看剧集的记录，用于运营统计）';
+
+CREATE TABLE IF NOT EXISTS sys_ranking_snapshot (
+  `ranking_id` bigint NOT NULL AUTO_INCREMENT,
+  `ranking_type` varchar(20) NOT NULL,
+  `period_start` date NOT NULL,
+  `period_end` date NOT NULL,
+  `work_id` bigint NOT NULL,
+  `rank_no` int NOT NULL,
+  `score` decimal(14,4) NOT NULL,
+  `view_count` bigint NOT NULL,
+  `bookshelf_count` bigint NOT NULL,
+  `growth_score` decimal(14,4) NOT NULL,
+  `snapshot_time` datetime NOT NULL,
+  `status` tinyint NOT NULL,
+  `create_by` varchar(64) DEFAULT NULL,
+  `create_time` datetime DEFAULT NULL,
+  `update_by` varchar(64) DEFAULT NULL,
+  `update_time` datetime DEFAULT NULL,
+  `remark` varchar(500) DEFAULT NULL,
+  PRIMARY KEY (`ranking_id`),
+  UNIQUE KEY `uk_ranking_work_period` (`ranking_type`,`period_start`,`period_end`,`work_id`) USING BTREE,
+  KEY `idx_ranking_period` (`ranking_type`) USING BTREE,
+  KEY `idx_work_id` (`work_id`) USING BTREE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+CREATE TABLE IF NOT EXISTS sys_banner (
+  `banner_id` bigint NOT NULL AUTO_INCREMENT,
+  `title` varchar(100) NOT NULL,
+  `image_url` varchar(500) NOT NULL,
+  `link_type` varchar(20) DEFAULT NULL,
+  `link_id` bigint DEFAULT NULL,
+  `link_url` varchar(500) DEFAULT NULL,
+  `position` varchar(30) DEFAULT NULL,
+  `sort_order` int DEFAULT NULL,
+  `status` varchar(20) DEFAULT NULL,
+  `start_time` datetime DEFAULT NULL,
+  `end_time` datetime DEFAULT NULL,
+  `created_at` datetime DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `create_by` varchar(64) DEFAULT NULL,
+  `create_time` datetime DEFAULT NULL,
+  `update_by` varchar(64) DEFAULT NULL,
+  `update_time` datetime DEFAULT NULL,
+  `remark` varchar(500) DEFAULT NULL,
+  PRIMARY KEY (`banner_id`),
+  KEY `idx_position` (`position`) USING BTREE,
+  KEY `idx_status` (`status`) USING BTREE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
 -- 6.1 存量库列补齐（若曾单独跑过旧 c 建表脚本）
 SET @col_exists := (SELECT COUNT(*) FROM information_schema.COLUMNS
   WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'sys_work' AND COLUMN_NAME = 'is_top');
@@ -1676,6 +1843,17 @@ SET @idx_exists := (SELECT COUNT(*) FROM information_schema.STATISTICS
 SET @ddl := IF(@idx_exists = 0,
   'ALTER TABLE sys_order ADD UNIQUE KEY uk_inquiry_id (inquiry_id) USING BTREE',
   'SELECT ''uk_inquiry_id ok'' AS note');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- sys_work_tag 唯一索引纠正（存量库）：旧含义为单列 (work_id)，一个作品只能挂一个标签。
+-- 仅当现存 uk_work_tag 存在且确实只有 work_id 一列时才重建，重复执行无副作用。
+SET @uk_exists := (SELECT COUNT(DISTINCT INDEX_NAME) FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'sys_work_tag' AND INDEX_NAME = 'uk_work_tag');
+SET @uk_second := (SELECT COUNT(*) FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'sys_work_tag' AND INDEX_NAME = 'uk_work_tag' AND SEQ_IN_INDEX = 2);
+SET @ddl := IF(@uk_exists = 1 AND @uk_second = 0,
+  'ALTER TABLE sys_work_tag DROP INDEX uk_work_tag, ADD UNIQUE KEY uk_work_tag (work_id, tag_id) USING BTREE',
+  'SELECT ''uk_work_tag ok'' AS note');
 PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- =====================================================================

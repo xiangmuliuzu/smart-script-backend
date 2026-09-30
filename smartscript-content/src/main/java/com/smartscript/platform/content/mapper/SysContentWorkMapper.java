@@ -1,7 +1,11 @@
 package com.smartscript.platform.content.mapper;
 
 import java.util.List;
+import org.apache.ibatis.annotations.Param;
 import com.smartscript.platform.content.domain.SysWork;
+import com.smartscript.platform.content.dto.AppRankingItem;
+import com.smartscript.platform.content.dto.AppWorkDto;
+import com.smartscript.platform.content.dto.AppWorkQuery;
 
 /**
  * 作品 数据层
@@ -72,4 +76,35 @@ public interface SysContentWorkMapper
      * @return 影响行数
      */
     public int updateWorkExtJson(SysWork work);
+
+    /**
+     * 书城作品列表（App 侧只读）
+     *
+     * 固定条件：is_deleted = 0 且 status = 'on_shelf'（书城只展示已上架作品）。
+     *
+     * @param query 查询条件（keyword 模糊、categoryId 精确、tagId 走 sys_work_tag EXISTS、sort 决定排序）
+     * @return 作品集合（AppWorkDto，分页由调用方 PageHelper 驱动）
+     */
+    public List<AppWorkDto> selectAppWorkList(AppWorkQuery query);
+
+    /**
+     * 书城作品详情（App 侧只读）
+     *
+     * 固定条件：is_deleted = 0 且 status = 'on_shelf'；额外下发 core_setting/character_setting。
+     *
+     * @param workId 作品ID
+     * @return 作品（AppWorkDto，未上架或已删除返回 null）
+     */
+    public AppWorkDto selectAppWorkById(Long workId);
+
+    /**
+     * 书城榜单（App 侧只读，接口文档 2.7.7「作品排行榜（4种排序）」）
+     *
+     * 固定条件：is_deleted = 0 且 status = 'on_shelf'。
+     *
+     * @param type  榜单类型：view（默认）/favorite/sale/rating
+     * @param limit 取前 N 条
+     * @return 榜单条目（rankNo 由服务层按顺序填充）
+     */
+    public List<AppRankingItem> selectAppRankingList(@Param("type") String type, @Param("limit") int limit);
 }

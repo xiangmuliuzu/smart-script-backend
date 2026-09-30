@@ -38,6 +38,9 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 			<if test="categoryType != null and categoryType != ''">
 				AND category_type = #{categoryType}
 			</if>
+			<if test="parentId != null">
+				AND parent_id = #{parentId}
+			</if>
 			<if test="status != null and status != ''">
 				AND status = #{status}
 			</if>

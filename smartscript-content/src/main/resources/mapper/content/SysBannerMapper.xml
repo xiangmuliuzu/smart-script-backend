@@ -113,4 +113,22 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		where banner_id = #{bannerId}
 	</update>
 
+	<!--
+	  App 首页 Banner 轮播（只读，接口文档 2.7.13 表 2-93）。
+	  固定条件：status = 'on' 且在展示时间窗内（start_time/end_time 为 NULL 视为不限制）；
+	  position 为可选筛选（PC 端示例值如 home_top）。
+	-->
+	<select id="selectAppBannerList" parameterType="SysBanner" resultMap="SysBannerResult">
+		<include refid="selectBannerVo"/>
+		<where>
+			status = 'on'
+			and (start_time is null or start_time &lt;= sysdate())
+			and (end_time is null or end_time &gt;= sysdate())
+			<if test="position != null and position != ''">
+				AND position = #{position}
+			</if>
+		</where>
+		order by sort_order, banner_id
+	</select>
+
 </mapper>

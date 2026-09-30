@@ -27,4 +27,14 @@ public interface SysWorkFileMapper
      * @return 作品文件对象
      */
     public SysWorkFile selectFileById(Long fileId);
+
+    /**
+     * 查询作品的可预览文件（is_preview=1，按 sort 升序）
+     *
+     * App 端免费试读附件用；只读。
+     *
+     * @param workId 作品ID
+     * @return 可预览文件集合
+     */
+    public List<SysWorkFile> selectPreviewFilesByWorkId(Long workId);
 }
