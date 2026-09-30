@@ -377,25 +377,45 @@ public class AppAuthenticationService
         return "01";
     }
 
+    /**
+     * BCrypt 输入上限：spring-security-crypto 7.x 对超过 72 字节的输入抛出
+     * IllegalArgumentException（此前版本为静默截断）。该限制纳入统一密码
+     * 策略，超限返回明确的参数错误，而不是在编码阶段变成 500（校验报告 F08）。
+     */
+    public static final int MAX_PASSWORD_BYTES = 72;
+
+    /**
+     * 密码策略：8–64 个字符（按 UTF-16 代码单元计，与前端 String.length 同口径）
+     * 且至少包含字母和数字；UTF-8 编码不超过 {@link #MAX_PASSWORD_BYTES} 字节。
+     *
+     * 字符分类按 Unicode 码点遍历（codePointAt + isLetter(int)/isDigit(int)）：
+     * 逐 char 遍历时补充平面字符（如 𠮷）的代理项不会被识别为字母/数字，
+     * 与前端 \p{L}/\p{Nd}（码点语义）不一致（校验报告 F07）。
+     */
     public static void validatePasswordPolicy(String password)
     {
         if (password == null || password.length() < 8 || password.length() > 64)
         {
             throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "password length must be 8-64");
         }
+        if (password.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > MAX_PASSWORD_BYTES)
+        {
+            throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "password must not exceed 72 UTF-8 bytes");
+        }
         boolean letter = false;
         boolean digit = false;
-        for (int i = 0; i < password.length(); i++)
+        for (int i = 0; i < password.length();)
         {
-            char c = password.charAt(i);
-            if (Character.isLetter(c))
+            int codePoint = password.codePointAt(i);
+            if (Character.isLetter(codePoint))
             {
                 letter = true;
             }
-            else if (Character.isDigit(c))
+            else if (Character.isDigit(codePoint))
             {
                 digit = true;
             }
+            i += Character.charCount(codePoint);
         }
         if (!letter || !digit)
         {

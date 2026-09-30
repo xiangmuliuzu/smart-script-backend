@@ -1,15 +1,26 @@
 package com.smartscript.platform.user.service;
 
+import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import com.smartscript.platform.user.constant.AppAuthErrorCodes;
 import com.smartscript.platform.user.constant.AppUserErrorCodes;
+import com.smartscript.platform.user.constant.CreatorSpecialtyDictionary;
 import com.smartscript.platform.user.domain.AppUserRecord;
+import com.smartscript.platform.user.domain.UserCreatorProfile;
+import com.smartscript.platform.user.dto.CreatorProfileDto;
 import com.smartscript.platform.user.dto.UserProfileDto;
 import com.smartscript.platform.user.dto.UserProfileUpdateRequest;
 import com.smartscript.platform.user.exception.AppAuthException;
 import com.smartscript.platform.user.mapper.AppUserCenterMapper;
 import com.smartscript.platform.user.mapper.AppUserMapper;
+import com.smartscript.platform.user.mapper.AuthorCapabilityAdminMapper;
 import com.smartscript.platform.user.util.AppHashes;
 
 /**
@@ -35,13 +46,24 @@ public class AppUserProfileService
     /** 个人简介长度上限，与 A5 迁移（sys_user.bio VARCHAR(200)）一致。 */
     public static final int BIO_MAX = 200;
 
+    /**
+     * 注册时间的时区归属：数据库连接 serverTimezone=GMT+8（application-druid.yml），
+     * sys_user.create_time 的墙钟值按 GMT+8 解释，输出 ISO 8601 带 +08:00 偏移。
+     */
+    private static final ZoneOffset DB_ZONE = ZoneOffset.of("+08:00");
+
+    private static final DateTimeFormatter REGISTERED_AT_FORMAT = DateTimeFormatter.ISO_OFFSET_DATE_TIME;
+
     private final AppUserMapper userMapper;
     private final AppUserCenterMapper centerMapper;
+    private final AuthorCapabilityAdminMapper capabilityMapper;
 
-    public AppUserProfileService(AppUserMapper userMapper, AppUserCenterMapper centerMapper)
+    public AppUserProfileService(AppUserMapper userMapper, AppUserCenterMapper centerMapper,
+            AuthorCapabilityAdminMapper capabilityMapper)
     {
         this.userMapper = userMapper;
         this.centerMapper = centerMapper;
+        this.capabilityMapper = capabilityMapper;
     }
 
     public UserProfileDto getProfile(Long userId)
@@ -155,7 +177,67 @@ public class AppUserProfileService
         dto.setPhoneMasked(AppHashes.maskPhone(user.getPhonenumber()));
         dto.setUserType(AppAuthenticationService.normalizeUserType(user.getUserType()));
         dto.setRealNameStatus(realNameStatus(user.getUserId()));
+        // A4 增量：注册时间、账号状态原始代码与创作者资料投影
+        dto.setRegisteredAt(formatRegisteredAt(user.getCreateTime()));
+        dto.setAccountStatus(user.getStatus());
+        dto.setCreatorProfile(creatorProfile(user.getUserId()));
         return dto;
+    }
+
+    /**
+     * 注册时间输出：数据库墙钟值按 GMT+8 标注为 ISO 8601；
+     * 历史缺失值返回 null（前端显示「—」），不拼接伪时区。
+     */
+    static String formatRegisteredAt(LocalDateTime createTime)
+    {
+        if (createTime == null)
+        {
+            return null;
+        }
+        return OffsetDateTime.of(createTime, DB_ZONE).format(REGISTERED_AT_FORMAT);
+    }
+
+    /**
+     * 创作者资料投影：无作者能力返回 null；有能力时读 user_creator_profile，
+     * 无资料行也返回对象本身（字段 null / 空列表，由前端显示「未填写」）。
+     */
+    private CreatorProfileDto creatorProfile(Long userId)
+    {
+        Boolean enabled = capabilityMapper.selectEnabledByUserId(userId);
+        if (enabled == null || !enabled)
+        {
+            return null;
+        }
+        CreatorProfileDto dto = new CreatorProfileDto();
+        UserCreatorProfile row = centerMapper.selectCreatorProfile(userId);
+        if (row == null)
+        {
+            dto.setSpecialties(new ArrayList<>());
+            return dto;
+        }
+        dto.setPenName(emptyToNull(row.getPenName()));
+        dto.setSpecialties(specialties(row.getSpecialties()));
+        dto.setIntroduction(emptyToNull(row.getProfileIntro()));
+        return dto;
+    }
+
+    /**
+     * 擅长类型代码解析为 {code, name}：代码按逗号/空白拆分、去空、去重；
+     * 类型字典来源待项目确认，未登记代码的 name 回退为代码本身。
+     */
+    static List<CreatorProfileDto.Specialty> specialties(String raw)
+    {
+        List<CreatorProfileDto.Specialty> result = new ArrayList<>();
+        if (raw == null || raw.isBlank())
+        {
+            return result;
+        }
+        Arrays.stream(raw.split("[,，\\s]+"))
+                .map(String::trim)
+                .filter(code -> !code.isEmpty())
+                .distinct()
+                .forEach(code -> result.add(new CreatorProfileDto.Specialty(code, CreatorSpecialtyDictionary.nameOf(code))));
+        return result;
     }
 
     private String realNameStatus(Long userId)
