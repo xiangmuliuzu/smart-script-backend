@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.content.mapper.SysCategoryMapper">
+
+	<!--
+	  依据：云端 script_platform_dev 库 sys_category 表（13 字段）。
+	  反推处理点：created_at/updated_at 不映射（DB 默认值维护）；
+	  status tinyint ↔ String；category_id int ↔ Long。
+	-->
+	<resultMap type="SysCategory" id="SysCategoryResult">
+		<id     property="categoryId"     column="category_id"     />
+		<result property="categoryName"   column="category_name"   />
+		<result property="categoryType"   column="category_type"   />
+		<result property="parentId"       column="parent_id"       />
+		<result property="sort"           column="sort"            />
+		<result property="status"         column="status"          />
+		<result property="createBy"       column="create_by"       />
+		<result property="createTime"     column="create_time"     />
+		<result property="updateBy"       column="update_by"       />
+		<result property="updateTime"     column="update_time"     />
+		<result property="remark"         column="remark"          />
+	</resultMap>
+
+	<sql id="selectCategoryVo">
+		select category_id, category_name, category_type, parent_id, sort, status,
+		       create_by, create_time, update_by, update_time, remark
+		from sys_category
+	</sql>
+
+	<select id="selectCategoryList" parameterType="SysCategory" resultMap="SysCategoryResult">
+		<include refid="selectCategoryVo"/>
+		<where>
+			<if test="categoryName != null and categoryName != ''">
+				AND category_name like concat('%', #{categoryName}, '%')
+			</if>
+			<if test="categoryType != null and categoryType != ''">
+				AND category_type = #{categoryType}
+			</if>
+			<if test="parentId != null">
+				AND parent_id = #{parentId}
+			</if>
+			<if test="status != null and status != ''">
+				AND status = #{status}
+			</if>
+		</where>
+		order by sort, category_id
+	</select>
+
+	<select id="selectCategoryById" parameterType="Long" resultMap="SysCategoryResult">
+		<include refid="selectCategoryVo"/>
+		where category_id = #{categoryId}
+	</select>
+
+	<select id="checkCategoryNameUnique" parameterType="String" resultMap="SysCategoryResult">
+		<include refid="selectCategoryVo"/>
+		where category_name = #{categoryName} limit 1
+	</select>
+
+	<!--
+	  新增：parent_id/sort/status 云端列 NOT NULL 无默认值（反推：由 Service 兜底默认 0/'0'），
+	  此处直接写入。created_at/updated_at 由 DB 默认值维护，不写。
+	-->
+	<insert id="insertCategory" parameterType="SysCategory" useGeneratedKeys="true" keyProperty="categoryId">
+		insert into sys_category(
+			category_name, category_type, parent_id, sort, status,
+			create_by, create_time, remark
+		) values (
+			#{categoryName}, #{categoryType}, #{parentId}, #{sort}, #{status},
+			#{createBy}, sysdate(), #{remark}
+		)
+	</insert>
+
+	<!-- 动态更新：仅更新非空字段；改状态/改排序复用本语句（单一职责在 Service 层拆分） -->
+	<update id="updateCategory" parameterType="SysCategory">
+		update sys_category
+		<set>
+			<if test="categoryName != null and categoryName != ''">category_name = #{categoryName},</if>
+			<if test="categoryType != null and categoryType != ''">category_type = #{categoryType},</if>
+			<if test="parentId != null">parent_id = #{parentId},</if>
+			<if test="sort != null">sort = #{sort},</if>
+			<if test="status != null and status != ''">status = #{status},</if>
+			<if test="updateBy != null and updateBy != ''">update_by = #{updateBy},</if>
+			<if test="remark != null">remark = #{remark},</if>
+			update_time = sysdate()
+		</set>
+		where category_id = #{categoryId}
+	</update>
+
+</mapper>

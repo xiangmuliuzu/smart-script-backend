@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.content.mapper.SysWorkVersionMapper">
+
+	<!--
+	  依据：云端 script_platform_dev 库 sys_work_version 表。
+	  反推处理点：
+	  1. created_at 不映射（DB 默认值维护）；
+	  2. is_current tinyint ↔ String；version_id int ↔ Long；status 已 varchar；
+	  3. creatorName 为 JOIN 扩展字段：left join sys_user u on u.user_id = v.creator_id，
+	     取 u.nickname as creator_name；
+	  4. 列表不返回 content 全文（longtext 过大），用 selectVersionListVo 不含 content；
+	     详情用 selectVersionDetailVo 含 content 与 file_url。
+	-->
+	<resultMap type="SysWorkVersion" id="SysWorkVersionResult">
+		<id     property="versionId"     column="version_id"     />
+		<result property="workId"        column="work_id"        />
+		<result property="versionNo"    column="version_no"     />
+		<result property="title"        column="title"          />
+		<result property="content"      column="content"        />
+		<result property="fileUrl"       column="file_url"       />
+		<result property="changeLog"     column="change_log"     />
+		<result property="creatorId"     column="creator_id"     />
+		<result property="status"        column="status"         />
+		<result property="isCurrent"     column="is_current"    />
+		<result property="creatorName"   column="creator_name"  />
+		<result property="createBy"      column="create_by"      />
+		<result property="createTime"    column="create_time"   />
+		<result property="updateBy"      column="update_by"      />
+		<result property="updateTime"    column="update_time"    />
+		<result property="remark"        column="remark"         />
+	</resultMap>
+
+	<!-- 列表 SQL 片段：不含 content（避免 longtext 拉全表回列表） -->
+	<sql id="selectVersionListVo">
+		select v.version_id, v.work_id, v.version_no, v.title, v.file_url,
+		       v.change_log, v.creator_id, v.status, v.is_current,
+		       v.create_by, v.create_time, v.update_by, v.update_time, v.remark,
+		       u.nickname as creator_name
+		from sys_work_version v
+		left join sys_user u on u.user_id = v.creator_id
+	</sql>
+
+	<!-- 详情 SQL 片段：含 content 与 file_url 全字段 -->
+	<sql id="selectVersionDetailVo">
+		select v.version_id, v.work_id, v.version_no, v.title, v.content, v.file_url,
+		       v.change_log, v.creator_id, v.status, v.is_current,
+		       v.create_by, v.create_time, v.update_by, v.update_time, v.remark,
+		       u.nickname as creator_name
+		from sys_work_version v
+		left join sys_user u on u.user_id = v.creator_id
+	</sql>
+
+	<select id="selectVersionList" parameterType="SysWorkVersion" resultMap="SysWorkVersionResult">
+		<include refid="selectVersionListVo"/>
+		<where>
+			<if test="workId != null">
+				AND v.work_id = #{workId}
+			</if>
+			<if test="versionNo != null and versionNo != ''">
+				AND v.version_no = #{versionNo}
+			</if>
+			<if test="status != null and status != ''">
+				AND v.status = #{status}
+			</if>
+			<if test="isCurrent != null and isCurrent != ''">
+				AND v.is_current = #{isCurrent}
+			</if>
+		</where>
+		order by v.version_id desc
+	</select>
+
+	<select id="selectVersionById" parameterType="Long" resultMap="SysWorkVersionResult">
+		<include refid="selectVersionDetailVo"/>
+		where v.version_id = #{versionId}
+	</select>
+
+</mapper>

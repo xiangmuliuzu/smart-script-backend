@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.trade.mapper.SysOfflineCooperationMapper">
+
+    <resultMap type="com.smartscript.platform.trade.domain.SysOfflineCooperation" id="SysOfflineCooperationResult">
+        <result property="cooperationId"   column="cooperation_id" />
+        <result property="cooperationNo"   column="cooperation_no" />
+        <result property="workId"          column="work_id" />
+        <result property="creatorId"       column="creator_id" />
+        <result property="partnerId"       column="partner_id" />
+        <result property="contactId"       column="contact_id" />
+        <result property="source"          column="source" />
+        <result property="status"          column="status" />
+        <result property="expectedAmount"  column="expected_amount" />
+        <result property="nextFollowAt"    column="next_follow_at" />
+        <result property="lastFollowAt"    column="last_follow_at" />
+        <result property="negotiationPlace" column="negotiation_place" />
+        <result property="contactPerson"   column="contact_person" />
+        <result property="contactValue"    column="contact_value" />
+        <result property="operatorId"      column="operator_id" />
+        <result property="remark"          column="remark" />
+        <result property="createdAt"       column="created_at" />
+        <result property="updatedAt"       column="updated_at" />
+        <result property="createBy"        column="create_by" />
+        <result property="createTime"      column="create_time" />
+        <result property="updateBy"        column="update_by" />
+        <result property="updateTime"      column="update_time" />
+        <result property="workTitle"       column="work_title" />
+        <result property="partnerName"     column="partner_name" />
+        <result property="creatorName"     column="creator_name" />
+    </resultMap>
+
+    <sql id="selectCooperationVo">
+        select c.cooperation_id, c.cooperation_no, c.work_id, c.creator_id, c.partner_id, c.contact_id,
+               c.source, c.status, c.expected_amount, c.next_follow_at, c.last_follow_at,
+               c.negotiation_place, c.contact_person, c.contact_value, c.operator_id, c.remark,
+               c.created_at, c.updated_at, c.create_by, c.create_time, c.update_by, c.update_time,
+               w.title as work_title, p.partner_name as partner_name, u.nick_name as creator_name
+        from sys_offline_cooperation c
+        left join sys_work w on c.work_id = w.work_id
+        left join sys_partner p on c.partner_id = p.partner_id
+        left join sys_user u on c.creator_id = u.user_id
+    </sql>
+
+    <select id="selectCooperationList" parameterType="com.smartscript.platform.trade.domain.SysOfflineCooperation" resultMap="SysOfflineCooperationResult">
+        <include refid="selectCooperationVo"/>
+        <where>
+            <if test="source != null and source != ''">AND c.source = #{source}</if>
+            <if test="status != null and status != ''">AND c.status = #{status}</if>
+            <if test="workId != null">AND c.work_id = #{workId}</if>
+            <if test="partnerId != null">AND c.partner_id = #{partnerId}</if>
+            <if test="creatorId != null">AND c.creator_id = #{creatorId}</if>
+            <if test="keyword != null and keyword != ''">
+                AND (c.cooperation_no like concat('%', #{keyword}, '%')
+                     or c.contact_person like concat('%', #{keyword}, '%')
+                     or c.negotiation_place like concat('%', #{keyword}, '%')
+                     or w.title like concat('%', #{keyword}, '%'))
+            </if>
+        </where>
+        order by c.created_at desc
+    </select>
+
+    <select id="selectCooperationById" parameterType="Long" resultMap="SysOfflineCooperationResult">
+        <include refid="selectCooperationVo"/>
+        where c.cooperation_id = #{cooperationId}
+    </select>
+
+    <insert id="insertCooperation" parameterType="com.smartscript.platform.trade.domain.SysOfflineCooperation" useGeneratedKeys="true" keyProperty="cooperationId">
+        insert into sys_offline_cooperation (
+            cooperation_no, work_id, creator_id, partner_id, contact_id, source, status,
+            expected_amount, next_follow_at, last_follow_at, negotiation_place, contact_person,
+            contact_value, operator_id, remark, created_at, updated_at, create_by, create_time
+        ) values (
+            #{cooperationNo}, #{workId}, #{creatorId}, #{partnerId}, #{contactId}, #{source}, #{status},
+            #{expectedAmount}, #{nextFollowAt}, #{lastFollowAt}, #{negotiationPlace}, #{contactPerson},
+            #{contactValue}, #{operatorId}, #{remark}, #{createdAt}, #{updatedAt}, #{createBy}, #{createTime}
+        )
+    </insert>
+
+    <update id="updateCooperation" parameterType="com.smartscript.platform.trade.domain.SysOfflineCooperation">
+        update sys_offline_cooperation
+        <set>
+            <if test="partnerId != null">partner_id = #{partnerId},</if>
+            <if test="contactId != null">contact_id = #{contactId},</if>
+            <if test="source != null">source = #{source},</if>
+            <if test="status != null">status = #{status},</if>
+            <if test="expectedAmount != null">expected_amount = #{expectedAmount},</if>
+            <if test="nextFollowAt != null">next_follow_at = #{nextFollowAt},</if>
+            <if test="lastFollowAt != null">last_follow_at = #{lastFollowAt},</if>
+            <if test="negotiationPlace != null">negotiation_place = #{negotiationPlace},</if>
+            <if test="contactPerson != null">contact_person = #{contactPerson},</if>
+            <if test="contactValue != null">contact_value = #{contactValue},</if>
+            <if test="operatorId != null">operator_id = #{operatorId},</if>
+            <if test="remark != null">remark = #{remark},</if>
+            <if test="updateBy != null">update_by = #{updateBy},</if>
+            <if test="updateTime != null">update_time = #{updateTime},</if>
+            updated_at = #{updatedAt}
+        </set>
+        where cooperation_id = #{cooperationId}
+    </update>
+
+</mapper>

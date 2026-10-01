@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.user.mapper.AppRefreshSessionMapper">
+
+    <resultMap id="AppRefreshSessionResult" type="com.smartscript.platform.user.domain.AppRefreshSession">
+        <id property="id" column="id"/>
+        <result property="userId" column="user_id"/>
+        <result property="tokenHash" column="token_hash"/>
+        <result property="familyId" column="family_id"/>
+        <result property="deviceId" column="device_id"/>
+        <result property="deviceName" column="device_name"/>
+        <result property="expiresAt" column="expires_at"/>
+        <result property="revokedAt" column="revoked_at"/>
+        <result property="revokedReason" column="revoked_reason"/>
+        <result property="replacedById" column="replaced_by_id"/>
+        <result property="createTime" column="create_time"/>
+    </resultMap>
+
+    <insert id="insertSession" parameterType="com.smartscript.platform.user.domain.AppRefreshSession"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_refresh_session
+        (user_id, token_hash, family_id, device_id, device_name, expires_at, revoked_at, revoked_reason, replaced_by_id, create_by)
+        VALUES
+        (#{userId}, #{tokenHash}, #{familyId}, #{deviceId}, #{deviceName}, #{expiresAt}, #{revokedAt}, #{revokedReason}, #{replacedById}, 'system')
+    </insert>
+
+    <select id="selectByTokenHash" resultMap="AppRefreshSessionResult">
+        SELECT id, user_id, token_hash, family_id, device_id, device_name, expires_at,
+               revoked_at, revoked_reason, replaced_by_id, create_time
+        FROM app_refresh_session WHERE token_hash = #{tokenHash}
+    </select>
+
+    <select id="selectByTokenHashForUpdate" resultMap="AppRefreshSessionResult">
+        SELECT id, user_id, token_hash, family_id, device_id, device_name, expires_at,
+               revoked_at, revoked_reason, replaced_by_id, create_time
+        FROM app_refresh_session WHERE token_hash = #{tokenHash} FOR UPDATE
+    </select>
+
+    <select id="selectById" resultMap="AppRefreshSessionResult">
+        SELECT id, user_id, token_hash, family_id, device_id, device_name, expires_at,
+               revoked_at, revoked_reason, replaced_by_id, create_time
+        FROM app_refresh_session WHERE id = #{id}
+    </select>
+
+    <update id="revokeById">
+        UPDATE app_refresh_session
+        SET revoked_at = #{now}, revoked_reason = #{reason}, update_time = #{now}
+        WHERE id = #{id} AND revoked_at IS NULL
+    </update>
+
+    <update id="markReplaced">
+        UPDATE app_refresh_session
+        SET replaced_by_id = #{replacedById}, update_time = NOW()
+        WHERE id = #{id}
+    </update>
+
+    <update id="revokeFamily">
+        UPDATE app_refresh_session
+        SET revoked_at = #{now}, revoked_reason = #{reason}, update_time = #{now}
+        WHERE family_id = #{familyId} AND revoked_at IS NULL
+    </update>
+
+    <update id="revokeByUserId">
+        UPDATE app_refresh_session
+        SET revoked_at = #{now}, revoked_reason = #{reason}, update_time = #{now}
+        WHERE user_id = #{userId} AND revoked_at IS NULL
+    </update>
+
+    <update id="revokeOtherSessions">
+        UPDATE app_refresh_session
+        SET revoked_at = #{now}, revoked_reason = #{reason}, update_time = #{now}
+        WHERE user_id = #{userId} AND revoked_at IS NULL
+        <if test="keepId != null">
+            AND id != #{keepId}
+        </if>
+    </update>
+
+    <select id="selectActiveByUserId" resultMap="AppRefreshSessionResult">
+        SELECT id, user_id, token_hash, family_id, device_id, device_name, expires_at,
+               revoked_at, revoked_reason, replaced_by_id, create_time
+        FROM app_refresh_session
+        WHERE user_id = #{userId} AND revoked_at IS NULL AND expires_at &gt; #{now}
+    </select>
+</mapper>

@@ -1,0 +1,146 @@
+package com.smartscript.platform.user.domain;
+
+import java.time.LocalDateTime;
+
+/**
+ * Lean sys_user projection for App auth. Does not redefine RuoYi SysUser entity.
+ */
+public class AppUserRecord
+{
+    private Long userId;
+    private String userName;
+    private String nickName;
+    private String phonenumber;
+    private String password;
+    private String userType;
+    private String avatar;
+    private String status;
+    private String delFlag;
+
+    /** 个人简介（A5，2026-09-28 迁移新增列）。 */
+    private String bio;
+
+    /**
+     * 注册时间（A4 用户中心，sys_user.create_time）。
+     *
+     * 用 LocalDateTime 承接数据库墙钟值，不做 JDBC 层时区换算；
+     * 时区归属由展示层按数据库会话时区（serverTimezone=GMT+8）标注。
+     * 历史数据可能为 NULL，返回 null 由前端显示「—」。
+     */
+    private LocalDateTime createTime;
+
+    public Long getUserId()
+    {
+        return userId;
+    }
+
+    public void setUserId(Long userId)
+    {
+        this.userId = userId;
+    }
+
+    public String getUserName()
+    {
+        return userName;
+    }
+
+    public void setUserName(String userName)
+    {
+        this.userName = userName;
+    }
+
+    public String getNickName()
+    {
+        return nickName;
+    }
+
+    public void setNickName(String nickName)
+    {
+        this.nickName = nickName;
+    }
+
+    public String getPhonenumber()
+    {
+        return phonenumber;
+    }
+
+    public void setPhonenumber(String phonenumber)
+    {
+        this.phonenumber = phonenumber;
+    }
+
+    public String getPassword()
+    {
+        return password;
+    }
+
+    public void setPassword(String password)
+    {
+        this.password = password;
+    }
+
+    public String getUserType()
+    {
+        return userType;
+    }
+
+    public void setUserType(String userType)
+    {
+        this.userType = userType;
+    }
+
+    public String getBio()
+    {
+        return bio;
+    }
+
+    public void setBio(String bio)
+    {
+        this.bio = bio;
+    }
+
+    public LocalDateTime getCreateTime()
+    {
+        return createTime;
+    }
+
+    public void setCreateTime(LocalDateTime createTime)
+    {
+        this.createTime = createTime;
+    }
+
+    public String getAvatar()
+    {
+        return avatar;
+    }
+
+    public void setAvatar(String avatar)
+    {
+        this.avatar = avatar;
+    }
+
+    public String getStatus()
+    {
+        return status;
+    }
+
+    public void setStatus(String status)
+    {
+        this.status = status;
+    }
+
+    public String getDelFlag()
+    {
+        return delFlag;
+    }
+
+    public void setDelFlag(String delFlag)
+    {
+        this.delFlag = delFlag;
+    }
+
+    public boolean isUsable()
+    {
+        return "0".equals(status) && (delFlag == null || "0".equals(delFlag));
+    }
+}

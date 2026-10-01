@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.user.mapper.AuthorCapabilityAdminMapper">
+
+    <!--
+      A4 作者能力（契约 §3.3 / §5.3）。
+
+      安全约束：
+        1. 本文件不含任何 sys_user / user_type 写操作。作者能力与账号类型
+           是两个独立维度，CREATOR-04 直接校验这一点。
+        2. 按 user_id 唯一键 upsert，重复设置同一状态幂等（CREATOR-03）。
+        3. 操作人 operator_id 由服务层从 PC 安全上下文取得，不接受请求体指定。
+        4. 手机号只以掩码形式出库。
+    -->
+
+    <sql id="phoneMaskExpr">
+        CASE
+          WHEN u.phonenumber IS NULL OR TRIM(u.phonenumber) = '' THEN NULL
+          WHEN CHAR_LENGTH(u.phonenumber) &gt;= 7
+            THEN CONCAT(LEFT(u.phonenumber, 3), '****', RIGHT(u.phonenumber, 4))
+          ELSE '***'
+        END
+    </sql>
+
+    <resultMap id="AuthorCapabilityMap" type="com.smartscript.platform.user.domain.admin.AuthorCapability">
+        <id property="userId" column="user_id"/>
+        <result property="nickname" column="nickname"/>
+        <result property="phoneMasked" column="phone_masked"/>
+        <result property="enabled" column="enabled"/>
+        <result property="reason" column="reason"/>
+        <result property="operatorName" column="operator_name"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <!--
+      列表：以 App 账号域用户为主，左连接能力表。
+      这样从未设置过能力的用户也能被列出并按 enabled=0 处理，
+      同时保证不会列出 PC 管理员。
+    -->
+    <select id="selectCapabilityPage" parameterType="map" resultMap="AuthorCapabilityMap">
+        SELECT
+            u.user_id,
+            u.nick_name AS nickname,
+            <include refid="phoneMaskExpr"/> AS phone_masked,
+            COALESCE(uac.enabled, 0) AS enabled,
+            uac.reason,
+            op.nick_name AS operator_name,
+            uac.operated_at AS updated_at
+        FROM sys_user u
+        LEFT JOIN user_author_capability uac ON uac.user_id = u.user_id
+        LEFT JOIN sys_user op ON op.user_id = uac.operator_id
+        WHERE u.user_type IN ('01', '02', '03')
+          AND u.del_flag = '0'
+        <if test="keyword != null and keyword != ''">
+            AND (
+                 u.nick_name LIKE CONCAT('%', #{keyword}, '%')
+              OR u.user_name LIKE CONCAT('%', #{keyword}, '%')
+              OR u.phonenumber LIKE CONCAT('%', #{keyword}, '%')
+            )
+        </if>
+        <if test="enabled != null">
+            AND COALESCE(uac.enabled, 0) = #{enabled}
+        </if>
+        <if test="orderByColumn != null and orderByColumn != ''">
+            ORDER BY ${orderByColumn} ${isAsc}
+        </if>
+    </select>
+
+    <select id="selectCapabilityByUserId" resultMap="AuthorCapabilityMap">
+        SELECT
+            u.user_id,
+            u.nick_name AS nickname,
+            <include refid="phoneMaskExpr"/> AS phone_masked,
+            COALESCE(uac.enabled, 0) AS enabled,
+            uac.reason,
+            op.nick_name AS operator_name,
+            uac.operated_at AS updated_at
+        FROM sys_user u
+        LEFT JOIN user_author_capability uac ON uac.user_id = u.user_id
+        LEFT JOIN sys_user op ON op.user_id = uac.operator_id
+        WHERE u.user_id = #{userId}
+          AND u.user_type IN ('01', '02', '03')
+          AND u.del_flag = '0'
+        LIMIT 1
+    </select>
+
+    <select id="selectEnabledByUserId" resultType="java.lang.Boolean">
+        SELECT uac.enabled
+        FROM user_author_capability uac
+        WHERE uac.user_id = #{userId}
+        LIMIT 1
+    </select>
+
+    <!--
+      幂等 upsert：唯一键 uk_user_author_capability_user(user_id)。
+      重复设置同一状态时仅刷新原因/操作人/时间，不产生第二条记录。
+    -->
+    <insert id="upsertCapability">
+        INSERT INTO user_author_capability
+            (user_id, enabled, reason, operator_id, operated_at, create_by, create_time, update_by)
+        VALUES
+            (#{userId}, #{enabled}, #{reason}, #{operatorId}, NOW(), #{updateBy}, NOW(), #{updateBy})
+        ON DUPLICATE KEY UPDATE
+            enabled = VALUES(enabled),
+            reason = VALUES(reason),
+            operator_id = VALUES(operator_id),
+            operated_at = VALUES(operated_at),
+            update_by = VALUES(update_by),
+            update_time = NOW()
+    </insert>
+
+</mapper>

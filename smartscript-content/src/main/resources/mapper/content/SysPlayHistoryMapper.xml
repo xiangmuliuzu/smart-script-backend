@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.content.mapper.SysPlayHistoryMapper">
+
+	<!--
+	  依据：云端 script_platform_dev 库 sys_play_history 表。
+	  反推处理点：created_at/updated_at 不映射；play_time datetime ↔ Date；
+	  episodeTitle 为 JOIN 扩展字段（sys_episode.title ON episode_id）。
+	-->
+	<resultMap type="SysPlayHistory" id="SysPlayHistoryResult">
+		<id     property="id"           column="id"            />
+		<result property="userId"       column="user_id"       />
+		<result property="episodeId"    column="episode_id"    />
+		<result property="workId"       column="work_id"       />
+		<result property="playTime"     column="play_time"     />
+		<result property="createBy"     column="create_by"     />
+		<result property="createTime"   column="create_time"   />
+		<result property="updateBy"     column="update_by"     />
+		<result property="updateTime"   column="update_time"   />
+		<result property="remark"       column="remark"        />
+		<result property="episodeTitle" column="episode_title" />
+	</resultMap>
+
+	<!-- 列表：含 episodeTitle，LEFT JOIN sys_episode -->
+	<sql id="selectPlayHistoryVo">
+		select h.id, h.user_id, h.episode_id, h.work_id, h.play_time,
+		       h.create_by, h.create_time, h.update_by, h.update_time, h.remark,
+		       e.title as episode_title
+		from sys_play_history h
+		left join sys_episode e on e.episode_id = h.episode_id
+	</sql>
+
+	<select id="selectPlayHistoryList" parameterType="SysPlayHistory" resultMap="SysPlayHistoryResult">
+		<include refid="selectPlayHistoryVo"/>
+		<where>
+			<if test="workId != null">
+				AND h.work_id = #{workId}
+			</if>
+			<if test="userId != null">
+				AND h.user_id = #{userId}
+			</if>
+		</where>
+		order by h.play_time desc
+	</select>
+
+</mapper>

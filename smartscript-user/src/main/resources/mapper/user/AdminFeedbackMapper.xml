@@ -1,0 +1,176 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.user.mapper.AdminFeedbackMapper">
+
+    <!--
+      A4 用户反馈（契约 §3.5 / §5.5）。
+
+      安全约束：
+        1. 列表不选择 attachment_ref；附件只在详情按详情权限返回（FB-01）。
+        2. 状态机由 allowedFrom + expectedStatus 双重约束在 SQL 层强制：
+             SUBMITTED -> PROCESSING           (accept)
+             SUBMITTED/PROCESSING -> REPLIED   (reply, reply 必填)
+             SUBMITTED/PROCESSING/REPLIED -> CLOSED (close)
+           CLOSED 不在任何 allowedFrom 中，因此不可回退（FB-04）。
+        3. 并发下条件更新只有一个成功，冲突由服务层转 409（FB-05）。
+        4. 处理人 handler_id 由服务层从 PC 安全上下文取得。
+        5. A4 迁移已把存量 OPEN 归一为 SUBMITTED，DB CHECK 约束兜底状态集合。
+    -->
+
+    <sql id="phoneMaskExpr">
+        CASE
+          WHEN u.phonenumber IS NULL OR TRIM(u.phonenumber) = '' THEN NULL
+          WHEN CHAR_LENGTH(u.phonenumber) &gt;= 7
+            THEN CONCAT(LEFT(u.phonenumber, 3), '****', RIGHT(u.phonenumber, 4))
+          ELSE '***'
+        END
+    </sql>
+
+    <resultMap id="AdminFeedbackMap" type="com.smartscript.platform.user.domain.admin.AdminFeedback">
+        <id property="feedbackId" column="feedback_id"/>
+        <result property="userId" column="user_id"/>
+        <result property="nickname" column="nickname"/>
+        <result property="phoneMasked" column="phone_masked"/>
+        <result property="category" column="category"/>
+        <result property="content" column="content"/>
+        <result property="status" column="status"/>
+        <result property="reply" column="reply"/>
+        <result property="handlerName" column="handler_name"/>
+        <result property="submittedAt" column="submitted_at"/>
+        <result property="handledAt" column="handled_at"/>
+        <!--
+          裁决 GAP-5：单值 attachment_ref 映射为零或单元素数组，禁止解析分隔符。
+          这里映射为标量，由服务层封装成数组；列表查询不选择该列，故其值为 null。
+        -->
+        <result property="attachmentRef" column="attachment_ref"/>
+    </resultMap>
+
+    <!--
+      列表：只返回正文与处理信息，不含 attachment_ref。
+      status 的取值集合由契约状态机定义，DB CHECK 约束已同集合。
+    -->
+    <select id="selectFeedbackPage" parameterType="map" resultMap="AdminFeedbackMap">
+        SELECT
+            f.id AS feedback_id,
+            f.user_id,
+            u.nick_name AS nickname,
+            <include refid="phoneMaskExpr"/> AS phone_masked,
+            f.category,
+            f.content,
+            f.status,
+            f.reply,
+            h.nick_name AS handler_name,
+            f.create_time AS submitted_at,
+            f.handled_at
+        FROM user_feedback f
+        JOIN sys_user u ON u.user_id = f.user_id
+        LEFT JOIN sys_user h ON h.user_id = f.handler_id
+        WHERE 1 = 1
+        <if test="status != null and status != ''">
+            AND f.status = #{status}
+        </if>
+        <if test="category != null and category != ''">
+            AND f.category = #{category}
+        </if>
+        <if test="keyword != null and keyword != ''">
+            AND (
+                 f.content LIKE CONCAT('%', #{keyword}, '%')
+              OR u.nick_name LIKE CONCAT('%', #{keyword}, '%')
+              OR u.user_name LIKE CONCAT('%', #{keyword}, '%')
+            )
+        </if>
+        <if test="beginTime != null and beginTime != ''">
+            AND f.create_time &gt;= #{beginTime}
+        </if>
+        <if test="endTime != null and endTime != ''">
+            AND f.create_time &lt;= #{endTime}
+        </if>
+        <if test="orderByColumn != null and orderByColumn != ''">
+            ORDER BY ${orderByColumn} ${isAsc}
+        </if>
+    </select>
+
+    <!-- 详情：唯一允许返回 attachment_ref 的位置，由服务层按权限转短时引用 -->
+    <select id="selectFeedbackDetail" resultMap="AdminFeedbackMap">
+        SELECT
+            f.id AS feedback_id,
+            f.user_id,
+            u.nick_name AS nickname,
+            <include refid="phoneMaskExpr"/> AS phone_masked,
+            f.category,
+            f.content,
+            f.status,
+            f.reply,
+            f.attachment_ref AS attachment_ref,
+            h.nick_name AS handler_name,
+            f.create_time AS submitted_at,
+            f.handled_at
+        FROM user_feedback f
+        JOIN sys_user u ON u.user_id = f.user_id
+        LEFT JOIN sys_user h ON h.user_id = f.handler_id
+        WHERE f.id = #{feedbackId}
+        LIMIT 1
+    </select>
+
+    <select id="selectFeedbackStatus" resultType="java.lang.String">
+        SELECT f.status
+        FROM user_feedback f
+        WHERE f.id = #{feedbackId}
+        LIMIT 1
+    </select>
+
+    <select id="selectFeedbackReply" resultType="java.lang.String">
+        SELECT f.reply
+        FROM user_feedback f
+        WHERE f.id = #{feedbackId}
+        LIMIT 1
+    </select>
+
+    <!-- 受理：SUBMITTED -> PROCESSING；allowedFrom 把非法来源挡在 WHERE 外 -->
+    <update id="acceptIfAllowed">
+        UPDATE user_feedback f
+        SET f.status = 'PROCESSING',
+            f.handler_id = #{handlerId},
+            f.handled_at = NOW(),
+            f.update_time = NOW()
+        WHERE f.id = #{feedbackId}
+          AND f.status = #{expectedStatus}
+          AND f.status IN
+        <foreach collection="allowedFrom" item="s" open="(" separator="," close=")">
+            #{s}
+        </foreach>
+    </update>
+
+    <!-- 回复：SUBMITTED/PROCESSING -> REPLIED；reply 由服务层校验非空与长度 -->
+    <update id="replyIfAllowed">
+        UPDATE user_feedback f
+        SET f.status = 'REPLIED',
+            f.reply = #{reply},
+            f.handler_id = #{handlerId},
+            f.handled_at = NOW(),
+            f.update_time = NOW()
+        WHERE f.id = #{feedbackId}
+          AND f.status = #{expectedStatus}
+          AND f.status IN
+        <foreach collection="allowedFrom" item="s" open="(" separator="," close=")">
+            #{s}
+        </foreach>
+    </update>
+
+    <!-- 关闭：SUBMITTED/PROCESSING/REPLIED -> CLOSED；CLOSED 不在 allowedFrom 中，故不可回退 -->
+    <update id="closeIfAllowed">
+        UPDATE user_feedback f
+        SET f.status = 'CLOSED',
+            f.handler_id = #{handlerId},
+            f.handled_at = NOW(),
+            f.update_time = NOW()
+        WHERE f.id = #{feedbackId}
+          AND f.status = #{expectedStatus}
+          AND f.status IN
+        <foreach collection="allowedFrom" item="s" open="(" separator="," close=")">
+            #{s}
+        </foreach>
+    </update>
+
+</mapper>
