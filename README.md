@@ -1,17 +1,6 @@
 # smart-script-backend（整体后端）
 
-智能剧本创作平台 **整体后端** 仓库。权威开发规格与评审标准位于共享区，本 README 只链接，不复制语义不同的版本。
-
-## 权威文档
-
-| 文档 | 路径 | 版本/状态 |
-| --- | --- | --- |
-| A 用户与认证开发规格 | [`../shared/A用户与认证开发规格.md`](../shared/A用户与认证开发规格.md) | v1.7 |
-| A 用户与认证评审验收标准 | [`../shared/A用户与认证评审验收标准.md`](../shared/A用户与认证评审验收标准.md) | v1.6 |
-| A3 认证接口契约 | [`../shared/A3-认证接口契约.md`](../shared/A3-认证接口契约.md) | `A3-AUTH-CONTRACT-v1`；G3 已关闭 |
-| A4 管理接口契约 | [`../shared/A4-管理接口契约.md`](../shared/A4-管理接口契约.md) | G4 已关闭 |
-| A5 / A6 交付记录 | [`../shared/A5-G5-快速阶段交付与冒烟记录.md`](../shared/A5-G5-快速阶段交付与冒烟记录.md)、[`../shared/A6-G6G7-交付与校验记录.md`](../shared/A6-G6G7-交付与校验记录.md) | 快速阶段通过；后续加固见 [`../shared/A5-A7-后续加固清单.md`](../shared/A5-A7-后续加固清单.md) |
-| A7 发布准备 | [`../shared/A7-安全回归与发布准备实施方案.md`](../shared/A7-安全回归与发布准备实施方案.md)、[`../shared/A7-G8-交付与发布准备记录.md`](../shared/A7-G8-交付与发布准备记录.md)、[`../shared/A7-最小部署说明.md`](../shared/A7-最小部署说明.md)、[`../shared/A7-PR-后端.md`](../shared/A7-PR-后端.md) | A7 快速阶段通过；release 由项目经理决定，尚未合并 |
+智能剧本创作平台 **整体后端** 仓库。旧 A 模块共享文档已清理；共享 SQL、验证脚本与回归记录见 [`../shared/README.md`](../shared/README.md)。
 
 ## 仓库边界
 
@@ -32,11 +21,10 @@
 | JDK | 17 |
 | 官方源 | `https://gitee.com/y_project/RuoYi-Vue` |
 
-当前 `main` 已完成 A0-R1、A1/G1、A2/G2、A3/G3、A4/G4，并包含 A5/A6 快速阶段交付；A7 已在上述基线上完成基础构建、空库初始化、启动与主流程冒烟（见 A7 记录）。A5–A7 后续安全与测试加固仍按共享清单跟踪；快速阶段通过不代表加固或发布门禁已完成。
+当前 `main` 已完成 A0-R1、A1/G1、A2/G2、A3/G3、A4/G4，并包含 A5/A6 快速阶段交付；A7 已在上述基线上完成基础构建、空库初始化、启动与主流程冒烟。以上为历史阶段状态，快速阶段通过不代表加固或发布门禁已完成。
 
 **仓库边界（强制）**：本仓 **不包含** 若依上游附带的 `ruoyi-ui` 或任何 PC/App 构建工程。权威 PC 管理端仅位于 `smart-script-web`（RuoYi-Vue3）。
 
-`legacy-placeholders/` 保留导入前仓库内的空包占位，便于对照，不属于若依官方结构。
 
 ---
 
@@ -173,22 +161,11 @@ java -jar ruoyi-admin/target/ruoyi-admin.jar
 | 路径 | 内容 |
 | --- | --- |
 | `sql/smartscript_full_init.sql` | 平台数据库唯一初始化/增量升级入口（基线 + 全部增量，自幂等） |
-| `sql/ry_20260320.sql` | 若依基线原文（已内嵌进全量脚本；仅为 A3 联调子集与上游参照保留） |
+| `sql/ry_20260320.sql` | 若依基线原文（已内嵌进全量脚本，仅供上游参照） |
 | `scripts/db/` | 初始化脚本（`.sh` / `.ps1`）与全量步骤清单 `init-steps.txt` |
-| `scripts/a3/` | A3 联调脚手架（后端启动器、环境变量模板、测试矩阵、A3 专用步骤子集 `init-steps-a3.txt`） |
-| `docs/` | 安全与设计说明 |
 
 **建库只有这一条路径**：所有建库动作都走 `scripts/db/init-database.*`，仓库内不存在
-第二个初始化命令，也没有任何会 `DROP DATABASE` 的建库脚本。A3 联调需要只有基线 + A2 的
-隔离库时，用同一工具加载 A3 子集清单即可：
-
-```bash
-export DB_PASSWORD='<口令>'
-./scripts/db/init-database.sh -d ruoyi_dev_a3_test -u root --steps scripts/a3/init-steps-a3.txt
-```
-
-（新工具拒绝在非空库上执行，因此反复联调前需先自行 `DROP DATABASE` 该测试库；
-破坏性动作不藏在脚本里，避免误删非测试库。详见 `scripts/a3/init-steps-a3.txt` 头部说明。）
+第二个初始化命令，也没有任何会 `DROP DATABASE` 的建库脚本。
 
 ## 仓库地址
 
