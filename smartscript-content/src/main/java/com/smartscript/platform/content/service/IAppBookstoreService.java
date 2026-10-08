@@ -6,6 +6,7 @@ import com.smartscript.platform.content.domain.SysCategory;
 import com.smartscript.platform.content.domain.SysTag;
 import com.smartscript.platform.content.dto.AppChapterDetailDto;
 import com.smartscript.platform.content.dto.AppChapterListDto;
+import com.smartscript.platform.content.dto.AppContactDto;
 import com.smartscript.platform.content.dto.AppPageResult;
 import com.smartscript.platform.content.dto.AppPreviewDto;
 import com.smartscript.platform.content.dto.AppRankingItem;
@@ -112,4 +113,15 @@ public interface IAppBookstoreService
      * @return 试读载荷（试读范围内可读章节子集 + 可预览文件）
      */
     public AppPreviewDto getPreview(AppWorkDto work);
+
+    /**
+     * 版权合作联系方式（接口 2.7.9）
+     *
+     * 按作品作者（sys_work.author_id → sys_contact_profile.owner_id）查联系方式档案，
+     * 只下发「是否登记」与「展示范围」，不下发明文联系方式。
+     *
+     * @param work 作品（由 {@link #getWork} 取得，非空；调用方需先判定可见性）
+     * @return 联系方式摘要（无档案时 hasContact=false 且 displayScope=null）
+     */
+    public AppContactDto getWorkContact(AppWorkDto work);
 }

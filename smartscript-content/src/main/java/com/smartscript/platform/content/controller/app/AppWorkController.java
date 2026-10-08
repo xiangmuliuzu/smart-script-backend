@@ -6,6 +6,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import com.smartscript.platform.api.AppApiResponse;
+import com.smartscript.platform.content.dto.AppContactDto;
 import com.smartscript.platform.content.dto.AppPageResult;
 import com.smartscript.platform.content.dto.AppPreviewDto;
 import com.smartscript.platform.content.dto.AppWorkDto;
@@ -82,6 +83,25 @@ public class AppWorkController
             return AppApiResponse.fail(CODE_NOT_FOUND, "作品不存在或已下架");
         }
         return AppApiResponse.ok(work);
+    }
+
+    /**
+     * 版权合作联系方式（接口文档 2.7.9 表 2-89）
+     *
+     * 按作品作者查联系方式档案，只下发 {workId, hasContact, displayScope}，
+     * 不下发明文联系方式；未上架/不存在按 404 处理，与详情口径一致。
+     *
+     * @param workId 作品ID
+     */
+    @GetMapping("/{workId}/contact")
+    public AppApiResponse<AppContactDto> contact(@PathVariable Long workId)
+    {
+        AppWorkDto work = bookstoreService.getWork(workId);
+        if (work == null)
+        {
+            return AppApiResponse.fail(CODE_NOT_FOUND, "作品不存在或已下架");
+        }
+        return AppApiResponse.ok(bookstoreService.getWorkContact(work));
     }
 
     /**

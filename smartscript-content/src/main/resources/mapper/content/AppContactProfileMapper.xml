@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.content.mapper.AppContactProfileMapper">
+
+	<!--
+	  依据：云端 script_platform_dev 库 sys_contact_profile 表（附件5.1 表3-62）。
+	  反推处理点：
+	  1. has_contact 在 SQL 内计算，**不 select 三列密文**：本接口只判定「是否登记联系方式」，
+	     避免加密串进入应用内存后被日志/序列化意外带出。
+	  2. display_scope 原样下发；display_status/verify_status 按契约不下发，故不参与过滤。
+	  3. owner_id 为唯一键，limit 1 兜底防止脏数据返回多行。
+	-->
+	<resultMap type="com.smartscript.platform.content.dto.AppContactDto" id="AppContactDtoResult">
+		<result property="hasContact"   column="has_contact"   />
+		<result property="displayScope" column="display_scope" />
+	</resultMap>
+
+	<select id="selectContactByOwnerId" resultMap="AppContactDtoResult">
+		select display_scope,
+		       case when coalesce(phone_cipher, '') != ''
+		              or coalesce(email_cipher, '') != ''
+		              or coalesce(wechat_cipher, '') != ''
+		            then 1 else 0 end as has_contact
+		from sys_contact_profile
+		where owner_id = #{ownerId}
+		limit 1
+	</select>
+
+</mapper>

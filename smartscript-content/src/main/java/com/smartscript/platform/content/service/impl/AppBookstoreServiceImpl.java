@@ -15,12 +15,14 @@ import com.smartscript.platform.content.domain.SysWorkFile;
 import com.smartscript.platform.content.dto.AppChapterDetailDto;
 import com.smartscript.platform.content.dto.AppChapterDto;
 import com.smartscript.platform.content.dto.AppChapterListDto;
+import com.smartscript.platform.content.dto.AppContactDto;
 import com.smartscript.platform.content.dto.AppPageResult;
 import com.smartscript.platform.content.dto.AppPreviewDto;
 import com.smartscript.platform.content.dto.AppRankingItem;
 import com.smartscript.platform.content.dto.AppWorkDto;
 import com.smartscript.platform.content.dto.AppWorkFileDto;
 import com.smartscript.platform.content.dto.AppWorkQuery;
+import com.smartscript.platform.content.mapper.AppContactProfileMapper;
 import com.smartscript.platform.content.mapper.AppWorkAuthorizationMapper;
 import com.smartscript.platform.content.mapper.SysBannerMapper;
 import com.smartscript.platform.content.mapper.SysCategoryMapper;
@@ -97,6 +99,9 @@ public class AppBookstoreServiceImpl implements IAppBookstoreService
 
     @Autowired
     private AppWorkAuthorizationMapper authorizationMapper;
+
+    @Autowired
+    private AppContactProfileMapper contactProfileMapper;
 
     @Autowired
     private IdentityProvider identityProvider;
@@ -253,6 +258,32 @@ public class AppBookstoreServiceImpl implements IAppBookstoreService
         }
         dto.setPreviewChapters(readable);
         dto.setPreviewFiles(toFileDtos(fileMapper.selectPreviewFilesByWorkId(work.getWorkId())));
+        return dto;
+    }
+
+    @Override
+    public AppContactDto getWorkContact(AppWorkDto work)
+    {
+        AppContactDto dto = new AppContactDto();
+        dto.setHasContact(Boolean.FALSE);
+        if (work == null || work.getWorkId() == null)
+        {
+            return dto;
+        }
+        dto.setWorkId(work.getWorkId());
+        // 档案归属人 = 作品作者；作者缺失时按「无档案」处理，不下发展示范围
+        if (work.getAuthorId() == null)
+        {
+            return dto;
+        }
+        AppContactDto contact = contactProfileMapper.selectContactByOwnerId(work.getAuthorId());
+        if (contact == null)
+        {
+            return dto;
+        }
+        // hasContact/displayScope 由档案决定；workId 以作品为准，避免 Mapper 入参外泄
+        dto.setHasContact(Boolean.TRUE.equals(contact.getHasContact()));
+        dto.setDisplayScope(contact.getDisplayScope());
         return dto;
     }
 
