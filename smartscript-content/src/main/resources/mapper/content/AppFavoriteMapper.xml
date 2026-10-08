@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.content.mapper.AppFavoriteMapper">
+
+	<!--
+	  依据：云端 script_platform_dev 库 sys_favorite 表（附件5.1 表3-28）。
+	  反推处理点：
+	  1. 表上无 (user_id, work_id) 唯一索引，故用 INSERT ... SELECT ... WHERE NOT EXISTS
+	     保证幂等（MySQL 允许 INSERT ... SELECT 读同一张表）；该写法已在真实库验证
+	     首次影响 1 行、重复影响 0 行，不依赖 INSERT IGNORE 等需要唯一索引的语法。
+	  2. created_at 为 NOT NULL DEFAULT CURRENT_TIMESTAMP，仍显式写 now()，不依赖库默认值差异。
+	  3. favorite_count 由库内触发器维护，本文件不写 sys_work 任何列。
+	  4. 列表只回「已上架未删除」作品，与 2.7.2 作品详情可见性口径一致；下架后收藏关系保留，
+	     重新上架即恢复展示。
+	-->
+	<insert id="insertFavoriteIfAbsent">
+		insert into sys_favorite (user_id, work_id, created_at)
+		select #{userId}, #{workId}, now()
+		from dual
+		where not exists (
+			select 1 from sys_favorite f
+			where f.user_id = #{userId} and f.work_id = #{workId}
+		)
+	</insert>
+
+	<delete id="deleteFavorite">
+		delete from sys_favorite
+		where user_id = #{userId}
+		  and work_id = #{workId}
+	</delete>
+
+	<select id="countFavorite" resultType="int">
+		select count(1)
+		from sys_favorite
+		where user_id = #{userId}
+		  and work_id = #{workId}
+	</select>
+
+	<!-- 列与 SysContentWorkMapper.selectAppWorkVo 一致（不含 core_setting/character_setting 长文本），
+	     复用其 AppWorkDtoResult 结果映射，避免同一 DTO 出现两套映射产生口径漂移 -->
+	<select id="selectFavoriteWorks"
+	        resultMap="com.smartscript.platform.content.mapper.SysContentWorkMapper.AppWorkDtoResult">
+		select w.work_id, w.title, w.cover, w.author_id, w.genre_id, w.work_type, w.upload_type,
+		       w.length_type, w.summary, w.price, w.trade_type, w.trade_enabled,
+		       w.word_count, w.episode_count, w.duration, w.is_free, w.preview_enabled,
+		       w.preview_episodes, w.status, w.is_copyrighted, w.quality_level,
+		       w.view_count, w.favorite_count, w.sale_count, w.rating, w.create_time,
+		       u.nick_name as author_name,
+		       c.category_name as genre_name
+		from sys_favorite f
+		inner join sys_work w on w.work_id = f.work_id
+		left join sys_user u on u.user_id = w.author_id
+		left join sys_category c on c.category_id = w.genre_id
+		where f.user_id = #{userId}
+		  and w.is_deleted = 0
+		  and w.status = 'on_shelf'
+		order by f.created_at desc, f.id desc
+	</select>
+
+</mapper>
