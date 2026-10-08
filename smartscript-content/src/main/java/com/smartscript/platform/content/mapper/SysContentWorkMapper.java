@@ -6,6 +6,8 @@ import com.smartscript.platform.content.domain.SysWork;
 import com.smartscript.platform.content.dto.AppRankingItem;
 import com.smartscript.platform.content.dto.AppWorkDto;
 import com.smartscript.platform.content.dto.AppWorkQuery;
+import com.smartscript.platform.content.dto.CopyrightAssetDto;
+import com.smartscript.platform.content.dto.CopyrightAssetQuery;
 
 /**
  * 作品 数据层
@@ -128,4 +130,30 @@ public interface SysContentWorkMapper
      * @return 影响行数
      */
     public int updateWorkBaseInfo(SysWork work);
+
+    /**
+     * 查询版权资产列表
+     *
+     * @param query 查询条件
+     * @return 版权资产列表
+     */
+    public List<CopyrightAssetDto> selectCopyrightAssetList(CopyrightAssetQuery query);
+
+    /**
+     * 查询版权资产详情
+     *
+     * @param workId 作品ID
+     * @return 版权资产详情
+     */
+    public CopyrightAssetDto selectCopyrightAssetById(Long workId);
+
+    /**
+     * 更新版权资产状态
+     *
+     * @param workId 作品ID
+     * @param status 状态
+     * @param updateBy 更新者
+     * @return 影响行数
+     */
+    public int updateCopyrightAssetStatus(@Param("workId") Long workId, @Param("status") String status, @Param("updateBy") String updateBy);
 }

@@ -322,4 +322,54 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		where work_id = #{workId}
 	</update>
 
+	<!-- 版权资产 DTO 映射 -->
+	<resultMap type="com.smartscript.platform.content.dto.CopyrightAssetDto" id="CopyrightAssetResult">
+		<id     property="workId"      column="work_id"       />
+		<result property="title"       column="title"         />
+		<result property="authorName"  column="author_name"   />
+		<result property="genreName"   column="genre_name"    />
+		<result property="workType"    column="work_type"     />
+		<result property="status"      column="status"        />
+		<result property="summary"     column="summary"       />
+		<result property="createTime"  column="create_time"   />
+	</resultMap>
+
+	<!-- 查询版权资产列表 -->
+	<select id="selectCopyrightAssetList" parameterType="com.smartscript.platform.content.dto.CopyrightAssetQuery" resultMap="CopyrightAssetResult">
+		select w.work_id, w.title, w.work_type, w.status, w.summary, w.create_time,
+		       u.nick_name as author_name,
+		       c.category_name as genre_name
+		from sys_work w
+		left join sys_user u on u.user_id = w.author_id
+		left join sys_category c on c.category_id = w.genre_id
+		where w.is_deleted = 0
+		<if test="keyword != null and keyword != ''">
+			and (w.title like concat('%', #{keyword}, '%') or u.nick_name like concat('%', #{keyword}, '%'))
+		</if>
+		<if test="status != null and status != ''">
+			and w.status = #{status}
+		</if>
+		order by w.create_time desc
+	</select>
+
+	<!-- 查询版权资产详情 -->
+	<select id="selectCopyrightAssetById" parameterType="Long" resultMap="CopyrightAssetResult">
+		select w.work_id, w.title, w.work_type, w.status, w.summary, w.create_time,
+		       u.nick_name as author_name,
+		       c.category_name as genre_name
+		from sys_work w
+		left join sys_user u on u.user_id = w.author_id
+		left join sys_category c on c.category_id = w.genre_id
+		where w.work_id = #{workId} and w.is_deleted = 0
+	</select>
+
+	<!-- 更新版权资产状态 -->
+	<update id="updateCopyrightAssetStatus">
+		update sys_work
+		set status = #{status},
+		    update_by = #{updateBy},
+		    update_time = sysdate()
+		where work_id = #{workId}
+	</update>
+
 </mapper>
