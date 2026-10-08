@@ -27,9 +27,27 @@ class ContentModuleBoundaryTest
         if (Files.exists(p.resolve("src/main/java"))) return p;
         p = Paths.get("smartscript-content");
         if (Files.exists(p.resolve("src/main/java"))) return p;
-        p = Paths.get("D:/build/smart-script-backend/smartscript-content");
+        p = repoRoot().resolve("smartscript-content");
         assertTrue(Files.exists(p.resolve("src/main/java")), "module root not found");
         return p;
+    }
+
+    /**
+     * 仓库根目录：从当前工作目录向上查找聚合 pom（同时含 ruoyi-admin 与 smartscript-content 子模块）。
+     * surefire 的工作目录是各模块 basedir，故不能依赖某台机器的绝对路径。
+     */
+    private static Path repoRoot()
+    {
+        for (Path dir = Paths.get("").toAbsolutePath(); dir != null; dir = dir.getParent())
+        {
+            if (Files.exists(dir.resolve("pom.xml"))
+                    && Files.isDirectory(dir.resolve("ruoyi-admin"))
+                    && Files.isDirectory(dir.resolve("smartscript-content")))
+            {
+                return dir;
+            }
+        }
+        throw new IllegalStateException("repo root not found from user.dir=" + Paths.get("").toAbsolutePath());
     }
 
     private static List<String> sourceFiles() throws Exception
@@ -60,10 +78,17 @@ class ContentModuleBoundaryTest
                 "示例业务模块不得依赖 smartscript-user（会形成业务模块间反向耦合）");
         for (String file : sourceFiles())
         {
-            String src = Files.readString(Paths.get(file), StandardCharsets.UTF_8);
+            // 先剔除注释：Javadoc 可能以「刻意不复用某类」的方式写出对方全限定名，那不是编译期依赖
+            String src = stripComments(Files.readString(Paths.get(file), StandardCharsets.UTF_8));
             assertFalse(src.contains("com.smartscript.platform.user."),
                     "业务模块不得引用 A 模块实现类: " + file);
         }
+    }
+
+    /** 去掉块注释与行注释，避免把注释里提到的类名误判为真实依赖。 */
+    private static String stripComments(String src)
+    {
+        return src.replaceAll("(?s)/\\*.*?\\*/", " ").replaceAll("(?m)^\\s*//.*$", " ");
     }
 
     @Test

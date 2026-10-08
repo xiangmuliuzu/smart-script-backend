@@ -23,11 +23,7 @@ class A0R1HealthEndpointGateTest
     @Test
     void healthControllerExists() throws Exception
     {
-        Path p = Paths.get("ruoyi-admin/src/main/java/com/ruoyi/web/controller/common/HealthController.java");
-        if (!Files.exists(p))
-        {
-            p = Paths.get("D:/build/smart-script-backend/ruoyi-admin/src/main/java/com/ruoyi/web/controller/common/HealthController.java");
-        }
+        Path p = repoRoot().resolve("ruoyi-admin/src/main/java/com/ruoyi/web/controller/common/HealthController.java");
         assertTrue(Files.exists(p), "HealthController must exist for GET /health");
         String src = Files.readString(p, StandardCharsets.UTF_8);
         assertTrue(src.contains("/health"), "HealthController must map /health");
@@ -36,11 +32,24 @@ class A0R1HealthEndpointGateTest
 
     private static String read(String rel) throws Exception
     {
-        Path p = Paths.get(rel);
-        if (!Files.exists(p))
+        return Files.readString(repoRoot().resolve(rel), StandardCharsets.UTF_8);
+    }
+
+    /**
+     * 仓库根目录：从当前工作目录向上查找聚合 pom（同时含 ruoyi-admin 与 smartscript-content 子模块）。
+     * surefire 的工作目录是各模块 basedir，故不能依赖某台机器的绝对路径。
+     */
+    private static Path repoRoot()
+    {
+        for (Path dir = Paths.get("").toAbsolutePath(); dir != null; dir = dir.getParent())
         {
-            p = Paths.get("D:/build/smart-script-backend").resolve(rel);
+            if (Files.exists(dir.resolve("pom.xml"))
+                    && Files.isDirectory(dir.resolve("ruoyi-admin"))
+                    && Files.isDirectory(dir.resolve("smartscript-content")))
+            {
+                return dir;
+            }
         }
-        return Files.readString(p, StandardCharsets.UTF_8);
+        throw new IllegalStateException("repo root not found from user.dir=" + Paths.get("").toAbsolutePath());
     }
 }

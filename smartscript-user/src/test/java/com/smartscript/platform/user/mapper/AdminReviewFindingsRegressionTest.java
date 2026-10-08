@@ -63,7 +63,7 @@ class AdminReviewFindingsRegressionTest
         Path p = Paths.get("src/main").resolve(relative);
         if (!Files.exists(p))
         {
-            p = Paths.get("D:/build/smart-script-backend/smartscript-user/src/main").resolve(relative);
+            p = repoRoot().resolve("smartscript-user/src/main").resolve(relative);
         }
         assertTrue(Files.exists(p), "missing source: " + relative);
         return Files.readString(p, StandardCharsets.UTF_8);
@@ -282,8 +282,7 @@ class AdminReviewFindingsRegressionTest
 
     private String readController(String name) throws Exception
     {
-        Path p = Paths.get("D:/build/smart-script-backend/ruoyi-admin/src/main/java/com/ruoyi/web/controller/a4")
-                .resolve(name);
+        Path p = repoRoot().resolve("ruoyi-admin/src/main/java/com/ruoyi/web/controller/a4").resolve(name);
         if (!Files.exists(p))
         {
             p = Paths.get("../ruoyi-admin/src/main/java/com/ruoyi/web/controller/a4").toAbsolutePath().normalize()
@@ -418,5 +417,23 @@ class AdminReviewFindingsRegressionTest
         assertEquals(5, MAPPER_RESOURCES.length);
         assertTrue(configuration.hasStatement(
                 "com.smartscript.platform.user.mapper.AppUserAdminMapper.countNonGrantableRoles"));
+    }
+
+    /**
+     * 仓库根目录：从当前工作目录向上查找聚合 pom（同时含 ruoyi-admin 与 smartscript-content 子模块）。
+     * surefire 的工作目录是各模块 basedir，故不能依赖某台机器的绝对路径。
+     */
+    private static Path repoRoot()
+    {
+        for (Path dir = Paths.get("").toAbsolutePath(); dir != null; dir = dir.getParent())
+        {
+            if (Files.exists(dir.resolve("pom.xml"))
+                    && Files.isDirectory(dir.resolve("ruoyi-admin"))
+                    && Files.isDirectory(dir.resolve("smartscript-content")))
+            {
+                return dir;
+            }
+        }
+        throw new IllegalStateException("repo root not found from user.dir=" + Paths.get("").toAbsolutePath());
     }
 }

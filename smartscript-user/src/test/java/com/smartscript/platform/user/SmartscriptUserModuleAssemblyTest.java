@@ -130,13 +130,27 @@ class SmartscriptUserModuleAssemblyTest
         Path p = Paths.get("src/main/java");
         if (!Files.exists(p))
         {
-            p = Paths.get("smartscript-user/src/main/java");
-        }
-        if (!Files.exists(p))
-        {
-            p = Paths.get("D:/build/smart-script-backend/smartscript-user/src/main/java");
+            p = repoRoot().resolve("smartscript-user/src/main/java");
         }
         assertTrue(Files.exists(p), "module main java not found: " + p);
         return p;
+    }
+
+    /**
+     * 仓库根目录：从当前工作目录向上查找聚合 pom（同时含 ruoyi-admin 与 smartscript-content 子模块）。
+     * surefire 的工作目录是各模块 basedir，故不能依赖某台机器的绝对路径。
+     */
+    private static Path repoRoot()
+    {
+        for (Path dir = Paths.get("").toAbsolutePath(); dir != null; dir = dir.getParent())
+        {
+            if (Files.exists(dir.resolve("pom.xml"))
+                    && Files.isDirectory(dir.resolve("ruoyi-admin"))
+                    && Files.isDirectory(dir.resolve("smartscript-content")))
+            {
+                return dir;
+            }
+        }
+        throw new IllegalStateException("repo root not found from user.dir=" + Paths.get("").toAbsolutePath());
     }
 }

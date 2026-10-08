@@ -17,11 +17,7 @@ class SmartscriptUserModuleWiringTest
     @Test
     void applicationScansSmartscriptPlatformPackage() throws Exception
     {
-        Path p = Paths.get("src/main/java/com/ruoyi/RuoYiApplication.java");
-        if (!Files.exists(p))
-        {
-            p = Paths.get("D:/build/smart-script-backend/ruoyi-admin/src/main/java/com/ruoyi/RuoYiApplication.java");
-        }
+        Path p = repoRoot().resolve("ruoyi-admin/src/main/java/com/ruoyi/RuoYiApplication.java");
         assertTrue(Files.exists(p), "RuoYiApplication.java not found");
         String src = Files.readString(p, StandardCharsets.UTF_8);
         assertTrue(src.contains("com.smartscript.platform"),
@@ -33,11 +29,7 @@ class SmartscriptUserModuleWiringTest
     @Test
     void adminPomDependsOnSmartscriptUser() throws Exception
     {
-        Path p = Paths.get("pom.xml");
-        if (!Files.exists(p))
-        {
-            p = Paths.get("D:/build/smart-script-backend/ruoyi-admin/pom.xml");
-        }
+        Path p = repoRoot().resolve("ruoyi-admin/pom.xml");
         String pom = Files.readString(p, StandardCharsets.UTF_8);
         assertTrue(pom.contains("smartscript-user"),
                 "ruoyi-admin must depend on smartscript-user");
@@ -59,11 +51,7 @@ class SmartscriptUserModuleWiringTest
     @Test
     void mapperScanCoversSmartscriptWhenMappersExist() throws Exception
     {
-        Path moduleJava = Paths.get("smartscript-user/src/main/java");
-        if (!Files.exists(moduleJava))
-        {
-            moduleJava = Paths.get("D:/build/smart-script-backend/smartscript-user/src/main/java");
-        }
+        Path moduleJava = repoRoot().resolve("smartscript-user/src/main/java");
         assertTrue(Files.isDirectory(moduleJava), "smartscript-user main java missing");
         boolean hasMapper;
         try (var files = Files.walk(moduleJava))
@@ -72,12 +60,7 @@ class SmartscriptUserModuleWiringTest
                     .anyMatch(p -> p.getFileName().toString().contains("Mapper")
                             && p.toString().contains("user"));
         }
-        Path cfg = Paths.get("../ruoyi-framework/src/main/java/com/ruoyi/framework/config/ApplicationConfig.java")
-                .toAbsolutePath().normalize();
-        if (!Files.exists(cfg))
-        {
-            cfg = Paths.get("D:/build/smart-script-backend/ruoyi-framework/src/main/java/com/ruoyi/framework/config/ApplicationConfig.java");
-        }
+        Path cfg = repoRoot().resolve("ruoyi-framework/src/main/java/com/ruoyi/framework/config/ApplicationConfig.java");
         String appCfg = Files.readString(cfg, StandardCharsets.UTF_8);
         if (hasMapper)
         {
@@ -93,37 +76,37 @@ class SmartscriptUserModuleWiringTest
 
     private static String readRootPom() throws Exception
     {
-        Path[] candidates = new Path[] {
-                Paths.get("..", "pom.xml").toAbsolutePath().normalize(),
-                Paths.get("pom.xml").toAbsolutePath().normalize(),
-                Paths.get("D:/build/smart-script-backend/pom.xml")
-        };
-        for (Path p : candidates)
+        Path p = repoRoot().resolve("pom.xml");
+        String text = Files.readString(p, StandardCharsets.UTF_8);
+        if (text.contains("<modules>") && text.contains("ruoyi-admin"))
         {
-            if (Files.exists(p))
-            {
-                String text = Files.readString(p, StandardCharsets.UTF_8);
-                if (text.contains("<modules>") && text.contains("ruoyi-admin"))
-                {
-                    return text;
-                }
-            }
+            return text;
         }
         throw new IllegalStateException("root aggregator pom.xml not found");
     }
 
     private static String read(String rel) throws Exception
     {
-        Path p = Paths.get("..").resolve(rel).toAbsolutePath().normalize();
-        if (!Files.exists(p))
-        {
-            p = Paths.get(rel);
-        }
-        if (!Files.exists(p))
-        {
-            p = Paths.get("D:/build/smart-script-backend").resolve(rel);
-        }
+        Path p = repoRoot().resolve(rel);
         assertTrue(Files.exists(p), "missing file: " + rel);
         return Files.readString(p, StandardCharsets.UTF_8);
+    }
+
+    /**
+     * 仓库根目录：从当前工作目录向上查找聚合 pom（同时含 ruoyi-admin 与 smartscript-content 子模块）。
+     * surefire 的工作目录是各模块 basedir，故不能依赖某台机器的绝对路径。
+     */
+    private static Path repoRoot()
+    {
+        for (Path dir = Paths.get("").toAbsolutePath(); dir != null; dir = dir.getParent())
+        {
+            if (Files.exists(dir.resolve("pom.xml"))
+                    && Files.isDirectory(dir.resolve("ruoyi-admin"))
+                    && Files.isDirectory(dir.resolve("smartscript-content")))
+            {
+                return dir;
+            }
+        }
+        throw new IllegalStateException("repo root not found from user.dir=" + Paths.get("").toAbsolutePath());
     }
 }

@@ -57,7 +57,7 @@ class AppAuthzOwnershipContractTest
         List<String> candidates = List.of(
                 "src/main/java/" + PKG,
                 "smartscript-user/src/main/java/" + PKG,
-                "D:/build/smart-script-backend/smartscript-user/src/main/java/" + PKG);
+                repoRoot().resolve("smartscript-user/src/main/java/" + PKG).toString());
         for (String c : candidates)
         {
             Path p = Paths.get(c);
@@ -80,7 +80,7 @@ class AppAuthzOwnershipContractTest
         List<String> candidates = List.of(
                 "src/main/resources",
                 "smartscript-user/src/main/resources",
-                "D:/build/smart-script-backend/smartscript-user/src/main/resources");
+                repoRoot().resolve("smartscript-user/src/main/resources").toString());
         for (String c : candidates)
         {
             Path p = Paths.get(c);
@@ -367,5 +367,23 @@ class AppAuthzOwnershipContractTest
             }
         }
         return false;
+    }
+
+    /**
+     * 仓库根目录：从当前工作目录向上查找聚合 pom（同时含 ruoyi-admin 与 smartscript-content 子模块）。
+     * surefire 的工作目录是各模块 basedir，故不能依赖某台机器的绝对路径。
+     */
+    private static Path repoRoot()
+    {
+        for (Path dir = Paths.get("").toAbsolutePath(); dir != null; dir = dir.getParent())
+        {
+            if (Files.exists(dir.resolve("pom.xml"))
+                    && Files.isDirectory(dir.resolve("ruoyi-admin"))
+                    && Files.isDirectory(dir.resolve("smartscript-content")))
+            {
+                return dir;
+            }
+        }
+        throw new IllegalStateException("repo root not found from user.dir=" + Paths.get("").toAbsolutePath());
     }
 }
