@@ -3,6 +3,8 @@ package com.smartscript.platform.content.service;
 import java.util.List;
 import com.smartscript.platform.content.domain.SysWork;
 import com.smartscript.platform.content.domain.SysWorkChapter;
+import com.smartscript.platform.content.dto.CopyrightAssetDto;
+import com.smartscript.platform.content.dto.CopyrightAssetQuery;
 
 /**
  * 作品（只读） 服务层
@@ -38,4 +40,30 @@ public interface ISysWorkService
      * @return 章节集合
      */
     public List<SysWorkChapter> selectChapterListByWorkId(SysWorkChapter query);
+
+    /**
+     * 查询版权资产列表
+     *
+     * @param query 查询条件
+     * @return 版权资产列表
+     */
+    public List<CopyrightAssetDto> selectCopyrightAssetList(CopyrightAssetQuery query);
+
+    /**
+     * 查询版权资产详情
+     *
+     * @param workId 作品ID
+     * @return 版权资产详情
+     */
+    public CopyrightAssetDto selectCopyrightAssetById(Long workId);
+
+    /**
+     * 更新版权资产状态
+     *
+     * @param workId 作品ID
+     * @param status 状态
+     * @param updateBy 更新者
+     * @return 影响行数
+     */
+    public int updateCopyrightAssetStatus(Long workId, String status, String updateBy);
 }

@@ -5,6 +5,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import com.smartscript.platform.content.domain.SysWork;
 import com.smartscript.platform.content.domain.SysWorkChapter;
+import com.smartscript.platform.content.dto.CopyrightAssetDto;
+import com.smartscript.platform.content.dto.CopyrightAssetQuery;
 import com.smartscript.platform.content.mapper.SysWorkChapterMapper;
 import com.smartscript.platform.content.mapper.SysContentWorkMapper;
 import com.smartscript.platform.content.service.ISysWorkService;
@@ -43,5 +45,23 @@ public class SysWorkServiceImpl implements ISysWorkService
     public List<SysWorkChapter> selectChapterListByWorkId(SysWorkChapter query)
     {
         return chapterMapper.selectChapterListByWorkId(query);
+    }
+
+    @Override
+    public List<CopyrightAssetDto> selectCopyrightAssetList(CopyrightAssetQuery query)
+    {
+        return workMapper.selectCopyrightAssetList(query);
+    }
+
+    @Override
+    public CopyrightAssetDto selectCopyrightAssetById(Long workId)
+    {
+        return workMapper.selectCopyrightAssetById(workId);
+    }
+
+    @Override
+    public int updateCopyrightAssetStatus(Long workId, String status, String updateBy)
+    {
+        return workMapper.updateCopyrightAssetStatus(workId, status, updateBy);
     }
 }
