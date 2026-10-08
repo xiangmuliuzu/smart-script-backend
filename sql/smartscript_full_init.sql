@@ -1120,7 +1120,7 @@ ON DUPLICATE KEY UPDATE
   menu_name=VALUES(menu_name), order_num=VALUES(order_num), path=VALUES(path),
   visible=VALUES(visible), status=VALUES(status), icon=VALUES(icon), remark=VALUES(remark);
 
-UPDATE sys_menu SET order_num = 8 WHERE menu_id = 1 AND menu_type = 'M';
+-- 2026-10-08 菜单精简：系统管理目录已整体下线，不再调整其排序。
 
 INSERT INTO sys_menu (menu_id, menu_name, parent_id, order_num, path, component, query, is_frame, is_cache, menu_type, visible, status, perms, icon, create_by, remark) VALUES
 (5100, '数据总览',           5000, 1, '/dashboard', 'dashboard/Dashboard',            '', 1, 0, 'C', '0', '0', 'smartscript:dashboard:view',   'DataLine', 'A1', 'A1SEED'),
@@ -2017,3 +2017,44 @@ SELECT 'SMARTSCRIPT_INIT_DONE' AS step,
        (SELECT COUNT(*) FROM sys_job WHERE invoke_target = 'tradeInquiryTask.closeExpiredInquiries') AS inquiry_job,
        (SELECT COUNT(*) FROM information_schema.COLUMNS
          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'sys_user' AND COLUMN_NAME = 'bio') AS bio_col;
+
+-- =====================================================================
+-- 第 7 部分：菜单精简（2026-10-08；幂等）
+-- ---------------------------------------------------------------------
+-- 系统管理目录下的页面（用户/角色/菜单/部门/岗位/字典/参数/通知/日志管理）
+-- 属于开发自管配置，不对管理员开放：
+--   - 用户管理由用户中心"用户与创作者管理"(5142) 覆盖；
+--   - 系统参数（如验证码开关 sys.account.captchaEnabled）改由开发直连数据库维护；
+--   - 操作日志(500)/登录日志(501) 保留，挂到"数据统计"(5002) 目录下。
+-- 前端已同步删除对应 vue 页面与 api（smart-script-web）。
+-- =====================================================================
+
+-- 1) 日志菜单挂到数据统计目录
+UPDATE sys_menu SET parent_id = 5002, order_num = 99 WHERE menu_id = 500 AND menu_type = 'C';
+UPDATE sys_menu SET parent_id = 5002, order_num = 100 WHERE menu_id = 501 AND menu_type = 'C';
+
+-- 2) 删除系统管理子菜单（含按钮权限与角色绑定）
+DELETE FROM sys_role_menu WHERE menu_id IN (
+  SELECT menu_id FROM (
+    SELECT menu_id FROM sys_menu WHERE menu_id IN (1,108)
+       OR parent_id IN (1,108)
+  ) t
+);
+DELETE FROM sys_menu WHERE menu_id IN (1,108) OR parent_id IN (1,108);
+
+-- 3) 清理普通角色(2)对已删菜单的绑定（若依基线遗留）
+DELETE FROM sys_role_menu WHERE role_id = 2
+  AND menu_id IN (1,100,101,102,103,104,105,106,107,108
+    ,1000,1001,1002,1003,1004,1005,1006
+    ,1007,1008,1009,1010,1011
+    ,1012,1013,1014,1015
+    ,1016,1017,1018,1019
+    ,1020,1021,1022,1023,1024
+    ,1025,1026,1027,1028,1029
+    ,1030,1031,1032,1033,1034
+    ,1035,1036,1037,1038);
+
+-- 4) 校验：系统管理(1)与日志管理(108)应不存在；500/501 应挂在 5002 下
+SELECT
+  (SELECT COUNT(*) FROM sys_menu WHERE menu_id IN (1,108)) AS deleted_dir_should_be_0,
+  (SELECT COUNT(*) FROM sys_menu WHERE menu_id IN (500,501) AND parent_id = 5002) AS logs_under_stats_should_be_2;
