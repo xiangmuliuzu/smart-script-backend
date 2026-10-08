@@ -70,6 +70,7 @@
 | `APP_REDIS_KEY_PREFIX` | App 凭证域 Redis 前缀，例：`smartscript:dev:app-auth:` |
 | `APP_ADMIN_MATERIAL_STORAGE_PATH` | A4 材料文件根目录，不得位于 `ruoyi.profile` 之下 |
 | `APP_AUTH_ENV` | `local` / `test` 才允许 `SMS_PROVIDER=mock` |
+| `APP_SMS_MOCK_CODE` | mock 短信固定验证码。本地联调时可设为 `123456`，App 端即用该码通过短信验证；也可临时修改 `application.yml` 中 `app.sms.mock-fixed-code` 的默认值（勿提交） |
 
 可选：`SERVER_PORT`（默认 8080）、`TOKEN_EXPIRE_MINUTES`（默认 30）、
 `DRUID_LOGIN_USERNAME` / `DRUID_LOGIN_PASSWORD`、`APP_ACCESS_TOKEN_TTL` /
