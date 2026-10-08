@@ -5,12 +5,14 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import com.smartscript.platform.api.AppApiResponse;
 import com.smartscript.platform.content.dto.AppPageResult;
-import com.smartscript.platform.content.dto.AppWorkDto;
+import com.smartscript.platform.content.dto.AppShelfWorkDto;
 import com.smartscript.platform.content.service.ContentWorkService;
 import com.smartscript.platform.content.service.IAppBookshelfService;
 
@@ -26,8 +28,9 @@ import com.smartscript.platform.content.service.IAppBookshelfService;
  * 的示例仓储提供，本批替换为真实书架分页数据）。
  *
  * 响应形状：GET 保留 A6 身份摘要块（identity / ownerUserId / downloadable / realNameRequired），
- * 追加 total / list 两个真实分页字段；POST / DELETE 返回 {message}；GET /{workId} 返回 {onShelf}
- * （文档未单列书架态查询，按 sys_bookshelf_record 表补齐，供详情页回显）。
+ * 追加 total / list 两个真实分页字段（list 元素含本书架阅读进度）；POST / DELETE 返回 {message}；
+ * GET /{workId} 返回 {onShelf}（文档未单列书架态查询，按 sys_bookshelf_record 表补齐，供详情页回显）；
+ * PUT /{workId}/progress 记录阅读进度（文档未单列，按同表 last_read_chapter_id / last_read_at 补齐）。
  *
  * @author xiangsipeng
  */
@@ -72,7 +75,7 @@ public class AppBookshelfController
         int pageNum = page == null ? 1 : page;
         int size = pageSize == null ? DEFAULT_PAGE_SIZE : pageSize;
         Map<String, Object> data = contentWorkService.identityBlock();
-        AppPageResult<AppWorkDto> pageResult = bookshelfService.pageShelf(pageNum, size);
+        AppPageResult<AppShelfWorkDto> pageResult = bookshelfService.pageShelf(pageNum, size);
         data.put("total", pageResult.getTotal());
         data.put("list", pageResult.getList());
         return AppApiResponse.ok(data);
@@ -126,5 +129,63 @@ public class AppBookshelfController
     public AppApiResponse<Map<String, Object>> status(@PathVariable Long workId)
     {
         return AppApiResponse.ok(Map.of("onShelf", bookshelfService.isOnShelf(workId)));
+    }
+
+    /**
+     * 记录阅读进度（文档未单列，按 sys_bookshelf_record 的进度列补齐）
+     *
+     * 阅读页每次载入成功后上报当前章节。只更新已存在的书架行：
+     * 不在书架时按 404 拒绝，不隐式加入书架（加入书架是独立的显式动作）。
+     *
+     * @param workId 作品ID
+     * @param body   请求体 {chapterId}
+     * @return data = {message}；chapterId 缺失/非正整数按 400，不在书架按 404
+     */
+    @PutMapping("/{workId}/progress")
+    public AppApiResponse<Map<String, Object>> saveProgress(
+            @PathVariable Long workId,
+            @RequestBody(required = false) Map<String, Object> body)
+    {
+        Long chapterId = parseChapterId(body);
+        if (chapterId == null || chapterId <= 0)
+        {
+            return AppApiResponse.fail(CODE_BAD_REQUEST, "chapterId 不能为空且必须为正整数");
+        }
+        if (!bookshelfService.saveProgress(workId, chapterId))
+        {
+            return AppApiResponse.fail(CODE_NOT_FOUND, "该作品不在书架中");
+        }
+        return AppApiResponse.ok(Map.of("message", "已记录阅读进度"));
+    }
+
+    /**
+     * 解析请求体里的 chapterId，兼容 JSON 数字与数字字符串两种写法。
+     *
+     * @param body 请求体（可为 null）
+     * @return 章节ID；缺失或非数字返回 null
+     */
+    private static Long parseChapterId(Map<String, Object> body)
+    {
+        if (body == null)
+        {
+            return null;
+        }
+        Object raw = body.get("chapterId");
+        if (raw instanceof Number number)
+        {
+            return number.longValue();
+        }
+        if (raw instanceof String text)
+        {
+            try
+            {
+                return Long.parseLong(text.trim());
+            }
+            catch (NumberFormatException ignored)
+            {
+                return null;
+            }
+        }
+        return null;
     }
 }

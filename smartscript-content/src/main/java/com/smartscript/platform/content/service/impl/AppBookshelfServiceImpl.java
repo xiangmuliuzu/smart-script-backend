@@ -6,7 +6,7 @@ import org.springframework.stereotype.Service;
 import com.github.pagehelper.PageHelper;
 import com.github.pagehelper.PageInfo;
 import com.smartscript.platform.content.dto.AppPageResult;
-import com.smartscript.platform.content.dto.AppWorkDto;
+import com.smartscript.platform.content.dto.AppShelfWorkDto;
 import com.smartscript.platform.content.mapper.AppBookshelfMapper;
 import com.smartscript.platform.content.mapper.SysContentWorkMapper;
 import com.smartscript.platform.content.service.IAppBookshelfService;
@@ -26,6 +26,8 @@ import com.smartscript.platform.identity.IdentityProvider;
  *    且必须在包装前取 total：PageInfo 依赖 PageHelper 返回的 Page 类型。
  * 4. 移出书架为物理删除（与 sys_favorite 口径一致），保证 uk_user_work 唯一索引不残留占位行，
  *    便于用户再次加入。
+ * 5. 阅读进度只做「更新已存在的书架行」：影响 0 行即该作品不在书架，控制层据此按 404 处理，
+ *    不在这里隐式加入书架（加入与记录进度是两件事）。
  *
  * @author xiangsipeng
  */
@@ -54,13 +56,13 @@ public class AppBookshelfServiceImpl implements IAppBookshelfService
     private IdentityProvider identityProvider;
 
     @Override
-    public AppPageResult<AppWorkDto> pageShelf(int pageNum, int pageSize)
+    public AppPageResult<AppShelfWorkDto> pageShelf(int pageNum, int pageSize)
     {
         int safePageNum = pageNum < 1 ? DEFAULT_PAGE_NUM : pageNum;
         int safePageSize = pageSize < 1 ? DEFAULT_PAGE_SIZE : Math.min(pageSize, PAGE_SIZE_MAX);
         Long userId = identityProvider.currentUserId();
         PageHelper.startPage(safePageNum, safePageSize);
-        List<AppWorkDto> rows = bookshelfMapper.selectShelfWorks(userId);
+        List<AppShelfWorkDto> rows = bookshelfMapper.selectShelfWorks(userId);
         long total = new PageInfo<>(rows).getTotal();
         return AppPageResult.of(total, rows);
     }
@@ -96,5 +98,15 @@ public class AppBookshelfServiceImpl implements IAppBookshelfService
             return false;
         }
         return bookshelfMapper.countShelf(identityProvider.currentUserId(), workId) > 0;
+    }
+
+    @Override
+    public boolean saveProgress(Long workId, Long chapterId)
+    {
+        if (workId == null || chapterId == null)
+        {
+            return false;
+        }
+        return bookshelfMapper.updateShelfProgress(identityProvider.currentUserId(), workId, chapterId) > 0;
     }
 }

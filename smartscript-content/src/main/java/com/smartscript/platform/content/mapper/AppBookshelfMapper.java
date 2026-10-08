@@ -2,7 +2,7 @@ package com.smartscript.platform.content.mapper;
 
 import java.util.List;
 import org.apache.ibatis.annotations.Param;
-import com.smartscript.platform.content.dto.AppWorkDto;
+import com.smartscript.platform.content.dto.AppShelfWorkDto;
 
 /**
  * 书架 数据层（App 书城 2.7.12 书架管理）
@@ -16,7 +16,7 @@ import com.smartscript.platform.content.dto.AppWorkDto;
  *    幂等仍由 insertShelfIfAbsent 的 WHERE NOT EXISTS 兜底，与 AppFavoriteMapper 同一写法。
  * 3. is_deleted 不参与判定：移出书架走物理删除（与 sys_favorite 口径一致），
  *    本层写入的行 is_deleted 恒为 0，故查询/计数无需再过滤该列。
- * 4. last_read_chapter_id / last_read_at（阅读进度）不属本批范围，本层不读写。
+ * 4. 阅读进度 last_read_chapter_id / last_read_at 随列表下发，并由 updateShelfProgress 单列写入。
  *
  * @author xiangsipeng
  */
@@ -55,7 +55,18 @@ public interface AppBookshelfMapper
      * 书架作品列表（仅上架未删除作品，按加入时间倒序；分页由调用方 PageHelper 驱动）
      *
      * @param userId 书架归属人ID
-     * @return 作品集合（AppWorkDto，字段与 2.7.1 作品列表一致）
+     * @return 作品集合（AppShelfWorkDto，字段为书城作品字段 + 本书架阅读进度）
      */
-    public List<AppWorkDto> selectShelfWorks(@Param("userId") Long userId);
+    public List<AppShelfWorkDto> selectShelfWorks(@Param("userId") Long userId);
+
+    /**
+     * 记录阅读进度（仅更新已存在的书架行；影响 0 行表示该作品不在书架中）
+     *
+     * @param userId    书架归属人ID
+     * @param workId    作品ID
+     * @param chapterId 最近阅读章节ID
+     * @return 影响行数（1=已更新，0=该作品不在书架）
+     */
+    public int updateShelfProgress(@Param("userId") Long userId, @Param("workId") Long workId,
+            @Param("chapterId") Long chapterId);
 }

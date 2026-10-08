@@ -1,7 +1,7 @@
 package com.smartscript.platform.content.service;
 
 import com.smartscript.platform.content.dto.AppPageResult;
-import com.smartscript.platform.content.dto.AppWorkDto;
+import com.smartscript.platform.content.dto.AppShelfWorkDto;
 
 /**
  * 书架服务（App 书城 2.7.12 书架管理）
@@ -11,6 +11,7 @@ import com.smartscript.platform.content.dto.AppWorkDto;
  *
  * 边界：归属一律取当前登录身份，写路径不接收 userId；书架可见性与 2.7.2 作品详情同口径
  * （未上架 / 已删除 / 不存在均不可加入）。移出书架为物理删除，与 sys_favorite 同一口径。
+ * 阅读进度（last_read_chapter_id / last_read_at）随列表下发，并由 {@link #saveProgress} 写入。
  *
  * @author xiangsipeng
  */
@@ -21,9 +22,9 @@ public interface IAppBookshelfService
      *
      * @param pageNum  页码（从 1 起）
      * @param pageSize 每页条数
-     * @return 分页结果（total + list，list 元素与 2.7.1 作品列表一致）
+     * @return 分页结果（total + list，list 元素为书城作品字段 + 本书架阅读进度）
      */
-    public AppPageResult<AppWorkDto> pageShelf(int pageNum, int pageSize);
+    public AppPageResult<AppShelfWorkDto> pageShelf(int pageNum, int pageSize);
 
     /**
      * 加入书架（接口 2.7.12 POST，幂等：重复加入不产生重复记录）
@@ -50,4 +51,16 @@ public interface IAppBookshelfService
      * @return true=当前用户书架中已有该作品
      */
     public boolean isOnShelf(Long workId);
+
+    /**
+     * 记录阅读进度（文档未单列，按 sys_bookshelf_record 的进度列补齐）
+     *
+     * 只更新该作品已在本用户书架中的行；不属于「加入书架」的替代动作，
+     * 也不校验章节是否属于该作品（阅读页只上报当前章节）。
+     *
+     * @param workId    作品ID
+     * @param chapterId 最近阅读章节ID
+     * @return true=已更新；false=该作品不在当前用户书架中，由控制层按 404 处理
+     */
+    public boolean saveProgress(Long workId, Long chapterId);
 }
