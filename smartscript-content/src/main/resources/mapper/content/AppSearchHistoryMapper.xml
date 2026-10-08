@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.content.mapper.AppSearchHistoryMapper">
+
+	<!--
+	  依据：云端 script_platform_dev 库 sys_search_history 表（附件5.1 表3-30）。
+	  反推处理点：
+	  1. 所有语句强制带 user_id 条件，归属由服务层传入的当前登录身份决定。
+	  2. search_count / last_search_at 为 NOT NULL 且无默认值，insert 必须显式赋值；
+	     created_at 有 DEFAULT CURRENT_TIMESTAMP，此处仍显式写入，避免依赖库默认值差异。
+	  3. 表上无 (user_id, keyword) 唯一索引，重复关键词由 touchHistory 的
+	     影响行数驱动 insert 兜底，不做 upsert 语法依赖（MySQL 特有语法不利迁移）。
+	-->
+	<resultMap type="com.smartscript.platform.content.dto.AppSearchHistoryItem" id="AppSearchHistoryItemResult">
+		<result property="id"           column="id"             />
+		<result property="keyword"      column="keyword"        />
+		<result property="searchCount"  column="search_count"   />
+		<result property="lastSearchAt" column="last_search_at" />
+	</resultMap>
+
+	<select id="selectHistoryByUser" resultMap="AppSearchHistoryItemResult">
+		select id, keyword, search_count, last_search_at
+		from sys_search_history
+		where user_id = #{userId}
+		order by last_search_at desc, id desc
+		limit #{limit}
+	</select>
+
+	<update id="touchHistory">
+		update sys_search_history
+		set search_count = search_count + 1,
+		    last_search_at = now()
+		where user_id = #{userId}
+		  and keyword = #{keyword}
+	</update>
+
+	<insert id="insertHistory">
+		insert into sys_search_history (user_id, keyword, search_count, last_search_at, created_at)
+		values (#{userId}, #{keyword}, 1, now(), now())
+	</insert>
+
+	<delete id="deleteHistoryById">
+		delete from sys_search_history
+		where id = #{id}
+		  and user_id = #{userId}
+	</delete>
+
+	<delete id="deleteHistoryByUser">
+		delete from sys_search_history
+		where user_id = #{userId}
+	</delete>
+
+</mapper>
