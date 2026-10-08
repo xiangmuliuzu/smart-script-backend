@@ -6,9 +6,11 @@ package com.smartscript.platform.content.dto;
  * 依据：云端 script_platform_dev 库 sys_work_chapter 表（附件5.1 表3-16）
  *       + 接口文档 2.7.8 免费试读。
  *
- * 试读边界：作品试读开关关闭、或 chapter_no 超出 preview_episodes 时，
- * readable=false 且 content 不下发（保持 null），由控制层按 403 拒绝；
- * 试读范围内 readable=true 并下发 content 全文。
+ * 可读边界（两条放开分支取或，与目录口径一致）：
+ *   1. 在试读范围内（作品试读开关开启且 chapter_no 未超出 preview_episodes）；
+ *   2. 当前用户对作品持有生效中的版权授权（sys_copyright_authorization.status='active'）。
+ * 两者都不满足时 readable=false 且 content 不下发（保持 null），由控制层按 403 拒绝；
+ * 任一满足时 readable=true 并下发 content 全文。
  *
  * @author xiangsipeng
  */
@@ -32,7 +34,7 @@ public class AppChapterDetailDto
     /** 章节内容（不可读时为 null） */
     private String content;
 
-    /** 游客可否阅读本章（试读范围内为 true） */
+    /** 当前身份可否阅读本章（试读范围内 或 已获授权） */
     private Boolean readable;
 
     public AppChapterDetailDto()

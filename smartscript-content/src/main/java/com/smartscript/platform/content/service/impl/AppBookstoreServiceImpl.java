@@ -14,12 +14,14 @@ import com.smartscript.platform.content.domain.SysWorkChapter;
 import com.smartscript.platform.content.domain.SysWorkFile;
 import com.smartscript.platform.content.dto.AppChapterDetailDto;
 import com.smartscript.platform.content.dto.AppChapterDto;
+import com.smartscript.platform.content.dto.AppChapterListDto;
 import com.smartscript.platform.content.dto.AppPageResult;
 import com.smartscript.platform.content.dto.AppPreviewDto;
 import com.smartscript.platform.content.dto.AppRankingItem;
 import com.smartscript.platform.content.dto.AppWorkDto;
 import com.smartscript.platform.content.dto.AppWorkFileDto;
 import com.smartscript.platform.content.dto.AppWorkQuery;
+import com.smartscript.platform.content.mapper.AppWorkAuthorizationMapper;
 import com.smartscript.platform.content.mapper.SysBannerMapper;
 import com.smartscript.platform.content.mapper.SysCategoryMapper;
 import com.smartscript.platform.content.mapper.SysContentWorkMapper;
@@ -27,6 +29,7 @@ import com.smartscript.platform.content.mapper.SysTagMapper;
 import com.smartscript.platform.content.mapper.SysWorkChapterMapper;
 import com.smartscript.platform.content.mapper.SysWorkFileMapper;
 import com.smartscript.platform.content.service.IAppBookstoreService;
+import com.smartscript.platform.identity.IdentityProvider;
 
 /**
  * 书城浏览（App 侧只读）服务实现
@@ -68,6 +71,12 @@ public class AppBookstoreServiceImpl implements IAppBookstoreService
     /** 榜单类型白名单 */
     private static final List<String> RANKING_TYPES = List.of("view", "favorite", "sale", "rating");
 
+    /** 访问范围：仅试读（未获授权） */
+    private static final String ACCESS_SCOPE_PREVIEW = "preview";
+
+    /** 访问范围：全文（已获授权） */
+    private static final String ACCESS_SCOPE_FULL = "full";
+
     @Autowired
     private SysBannerMapper bannerMapper;
 
@@ -85,6 +94,12 @@ public class AppBookstoreServiceImpl implements IAppBookstoreService
 
     @Autowired
     private SysWorkFileMapper fileMapper;
+
+    @Autowired
+    private AppWorkAuthorizationMapper authorizationMapper;
+
+    @Autowired
+    private IdentityProvider identityProvider;
 
     @Override
     public List<SysBanner> listBanners(String position)
@@ -153,23 +168,29 @@ public class AppBookstoreServiceImpl implements IAppBookstoreService
     }
 
     @Override
-    public List<AppChapterDto> listChapters(AppWorkDto work)
+    public AppChapterListDto getChapterCatalog(AppWorkDto work)
     {
+        AppChapterListDto dto = new AppChapterListDto();
+        dto.setPreviewEpisodes(0);
+        dto.setAccessScope(ACCESS_SCOPE_PREVIEW);
+        dto.setUnlocked(Boolean.FALSE);
+        dto.setTotal(0);
+        dto.setList(List.of());
         if (work == null || work.getWorkId() == null)
         {
-            return List.of();
+            return dto;
         }
-        SysWorkChapter query = new SysWorkChapter();
-        query.setWorkId(work.getWorkId());
-        // 停用章节不出现在 App 目录中（口径与分类/标签一致：'0'=正常）
-        query.setStatus(STATUS_NORMAL);
-        List<SysWorkChapter> rows = chapterMapper.selectChapterListByWorkId(query);
-        List<AppChapterDto> list = new ArrayList<>(rows.size());
-        for (SysWorkChapter row : rows)
-        {
-            list.add(toChapterDto(row, isReadable(work, row.getChapterNo())));
-        }
-        return list;
+        // 授权判定只查一次，随后同时决定 accessScope 与逐章 readable，避免两处口径漂移
+        boolean unlocked = isWorkAuthorized(work.getWorkId());
+        dto.setWorkId(work.getWorkId());
+        dto.setPreviewEnabled(work.getPreviewEnabled());
+        dto.setPreviewEpisodes(previewEpisodes(work));
+        dto.setAccessScope(unlocked ? ACCESS_SCOPE_FULL : ACCESS_SCOPE_PREVIEW);
+        dto.setUnlocked(unlocked);
+        List<AppChapterDto> list = toChapterDtos(work, unlocked);
+        dto.setTotal(list.size());
+        dto.setList(list);
+        return dto;
     }
 
     @Override
@@ -196,7 +217,8 @@ public class AppBookstoreServiceImpl implements IAppBookstoreService
         {
             return null;
         }
-        boolean readable = isReadable(work, chapter.getChapterNo());
+        // 可读 = 在试读范围内 或 当前身份已获授权（两条分支，缺一不可）
+        boolean readable = isInPreviewRange(work, chapter.getChapterNo()) || isWorkAuthorized(work.getWorkId());
         AppChapterDetailDto dto = new AppChapterDetailDto();
         dto.setChapterId(chapter.getChapterId());
         dto.setWorkId(chapter.getWorkId());
@@ -204,7 +226,7 @@ public class AppBookstoreServiceImpl implements IAppBookstoreService
         dto.setChapterTitle(chapter.getChapterTitle());
         dto.setWordCount(chapter.getWordCount());
         dto.setReadable(readable);
-        // 试读范围外不下发正文，避免整章内容穿透到客户端
+        // 不可读时不下发正文，避免整章内容穿透到客户端
         dto.setContent(readable ? chapter.getContent() : null);
         return dto;
     }
@@ -221,7 +243,8 @@ public class AppBookstoreServiceImpl implements IAppBookstoreService
         dto.setPreviewEnabled(work.getPreviewEnabled());
         dto.setPreviewEpisodes(previewEpisodes(work));
         List<AppChapterDto> readable = new ArrayList<>();
-        for (AppChapterDto chapter : listChapters(work))
+        // 免费试读语义固定为试读范围，不因已获授权而扩大为全文
+        for (AppChapterDto chapter : toChapterDtos(work, false))
         {
             if (Boolean.TRUE.equals(chapter.getReadable()))
             {
@@ -231,6 +254,46 @@ public class AppBookstoreServiceImpl implements IAppBookstoreService
         dto.setPreviewChapters(readable);
         dto.setPreviewFiles(toFileDtos(fileMapper.selectPreviewFilesByWorkId(work.getWorkId())));
         return dto;
+    }
+
+    /**
+     * 当前用户对作品是否已获授权（可读全文）。
+     *
+     * 判定口径：sys_copyright_authorization 中存在「生效中」的授权记录
+     * （work_id=作品 且 licensee_id=当前 App 用户 且 status='active' 且时间窗覆盖今天）。
+     * 不细分 license_type/license_scope：二者属 D 模块（版权财务域）语义，本批不越界解释。
+     * 游客（无身份）一律视为未授权，不伪造用户 ID。
+     */
+    private boolean isWorkAuthorized(Long workId)
+    {
+        if (workId == null)
+        {
+            return false;
+        }
+        Long userId = identityProvider.currentUserId();
+        if (userId == null)
+        {
+            return false;
+        }
+        return authorizationMapper.countEffectiveAuthorization(workId, userId) > 0;
+    }
+
+    /**
+     * 组装章节摘要集合；unlocked 为 true 时全部章节可读，否则逐章按试读范围判定。
+     */
+    private List<AppChapterDto> toChapterDtos(AppWorkDto work, boolean unlocked)
+    {
+        SysWorkChapter query = new SysWorkChapter();
+        query.setWorkId(work.getWorkId());
+        // 停用章节不出现在 App 目录中（口径与分类/标签一致：'0'=正常）
+        query.setStatus(STATUS_NORMAL);
+        List<SysWorkChapter> rows = chapterMapper.selectChapterListByWorkId(query);
+        List<AppChapterDto> list = new ArrayList<>(rows.size());
+        for (SysWorkChapter row : rows)
+        {
+            list.add(toChapterDto(row, unlocked || isInPreviewRange(work, row.getChapterNo())));
+        }
+        return list;
     }
 
     /**
@@ -253,9 +316,11 @@ public class AppBookstoreServiceImpl implements IAppBookstoreService
     /**
      * 章节是否在试读范围内：开关开启 且 试读集数>0 且 chapter_no<=试读集数。
      *
-     * 目录与正文共用此判定，避免两处口径漂移。
+     * 仅代表「免费试读」这一条放开分支；是否可读还需 OR 上「当前身份已获授权」
+     * （见 {@link #isWorkAuthorized}）。命名刻意不含 readable 字样，避免与
+     * 「授权放开全文」混淆。
      */
-    private static boolean isReadable(AppWorkDto work, Integer chapterNo)
+    private static boolean isInPreviewRange(AppWorkDto work, Integer chapterNo)
     {
         int episodes = previewEpisodes(work);
         return isPreviewEnabled(work) && episodes > 0 && chapterNo != null && chapterNo <= episodes;

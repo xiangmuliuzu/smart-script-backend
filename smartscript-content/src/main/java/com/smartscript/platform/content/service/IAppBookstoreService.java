@@ -5,7 +5,7 @@ import com.smartscript.platform.content.domain.SysBanner;
 import com.smartscript.platform.content.domain.SysCategory;
 import com.smartscript.platform.content.domain.SysTag;
 import com.smartscript.platform.content.dto.AppChapterDetailDto;
-import com.smartscript.platform.content.dto.AppChapterDto;
+import com.smartscript.platform.content.dto.AppChapterListDto;
 import com.smartscript.platform.content.dto.AppPageResult;
 import com.smartscript.platform.content.dto.AppPreviewDto;
 import com.smartscript.platform.content.dto.AppRankingItem;
@@ -79,21 +79,23 @@ public interface IAppBookstoreService
     public List<AppRankingItem> listRankings(String type, int limit);
 
     /**
-     * 作品章节目录（接口 2.7.8 免费试读前置）
+     * 作品章节目录（接口 2.7.8 免费试读）
      *
      * 只取 status 正常（'0'）的章节，按 chapter_no 升序；不下发 content 全文。
-     * 逐章 readable 由作品试读开关与集数确定，口径与 {@link #getPreview} 一致。
+     * 逐章 readable 与整体 accessScope 按当前请求身份确定：
+     * 已获授权（sys_copyright_authorization 生效记录）为全文，否则仅试读范围。
      *
      * @param work 作品（由 {@link #getWork} 取得，非空；调用方需先判定可见性）
-     * @return 章节摘要集合（work 为空时返回空集合）
+     * @return 目录载荷（accessScope/unlocked + 逐章 readable；work 为空时返回空载荷）
      */
-    public List<AppChapterDto> listChapters(AppWorkDto work);
+    public AppChapterListDto getChapterCatalog(AppWorkDto work);
 
     /**
      * 章节正文（接口 2.7.8 免费试读）
      *
      * 章节不存在、或所属作品未上架/已删除时返回 null（由控制层按 404 处理）；
-     * 试读范围外返回 readable=false 且 content 为 null（由控制层按 403 处理）。
+     * 不可读（既不在试读范围内、当前身份也未获授权）时返回 readable=false 且
+     * content 为 null（由控制层按 403 处理）。
      *
      * @param chapterId 章节ID
      * @return 章节正文对象；不可定位时返回 null
@@ -103,8 +105,11 @@ public interface IAppBookstoreService
     /**
      * 免费试读（接口 2.7.8）
      *
+     * 本接口语义固定为「免费试读范围」，不因用户已获授权而扩大为全文
+     * （全文阅读走 {@link #getChapterCatalog} / {@link #getChapterContent}）。
+     *
      * @param work 作品（由 {@link #getWork} 取得，非空）
-     * @return 试读载荷（可读章节子集 + 可预览文件）
+     * @return 试读载荷（试读范围内可读章节子集 + 可预览文件）
      */
     public AppPreviewDto getPreview(AppWorkDto work);
 }

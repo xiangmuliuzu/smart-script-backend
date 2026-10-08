@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.content.mapper.AppWorkAuthorizationMapper">
+
+	<!--
+	  依据：云端 script_platform_dev 库 sys_copyright_authorization 表（附件5.1）。
+	  列核对（直连云端复核）：auth_id:bigint、work_id:bigint、licensee_id:bigint、
+	  status:varchar(20)、start_date:date、end_date:date(nullable)。
+	  只取 count，故不需要 resultMap；参数全部按 #{} 绑定，不接受外部拼接。
+	-->
+	<select id="countEffectiveAuthorization" resultType="int">
+		select count(1)
+		from sys_copyright_authorization
+		where work_id = #{workId}
+		  and licensee_id = #{licenseeId}
+		  and status = 'active'
+		  and start_date &lt;= curdate()
+		  and (end_date is null or end_date &gt;= curdate())
+	</select>
+
+</mapper>
