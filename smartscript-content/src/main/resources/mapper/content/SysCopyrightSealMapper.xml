@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.content.mapper.SysCopyrightSealMapper">
+    <resultMap type="com.smartscript.platform.content.domain.SysCopyrightSeal" id="SysCopyrightSealResult">
+        <id property="sealId" column="seal_id" />
+        <result property="userId" column="user_id" />
+        <result property="sealName" column="seal_name" />
+        <result property="sealImageUrl" column="seal_image_url" />
+        <result property="materialUrls" column="material_urls" />
+        <result property="reviewStatus" column="review_status" />
+        <result property="sealStatus" column="seal_status" />
+        <result property="rejectReason" column="reject_reason" />
+        <result property="reviewerId" column="reviewer_id" />
+        <result property="userName" column="nick_name" />
+        <result property="userAccount" column="user_name" />
+        <result property="reviewTime" column="review_time" />
+        <result property="createTime" column="create_time" />
+    </resultMap>
+
+    <resultMap type="com.smartscript.platform.content.domain.SysCopyrightSealLog" id="SysCopyrightSealLogResult">
+        <id property="logId" column="log_id" />
+        <result property="sealId" column="seal_id" />
+        <result property="operationType" column="operation_type" />
+        <result property="fromStatus" column="from_status" />
+        <result property="toStatus" column="to_status" />
+        <result property="reason" column="reason" />
+        <result property="operatorId" column="operator_id" />
+        <result property="operatorName" column="operator_name" />
+        <result property="createTime" column="create_time" />
+    </resultMap>
+
+    <select id="selectSealList" resultMap="SysCopyrightSealResult">
+        select s.seal_id, s.user_id, s.seal_name, s.seal_image_url, s.material_urls,
+               s.review_status, s.seal_status, s.reject_reason, s.reviewer_id,
+               s.review_time, s.create_time, u.nick_name, u.user_name
+        from sys_copyright_seal s
+        left join sys_user u on u.user_id = s.user_id
+        where s.is_deleted = 0
+        <if test="reviewStatus != null and reviewStatus != ''">
+            and s.review_status = #{reviewStatus}
+        </if>
+        <if test="sealStatus != null and sealStatus != ''">
+            and s.seal_status = #{sealStatus}
+        </if>
+        <if test="keyword != null and keyword != ''">
+            and (s.seal_name like concat('%', #{keyword}, '%')
+                 or u.nick_name like concat('%', #{keyword}, '%')
+                 or u.user_name like concat('%', #{keyword}, '%'))
+        </if>
+        order by s.create_time desc, s.seal_id desc
+    </select>
+
+    <select id="selectSealById" resultMap="SysCopyrightSealResult">
+        select s.seal_id, s.user_id, s.seal_name, s.seal_image_url, s.material_urls,
+               s.review_status, s.seal_status, s.reject_reason, s.reviewer_id,
+               s.review_time, s.create_time, u.nick_name, u.user_name
+        from sys_copyright_seal s
+        left join sys_user u on u.user_id = s.user_id
+        where s.seal_id = #{sealId} and s.is_deleted = 0
+    </select>
+
+    <select id="selectSealLogs" resultMap="SysCopyrightSealLogResult">
+        select log_id, seal_id, operation_type, from_status, to_status, reason,
+               operator_id, operator_name, create_time
+        from sys_copyright_seal_log
+        where seal_id = #{sealId}
+        order by create_time desc, log_id desc
+    </select>
+
+    <update id="updateReview">
+        update sys_copyright_seal
+        set review_status = #{reviewStatus}, reject_reason = #{reason},
+            reviewer_id = #{reviewerId}, review_time = sysdate(),
+            update_by = #{updateBy}, update_time = sysdate()
+        where seal_id = #{sealId} and is_deleted = 0 and review_status = 'pending'
+    </update>
+
+    <update id="updateSealStatus">
+        update sys_copyright_seal
+        set seal_status = #{sealStatus}, update_by = #{updateBy}, update_time = sysdate()
+        where seal_id = #{sealId} and is_deleted = 0 and review_status = 'approved'
+          and seal_status = #{expectedStatus}
+    </update>
+
+    <update id="resolveAbnormalSeal">
+        update sys_copyright_seal
+        set seal_status = 'disabled', update_by = #{updateBy}, update_time = sysdate()
+        where seal_id = #{sealId} and is_deleted = 0 and review_status = 'approved'
+          and seal_status = 'abnormal'
+    </update>
+
+    <insert id="insertSealLog" parameterType="com.smartscript.platform.content.domain.SysCopyrightSealLog"
+            useGeneratedKeys="true" keyProperty="logId">
+        insert into sys_copyright_seal_log
+            (seal_id, operation_type, from_status, to_status, reason,
+             operator_id, operator_name, create_time)
+        values
+            (#{sealId}, #{operationType}, #{fromStatus}, #{toStatus}, #{reason},
+             #{operatorId}, #{operatorName}, #{createTime})
+    </insert>
+</mapper>
