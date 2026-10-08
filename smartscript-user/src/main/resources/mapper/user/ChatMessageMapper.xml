@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.user.mapper.ChatMessageMapper">
+
+    <resultMap id="ChatMessageResult" type="com.smartscript.platform.user.domain.ChatMessage">
+        <id     property="messageId"   column="message_id"/>
+        <result property="sessionId"   column="session_id"/>
+        <result property="senderId"    column="sender_id"/>
+        <result property="receiverId"  column="receiver_id"/>
+        <result property="msgType"     column="msg_type"/>
+        <result property="content"     column="content"/>
+        <result property="fileUrl"     column="file_url"/>
+        <result property="isRead"      column="is_read"/>
+        <result property="readTime"    column="read_time"/>
+        <result property="createdAt"   column="created_at"/>
+        <result property="senderName"  column="sender_name"/>
+        <result property="senderAvatar" column="sender_avatar"/>
+    </resultMap>
+
+    <!-- 插入消息 -->
+    <insert id="insertMessage" parameterType="com.smartscript.platform.user.domain.ChatMessage"
+            useGeneratedKeys="true" keyProperty="messageId">
+        INSERT INTO sys_chat_message
+            (session_id, sender_id, receiver_id, msg_type, content, is_read, created_at)
+        VALUES
+            (#{sessionId}, #{senderId}, #{receiverId}, #{msgType}, #{content}, 0, NOW())
+    </insert>
+
+    <!-- 会话内消息列表（时间正序） -->
+    <select id="selectBySession" resultMap="ChatMessageResult">
+        SELECT m.message_id, m.session_id, m.sender_id, m.receiver_id,
+               m.msg_type, m.content, m.file_url, m.is_read, m.read_time, m.created_at,
+               u.nick_name AS sender_name, u.avatar AS sender_avatar
+        FROM sys_chat_message m
+        LEFT JOIN sys_user u ON m.sender_id = u.user_id
+        WHERE m.session_id = #{sessionId}
+        ORDER BY m.created_at ASC
+    </select>
+
+    <!-- 批量标记已读 -->
+    <update id="markReadBySession">
+        UPDATE sys_chat_message
+        SET is_read = 1, read_time = #{readTime}
+        WHERE session_id = #{sessionId}
+          AND receiver_id = #{receiverId}
+          AND is_read = 0
+    </update>
+
+</mapper>
