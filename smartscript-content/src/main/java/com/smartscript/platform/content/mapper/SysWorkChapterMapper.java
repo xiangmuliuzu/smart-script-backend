@@ -31,4 +31,44 @@ public interface SysWorkChapterMapper
      * @return 章节对象（含 content），不存在返回 null
      */
     public SysWorkChapter selectChapterDetail(Long chapterId);
+
+    /**
+     * 按作品ID查询章节列表（含 content 全文，用户端编辑用）
+     *
+     * @param workId 作品ID
+     * @return 章节集合（按 chapter_no 升序）
+     */
+    public List<SysWorkChapter> selectChapterListWithContentByWorkId(Long workId);
+
+    /**
+     * 查询作品最大章节序号
+     *
+     * @param workId 作品ID
+     * @return 最大 chapter_no，无章节返回 0
+     */
+    public Integer selectMaxChapterNo(Long workId);
+
+    /**
+     * 新增章节（用户端草稿/待修改编辑）
+     *
+     * @param chapter 章节对象
+     * @return 影响行数
+     */
+    public int insertChapter(SysWorkChapter chapter);
+
+    /**
+     * 修改章节（用户端草稿/待修改编辑）
+     *
+     * @param chapter 仅携带 chapterId + chapterNo/chapterTitle/content/wordCount/isFree/status/updateBy
+     * @return 影响行数
+     */
+    public int updateChapter(SysWorkChapter chapter);
+
+    /**
+     * 删除章节（用户端草稿/待修改编辑）
+     *
+     * @param chapterId 章节ID
+     * @return 影响行数
+     */
+    public int deleteChapterById(Long chapterId);
 }

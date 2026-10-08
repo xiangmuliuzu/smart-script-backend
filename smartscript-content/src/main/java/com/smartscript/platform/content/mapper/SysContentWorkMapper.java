@@ -38,6 +38,17 @@ public interface SysContentWorkMapper
     public SysWork selectWorkById(Long workId);
 
     /**
+     * 用户端「我的作品」列表（含 authorName/genreName，按更新时间倒序）
+     *
+     * 固定条件：is_deleted = 0，作者为当前用户。
+     * 审核派生状态由服务层依据 sys_review_record 最新记录计算，此处不参与过滤。
+     *
+     * @param authorId 作者用户ID
+     * @return 作品集合
+     */
+    public List<SysWork> selectWorkListByAuthor(@Param("authorId") Long authorId);
+
+    /**
      * 书城作品列表（含从 ext_json 解析的 recommendStatus/showScope）
      *
      * @param query 查询条件（title 模糊、recommendStatus 走 JSON_EXTRACT、status/tradeEnabled 精确）
@@ -107,4 +118,14 @@ public interface SysContentWorkMapper
      * @return 榜单条目（rankNo 由服务层按顺序填充）
      */
     public List<AppRankingItem> selectAppRankingList(@Param("type") String type, @Param("limit") int limit);
+
+    /**
+     * 用户端修改作品基本信息（单一职责：仅改 title/summary/genre_id）
+     *
+     * 仅未在审核中的作品允许调用，状态校验在服务层。
+     *
+     * @param work 仅携带 workId + title/summary/genreId + updateBy/updateTime
+     * @return 影响行数
+     */
+    public int updateWorkBaseInfo(SysWork work);
 }

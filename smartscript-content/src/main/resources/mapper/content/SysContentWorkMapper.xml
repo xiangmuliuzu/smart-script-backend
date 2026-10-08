@@ -108,6 +108,13 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		and w.work_id = #{workId}
 	</select>
 
+	<!-- 用户端「我的作品」列表：本人作品，按更新时间倒序 -->
+	<select id="selectWorkListByAuthor" parameterType="Long" resultMap="SysWorkResult">
+		<include refid="selectWorkVo"/>
+		and w.author_id = #{authorId}
+		order by w.update_time desc
+	</select>
+
 	<!-- 书城列表：含从 ext_json 解析的 recommendStatus/showScope -->
 	<sql id="selectBookstoreVo">
 		select w.work_id, w.title, w.cover, w.author_id, w.status, w.trade_enabled,
@@ -299,7 +306,20 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 			<when test='type != null and type == "rating"'>order by w.rating desc, w.work_id desc</when>
 			<otherwise>order by w.view_count desc, w.work_id desc</otherwise>
 		</choose>
-		limit #{limit}
+				limit #{limit}
 	</select>
+
+	<!-- 用户端修改作品基本信息（title/summary/genre_id，状态校验在服务层） -->
+	<update id="updateWorkBaseInfo" parameterType="SysContentWork">
+		update sys_work
+		<trim prefix="SET" suffixOverrides=",">
+			<if test="title != null and title != ''">title = #{title},</if>
+			<if test="summary != null">summary = #{summary},</if>
+			<if test="genreId != null">genre_id = #{genreId},</if>
+			<if test="updateBy != null">update_by = #{updateBy},</if>
+			<if test="updateTime != null">update_time = #{updateTime},</if>
+		</trim>
+		where work_id = #{workId}
+	</update>
 
 </mapper>

@@ -55,4 +55,69 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		where chapter_id = #{chapterId}
 	</select>
 
+	<!-- 用户端编辑：章节列表含 content 全文，按章节序号升序 -->
+	<select id="selectChapterListWithContentByWorkId" parameterType="Long" resultMap="SysWorkChapterResult">
+		select chapter_id, work_id, chapter_no, chapter_title, content, word_count, is_free, status,
+		       create_by, create_time, update_by, update_time, remark
+		from sys_work_chapter
+		where work_id = #{workId}
+		order by chapter_no
+	</select>
+
+	<!-- 查询作品最大章节序号 -->
+	<select id="selectMaxChapterNo" parameterType="Long" resultType="java.lang.Integer">
+		select ifnull(max(chapter_no), 0) from sys_work_chapter where work_id = #{workId}
+	</select>
+
+	<!-- 用户端新增章节 -->
+	<insert id="insertChapter" parameterType="SysWorkChapter" useGeneratedKeys="true" keyProperty="chapterId">
+		insert into sys_work_chapter
+		<trim prefix="(" suffix=")" suffixOverrides=",">
+			<if test="workId != null">work_id,</if>
+			<if test="chapterNo != null">chapter_no,</if>
+			<if test="chapterTitle != null">chapter_title,</if>
+			<if test="content != null">content,</if>
+			<if test="wordCount != null">word_count,</if>
+			<if test="isFree != null">is_free,</if>
+			<if test="status != null">status,</if>
+			<if test="createBy != null">create_by,</if>
+			<if test="createTime != null">create_time,</if>
+			<if test="remark != null">remark,</if>
+		</trim>
+		<trim prefix="values (" suffix=")" suffixOverrides=",">
+			<if test="workId != null">#{workId},</if>
+			<if test="chapterNo != null">#{chapterNo},</if>
+			<if test="chapterTitle != null">#{chapterTitle},</if>
+			<if test="content != null">#{content},</if>
+			<if test="wordCount != null">#{wordCount},</if>
+			<if test="isFree != null">#{isFree},</if>
+			<if test="status != null">#{status},</if>
+			<if test="createBy != null">#{createBy},</if>
+			<if test="createTime != null">#{createTime},</if>
+			<if test="remark != null">#{remark},</if>
+		</trim>
+	</insert>
+
+	<!-- 用户端修改章节 -->
+	<update id="updateChapter" parameterType="SysWorkChapter">
+		update sys_work_chapter
+		<trim prefix="SET" suffixOverrides=",">
+			<if test="chapterNo != null">chapter_no = #{chapterNo},</if>
+			<if test="chapterTitle != null">chapter_title = #{chapterTitle},</if>
+			<if test="content != null">content = #{content},</if>
+			<if test="wordCount != null">word_count = #{wordCount},</if>
+			<if test="isFree != null">is_free = #{isFree},</if>
+			<if test="status != null">status = #{status},</if>
+			<if test="updateBy != null">update_by = #{updateBy},</if>
+			<if test="updateTime != null">update_time = #{updateTime},</if>
+			<if test="remark != null">remark = #{remark},</if>
+		</trim>
+		where chapter_id = #{chapterId}
+	</update>
+
+	<!-- 用户端删除章节 -->
+	<delete id="deleteChapterById" parameterType="Long">
+		delete from sys_work_chapter where chapter_id = #{chapterId}
+	</delete>
+
 </mapper>
