@@ -1,5 +1,6 @@
 package com.smartscript.platform.trade.service;
 
+import java.util.Calendar;
 import java.util.Date;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -58,6 +59,23 @@ public class TradeFollowUpService
         {
             follow.setFollowTime(new Date());
         }
+        // 修复 BIZ_FOLLOW_002：下次跟进日期不得早于跟进日期（按天比较，同日允许）
+        if (follow.getNextFollowDate() != null
+                && startOfDay(follow.getNextFollowDate()).before(startOfDay(follow.getFollowTime())))
+        {
+            throw new RuntimeException("下次跟进时间不能早于跟进时间");
+        }
         return followMapper.insertFollow(follow);
+    }
+
+    private static Date startOfDay(Date d)
+    {
+        Calendar c = Calendar.getInstance();
+        c.setTime(d);
+        c.set(Calendar.HOUR_OF_DAY, 0);
+        c.set(Calendar.MINUTE, 0);
+        c.set(Calendar.SECOND, 0);
+        c.set(Calendar.MILLISECOND, 0);
+        return c.getTime();
     }
 }

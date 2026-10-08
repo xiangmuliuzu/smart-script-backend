@@ -1,5 +1,6 @@
 package com.smartscript.platform.trade.service;
 
+import java.util.Calendar;
 import java.util.Date;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -52,6 +53,19 @@ public class TradeDemandService
         {
             throw new RuntimeException("征集标题不能为空");
         }
+        // 修复 COLLECT_002：截止日期不得早于当前日期（按天比较，当天允许）
+        if (demand.getDeadline() != null && startOfDay(demand.getDeadline()).before(startOfDay(new Date())))
+        {
+            throw new RuntimeException("截止日期不能早于当前日期");
+        }
+        // 修复 COLLECT_003：纯电话录入（仅数字/横线/空格）必须符合标准格式，
+        // 混合文本（如「姓名 + 电话」、邮箱）不做格式限制，避免误伤
+        String contact = demand.getContactInfo() == null ? "" : demand.getContactInfo().trim();
+        if (!contact.isEmpty() && contact.matches("^[\\d\\s-]+$")
+                && !contact.matches("^(1[3-9]\\d{9}|0\\d{2,3}-?\\d{7,8}|(400|800)-?\\d{3}-?\\d{4})$"))
+        {
+            throw new RuntimeException("联系电话格式不正确，请输入 11 位手机号或带区号的固定电话");
+        }
         if (demand.getClientId() == null)
         {
             demand.setClientId(SecurityUtils.getUserId());
@@ -75,5 +89,16 @@ public class TradeDemandService
         demand.setCreateBy(SecurityUtils.getUsername());
         demand.setCreateTime(new Date());
         return demandMapper.insertDemand(demand);
+    }
+
+    private static Date startOfDay(Date d)
+    {
+        Calendar c = Calendar.getInstance();
+        c.setTime(d);
+        c.set(Calendar.HOUR_OF_DAY, 0);
+        c.set(Calendar.MINUTE, 0);
+        c.set(Calendar.SECOND, 0);
+        c.set(Calendar.MILLISECOND, 0);
+        return c.getTime();
     }
 }
