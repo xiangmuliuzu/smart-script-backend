@@ -32,6 +32,9 @@ public class ChatService
     /** 消息类型：文字 */
     public static final String MSG_TYPE_TEXT = "TEXT";
 
+    /** 消息类型：系统提示（如处理人变更），前端渲染为居中小字 */
+    public static final String MSG_TYPE_SYSTEM = "SYSTEM";
+
     /** 会话状态 */
     public static final int STATUS_PENDING    = 0;
     public static final int STATUS_PROCESSING = 1;
@@ -73,6 +76,7 @@ public class ChatService
         ChatSession existing = sessionMapper.selectByBusiness(user1Id, user2Id, bizType, bizId);
         if (existing != null)
         {
+            resumeIfClosed(existing);
             return toSessionVo(existing, userId);
         }
         // 新建
@@ -95,6 +99,7 @@ public class ChatService
             existing = sessionMapper.selectByBusiness(user1Id, user2Id, bizType, bizId);
             if (existing != null)
             {
+                resumeIfClosed(existing);
                 return toSessionVo(existing, userId);
             }
             throw e;
@@ -183,6 +188,11 @@ public class ChatService
         }
         Long receiverId = session.getUser1Id().equals(senderId) ? session.getUser2Id() : session.getUser1Id();
         String msgType = (req.getMsgType() != null && !req.getMsgType().isBlank()) ? req.getMsgType() : MSG_TYPE_TEXT;
+        if (MSG_TYPE_SYSTEM.equals(msgType))
+        {
+            // 系统提示仅由服务端内部生成，禁止外部提交
+            msgType = MSG_TYPE_TEXT;
+        }
 
         // 插入消息
         ChatMessage msg = new ChatMessage();
@@ -247,8 +257,73 @@ public class ChatService
         {
             throw new AppAuthException(AppUserErrorCodes.RESOURCE_NOT_FOUND, 404, "会话不存在");
         }
+        String toName = sessionMapper.selectUserNameById(adminId);
+        if (toName == null)
+        {
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "目标管理员不存在");
+        }
+        Long previousAssigned = session.getAssignedAdminId();
+        boolean changed = !adminId.equals(previousAssigned);
+        // 无条件执行移交：历史数据 user2_id 可能与 assigned_admin_id 不一致，每次分配同步收敛
         sessionMapper.updateAssignedAdmin(sessionId, adminId);
+        if (changed)
+        {
+            String fromName = previousAssigned != null ? sessionMapper.selectUserNameById(previousAssigned) : "系统";
+            insertSystemNotice(sessionId, "处理人已由 " + fromName + " 变更为 " + toName);
+        }
         return Map.of("assignedAdminId", adminId);
+    }
+
+    /** 插入系统提示消息（sender/receiver 置 0，已读，不增加未读） */
+    private void insertSystemNotice(Long sessionId, String content)
+    {
+        ChatMessage notice = new ChatMessage();
+        notice.setSessionId(sessionId);
+        notice.setSenderId(0L);
+        notice.setReceiverId(0L);
+        notice.setMsgType(MSG_TYPE_SYSTEM);
+        notice.setContent(content);
+        notice.setIsRead(Boolean.TRUE);
+        messageMapper.insertMessage(notice);
+    }
+
+    /**
+     * 幂等复用命中已关闭会话时自动重开：同一用户/管理员再次就同一业务发起咨询，
+     * 复用原会话并置回处理中（保持业务上下文连贯），写入系统提示。
+     */
+    private void resumeIfClosed(ChatSession existing)
+    {
+        if (existing.getStatus() != null && existing.getStatus() == STATUS_CLOSED)
+        {
+            sessionMapper.updateStatus(existing.getSessionId(), STATUS_PROCESSING);
+            existing.setStatus(STATUS_PROCESSING);
+            insertSystemNotice(existing.getSessionId(), "会话已重新打开，可继续沟通");
+        }
+    }
+
+    /** 可分配的管理员候选列表（管理域账号且挂有有效角色） */
+    public List<Map<String, Object>> adminCandidates()
+    {
+        List<Map<String, Object>> rows = sessionMapper.selectAdminCandidates();
+        return rows == null ? new ArrayList<>() : rows;
+    }
+
+    /**
+     * 管理端参与校验：会话已分配给其他管理员时，当前管理员不可回复或流转状态。
+     * 仅管理端入口调用（用户端 App 发送不受分配限制）；分配/转派本身不受限。
+     */
+    public void assertAdminCanOperate(Long sessionId, Long adminId)
+    {
+        ChatSession session = sessionMapper.selectById(sessionId);
+        if (session == null)
+        {
+            throw new AppAuthException(AppUserErrorCodes.RESOURCE_NOT_FOUND, 404, "会话不存在");
+        }
+        Long assigned = session.getAssignedAdminId();
+        if (assigned != null && !assigned.equals(adminId))
+        {
+            throw new AppAuthException(AppUserErrorCodes.DOMAIN_OR_PERMISSION, 403, "会话已分配给其他管理员处理，当前账号无法参与");
+        }
     }
 
     /* ========== 任务 9：状态管理 ========== */
@@ -283,6 +358,34 @@ public class ChatService
         }
         sessionMapper.updateStatus(sessionId, newStatus);
         return Map.of("sessionId", sessionId, "status", newStatus);
+    }
+
+    /**
+     * 用户端重新打开已结束的会话：仅会话归属用户（user1）可操作，
+     * 且仅已结束状态可重开；重开后写入系统提示。
+     */
+    public Map<String, Object> reopenByUser(Long sessionId, Long userId, String action)
+    {
+        if (!"reopen".equals(action))
+        {
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "无效操作：" + action);
+        }
+        ChatSession session = sessionMapper.selectById(sessionId);
+        if (session == null)
+        {
+            throw new AppAuthException(AppUserErrorCodes.RESOURCE_NOT_FOUND, 404, "会话不存在");
+        }
+        if (!userId.equals(session.getUser1Id()))
+        {
+            throw new AppAuthException(AppUserErrorCodes.DOMAIN_OR_PERMISSION, 403, "无权操作该会话");
+        }
+        if (session.getStatus() == null || session.getStatus() != STATUS_CLOSED)
+        {
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "会话未结束，无需重新打开");
+        }
+        sessionMapper.updateStatus(sessionId, STATUS_PROCESSING);
+        insertSystemNotice(sessionId, "用户重新打开了会话");
+        return Map.of("sessionId", sessionId, "status", STATUS_PROCESSING);
     }
 
     /* ========== VO 转换 ========== */

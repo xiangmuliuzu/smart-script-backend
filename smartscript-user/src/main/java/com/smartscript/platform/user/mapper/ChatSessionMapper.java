@@ -52,7 +52,13 @@ public interface ChatSessionMapper
     int updateStatus(@Param("sessionId") Long sessionId,
                      @Param("status") Integer status);
 
-    /** 分配管理员 */
+    /** 分配管理员：同步移交会话参与方 user2_id */
     int updateAssignedAdmin(@Param("sessionId") Long sessionId,
                             @Param("adminId") Long adminId);
+
+    /** 查用户显示名（昵称优先，空则用登录名） */
+    String selectUserNameById(@Param("userId") Long userId);
+
+    /** 可分配的管理员候选：管理域账号（user_type='00'）且挂有有效角色，排除无角色的测试账号与 App 用户 */
+    List<Map<String, Object>> selectAdminCandidates();
 }

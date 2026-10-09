@@ -75,6 +75,15 @@ public class AppChatController
         return AppApiResponse.ok(chatService.markSessionRead(sessionId, currentUserId()));
     }
 
+    /** 用户重新打开已结束的会话（action=reopen） */
+    @PutMapping("/sessions/{sessionId}/status")
+    public AppApiResponse<Map<String, Object>> changeStatus(
+            @PathVariable Long sessionId,
+            @RequestParam String action)
+    {
+        return AppApiResponse.ok(chatService.reopenByUser(sessionId, currentUserId(), action));
+    }
+
     /** 会话未读总数 */
     @GetMapping("/unread-count")
     public AppApiResponse<Map<String, Object>> unreadCount()

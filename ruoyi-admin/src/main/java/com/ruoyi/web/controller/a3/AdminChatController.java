@@ -90,6 +90,7 @@ public class AdminChatController extends BaseController
                                   @RequestBody ChatMessageSendRequest req)
     {
         Long adminId = SecurityUtils.getUserId();
+        chatService.assertAdminCanOperate(sessionId, adminId);
         return success(chatService.sendMessage(sessionId, adminId, req));
     }
 
@@ -100,6 +101,14 @@ public class AdminChatController extends BaseController
     {
         Long adminId = SecurityUtils.getUserId();
         return success(chatService.markSessionRead(sessionId, adminId));
+    }
+
+    /** 可分配的管理员候选列表（管理域账号且挂有有效角色，供分配下拉使用） */
+    @PreAuthorize("@ss.hasPermi('chat:session:list')")
+    @GetMapping("/admins")
+    public AjaxResult listAdmins()
+    {
+        return success(chatService.adminCandidates());
     }
 
     /** 分配处理管理员 */
@@ -119,6 +128,7 @@ public class AdminChatController extends BaseController
     public AjaxResult changeStatus(@PathVariable Long sessionId,
                                    @RequestParam String action)
     {
+        chatService.assertAdminCanOperate(sessionId, SecurityUtils.getUserId());
         return success(chatService.changeStatus(sessionId, action));
     }
 }
