@@ -1161,10 +1161,9 @@ INSERT INTO sys_menu (menu_id, menu_name, parent_id, order_num, path, component,
 (5143, '全局风控管理',         5005, 4, '/risk',          'risk/RiskManage',         '', 1, 0, 'C', '0', '0', 'smartscript:ops:risk',       'Warning',   'A1', 'A1SEED'),
 (5150, 'AI 创作与次数',       5006, 1, '/ai/operations',    'common/ModuleScaffold', '', 1, 0, 'C', '0', '0', 'smartscript:ai:operations',   'Magic',  'A1', 'A1SEED'),
 (5151, '福利与积分配置',      5006, 2, '/support/welfare',  'common/ModuleScaffold', '', 1, 0, 'C', '0', '0', 'smartscript:support:welfare', 'Present','A1', 'A1SEED'),
-(5152, '消息与公告',          5006, 3, '/support/messages', 'common/ModuleScaffold', '', 1, 0, 'C', '0', '0', 'smartscript:support:messages','Bell',   'A1', 'A1SEED'),
-(5200, '用户沟通',           0,    8, 'chat',          NULL,                '', 1, 0, 'M', '0', '0', '',                   'chat',  'A3', 'A3 用户沟通目录'),
-(5201, '会话列表',           5200, 1, 'chat-sessions', 'chat/ChatSessions', '', 1, 0, 'C', '0', '0', 'chat:session:list',  'list',  'A3', 'A3 用户沟通会话列表'),
-(5202, '会话详情',           5200, 2, 'chat-detail',   'chat/ChatDetail',   '', 1, 0, 'C', '1', '0', 'chat:session:query', '#',     'A3', 'A3 用户沟通会话详情'),
+(5152, '消息与公告',          5005, 5, '/support/messages', 'common/ModuleScaffold', '', 1, 0, 'C', '0', '0', 'smartscript:support:messages','Bell',   'A1', 'A1SEED'),
+(5201, '会话列表',           3000, 6, 'chat-sessions', 'chat/ChatSessions', '', 1, 0, 'C', '0', '0', 'chat:session:list',  'list',  'A3', 'A3 用户沟通会话列表（原 5200 目录迁入用户中心）'),
+(5202, '会话详情',           3000, 7, 'chat-detail',   'chat/ChatDetail',   '', 1, 0, 'C', '1', '0', 'chat:session:query', '#',     'A3', 'A3 用户沟通会话详情（原 5200 目录迁入用户中心）'),
 (5203, '分配管理员',         5201, 1, '',              NULL,                '', 1, 0, 'F', '0', '0', 'chat:session:assign','#',     'A3', 'A3 分配管理员按钮'),
 (5204, '变更状态',           5201, 2, '',              NULL,                '', 1, 0, 'F', '0', '0', 'chat:session:status','#',     'A3', 'A3 变更状态按钮'),
 (5205, '发送消息',           5201, 3, '',              NULL,                '', 1, 0, 'F', '0', '0', 'chat:message:send',  '#',     'A3', 'A3 发送消息按钮'),
@@ -2084,8 +2083,15 @@ DELETE FROM sys_menu
 WHERE menu_id = 5001 OR parent_id = 5001
    OR parent_id IN (SELECT menu_id FROM (SELECT menu_id FROM sys_menu WHERE parent_id = 5001) d);
 
--- 5) 校验：系统管理(1)与日志管理(108)应不存在；500/501 应挂在 5002 下；
---    5001 遗留树应清空；同级目录 path 不得重复（否则侧边栏展开状态会串）
+-- 5) 删除 A3「用户沟通」目录（幂等）
+--    会话列表/会话详情已迁入用户中心（第 4 部分改 parent_id=3000），顶层目录 5200 不再需要。
+--    INSERT 是 upsert，对已存在的库不会移除该行，故此处显式删除（含其角色绑定）。
+DELETE FROM sys_role_menu WHERE menu_id = 5200;
+DELETE FROM sys_menu WHERE menu_id = 5200;
+
+-- 6) 校验：系统管理(1)与日志管理(108)应不存在；500/501 应挂在 5002 下；
+--    5001 遗留树应清空；5200 用户沟通目录应不存在；同级目录 path 不得重复
+--    （否则侧边栏展开状态会串）
 SELECT
   (SELECT COUNT(*) FROM sys_menu WHERE menu_id IN (1,108)) AS deleted_dir_should_be_0,
   (SELECT COUNT(*) FROM sys_menu WHERE menu_id IN (500,501) AND parent_id = 5002) AS logs_under_stats_should_be_2,
@@ -2093,6 +2099,7 @@ SELECT
     WHERE menu_id = 5001 OR parent_id = 5001
        OR parent_id IN (SELECT menu_id FROM (SELECT menu_id FROM sys_menu WHERE parent_id = 5001) d)
   ) AS legacy_content_tree_should_be_0,
+  (SELECT COUNT(*) FROM sys_menu WHERE menu_id = 5200) AS chat_dir_should_be_0,
   (SELECT COUNT(*) FROM (
     SELECT parent_id, path FROM sys_menu
     WHERE menu_type IN ('M','C') AND status = '0'
