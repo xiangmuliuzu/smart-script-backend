@@ -1,0 +1,160 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.system.mapper.SysFinanceAbnormalMapper">
+
+    <resultMap type="com.ruoyi.system.domain.SysFinanceAbnormal" id="AbnormalResult">
+        <id     property="abnormalId"       column="abnormal_id"        />
+        <result property="abnormalType"     column="abnormal_type"      />
+        <result property="relatedNo"        column="related_no"         />
+        <result property="orderId"          column="order_id"           />
+        <result property="userId"           column="user_id"            />
+        <result property="abnormalAmount"   column="abnormal_amount"    />
+        <result property="abnormalReason"   column="abnormal_reason"    />
+        <result property="abnormalDesc"     column="abnormal_desc"      />
+        <result property="status"           column="status"             />
+        <result property="handleSolution"   column="handle_solution"    />
+        <result property="handleRemark"     column="handle_remark"      />
+        <result property="handleBy"         column="handle_by"          />
+        <result property="handleTime"       column="handle_time"        />
+        <result property="duplicateCount"   column="duplicate_count"    />
+        <result property="createTime"       column="create_time"        />
+        <result property="updateTime"       column="update_time"        />
+    </resultMap>
+
+    <select id="selectAbnormalList" resultType="map">
+        SELECT 
+            a.abnormal_id as id,
+            a.abnormal_type as abnormalType,
+            a.related_no as relatedNo,
+            CASE a.abnormal_type
+                WHEN 'duplicate' THEN a.related_no
+                WHEN 'refund' THEN a.related_no
+                WHEN 'escrow' THEN a.related_no
+                WHEN 'settlement' THEN a.related_no
+            END as displayNo,
+            -- 重复支付专用字段
+            CASE WHEN a.abnormal_type = 'duplicate' THEN a.related_no END as orderNo,
+            CASE WHEN a.abnormal_type = 'duplicate' THEN u.nick_name END as userName,
+            CASE WHEN a.abnormal_type = 'duplicate' THEN a.abnormal_amount END as duplicateAmount,
+            a.duplicate_count as duplicateCount,
+            -- 退款异常专用字段
+            CASE WHEN a.abnormal_type = 'refund' THEN a.related_no END as refundNo,
+            CASE WHEN a.abnormal_type = 'refund' THEN a.abnormal_amount END as refundAmount,
+            -- 托管异常专用字段
+            CASE WHEN a.abnormal_type = 'escrow' THEN a.related_no END as escrowNo,
+            CASE WHEN a.abnormal_type = 'escrow' THEN a.abnormal_amount END as escrowAmount,
+            -- 结算异常专用字段
+            CASE WHEN a.abnormal_type = 'settlement' THEN a.related_no END as settlementNo,
+            CASE WHEN a.abnormal_type = 'settlement' THEN (SELECT nick_name FROM sys_user WHERE user_id = a.user_id) END as authorName,
+            CASE WHEN a.abnormal_type = 'settlement' THEN a.abnormal_amount END as settlementAmount,
+            -- 通用字段
+            a.abnormal_amount as abnormalAmount,
+            a.abnormal_reason as abnormalReason,
+            a.abnormal_desc as abnormalDesc,
+            a.status,
+            a.handle_solution as handleSolution,
+            a.handle_remark as handleRemark,
+            DATE_FORMAT(a.create_time, '%Y-%m-%d %H:%i') as createTime,
+            DATE_FORMAT(a.handle_time, '%Y-%m-%d %H:%i') as handleTime
+        FROM sys_finance_abnormal a
+        LEFT JOIN sys_user u ON a.user_id = u.user_id
+        <where>
+            <if test="type != null and type != ''">
+                AND a.abnormal_type = #{type}
+            </if>
+            <if test="status != null and status != ''">
+                AND a.status = #{status}
+            </if>
+            <if test="keyword != null and keyword != ''">
+                AND (a.related_no LIKE CONCAT('%', #{keyword}, '%')
+                OR u.nick_name LIKE CONCAT('%', #{keyword}, '%'))
+            </if>
+        </where>
+        ORDER BY a.create_time DESC
+        LIMIT #{offset}, #{limit}
+    </select>
+
+    <select id="countAbnormal" resultType="long">
+        SELECT COUNT(*)
+        FROM sys_finance_abnormal a
+        LEFT JOIN sys_user u ON a.user_id = u.user_id
+        <where>
+            <if test="type != null and type != ''">
+                AND a.abnormal_type = #{type}
+            </if>
+            <if test="status != null and status != ''">
+                AND a.status = #{status}
+            </if>
+            <if test="keyword != null and keyword != ''">
+                AND (a.related_no LIKE CONCAT('%', #{keyword}, '%')
+                OR u.nick_name LIKE CONCAT('%', #{keyword}, '%'))
+            </if>
+        </where>
+    </select>
+
+    <select id="selectAbnormalById" resultType="map">
+        SELECT 
+            a.abnormal_id as id,
+            a.abnormal_type,
+            a.related_no,
+            a.order_id,
+            a.user_id,
+            u.nick_name as user_name,
+            a.abnormal_amount,
+            a.duplicate_count,
+            a.abnormal_reason,
+            a.abnormal_desc,
+            a.status,
+            a.handle_solution,
+            a.handle_remark,
+            a.handle_by,
+            (SELECT seller_id FROM sys_order WHERE order_id = a.order_id) as author_id,
+            DATE_FORMAT(a.create_time, '%Y-%m-%d %H:%i:%s') as create_time,
+            DATE_FORMAT(a.handle_time, '%Y-%m-%d %H:%i:%s') as handle_time
+        FROM sys_finance_abnormal a
+        LEFT JOIN sys_user u ON a.user_id = u.user_id
+        WHERE a.abnormal_id = #{abnormalId}
+    </select>
+
+    <insert id="insertAbnormal" parameterType="com.ruoyi.system.domain.SysFinanceAbnormal" useGeneratedKeys="true" keyProperty="abnormalId">
+        INSERT INTO sys_finance_abnormal
+        <trim prefix="(" suffix=")" suffixOverrides=",">
+            <if test="abnormalType != null and abnormalType != ''">abnormal_type,</if>
+            <if test="relatedNo != null and relatedNo != ''">related_no,</if>
+            <if test="orderId != null">order_id,</if>
+            <if test="userId != null">user_id,</if>
+            <if test="abnormalAmount != null">abnormal_amount,</if>
+            <if test="abnormalReason != null">abnormal_reason,</if>
+            <if test="abnormalDesc != null">abnormal_desc,</if>
+            <if test="status != null and status != ''">status,</if>
+            <if test="duplicateCount != null">duplicate_count,</if>
+            create_time
+        </trim>
+        <trim prefix="values (" suffix=")" suffixOverrides=",">
+            <if test="abnormalType != null and abnormalType != ''">#{abnormalType},</if>
+            <if test="relatedNo != null and relatedNo != ''">#{relatedNo},</if>
+            <if test="orderId != null">#{orderId},</if>
+            <if test="userId != null">#{userId},</if>
+            <if test="abnormalAmount != null">#{abnormalAmount},</if>
+            <if test="abnormalReason != null">#{abnormalReason},</if>
+            <if test="abnormalDesc != null">#{abnormalDesc},</if>
+            <if test="status != null and status != ''">#{status},</if>
+            <if test="duplicateCount != null">#{duplicateCount},</if>
+            NOW()
+        </trim>
+    </insert>
+
+    <update id="updateHandleResult">
+        UPDATE sys_finance_abnormal
+        SET handle_solution = #{solution},
+            handle_remark = #{remark},
+            status = 'handled',
+            handle_by = #{handleBy},
+            handle_time = NOW(),
+            update_time = NOW()
+        WHERE abnormal_id = #{abnormalId}
+    </update>
+
+</mapper>
