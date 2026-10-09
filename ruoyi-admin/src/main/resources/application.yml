@@ -101,7 +101,7 @@ app:
     # A4 材料网关：材料文件根目录。必须配置，且不得位于 ruoyi.profile 之下——
     # 该目录由 ResourcesConfig 映射为公开静态资源（/profile/**），放进去等于公开材料。
     # 启动时校验，冲突即失败。
-    material-storage-path: ${APP_ADMIN_MATERIAL_STORAGE_PATH:}
+    material-storage-path: ${APP_ADMIN_MATERIAL_STORAGE_PATH:D:/smartscript/material}
   # A3 App 凭证域（变量名与默认上下限；密钥仅环境变量）
   auth:
     env: ${APP_AUTH_ENV:local}
