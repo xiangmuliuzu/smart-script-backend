@@ -8,7 +8,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 	  依据：云端 script_platform_dev 库 sys_ranking_snapshot 表（附件5.1 表3-86）。
 	  反推处理点：
 	  1. 表无 created_at/updated_at，仅有若依5通用字段（create_by/create_time 等）。
-	  2. status tinyint ↔ String（"0"=失效 "1"=有效）；DB 查询用整数 0/1。
+	  2. status tinyint ↔ String（"0"=有效 "1"=失效，若依通用约定，与 PC 页展示、种子数据一致）；DB 查询用整数 0/1。
 	  3. view_count/bookshelf_count bigint ↔ Long。
 	  4. workTitle 为 JOIN sys_work.title 扩展字段。
 	-->
@@ -79,45 +79,21 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 
 	<!-- ================ 重算（recompute）聚合查询 ================ -->
 
-	<!-- 所有未删作品的浏览量（metric=view_count） -->
-	<select id="selectWorkViewCounts" resultType="java.util.Map">
-		select work_id, view_count
+	<!-- 所有未删作品的榜单指标（一次取全量，排序指标由榜单类型在服务层确定：
+	     view→view_count、favorite→favorite_count、sale→sale_count、rating→rating） -->
+	<select id="selectWorkMetricStats" resultType="java.util.Map">
+		select work_id, view_count, favorite_count, sale_count, rating
 		from sys_work
 		where is_deleted = 0
 	</select>
 
-	<!-- 每作品的收藏数（metric=bookshelf_count，走 sys_subscribe GROUP BY） -->
-	<select id="selectSubscribeCounts" resultType="java.util.Map">
-		select work_id, count(*) as bookshelf_count
-		from sys_subscribe
-		group by work_id
-	</select>
-
-	<!-- 同榜单类型上一期快照的浏览量（metric=growth_score，取 period_end < 当前 periodStart 的最近一期） -->
-	<select id="selectLatestPrevSnapshotViewCounts" resultType="java.util.Map">
-		select s.work_id, s.view_count
-		from sys_ranking_snapshot s
-		inner join (
-			select max(period_end) as max_period_end
-			from sys_ranking_snapshot
-			where ranking_type = #{rankingType}
-			  and period_end &lt; #{periodStart}
-			  and status = 1
-		) t on s.period_end = t.max_period_end
-		where s.ranking_type = #{rankingType}
-		  and s.status = 1
-	</select>
-
-	<!-- 使旧快照失效（单一职责：仅改 status=0） -->
-	<update id="invalidateSnapshots">
-		update sys_ranking_snapshot
-		set status = 0,
-		    update_by = 'system-recompute',
-		    update_time = sysdate()
+	<!-- 删除同榜单同周期旧快照（重算=整体替换，避免撞唯一键 uk_ranking_work_period） -->
+	<delete id="deleteSnapshots">
+		delete from sys_ranking_snapshot
 		where ranking_type = #{rankingType}
 		  and period_start = #{periodStart}
 		  and period_end = #{periodEnd}
-	</update>
+	</delete>
 
 	<!-- 批量插入新快照 -->
 	<insert id="batchInsertSnapshots" parameterType="java.util.List">

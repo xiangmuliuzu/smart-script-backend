@@ -42,38 +42,22 @@ public interface SysRankingSnapshotMapper
     // ---- 重算（recompute）所需聚合查询 ----
 
     /**
-     * 查询所有未删作品的浏览量（metric=view_count 时使用）
+     * 查询所有未删作品的榜单指标（一次取全量，排序指标由榜单类型在服务层确定：
+     * view→view_count、favorite→favorite_count、sale→sale_count、rating→rating）
      *
-     * @return 每条含 work_id(Long) 与 view_count(Integer)
+     * @return 每条含 work_id(Long)、view_count(Long)、favorite_count(Long)、sale_count(Long)、rating(BigDecimal)
      */
-    public List<Map<String, Object>> selectWorkViewCounts();
+    public List<Map<String, Object>> selectWorkMetricStats();
 
     /**
-     * 查询每作品的收藏数（metric=bookshelf_count 时使用）
-     *
-     * @return 每条含 work_id(Long) 与 bookshelf_count(Long)
-     */
-    public List<Map<String, Object>> selectSubscribeCounts();
-
-    /**
-     * 查询同榜单类型上一期快照的浏览量（metric=growth_score 时使用）
-     *
-     * @param rankingType 榜单类型
-     * @param periodStart 当前周期开始日期（取 period_end < 此值的最近一期）
-     * @return 每条含 work_id(Long) 与 view_count(Long)
-     */
-    public List<Map<String, Object>> selectLatestPrevSnapshotViewCounts(@Param("rankingType") String rankingType,
-            @Param("periodStart") String periodStart);
-
-    /**
-     * 使旧快照失效（单一职责：仅改 status=0）
+     * 删除同榜单同周期的旧快照（重算=整体替换，避免撞唯一键 uk_ranking_work_period）
      *
      * @param rankingType 榜单类型
      * @param periodStart 周期开始
      * @param periodEnd 周期结束
-     * @return 影响行数
+     * @return 删除行数
      */
-    public int invalidateSnapshots(@Param("rankingType") String rankingType,
+    public int deleteSnapshots(@Param("rankingType") String rankingType,
             @Param("periodStart") String periodStart,
             @Param("periodEnd") String periodEnd);
 

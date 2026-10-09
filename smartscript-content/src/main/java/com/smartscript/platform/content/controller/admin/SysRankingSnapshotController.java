@@ -76,16 +76,15 @@ public class SysRankingSnapshotController extends BaseController
 
     /**
      * 重算榜单快照
-     * 入参（form）：rankingType、metric（view_count/bookshelf_count/growth_score）、periodStart、periodEnd（yyyy-MM-dd）
+     * 入参（form）：rankingType（view/favorite/sale/rating，指标由类型唯一确定）、periodStart、periodEnd（yyyy-MM-dd）
      */
     @PreAuthorize("@ss.hasPermi('content:ranking:edit')")
     @Log(title = "排行榜", businessType = BusinessType.UPDATE)
     @PostMapping("/recompute")
     public AjaxResult recompute(@RequestParam String rankingType,
-            @RequestParam String metric,
             @RequestParam String periodStart,
             @RequestParam String periodEnd)
     {
-        return AjaxResult.success(rankingService.recomputeRanking(rankingType, metric, periodStart, periodEnd));
+        return AjaxResult.success(rankingService.recomputeRanking(rankingType, periodStart, periodEnd));
     }
 }

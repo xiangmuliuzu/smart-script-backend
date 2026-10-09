@@ -3,7 +3,6 @@ package com.smartscript.platform.content.service.impl;
 import java.math.BigDecimal;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -24,9 +23,12 @@ import com.smartscript.platform.content.service.ISysRankingSnapshotService;
  * 依据：云端 script_platform_dev 库 sys_ranking_snapshot 表。
  * 反推处理点：
  * 1. rank_no 调整做防御性裁剪，只放行 rankNo；
- * 2. recompute 整体加 @Transactional，先失效旧快照再批量插入新快照，保证原子性；
- * 3. metric 仅支持 view_count/bookshelf_count/growth_score 三种，其他抛 ServiceException；
- * 4. growth_score 需查上一期同榜单类型快照的 view_count 作差。
+ * 2. recompute 整体加 @Transactional，同榜单同周期先删旧快照再批量插入新快照，保证原子性
+ *    （原「置失效再插入」会撞唯一键 uk_ranking_work_period，同周期二次重算必然报错，改为删除式替换）；
+ * 3. 榜单类型白名单 view/favorite/sale/rating（与 App 端四榜对齐），指标由类型唯一确定，
+ *    不再单独传 metric：view→view_count（阅读量）、favorite→favorite_count（收藏量，与 App 同源）、
+ *    sale→sale_count（交易量）、rating→rating（评分）；
+ * 4. status 语义统一为 0=有效 1=失效（若依通用约定，与 PC 页展示、种子数据一致）。
  *
  * @author xiangsipeng
  */
@@ -34,13 +36,16 @@ import com.smartscript.platform.content.service.ISysRankingSnapshotService;
 public class SysRankingSnapshotServiceImpl implements ISysRankingSnapshotService
 {
     /** 状态：有效 */
-    private static final String STATUS_ACTIVE = "1";
+    private static final String STATUS_ACTIVE = "0";
 
     /** 重算操作人 */
     private static final String RECOMPUTE_OPERATOR = "system-recompute";
 
     /** 日期格式（period_start/period_end） */
     private static final String DATE_PATTERN = "yyyy-MM-dd";
+
+    /** 榜单类型白名单：与 App 端四榜对齐 */
+    private static final List<String> RANKING_TYPES = List.of("view", "favorite", "sale", "rating");
 
     @Autowired
     private SysRankingSnapshotMapper rankingMapper;
@@ -70,108 +75,65 @@ public class SysRankingSnapshotServiceImpl implements ISysRankingSnapshotService
 
     @Transactional(rollbackFor = Exception.class)
     @Override
-    public Map<String, Object> recomputeRanking(String rankingType, String metric, String periodStart, String periodEnd)
+    public Map<String, Object> recomputeRanking(String rankingType, String periodStart, String periodEnd)
     {
-        // 参数校验
-        if (StringUtils.isEmpty(rankingType) || StringUtils.isEmpty(metric)
-                || StringUtils.isEmpty(periodStart) || StringUtils.isEmpty(periodEnd))
+        // 参数校验：榜单类型白名单，指标由类型唯一确定
+        if (StringUtils.isEmpty(rankingType) || StringUtils.isEmpty(periodStart) || StringUtils.isEmpty(periodEnd))
         {
-            throw new ServiceException("rankingType/metric/periodStart/periodEnd 不能为空");
+            throw new ServiceException("rankingType/periodStart/periodEnd 不能为空");
         }
-        if (!"view_count".equals(metric) && !"bookshelf_count".equals(metric) && !"growth_score".equals(metric))
+        if (!RANKING_TYPES.contains(rankingType))
         {
-            throw new ServiceException("metric 仅支持 view_count/bookshelf_count/growth_score");
-        }
-
-        // 1. 取每作品浏览量
-        List<Map<String, Object>> viewRows = rankingMapper.selectWorkViewCounts();
-        // 2. 取每作品收藏量
-        List<Map<String, Object>> subRows = rankingMapper.selectSubscribeCounts();
-        // 3. metric=growth_score 时取上一期快照浏览量
-        Map<Long, Long> prevViewMap = new HashMap<>();
-        if ("growth_score".equals(metric))
-        {
-            List<Map<String, Object>> prevRows = rankingMapper.selectLatestPrevSnapshotViewCounts(rankingType, periodStart);
-            if (StringUtils.isNotEmpty(prevRows))
-            {
-                for (Map<String, Object> row : prevRows)
-                {
-                    Long workId = ((Number) row.get("work_id")).longValue();
-                    Long vc = ((Number) row.get("view_count")).longValue();
-                    prevViewMap.put(workId, vc);
-                }
-            }
+            throw new ServiceException("rankingType 仅支持 view/favorite/sale/rating");
         }
 
-        // 4. 收藏量按 work_id 索引，便于按作品合并
-        Map<Long, Long> bookshelfMap = new HashMap<>();
-        if (StringUtils.isNotEmpty(subRows))
-        {
-            for (Map<String, Object> row : subRows)
-            {
-                Long workId = ((Number) row.get("work_id")).longValue();
-                Long bc = ((Number) row.get("bookshelf_count")).longValue();
-                bookshelfMap.put(workId, bc);
-            }
-        }
+        // 1. 一次取全量未删作品的四项指标
+        List<Map<String, Object>> workRows = rankingMapper.selectWorkMetricStats();
 
-        // 5. 构建统一数据列表
+        // 2. 构建统一数据列表，按榜单类型确定排序指标
         List<Map<String, Object>> unified = new ArrayList<>();
-        if (StringUtils.isNotEmpty(viewRows))
+        if (StringUtils.isNotEmpty(workRows))
         {
-            for (Map<String, Object> row : viewRows)
+            for (Map<String, Object> row : workRows)
             {
                 Long workId = ((Number) row.get("work_id")).longValue();
-                Long viewCount = ((Number) row.get("view_count")).longValue();
-                Long bookshelfCount = bookshelfMap.getOrDefault(workId, 0L);
-                BigDecimal growthScore;
-                if ("growth_score".equals(metric))
-                {
-                    Long prev = prevViewMap.getOrDefault(workId, 0L);
-                    growthScore = BigDecimal.valueOf(viewCount - prev);
-                }
-                else
-                {
-                    growthScore = BigDecimal.ZERO;
-                }
+                Long viewCount = longValue(row.get("view_count"));
+                Long favoriteCount = longValue(row.get("favorite_count"));
+                Long saleCount = longValue(row.get("sale_count"));
+                Object ratingVal = row.get("rating");
+                BigDecimal rating = ratingVal == null ? BigDecimal.ZERO : new BigDecimal(ratingVal.toString());
 
                 BigDecimal metricValue;
-                if ("view_count".equals(metric))
+                if ("view".equals(rankingType))
                 {
                     metricValue = BigDecimal.valueOf(viewCount);
                 }
-                else if ("bookshelf_count".equals(metric))
+                else if ("favorite".equals(rankingType))
                 {
-                    metricValue = BigDecimal.valueOf(bookshelfCount);
+                    metricValue = BigDecimal.valueOf(favoriteCount);
+                }
+                else if ("sale".equals(rankingType))
+                {
+                    metricValue = BigDecimal.valueOf(saleCount);
                 }
                 else
                 {
-                    metricValue = growthScore;
+                    metricValue = rating;
                 }
 
                 Map<String, Object> item = new HashMap<>();
                 item.put("workId", workId);
                 item.put("viewCount", viewCount);
-                item.put("bookshelfCount", bookshelfCount);
-                item.put("growthScore", growthScore);
+                item.put("bookshelfCount", favoriteCount);
                 item.put("metricValue", metricValue);
                 unified.add(item);
             }
         }
 
-        // 6. 按 metric_value DESC 排序
-        unified.sort(new Comparator<Map<String, Object>>()
-        {
-            @Override
-            public int compare(Map<String, Object> a, Map<String, Object> b)
-            {
-                BigDecimal va = (BigDecimal) a.get("metricValue");
-                BigDecimal vb = (BigDecimal) b.get("metricValue");
-                return vb.compareTo(va);
-            }
-        });
+        // 3. 按指标值 DESC 排序
+        unified.sort((a, b) -> ((BigDecimal) b.get("metricValue")).compareTo((BigDecimal) a.get("metricValue")));
 
-        // 7. 解析周期日期并构造快照列表
+        // 4. 解析周期日期
         SimpleDateFormat sdf = new SimpleDateFormat(DATE_PATTERN);
         Date periodStartDate;
         Date periodEndDate;
@@ -186,6 +148,7 @@ public class SysRankingSnapshotServiceImpl implements ISysRankingSnapshotService
         }
         Date snapshotTime = new Date();
 
+        // 5. 构造快照列表（score=指标值；growth_score 不再作为排序指标，固定 0）
         List<SysRankingSnapshot> snapshots = new ArrayList<>();
         int rankNo = 1;
         for (Map<String, Object> item : unified)
@@ -199,7 +162,7 @@ public class SysRankingSnapshotServiceImpl implements ISysRankingSnapshotService
             s.setScore((BigDecimal) item.get("metricValue"));
             s.setViewCount((Long) item.get("viewCount"));
             s.setBookshelfCount((Long) item.get("bookshelfCount"));
-            s.setGrowthScore((BigDecimal) item.get("growthScore"));
+            s.setGrowthScore(BigDecimal.ZERO);
             s.setSnapshotTime(snapshotTime);
             s.setStatus(STATUS_ACTIVE);
             s.setCreateBy(RECOMPUTE_OPERATOR);
@@ -207,15 +170,21 @@ public class SysRankingSnapshotServiceImpl implements ISysRankingSnapshotService
             rankNo++;
         }
 
-        // 8. 失效旧快照
-        int oldCount = rankingMapper.invalidateSnapshots(rankingType, periodStart, periodEnd);
-        // 9. 批量插入新快照
+        // 6. 同榜单同周期旧快照整体删除（避免撞唯一键 uk_ranking_work_period）
+        int oldCount = rankingMapper.deleteSnapshots(rankingType, periodStart, periodEnd);
+        // 7. 批量插入新快照
         int newCount = snapshots.isEmpty() ? 0 : rankingMapper.batchInsertSnapshots(snapshots);
 
-        // 10. 返回汇总
+        // 8. 返回汇总
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("newSnapshotCount", newCount);
-        result.put("oldInvalidatedCount", oldCount);
+        result.put("oldRemovedCount", oldCount);
         return result;
+    }
+
+    /** Map 取数兜底：NULL 视为 0 */
+    private static long longValue(Object v)
+    {
+        return v == null ? 0L : ((Number) v).longValue();
     }
 }

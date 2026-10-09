@@ -9,7 +9,7 @@ import com.smartscript.platform.content.domain.SysRankingSnapshot;
  *
  * 依据：云端 script_platform_dev 库 sys_ranking_snapshot 表 + PC 功能清单
  * （排行榜管理页：列表、详情、排名调整、重算）。
- * 重算支持 view_count/bookshelf_count/growth_score 三种 metric。
+ * 重算支持 view/favorite/sale/rating 四种榜单类型（与 App 端四榜对齐），指标由类型唯一确定。
  *
  * @author xiangsipeng
  */
@@ -43,16 +43,15 @@ public interface ISysRankingSnapshotService
      * 重算指定榜单类型的排名快照
      *
      * 算法：
-     * 1. 取每作品浏览量 view_count、收藏量 bookshelf_count
-     * 2. 若 metric=growth_score，再取上一期快照浏览量，按 work_id 计算增量
-     * 3. 按 metric_value DESC 排序，rankNo 自增，score=metric_value
-     * 4. 旧快照 status=0（失效），新快照批量插入 status=1
+     * 1. 一次取全量未删作品的指标（view_count/favorite_count/sale_count/rating），
+     *    按榜单类型确定排序指标：view→view_count、favorite→favorite_count、sale→sale_count、rating→rating
+     * 2. 按指标值 DESC 排序，rankNo 自增，score=指标值
+     * 3. 同榜单同周期的旧快照整体删除（重算=替换），新快照批量插入（status=0 有效）
      *
-     * @param rankingType 榜单类型
-     * @param metric 排序指标（view_count/bookshelf_count/growth_score）
+     * @param rankingType 榜单类型（view/favorite/sale/rating）
      * @param periodStart 周期开始（yyyy-MM-dd）
      * @param periodEnd 周期结束（yyyy-MM-dd）
-     * @return 含 newSnapshotCount、oldInvalidatedCount
+     * @return 含 newSnapshotCount、oldRemovedCount
      */
-    public Map<String, Object> recomputeRanking(String rankingType, String metric, String periodStart, String periodEnd);
+    public Map<String, Object> recomputeRanking(String rankingType, String periodStart, String periodEnd);
 }
