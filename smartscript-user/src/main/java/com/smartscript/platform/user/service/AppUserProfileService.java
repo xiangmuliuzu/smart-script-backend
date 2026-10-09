@@ -1,6 +1,7 @@
 package com.smartscript.platform.user.service;
 
 import java.time.LocalDateTime;
+import java.net.URI;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
@@ -30,7 +31,7 @@ import com.smartscript.platform.user.util.AppHashes;
  *   - 手机号、角色、实名状态不在请求对象内，因此无法经此接口修改；
  *   - 目标用户始终取自当前登录身份（currentUserId），请求体不含 userId，
  *     不存在提交他人 userId 越权修改的可能；
- *   - 头像只接受平台上传服务返回的 http(s) 地址或空串（清空头像）；
+ *   - 头像接受平台资源路径、兼容 http(s) 地址或空串（清空头像）；
  *   - 昵称去首尾空白并限制长度，空昵称拒绝（避免列表出现无名用户）；
  *   - 简介去首尾空白，允许空串（清空），长度上限 200。
  */
@@ -119,10 +120,8 @@ public class AppUserProfileService
     }
 
     /**
-     * 头像规范化：允许空串（清空）或 http(s) 地址。
-     *
-     * 只接受绝对 http(s) 地址，拒绝 javascript:/data: 等可执行或内联协议，
-     * 避免客户端把用户可控内容当资源加载。
+     * 平台头像存资源路径，避免把上传设备的 localhost 等主机地址绑定到账号。
+     * 历史平台绝对地址同样规范化；外部 HTTP(S) 图片地址继续兼容。
      */
     static String normalizeAvatar(String raw)
     {
@@ -131,16 +130,54 @@ public class AppUserProfileService
         {
             return "";
         }
+        if (!value.startsWith("/profile/"))
+        {
+            try
+            {
+                URI uri = URI.create(value.replace(" ", "%20"));
+                if (!("http".equalsIgnoreCase(uri.getScheme()) || "https".equalsIgnoreCase(uri.getScheme()))
+                        || uri.getHost() == null || uri.getUserInfo() != null)
+                {
+                    throw new IllegalArgumentException();
+                }
+                String path = uri.getPath();
+                int resourceStart = path == null ? -1 : path.indexOf("/profile/upload/");
+                if (resourceStart < 0 && path != null)
+                {
+                    resourceStart = path.indexOf("/profile/avatar/");
+                }
+                if (resourceStart >= 0)
+                {
+                    value = path.substring(resourceStart);
+                }
+            }
+            catch (IllegalArgumentException e)
+            {
+                throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "avatar must be a platform path or http(s) url");
+            }
+        }
+        if (value.startsWith("/profile/") && !validAvatarPath(value))
+        {
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "invalid avatar path");
+        }
         if (value.length() > AVATAR_MAX)
         {
             throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "avatar too long");
         }
-        String lower = value.toLowerCase();
-        if (!lower.startsWith("http://") && !lower.startsWith("https://"))
-        {
-            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "avatar must be an http(s) url");
-        }
         return value;
+    }
+
+    private static boolean validAvatarPath(String value)
+    {
+        if (!(value.startsWith("/profile/upload/") || value.startsWith("/profile/avatar/"))
+                || value.indexOf('\\') >= 0 || value.indexOf('?') >= 0 || value.indexOf('#') >= 0
+                || value.indexOf('%') >= 0 || value.chars().anyMatch(Character::isISOControl)
+                || !value.matches("(?i).*\\.(jpg|jpeg|png|gif|bmp)$"))
+        {
+            return false;
+        }
+        return Arrays.stream(value.substring(1).split("/", -1))
+                .noneMatch(part -> part.isEmpty() || part.equals(".") || part.equals(".."));
     }
 
     /**

@@ -8,7 +8,7 @@ spring:
             master:
                 url: ${DB_URL:jdbc:mysql://124.221.131.38:3306/script_platform_dev?useUnicode=true&characterEncoding=utf8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai&connectTimeout=10000&socketTimeout=30000}
                 username: ${DB_USERNAME:dev_he_minghao}
-                password: ${DB_PASSWORD:W2yW6NuQbd5VWy5WIDWe}
+                password: ${DB_PASSWORD}
             # 从库数据源
             slave:
                 # 从数据源开关/默认关闭

@@ -2,6 +2,7 @@ package com.ruoyi.system.domain;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
+import jakarta.validation.constraints.Pattern;
 import org.apache.commons.lang3.builder.ToStringBuilder;
 import org.apache.commons.lang3.builder.ToStringStyle;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -31,6 +32,9 @@ public class SysNotice extends BaseEntity
 
     /** 公告状态（0正常 1关闭） */
     private String status;
+
+    /** 接收范围：USER 普通用户、ADMIN 后台管理员、ALL 全部。 */
+    private String audience;
 
     /** 是否已读 */
     @JsonProperty("isRead")
@@ -64,6 +68,7 @@ public class SysNotice extends BaseEntity
         this.noticeType = noticeType;
     }
 
+    @Pattern(regexp = "[12]", message = "公告类型无效")
     public String getNoticeType()
     {
         return noticeType;
@@ -84,9 +89,21 @@ public class SysNotice extends BaseEntity
         this.status = status;
     }
 
+    @Pattern(regexp = "[01]", message = "公告状态无效")
     public String getStatus()
     {
         return status;
+    }
+
+    @Pattern(regexp = "USER|ADMIN|ALL", message = "公告接收范围无效")
+    public String getAudience()
+    {
+        return audience;
+    }
+
+    public void setAudience(String audience)
+    {
+        this.audience = audience;
     }
 
     public boolean getIsRead()

@@ -111,7 +111,7 @@ $env:DB_PASSWORD = '<本机私有口令>'
 按 [`scripts/db/init-steps.txt`](scripts/db/init-steps.txt) 执行唯一一步，**顺序只有这一处定义**，
 两个脚本共用：[`sql/smartscript_full_init.sql`](sql/smartscript_full_init.sql)。
 
-该文件自上而下共 9 部分，全部幂等（空库完整导入；已有库跳过已有结构、只补缺失部分）：
+该文件主结构为第 0–9 部分，全部幂等（空库完整导入；已有库跳过已有结构、只补缺失部分）：
 
 | 部分 | 内容 |
 | ---: | --- |
@@ -120,6 +120,7 @@ $env:DB_PASSWORD = '<本机私有口令>'
 | 3 | `sys_user.bio`（A5）、`(user_type, del_flag)` 覆盖索引（H12）、`sys_role.app_grantable`（A4） |
 | 4–5 | 产品/用户中心/内容/交易菜单与角色授权（A1+PC+B1+C 最终形态，upsert） |
 | 6–8 | C 交易域 15 张业务表、交易字典 14 类型/52 项、询盘过期定时任务 |
+| 9 | 公告接收范围 `USER/ADMIN/ALL`、可见性索引、消息与公告按钮权限；历史公告默认为 `ADMIN`，不自动授予受限角色管理权限 |
 
 **任一步失败立即停止**，并打印该步输出尾部与完整日志路径（失败时保留临时日志目录，
 查看后自行删除）。也可以绕过脚本直接执行：
@@ -171,3 +172,7 @@ java -jar ruoyi-admin/target/ruoyi-admin.jar
 ## 仓库地址
 
 `https://github.com/xiangmuliuzu/smart-script-backend`
+
+## 数据库密码配置
+
+数据库密码必须通过 `DB_PASSWORD` 环境变量注入，不再使用仓库内的默认值。本机开发仍可使用 `.env.local`；云端部署时也必须设置 `DB_PASSWORD`。

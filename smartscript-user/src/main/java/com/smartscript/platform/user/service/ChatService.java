@@ -22,7 +22,7 @@ import com.smartscript.platform.user.mapper.ChatSessionMapper;
  *
  * 约定：
  *   - user1 = App 用户（发起方），user2 = 管理员（接收方）。
- *   - status：0=待处理 1=处理中 2=已结束。
+ *   - status：0=进行中 2=已结束；历史状态 1 兼容为进行中。
  *   - 创建会话幂等：同一 (user1, user2, businessType, businessId) 只建一条。
  *   - 用户只能查看自己的会话（SQL 层强制）。
  */
@@ -37,7 +37,6 @@ public class ChatService
 
     /** 会话状态 */
     public static final int STATUS_PENDING    = 0;
-    public static final int STATUS_PROCESSING = 1;
     public static final int STATUS_CLOSED     = 2;
 
     /** 默认管理员（暂无分配逻辑时兜底） */
@@ -127,7 +126,15 @@ public class ChatService
     public List<Map<String, Object>> adminSessions(Integer status, String businessType, String keyword)
     {
         List<ChatSession> rows = sessionMapper.selectAdminSessions(status, businessType, keyword);
-        List<Map<String, Object>> list = new ArrayList<>();
+        List<Map<String, Object>> list;
+        // 保留 PageHelper 的全量总数，否则映射后 Controller 只能得到当前页条数。
+        if (rows instanceof com.github.pagehelper.Page<?> page)
+        {
+            var mapped = new com.github.pagehelper.Page<Map<String, Object>>(page.getPageNum(), page.getPageSize());
+            mapped.setTotal(page.getTotal());
+            list = mapped;
+        }
+        else list = new ArrayList<>();
         for (ChatSession s : rows)
         {
             list.add(toAdminSessionVo(s));
@@ -144,6 +151,48 @@ public class ChatService
             throw new AppAuthException(AppUserErrorCodes.RESOURCE_NOT_FOUND, 404, "会话不存在");
         }
         return toAdminSessionVo(s);
+    }
+
+    /** 进入详情即由当前管理员处理，并只标记本次已显示的用户消息。 */
+    @Transactional
+    public Map<String, Object> openAdminSession(Long sessionId, Long adminId, Long throughMessageId)
+    {
+        ChatSession session = lockedSession(sessionId);
+        sessionMapper.claimAdmin(sessionId, adminId);
+        readAdminMessages(session, throughMessageId);
+        return adminSessionDetail(sessionId);
+    }
+
+    /** 页面前台刷新后的自动已读；刷新不能重新接手其他管理员的会话。 */
+    @Transactional
+    public Map<String, Object> markAdminSessionRead(Long sessionId, Long adminId, Long throughMessageId)
+    {
+        ChatSession session = lockedSession(sessionId);
+        if (!adminId.equals(handlerId(session)))
+            throw new AppAuthException(AppUserErrorCodes.DOMAIN_OR_PERMISSION, 403, "会话已由其他管理员打开处理");
+        return Map.of("changed", readAdminMessages(session, throughMessageId) > 0);
+    }
+
+    private ChatSession lockedSession(Long sessionId)
+    {
+        ChatSession session = sessionMapper.selectForUpdate(sessionId);
+        if (session == null)
+            throw new AppAuthException(AppUserErrorCodes.RESOURCE_NOT_FOUND, 404, "会话不存在");
+        return session;
+    }
+
+    private int readAdminMessages(ChatSession session, Long throughMessageId)
+    {
+        if (throughMessageId == null || throughMessageId < 0)
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "已读消息编号无效");
+        int changed = messageMapper.markAdminReadThrough(session.getSessionId(), session.getUser1Id(), throughMessageId, new Date());
+        sessionMapper.refreshAdminUnread(session.getSessionId(), session.getUser1Id());
+        return changed;
+    }
+
+    private Long handlerId(ChatSession session)
+    {
+        return session.getAssignedAdminId() == null ? session.getUser2Id() : session.getAssignedAdminId();
     }
 
     /* ========== 任务 4：历史消息 ========== */
@@ -176,17 +225,15 @@ public class ChatService
         {
             throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "消息内容不能为空");
         }
-        ChatSession session = sessionMapper.selectById(sessionId);
-        if (session == null)
-        {
-            throw new AppAuthException(AppUserErrorCodes.RESOURCE_NOT_FOUND, 404, "会话不存在");
-        }
+        ChatSession session = lockedSession(sessionId);
+        if (!senderId.equals(session.getUser1Id()) && !senderId.equals(handlerId(session)))
+            throw new AppAuthException(AppUserErrorCodes.DOMAIN_OR_PERMISSION, 403, "无权在当前会话发送消息，请重新进入详情");
         // 已结束会话不允许发消息
         if (session.getStatus() != null && session.getStatus() == STATUS_CLOSED)
         {
             throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "会话已结束，无法发送消息");
         }
-        Long receiverId = session.getUser1Id().equals(senderId) ? session.getUser2Id() : session.getUser1Id();
+        Long receiverId = session.getUser1Id().equals(senderId) ? handlerId(session) : session.getUser1Id();
         String msgType = (req.getMsgType() != null && !req.getMsgType().isBlank()) ? req.getMsgType() : MSG_TYPE_TEXT;
         if (MSG_TYPE_SYSTEM.equals(msgType))
         {
@@ -289,14 +336,14 @@ public class ChatService
 
     /**
      * 幂等复用命中已关闭会话时自动重开：同一用户/管理员再次就同一业务发起咨询，
-     * 复用原会话并置回处理中（保持业务上下文连贯），写入系统提示。
+     * 复用原会话并置回进行中（保持业务上下文连贯），写入系统提示。
      */
     private void resumeIfClosed(ChatSession existing)
     {
         if (existing.getStatus() != null && existing.getStatus() == STATUS_CLOSED)
         {
-            sessionMapper.updateStatus(existing.getSessionId(), STATUS_PROCESSING);
-            existing.setStatus(STATUS_PROCESSING);
+            sessionMapper.updateStatus(existing.getSessionId(), STATUS_PENDING);
+            existing.setStatus(STATUS_PENDING);
             insertSystemNotice(existing.getSessionId(), "会话已重新打开，可继续沟通");
         }
     }
@@ -322,7 +369,7 @@ public class ChatService
         Long assigned = session.getAssignedAdminId();
         if (assigned != null && !assigned.equals(adminId))
         {
-            throw new AppAuthException(AppUserErrorCodes.DOMAIN_OR_PERMISSION, 403, "会话已分配给其他管理员处理，当前账号无法参与");
+            throw new AppAuthException(AppUserErrorCodes.DOMAIN_OR_PERMISSION, 403, "会话已由其他管理员打开处理，请重新进入详情");
         }
     }
 
@@ -331,27 +378,22 @@ public class ChatService
     /**
      * 变更会话状态。
      *
-     * @param action "processing" | "close" | "reopen"
+     * @param action "close" | "reopen"
      */
     @Transactional
-    public Map<String, Object> changeStatus(Long sessionId, String action)
+    public Map<String, Object> changeStatus(Long sessionId, Long adminId, String action)
     {
-        ChatSession session = sessionMapper.selectById(sessionId);
-        if (session == null)
-        {
-            throw new AppAuthException(AppUserErrorCodes.RESOURCE_NOT_FOUND, 404, "会话不存在");
-        }
+        ChatSession session = lockedSession(sessionId);
+        if (!adminId.equals(handlerId(session)))
+            throw new AppAuthException(AppUserErrorCodes.DOMAIN_OR_PERMISSION, 403, "会话已由其他管理员打开处理，请重新进入详情");
         int newStatus;
         switch (action)
         {
-            case "processing":
-                newStatus = STATUS_PROCESSING;
-                break;
             case "close":
                 newStatus = STATUS_CLOSED;
                 break;
             case "reopen":
-                newStatus = STATUS_PROCESSING;
+                newStatus = STATUS_PENDING;
                 break;
             default:
                 throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "无效操作：" + action);
@@ -364,6 +406,7 @@ public class ChatService
      * 用户端重新打开已结束的会话：仅会话归属用户（user1）可操作，
      * 且仅已结束状态可重开；重开后写入系统提示。
      */
+    @Transactional
     public Map<String, Object> reopenByUser(Long sessionId, Long userId, String action)
     {
         if (!"reopen".equals(action))
@@ -383,9 +426,9 @@ public class ChatService
         {
             throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "会话未结束，无需重新打开");
         }
-        sessionMapper.updateStatus(sessionId, STATUS_PROCESSING);
+        sessionMapper.updateStatus(sessionId, STATUS_PENDING);
         insertSystemNotice(sessionId, "用户重新打开了会话");
-        return Map.of("sessionId", sessionId, "status", STATUS_PROCESSING);
+        return Map.of("sessionId", sessionId, "status", STATUS_PENDING);
     }
 
     /* ========== VO 转换 ========== */
@@ -397,7 +440,7 @@ public class ChatService
         vo.put("businessType", s.getBusinessType());
         vo.put("businessId", s.getBusinessId());
         vo.put("businessName", s.getBusinessName());
-        vo.put("status", s.getStatus());
+        vo.put("status", Integer.valueOf(STATUS_CLOSED).equals(s.getStatus()) ? STATUS_CLOSED : STATUS_PENDING);
         vo.put("lastMessage", s.getLastMessage());
         vo.put("lastMessageTime", s.getLastMessageTime());
         vo.put("createdAt", s.getCreatedAt());
@@ -408,7 +451,7 @@ public class ChatService
         vo.put("unread", unread);
         // 对方信息
         boolean isUser1 = currentUserId.equals(s.getUser1Id());
-        vo.put("peerId", isUser1 ? s.getUser2Id() : s.getUser1Id());
+        vo.put("peerId", isUser1 ? handlerId(s) : s.getUser1Id());
         vo.put("peerName", isUser1 ? s.getUser2Name() : s.getUser1Name());
         vo.put("peerAvatar", isUser1 ? s.getUser2Avatar() : s.getUser1Avatar());
         return vo;
@@ -422,7 +465,7 @@ public class ChatService
         vo.put("businessType", s.getBusinessType());
         vo.put("businessId", s.getBusinessId());
         vo.put("businessName", s.getBusinessName());
-        vo.put("status", s.getStatus());
+        vo.put("status", Integer.valueOf(STATUS_CLOSED).equals(s.getStatus()) ? STATUS_CLOSED : STATUS_PENDING);
         vo.put("assignedAdminId", s.getAssignedAdminId());
         vo.put("lastMessage", s.getLastMessage());
         vo.put("lastMessageTime", s.getLastMessageTime());
@@ -433,7 +476,7 @@ public class ChatService
         vo.put("user1Name", s.getUser1Name());
         vo.put("user1Avatar", s.getUser1Avatar());
         vo.put("user1Unread", s.getUser1Unread());
-        vo.put("user2Id", s.getUser2Id());
+        vo.put("user2Id", handlerId(s));
         vo.put("user2Name", s.getUser2Name());
         vo.put("user2Avatar", s.getUser2Avatar());
         vo.put("user2Unread", s.getUser2Unread());

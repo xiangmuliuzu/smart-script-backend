@@ -73,7 +73,7 @@ class AppUserCenterUnitTest
     }
 
     @Test
-    void avatarAcceptsOnlyHttpUrlsOrEmpty()
+    void avatarAcceptsPlatformPathsHttpUrlsOrEmpty()
     {
         assertEquals("", AppUserProfileService.normalizeAvatar(null));
         assertEquals("", AppUserProfileService.normalizeAvatar("   "));
@@ -82,7 +82,32 @@ class AppUserCenterUnitTest
         // 非 http(s) 协议与会话可执行协议一律拒绝
         assertThrows(AppAuthException.class, () -> AppUserProfileService.normalizeAvatar("javascript:alert(1)"));
         assertThrows(AppAuthException.class, () -> AppUserProfileService.normalizeAvatar("data:text/html;base64,AA"));
-        assertThrows(AppAuthException.class, () -> AppUserProfileService.normalizeAvatar("/profile/upload/a.png"));
+        assertEquals("/profile/upload/a.png", AppUserProfileService.normalizeAvatar("/profile/upload/a.png"));
+    }
+
+    @Test
+    void historicalAvatarHostIsRemovedBeforeCheckingColumnLength()
+    {
+        String path = "/profile/upload/2026/10/09/avatar.png";
+        assertEquals(path, AppUserProfileService.normalizeAvatar("http://localhost:8080" + path));
+        assertEquals(path, AppUserProfileService.normalizeAvatar("http://10.0.2.2:8080" + path));
+        assertEquals(path, AppUserProfileService.normalizeAvatar("https://" + "long".repeat(20) + ".test/gateway" + path));
+        assertEquals("/profile/avatar/a.jpg", AppUserProfileService.normalizeAvatar("/profile/avatar/a.jpg"));
+        assertEquals("https://cdn.test/profile/photos/avatar.png",
+                AppUserProfileService.normalizeAvatar("https://cdn.test/profile/photos/avatar.png"));
+    }
+
+    @Test
+    void avatarRejectsTraversalUnsafePathsAndMalformedUrls()
+    {
+        for (String value : List.of("/profile/upload/../a.png", "/profile/upload/%2e%2e/a.png",
+                "/profile/upload/a.png?x=1", "/profile/upload/a.png#x", "/profile/upload/a\\b.png",
+                "/profile/upload/a\n\nb.png", "/profile/upload/a.html", "/profile/other/a.png",
+                "//other.test/a.png", "https://", "https://name:password@other.test/a.png",
+                "http://localhost/profile/upload/%2e%2e/a.png", "https://other.test/" + "a".repeat(101)))
+        {
+            assertThrows(AppAuthException.class, () -> AppUserProfileService.normalizeAvatar(value), value);
+        }
     }
 
     // ---------------- 实名 ----------------

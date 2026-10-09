@@ -121,8 +121,17 @@ class ContentModuleBoundaryTest
             if (hasRest)
             {
                 assertTrue(file.contains("/controller/"), "控制器必须位于 controller 包: " + file);
+                // A2 私有作品接口的已锁定路径，用户归属由 IdentityProvider 校验。
+                // 仅该控制器使用用户域路径，其余内容控制器仍沿用原边界。
                 String expectedPrefix = file.contains("/controller/admin/")
-                        ? "/api/v1/admin/content" : "/api/v1/content";
+                        ? "/api/v1/admin/content"
+                        : file.endsWith("/controller/app/AppUserWorkController.java")
+                                ? "/api/v1/users/me/works" : "/api/v1/content";
+                if (file.endsWith("/controller/app/AppUserWorkController.java"))
+                {
+                    assertTrue(src.contains("@RequestMapping(\"/api/v1/users/me/works\")"),
+                            "A2 私有作品控制器必须保持已锁定的用户域路径: " + file);
+                }
                 assertTrue(src.contains(expectedPrefix),
                         "业务模块控制器必须挂在 " + expectedPrefix + " 之下: " + file);
             }

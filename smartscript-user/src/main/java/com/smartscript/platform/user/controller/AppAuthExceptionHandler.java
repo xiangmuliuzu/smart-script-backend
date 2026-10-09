@@ -27,7 +27,7 @@ import com.smartscript.platform.user.exception.AppAuthException;
  * 使 App 用户域对外只有一套错误语义（契约 A5-USER-CENTER-CONTRACT-v1 §1.7）。
  */
 @RestControllerAdvice(assignableTypes = { AppAuthController.class, AppUserController.class,
-        AppMessageController.class, AppFeedbackController.class })
+        AppMessageController.class, AppFeedbackController.class, AppAnnouncementController.class })
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class AppAuthExceptionHandler
 {

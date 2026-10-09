@@ -23,6 +23,13 @@ public interface ChatSessionMapper
     /** 按 session_id 查询（不校验归属，管理端用） */
     ChatSession selectById(@Param("sessionId") Long sessionId);
 
+    ChatSession selectForUpdate(@Param("sessionId") Long sessionId);
+
+    /** 打开详情者接手，保留原始参与方以维持业务唯一键。 */
+    int claimAdmin(@Param("sessionId") Long sessionId, @Param("adminId") Long adminId);
+
+    int refreshAdminUnread(@Param("sessionId") Long sessionId, @Param("userId") Long userId);
+
     /** 用户端：我的会话列表（user1_id 或 user2_id 命中） */
     List<ChatSession> selectMySessions(@Param("userId") Long userId,
                                        @Param("status") Integer status);

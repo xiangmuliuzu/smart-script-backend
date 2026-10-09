@@ -1,6 +1,8 @@
 package com.ruoyi.web.controller.system;
 
 import java.util.List;
+import java.util.Map;
+import com.github.pagehelper.PageHelper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.validation.annotation.Validated;
@@ -12,6 +14,11 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseBody;
+import org.springframework.web.bind.annotation.RequestParam;
+import com.ruoyi.common.exception.ServiceException;
+import com.ruoyi.common.utils.SecurityUtils;
+import com.ruoyi.system.domain.NoticeReceipt;
+import com.ruoyi.system.service.NoticeRecipientService;
 import org.springframework.web.bind.annotation.RestController;
 import com.ruoyi.common.annotation.Log;
 import com.ruoyi.common.core.controller.BaseController;
@@ -20,7 +27,6 @@ import com.ruoyi.common.core.page.TableDataInfo;
 import com.ruoyi.common.core.text.Convert;
 import com.ruoyi.common.enums.BusinessType;
 import com.ruoyi.system.domain.SysNotice;
-import com.ruoyi.system.service.ISysNoticeReadService;
 import com.ruoyi.system.service.ISysNoticeService;
 
 /**
@@ -36,16 +42,18 @@ public class SysNoticeController extends BaseController
     private ISysNoticeService noticeService;
 
     @Autowired
-    private ISysNoticeReadService noticeReadService;
+    private NoticeRecipientService recipientService;
 
     /**
      * 获取通知公告列表
      */
     @PreAuthorize("@ss.hasPermi('system:notice:list')")
     @GetMapping("/list")
-    public TableDataInfo list(SysNotice notice)
+    public TableDataInfo list(SysNotice notice,
+            @RequestParam(defaultValue = "1") int pageNum, @RequestParam(defaultValue = "10") int pageSize)
     {
-        startPage();
+        requireAdministrator();
+        PageHelper.startPage(Math.max(1, pageNum), Math.max(1, Math.min(100, pageSize)));
         List<SysNotice> list = noticeService.selectNoticeList(notice);
         return getDataTable(list);
     }
@@ -57,6 +65,7 @@ public class SysNoticeController extends BaseController
     @GetMapping(value = "/{noticeId}")
     public AjaxResult getInfo(@PathVariable Long noticeId)
     {
+        requireAdministrator();
         return success(noticeService.selectNoticeById(noticeId));
     }
 
@@ -68,6 +77,7 @@ public class SysNoticeController extends BaseController
     @PostMapping
     public AjaxResult add(@Validated @RequestBody SysNotice notice)
     {
+        requireAdministrator();
         notice.setCreateBy(getUsername());
         return toAjax(noticeService.insertNotice(notice));
     }
@@ -80,6 +90,7 @@ public class SysNoticeController extends BaseController
     @PutMapping
     public AjaxResult edit(@Validated @RequestBody SysNotice notice)
     {
+        requireAdministrator();
         notice.setUpdateBy(getUsername());
         return toAjax(noticeService.updateNotice(notice));
     }
@@ -91,11 +102,11 @@ public class SysNoticeController extends BaseController
     @ResponseBody
     public AjaxResult listTop()
     {
-        Long userId = getUserId();
-        List<SysNotice> list = noticeReadService.selectNoticeListWithReadStatus(userId, 5);
-        long unreadCount = list.stream().filter(n -> !n.getIsRead()).count();
-        AjaxResult result = AjaxResult.success(list);
-        result.put("unreadCount", unreadCount);
+        requireAdministrator();
+        PageHelper.startPage(1, 5, false);
+        List<NoticeReceipt> list = recipientService.list(getUserId(), "00");
+        AjaxResult result = success(list);
+        result.put("unreadCount", recipientService.unreadCount(getUserId(), "00"));
         return result;
     }
 
@@ -106,8 +117,8 @@ public class SysNoticeController extends BaseController
     @ResponseBody
     public AjaxResult markRead(Long noticeId)
     {
-        Long userId = getUserId();
-        noticeReadService.markRead(noticeId, userId);
+        requireAdministrator();
+        recipientService.markRead(getUserId(), "00", noticeId);
         return success();
     }
 
@@ -118,9 +129,9 @@ public class SysNoticeController extends BaseController
     @ResponseBody
     public AjaxResult markReadAll(String ids)
     {
-        Long userId = getUserId();
+        requireAdministrator();
         Long[] noticeIds = Convert.toLongArray(ids);
-        noticeReadService.markReadBatch(userId, noticeIds);
+        recipientService.markReadBatch(getUserId(), "00", noticeIds);
         return success();
     }
 
@@ -132,7 +143,53 @@ public class SysNoticeController extends BaseController
     @DeleteMapping("/{noticeIds}")
     public AjaxResult remove(@PathVariable Long[] noticeIds)
     {
-        noticeReadService.deleteByNoticeIds(noticeIds);
+        requireAdministrator();
         return toAjax(noticeService.deleteNoticeByIds(noticeIds));
     }
+
+    @GetMapping("/received")
+    public TableDataInfo received(@RequestParam(defaultValue = "1") int pageNum,
+            @RequestParam(defaultValue = "10") int pageSize)
+    {
+        requireAdministrator();
+        PageHelper.startPage(Math.max(1, pageNum), Math.max(1, Math.min(100, pageSize)));
+        return getDataTable(recipientService.list(getUserId(), "00"));
+    }
+
+    @GetMapping("/received/{noticeId}")
+    public AjaxResult receivedDetail(@PathVariable Long noticeId)
+    {
+        requireAdministrator();
+        return success(recipientService.detail(getUserId(), "00", noticeId));
+    }
+
+    @GetMapping("/received/unread-count")
+    public AjaxResult unreadCount()
+    {
+        requireAdministrator();
+        return success(Map.of("total", recipientService.unreadCount(getUserId(), "00")));
+    }
+
+    @PutMapping("/received/{noticeId}/read")
+    public AjaxResult read(@PathVariable Long noticeId)
+    {
+        requireAdministrator();
+        return success(Map.of("changed", recipientService.markRead(getUserId(), "00", noticeId)));
+    }
+
+    @PutMapping("/received/read-all")
+    public AjaxResult readAll()
+    {
+        requireAdministrator();
+        return success(Map.of("updated", recipientService.markAllRead(getUserId(), "00")));
+    }
+
+    private void requireAdministrator()
+    {
+        var user = SecurityUtils.getLoginUser().getUser();
+        if (user == null || !"00".equals(user.getUserType()) || !"0".equals(user.getStatus())
+                || !"0".equals(user.getDelFlag()))
+            throw new ServiceException("仅后台管理员可访问", 403);
+    }
+
 }

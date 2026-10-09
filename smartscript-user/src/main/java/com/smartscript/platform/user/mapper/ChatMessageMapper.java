@@ -20,4 +20,10 @@ public interface ChatMessageMapper
     int markReadBySession(@Param("sessionId") Long sessionId,
                           @Param("receiverId") Long receiverId,
                           @Param("readTime") Date readTime);
+
+    /** 管理员读到的用户消息，兼容曾投递给其他管理员的历史消息。 */
+    int markAdminReadThrough(@Param("sessionId") Long sessionId,
+                             @Param("userId") Long userId,
+                             @Param("throughMessageId") Long throughMessageId,
+                             @Param("readTime") Date readTime);
 }

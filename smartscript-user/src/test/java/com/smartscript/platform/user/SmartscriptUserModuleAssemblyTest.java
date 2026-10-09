@@ -29,7 +29,7 @@ class SmartscriptUserModuleAssemblyTest
     {
         Path root = moduleMainJava();
         String[] allowedPrefixes = {
-                "/api/v1/auth", "/api/v1/users", "/api/v1/messages", "/api/v1/feedback"
+                "/api/v1/auth", "/api/v1/users", "/api/v1/messages", "/api/v1/feedback", "/api/v1/announcements"
         };
         try (Stream<Path> files = Files.walk(root))
         {

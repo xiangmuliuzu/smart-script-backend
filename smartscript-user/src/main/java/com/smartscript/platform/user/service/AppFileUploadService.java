@@ -3,6 +3,8 @@ package com.smartscript.platform.user.service;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.File;
+import java.util.Locale;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -38,7 +40,7 @@ import com.smartscript.platform.user.exception.AppAuthException;
  *
  * 强制边界：
  *   - 只允许图片扩展名（bmp/gif/jpg/jpeg/png）；
- *   - 先校验大小再落盘，超限返回 400 而不是依赖容器异常；
+ *   - 先校验大小再落盘，超限返回 413；
  *   - 扩展名与 MIME 由客户端可控（校验标准 P09）：落盘前用实际字节验证
  *     图片可解码，损坏或伪装内容在此拒绝，不落盘；
  *   - 不把底层异常文案与原始文件名写入日志。
@@ -94,12 +96,17 @@ public class AppFileUploadService
             log.warn("a5-avatar content read failed: {}", e.getClass().getSimpleName());
             throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "图片格式或大小不符合要求");
         }
-        validateImageContent(content);
+        if (!FileUploadUtils.isAllowedExtension(FileUploadUtils.getExtension(file), MimeTypeUtils.IMAGE_EXTENSION))
+        {
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "图片格式或大小不符合要求");
+        }
+        String format = validateImageContent(content);
         final String storedPath;
         try
         {
-            // 复用若依上传实现：同一上传目录与同一套扩展名/文件名长度校验
-            storedPath = FileUploadUtils.upload(RuoYiConfig.getUploadPath(), file, MimeTypeUtils.IMAGE_EXTENSION);
+            // 短 UUID 文件名与实际图片格式，避免原名过长或旧客户端统一命名 JPG。
+            storedPath = FileUploadUtils.upload(RuoYiConfig.getUploadPath(),
+                    new ImageFile(file, format), MimeTypeUtils.IMAGE_EXTENSION, true);
         }
         catch (InvalidExtensionException | FileSizeLimitExceededException | FileNameLengthLimitExceededException e)
         {
@@ -127,8 +134,9 @@ public class AppFileUploadService
      * 先由 ImageReader 按实际字节识别格式并限制像素规模（防解压炸弹），
      * 再整体解码一次验证内容完整可解码；伪装成图片的文本或损坏文件在此拒绝。
      */
-    static void validateImageContent(byte[] content)
+    static String validateImageContent(byte[] content)
     {
+        final String format;
         try (InputStream in = new java.io.ByteArrayInputStream(content);
              ImageInputStream imageIn = ImageIO.createImageInputStream(in))
         {
@@ -141,6 +149,12 @@ public class AppFileUploadService
             try
             {
                 reader.setInput(imageIn);
+                String detected = reader.getFormatName().toLowerCase(Locale.ROOT);
+                format = "jpeg".equals(detected) ? "jpg" : detected;
+                if (!FileUploadUtils.isAllowedExtension(format, MimeTypeUtils.IMAGE_EXTENSION))
+                {
+                    throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "图片格式或大小不符合要求");
+                }
                 int width = reader.getWidth(0);
                 int height = reader.getHeight(0);
                 if (width <= 0 || height <= 0 || (long) width * (long) height > MAX_IMAGE_PIXELS)
@@ -173,5 +187,20 @@ public class AppFileUploadService
         {
             throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "图片格式或大小不符合要求");
         }
+        return format;
+    }
+
+    /** 只改变存储用文件名，字节与大小仍由已经校验的原始文件提供。 */
+    private record ImageFile(MultipartFile source, String format) implements MultipartFile
+    {
+        @Override public String getName() { return source.getName(); }
+        @Override public String getOriginalFilename() { return "avatar." + format; }
+        @Override public String getContentType() { return "image/" + ("jpg".equals(format) ? "jpeg" : format); }
+        @Override public boolean isEmpty() { return source.isEmpty(); }
+        @Override public long getSize() { return source.getSize(); }
+        @Override public byte[] getBytes() throws IOException { return source.getBytes(); }
+        @Override public InputStream getInputStream() throws IOException { return source.getInputStream(); }
+        @Override public void transferTo(File dest) throws IOException { source.transferTo(dest); }
+        @Override public void transferTo(java.nio.file.Path dest) throws IOException { source.transferTo(dest); }
     }
 }

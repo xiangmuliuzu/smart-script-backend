@@ -44,7 +44,7 @@ public class AppAuthSecurityConfig
      */
     static final String[] APP_PATH_PREFIXES = {
             "/api/v1/auth/**", "/api/v1/users/**", "/api/v1/messages/**", "/api/v1/feedback/**",
-            "/api/v1/content/**", "/api/v1/pc-auth/**"
+            "/api/v1/content/**", "/api/v1/pc-auth/**", "/api/v1/announcements/**"
     };
 
     @Bean
@@ -101,7 +101,7 @@ public class AppAuthSecurityConfig
                         // App 用户中心 / 消息 / 反馈 / 业务模块私有接口：全部要求 App Access Token
                         .requestMatchers("/api/v1/auth/**", "/api/v1/users/**",
                                 "/api/v1/messages/**", "/api/v1/feedback/**",
-                                "/api/v1/content/**").authenticated()
+                                "/api/v1/content/**", "/api/v1/announcements/**").authenticated()
                         .anyRequest().denyAll())
                 .addFilterBefore(appFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();
