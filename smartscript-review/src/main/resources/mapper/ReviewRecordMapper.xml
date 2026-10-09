@@ -10,7 +10,7 @@
         <result property="aiResult"     column="ai_result"      />
         <result property="reviewOpinion" column="review_opinion"/>
         <result property="reviewerId"   column="reviewer_id"    />
-        <result property="reviewedAt"   column="reviewed_at"    />
+        <result property="reviewedAt"   column="review_end_time"    />
         <result property="createBy"     column="create_by"      />
         <result property="createTime"   column="create_time"    />
         <result property="updateBy"     column="update_by"      />
@@ -25,10 +25,10 @@
 
     <sql id="selectReviewRecordVo">
         SELECT r.review_id, r.target_type, r.target_id, r.status, r.ai_result,
-               r.review_opinion, r.reviewer_id, r.reviewed_at,
+               r.review_opinion, r.reviewer_id, r.review_end_time,
                r.create_by, r.create_time, r.update_by, r.update_time, r.remark,
                w.title as work_title, w.work_type, c.category_name as genre_name,
-               u.nickname as author_name,
+               u.nick_name as author_name,
                CAST(JSON_EXTRACT(r.ai_result, '$.score') AS UNSIGNED) as ai_score
         FROM sys_review_record r
         LEFT JOIN sys_work w ON r.target_id = w.work_id AND r.target_type = 'work'
@@ -63,7 +63,7 @@
             <if test="aiResult != null">ai_result,</if>
             <if test="reviewOpinion != null">review_opinion,</if>
             <if test="reviewerId != null">reviewer_id,</if>
-            <if test="reviewedAt != null">reviewed_at,</if>
+            <if test="reviewedAt != null">review_end_time,</if>
             <if test="createBy != null">create_by,</if>
             <if test="createTime != null">create_time,</if>
             <if test="updateBy != null">update_by,</if>
@@ -92,10 +92,11 @@
             <if test="targetType != null and targetType != ''">target_type = #{targetType},</if>
             <if test="targetId != null">target_id = #{targetId},</if>
             <if test="status != null and status != ''">status = #{status},</if>
+            <if test="reviewResult != null and reviewResult != ''">review_result = #{reviewResult},</if>
             <if test="aiResult != null">ai_result = #{aiResult},</if>
             <if test="reviewOpinion != null">review_opinion = #{reviewOpinion},</if>
             <if test="reviewerId != null">reviewer_id = #{reviewerId},</if>
-            <if test="reviewedAt != null">reviewed_at = #{reviewedAt},</if>
+            <if test="reviewedAt != null">review_end_time = #{reviewedAt},</if>
             <if test="updateBy != null">update_by = #{updateBy},</if>
             <if test="updateTime != null">update_time = #{updateTime},</if>
             <if test="remark != null">remark = #{remark},</if>
@@ -106,5 +107,10 @@
     <delete id="deleteReviewRecordById" parameterType="Long">
         DELETE FROM sys_review_record WHERE review_id = #{reviewId}
     </delete>
+
+
+    <select id="selectStatusGroup" resultType="java.util.Map">
+        SELECT status, COUNT(*) AS cnt FROM sys_review_record GROUP BY status
+    </select>
 
 </mapper>

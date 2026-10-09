@@ -58,6 +58,18 @@ public class BlacklistController {
     @PostMapping("/create")
     public Map<String, Object> add(@RequestBody Blacklist blacklist) {
         Map<String, Object> result = new HashMap<>();
+        if (blacklist.getBlackType() == null || blacklist.getBlackType().isEmpty()) {
+            blacklist.setBlackType(blacklist.getTargetType());
+        }
+        if (blacklist.getOperatorId() == null) {
+            blacklist.setOperatorId(1L);
+        }
+        if (blacklist.getDuration() == null) {
+            blacklist.setDuration(0);
+        }
+        if (blacklist.getStatus() == null || blacklist.getStatus().isEmpty()) {
+            blacklist.setStatus("enabled");
+        }
         blacklistService.insertBlacklist(blacklist);
         result.put("code", 200);
         result.put("msg", "添加黑名单成功");

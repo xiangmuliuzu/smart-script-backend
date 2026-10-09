@@ -70,4 +70,20 @@ public class AiQuotaService {
     public int insertAiQuotaRecord(AiQuotaRecord aiQuotaRecord) {
         return aiQuotaRecordMapper.insertAiQuotaRecord(aiQuotaRecord);
     }
+
+    public int countAccounts() {
+        return aiQuotaAccountMapper.countAccounts();
+    }
+
+    public int countTodayCalls() {
+        return aiQuotaRecordMapper.countTodayCalls();
+    }
+
+    public int countFailedCalls() {
+        return aiQuotaRecordMapper.countFailedCalls();
+    }
+
+    public int countRefundedCalls() {
+        return aiQuotaRecordMapper.countRefundedCalls();
+    }
 }

@@ -124,11 +124,24 @@ public class ReviewController {
     @GetMapping("/logs")
     public Map<String, Object> logs(Long reviewId) {
         Map<String, Object> result = new HashMap<>();
-        List<Map<String, Object>> logs = reviewService.selectReviewLogs(reviewId);
+        java.util.List<com.smartscript.platform.review.domain.ReviewLog> logs = reviewService.selectReviewLogs(reviewId);
+        java.util.List<Map<String, Object>> rows = new java.util.ArrayList<>();
+        for (com.smartscript.platform.review.domain.ReviewLog l : logs) {
+            Map<String, Object> m = new HashMap<>();
+            m.put("logId", l.getLogId());
+            m.put("reviewId", l.getReviewId());
+            m.put("operator", l.getOperatorName());
+            m.put("action", l.getAction());
+            m.put("beforeStatus", l.getBeforeStatus());
+            m.put("afterStatus", l.getAfterStatus());
+            m.put("reviewOpinion", l.getReviewOpinion());
+            m.put("createTime", l.getCreateTime() == null ? "" : l.getCreateTime());
+            rows.add(m);
+        }
         result.put("code", 200);
         result.put("msg", "操作成功");
-        result.put("rows", logs);
-        result.put("total", logs.size());
+        result.put("rows", rows);
+        result.put("total", rows.size());
         return result;
     }
 
@@ -138,13 +151,14 @@ public class ReviewController {
     @GetMapping("/statistics")
     public Map<String, Object> statistics() {
         Map<String, Object> result = new HashMap<>();
-        // 模拟统计数据，后续建表后改为真实统计查询
+        Map<String, Object> stats = reviewService.selectReviewStatistics();
         result.put("code", 200);
         result.put("msg", "操作成功");
-        result.put("pending", 12);
-        result.put("aiReviewing", 8);
-        result.put("approved", 156);
-        result.put("rejected", 23);
+        result.put("pending", stats.get("pending"));
+        result.put("aiReviewing", stats.get("aiReviewing"));
+        result.put("approved", stats.get("approved"));
+        result.put("rejected", stats.get("rejected"));
+        result.put("revision", stats.get("revision"));
         return result;
     }
 
@@ -181,16 +195,16 @@ public class ReviewController {
     @GetMapping("/logs/export")
     public void exportLogs(jakarta.servlet.http.HttpServletResponse response) {
         try {
-            List<Map<String, Object>> logs = reviewService.selectReviewLogs(null);
+            java.util.List<com.smartscript.platform.review.domain.ReviewLog> logs = reviewService.selectReviewLogs(null);
             StringBuilder sb = new StringBuilder();
             sb.append("时间,操作人,审核记录ID,操作,变更前状态,变更后状态\n");
-            for (Map<String, Object> log : logs) {
-                sb.append(nullSafe(String.valueOf(log.get("createTime")))).append(",")
-                  .append(nullSafe(String.valueOf(log.get("operator")))).append(",")
-                  .append(nullSafe(String.valueOf(log.get("reviewId")))).append(",")
-                  .append(nullSafe(String.valueOf(log.get("action")))).append(",")
-                  .append(nullSafe(String.valueOf(log.get("beforeStatus")))).append(",")
-                  .append(nullSafe(String.valueOf(log.get("afterStatus")))).append("\n");
+            for (com.smartscript.platform.review.domain.ReviewLog log : logs) {
+                sb.append(nullSafe(log.getCreateTime() == null ? "" : String.valueOf(log.getCreateTime()))).append(",")
+                  .append(nullSafe(log.getOperatorName())).append(",")
+                  .append(nullSafe(String.valueOf(log.getReviewId()))).append(",")
+                  .append(nullSafe(log.getAction())).append(",")
+                  .append(nullSafe(log.getBeforeStatus())).append(",")
+                  .append(nullSafe(log.getAfterStatus())).append("\n");
             }
             response.setContentType("text/csv;charset=UTF-8");
             response.setHeader("Content-Disposition", "attachment;filename=review_logs.csv");

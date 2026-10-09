@@ -3,7 +3,7 @@
 <mapper namespace="com.smartscript.platform.review.mapper.BlacklistMapper">
 
     <resultMap id="BlacklistResult" type="com.smartscript.platform.review.domain.Blacklist">
-        <id     property="id"           column="id"             />
+        <id     property="id"           column="black_id"       />
         <result property="targetType"   column="target_type"    />
         <result property="targetValue" column="target_value"   />
         <result property="reason"      column="reason"         />
@@ -16,7 +16,7 @@
     </resultMap>
 
     <sql id="selectBlacklistVo">
-        SELECT id, target_type, target_value, reason, status,
+        SELECT black_id, target_type, target_value, reason, status,
                create_by, create_time, update_by, update_time, remark
         FROM sys_blacklist
     </sql>
@@ -36,7 +36,7 @@
 
     <select id="selectBlacklistById" parameterType="Long" resultMap="BlacklistResult">
         <include refid="selectBlacklistVo"/>
-        WHERE id = #{id}
+        WHERE black_id = #{id}
     </select>
 
     <insert id="insertBlacklist" parameterType="com.smartscript.platform.review.domain.Blacklist" useGeneratedKeys="true" keyProperty="id">
@@ -44,6 +44,9 @@
         <trim prefix="(" suffix=")" suffixOverrides=",">
             <if test="targetType != null and targetType != ''">target_type,</if>
             <if test="targetValue != null and targetValue != ''">target_value,</if>
+            <if test="blackType != null and blackType != ''">black_type,</if>
+            <if test="operatorId != null">operator_id,</if>
+            <if test="duration != null">duration,</if>
             <if test="reason != null">reason,</if>
             <if test="status != null and status != ''">status,</if>
             <if test="createBy != null">create_by,</if>
@@ -55,6 +58,9 @@
         <trim prefix="values (" suffix=")" suffixOverrides=",">
             <if test="targetType != null and targetType != ''">#{targetType},</if>
             <if test="targetValue != null and targetValue != ''">#{targetValue},</if>
+            <if test="blackType != null and blackType != ''">#{blackType},</if>
+            <if test="operatorId != null">#{operatorId},</if>
+            <if test="duration != null">#{duration},</if>
             <if test="reason != null">#{reason},</if>
             <if test="status != null and status != ''">#{status},</if>
             <if test="createBy != null">#{createBy},</if>
@@ -76,11 +82,11 @@
             <if test="updateTime != null">update_time = #{updateTime},</if>
             <if test="remark != null">remark = #{remark},</if>
         </trim>
-        WHERE id = #{id}
+        WHERE black_id = #{id}
     </update>
 
     <delete id="deleteBlacklistById" parameterType="Long">
-        DELETE FROM sys_blacklist WHERE id = #{id}
+        DELETE FROM sys_blacklist WHERE black_id = #{id}
     </delete>
 
 </mapper>

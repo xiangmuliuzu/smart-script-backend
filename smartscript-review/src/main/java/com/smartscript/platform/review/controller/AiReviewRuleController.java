@@ -57,6 +57,15 @@ public class AiReviewRuleController {
      */
     @PostMapping
     public Map<String, Object> add(@RequestBody AiReviewRule aiReviewRule) {
+        if (aiReviewRule.getRuleContent() == null || aiReviewRule.getRuleContent().isEmpty()) {
+            aiReviewRule.setRuleContent("rule_" + System.currentTimeMillis());
+        }
+        if (aiReviewRule.getSort() == null) {
+            aiReviewRule.setSort(0);
+        }
+        if (aiReviewRule.getStatus() == null || aiReviewRule.getStatus().isEmpty()) {
+            aiReviewRule.setStatus("enabled");
+        }
         Map<String, Object> result = new HashMap<>();
         aiReviewRuleService.insertAiReviewRule(aiReviewRule);
         result.put("code", 200);

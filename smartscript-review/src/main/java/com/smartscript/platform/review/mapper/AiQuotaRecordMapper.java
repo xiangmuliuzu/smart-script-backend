@@ -37,4 +37,19 @@ public interface AiQuotaRecordMapper {
      * 删除AI配额记录
      */
     int deleteAiQuotaRecordById(@Param("recordId") Long recordId);
+
+    /**
+     * 今日调用次数
+     */
+    int countTodayCalls();
+
+    /**
+     * 失败次数
+     */
+    int countFailedCalls();
+
+    /**
+     * 补偿次数
+     */
+    int countRefundedCalls();
 }

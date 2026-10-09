@@ -14,6 +14,7 @@ public class ReviewRecord {
     private String targetType;
     private Long targetId;
     private String status;
+    private String reviewResult;
     private String aiResult;
     private String reviewOpinion;
     private Long reviewerId;
@@ -41,6 +42,8 @@ public class ReviewRecord {
     public Long getTargetId() { return targetId; }
     public void setTargetId(Long targetId) { this.targetId = targetId; }
     public String getStatus() { return status; }
+    public String getReviewResult() { return reviewResult; }
+    public void setReviewResult(String reviewResult) { this.reviewResult = reviewResult; }
     public void setStatus(String status) { this.status = status; }
     public String getAiResult() { return aiResult; }
     public void setAiResult(String aiResult) { this.aiResult = aiResult; }

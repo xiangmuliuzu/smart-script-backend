@@ -6,7 +6,7 @@
         <id     property="ruleId"       column="rule_id"       />
         <result property="ruleName"     column="rule_name"     />
         <result property="ruleType"    column="rule_type"      />
-        <result property="ruleContent" column="rule_content"   />
+        <result property="ruleContent" column="trigger_condition"   />
         <result property="threshold"   column="threshold"       />
         <result property="action"      column="action"          />
         <result property="status"      column="status"          />
@@ -19,7 +19,8 @@
     </resultMap>
 
     <sql id="selectRiskRuleVo">
-        SELECT rule_id, rule_name, rule_type, rule_content, threshold, action, status, sort,
+        SELECT rule_id, rule_name, rule_type, trigger_condition, threshold, action,
+               CASE WHEN status = 1 THEN 'enabled' ELSE 'disabled' END AS status, sort,
                create_by, create_time, update_by, update_time, remark
         FROM sys_risk_rule
     </sql>
@@ -49,11 +50,14 @@
         INSERT INTO sys_risk_rule
         <trim prefix="(" suffix=")" suffixOverrides=",">
             <if test="ruleName != null and ruleName != ''">rule_name,</if>
+            rule_code,
             <if test="ruleType != null and ruleType != ''">rule_type,</if>
-            <if test="ruleContent != null">rule_content,</if>
+            <if test="ruleContent != null">trigger_condition,</if>
             <if test="threshold != null">threshold,</if>
             <if test="action != null and action != ''">action,</if>
             <if test="status != null and status != ''">status,</if>
+            risk_level,
+            hit_count,
             <if test="sort != null">sort,</if>
             <if test="createBy != null">create_by,</if>
             <if test="createTime != null">create_time,</if>
@@ -63,11 +67,14 @@
         </trim>
         <trim prefix="values (" suffix=")" suffixOverrides=",">
             <if test="ruleName != null and ruleName != ''">#{ruleName},</if>
+            CONCAT('RR_', UNIX_TIMESTAMP()),
             <if test="ruleType != null and ruleType != ''">#{ruleType},</if>
             <if test="ruleContent != null">#{ruleContent},</if>
             <if test="threshold != null">#{threshold},</if>
             <if test="action != null and action != ''">#{action},</if>
-            <if test="status != null and status != ''">#{status},</if>
+            <if test="status != null and status != ''">CASE #{status} WHEN 'enabled' THEN 1 ELSE 0 END,</if>
+            'LOW',
+            0,
             <if test="sort != null">#{sort},</if>
             <if test="createBy != null">#{createBy},</if>
             <if test="createTime != null">#{createTime},</if>
@@ -82,7 +89,7 @@
         <trim prefix="SET" suffixOverrides=",">
             <if test="ruleName != null and ruleName != ''">rule_name = #{ruleName},</if>
             <if test="ruleType != null and ruleType != ''">rule_type = #{ruleType},</if>
-            <if test="ruleContent != null">rule_content = #{ruleContent},</if>
+            <if test="ruleContent != null">trigger_condition = #{ruleContent},</if>
             <if test="threshold != null">threshold = #{threshold},</if>
             <if test="action != null and action != ''">action = #{action},</if>
             <if test="status != null and status != ''">status = #{status},</if>

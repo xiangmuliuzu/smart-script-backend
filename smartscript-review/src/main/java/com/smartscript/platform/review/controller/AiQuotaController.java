@@ -22,6 +22,21 @@ public class AiQuotaController {
     private AiQuotaService aiQuotaService;
 
     /**
+     * AI配额统计（用户数/今日调用/失败/补偿）
+     */
+    @GetMapping("/statistics")
+    public Map<String, Object> statistics() {
+        Map<String, Object> result = new HashMap<>();
+        result.put("code", 200);
+        result.put("msg", "操作成功");
+        result.put("totalUsers", aiQuotaService.countAccounts());
+        result.put("todayCalls", aiQuotaService.countTodayCalls());
+        result.put("failedCalls", aiQuotaService.countFailedCalls());
+        result.put("refundedCalls", aiQuotaService.countRefundedCalls());
+        return result;
+    }
+
+    /**
      * 查询AI配额账户列表
      */
     @GetMapping("/list")

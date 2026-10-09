@@ -1,48 +1,44 @@
 package com.smartscript.platform.review.domain;
 
-import com.fasterxml.jackson.annotation.JsonFormat;
 import java.util.Date;
 
 /**
- * 黑名单实体
- *
- * @author smartscript
+ * 举报/违规记录
  */
-public class Blacklist {
-
-    private Long id;
+public class Report {
+    private Long reportId;
+    private Long userId;
     private String targetType;
-    private String targetValue;
-    private String blackType;
-    private Long operatorId;
-    private Integer duration;
+    private Long targetId;
     private String reason;
+    private String description;
     private String status;
+    private Long handlerId;
+    private String handleResult;
     private String createBy;
-    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private Date createTime;
     private String updateBy;
-    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private Date updateTime;
     private String remark;
 
-    // getter and setter
-    public Long getId() { return id; }
-    public void setId(Long id) { this.id = id; }
+    public Long getReportId() { return reportId; }
+    public void setReportId(Long reportId) { this.reportId = reportId; }
+    public Long getUserId() { return userId; }
+    public void setUserId(Long userId) { this.userId = userId; }
     public String getTargetType() { return targetType; }
     public void setTargetType(String targetType) { this.targetType = targetType; }
-    public String getTargetValue() { return targetValue; }
-    public void setTargetValue(String targetValue) { this.targetValue = targetValue; }
-    public String getBlackType() { return blackType; }
-    public void setBlackType(String blackType) { this.blackType = blackType; }
-    public Long getOperatorId() { return operatorId; }
-    public void setOperatorId(Long operatorId) { this.operatorId = operatorId; }
-    public Integer getDuration() { return duration; }
-    public void setDuration(Integer duration) { this.duration = duration; }
+    public Long getTargetId() { return targetId; }
+    public void setTargetId(Long targetId) { this.targetId = targetId; }
     public String getReason() { return reason; }
     public void setReason(String reason) { this.reason = reason; }
+    public String getDescription() { return description; }
+    public void setDescription(String description) { this.description = description; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
+    public Long getHandlerId() { return handlerId; }
+    public void setHandlerId(Long handlerId) { this.handlerId = handlerId; }
+    public String getHandleResult() { return handleResult; }
+    public void setHandleResult(String handleResult) { this.handleResult = handleResult; }
     public String getCreateBy() { return createBy; }
     public void setCreateBy(String createBy) { this.createBy = createBy; }
     public Date getCreateTime() { return createTime; }

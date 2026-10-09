@@ -37,4 +37,9 @@ public interface ReviewRecordMapper {
      * 删除审核记录
      */
     int deleteReviewRecordById(@Param("reviewId") Long reviewId);
+
+    /**
+     * 按状态统计审核记录数
+     */
+    java.util.List<java.util.Map<String, Object>> selectStatusGroup();
 }

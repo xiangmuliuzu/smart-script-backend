@@ -42,4 +42,9 @@ public interface AiQuotaAccountMapper {
      * 删除AI配额账户
      */
     int deleteAiQuotaAccountById(@Param("accountId") Long accountId);
+
+    /**
+     * 统计配额账户数
+     */
+    int countAccounts();
 }

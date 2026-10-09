@@ -14,6 +14,7 @@ public class AiReviewRule {
     private String ruleName;
     private String ruleType;
     private String ruleContent;
+    private String action;
     private Integer threshold;
     private String status;
     private Integer sort;
@@ -34,6 +35,9 @@ public class AiReviewRule {
     public void setRuleType(String ruleType) { this.ruleType = ruleType; }
     public String getRuleContent() { return ruleContent; }
     public void setRuleContent(String ruleContent) { this.ruleContent = ruleContent; }
+    public String getAction() { return action; }
+    public void setAction(String action) { this.action = action; }
+
     public Integer getThreshold() { return threshold; }
     public void setThreshold(Integer threshold) { this.threshold = threshold; }
     public String getStatus() { return status; }

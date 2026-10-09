@@ -15,6 +15,7 @@ public class AiQuotaRecord {
     private Long accountId;
     private Long userId;
     private String type;
+    private String businessType;
     private BigDecimal amount;
     private BigDecimal balance;
     private String source;
@@ -32,6 +33,9 @@ public class AiQuotaRecord {
     public void setAccountId(Long accountId) { this.accountId = accountId; }
     public Long getUserId() { return userId; }
     public void setUserId(Long userId) { this.userId = userId; }
+    public String getBusinessType() { return businessType; }
+    public void setBusinessType(String businessType) { this.businessType = businessType; }
+
     public String getType() { return type; }
     public void setType(String type) { this.type = type; }
     public BigDecimal getAmount() { return amount; }

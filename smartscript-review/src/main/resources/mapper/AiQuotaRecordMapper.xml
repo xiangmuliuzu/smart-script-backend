@@ -4,39 +4,30 @@
 
     <resultMap id="AiQuotaRecordResult" type="com.smartscript.platform.review.domain.AiQuotaRecord">
         <id     property="recordId"      column="record_id"      />
-        <result property="accountId"     column="account_id"     />
         <result property="userId"       column="user_id"        />
-        <result property="type"         column="type"           />
-        <result property="amount"       column="amount"         />
-        <result property="balance"      column="balance"        />
-        <result property="source"      column="source"         />
-        <result property="relatedId"   column="related_id"      />
-        <result property="status"      column="status"         />
-        <result property="createBy"    column="create_by"       />
-        <result property="createTime" column="create_time"     />
-        <result property="remark"     column="remark"          />
+        <result property="type"         column="change_type"     />
+        <result property="amount"       column="change_amount"   />
+        <result property="balance"      column="after_balance"   />
+        <result property="businessType" column="business_type"   />
+        <result property="relatedId"    column="business_id"     />
+        <result property="createTime"  column="create_time"     />
+        <result property="remark"      column="remark"          />
     </resultMap>
 
     <sql id="selectAiQuotaRecordVo">
-        SELECT record_id, account_id, user_id, type, amount, balance, source,
-               related_id, status, create_by, create_time, remark
+        SELECT record_id, user_id, change_type, change_amount, before_balance,
+               after_balance, business_type, business_id, remark, create_time
         FROM sys_ai_quota_record
     </sql>
 
     <select id="selectAiQuotaRecordList" parameterType="com.smartscript.platform.review.domain.AiQuotaRecord" resultMap="AiQuotaRecordResult">
         <include refid="selectAiQuotaRecordVo"/>
         <where>
-            <if test="accountId != null">
-                AND account_id = #{accountId}
-            </if>
             <if test="userId != null">
                 AND user_id = #{userId}
             </if>
             <if test="type != null and type != ''">
                 AND type = #{type}
-            </if>
-            <if test="status != null and status != ''">
-                AND status = #{status}
             </if>
         </where>
         ORDER BY create_time DESC
@@ -50,28 +41,22 @@
     <insert id="insertAiQuotaRecord" parameterType="com.smartscript.platform.review.domain.AiQuotaRecord" useGeneratedKeys="true" keyProperty="recordId">
         INSERT INTO sys_ai_quota_record
         <trim prefix="(" suffix=")" suffixOverrides=",">
-            <if test="accountId != null">account_id,</if>
             <if test="userId != null">user_id,</if>
-            <if test="type != null and type != ''">type,</if>
-            <if test="amount != null">amount,</if>
-            <if test="balance != null">balance,</if>
-            <if test="source != null">source,</if>
-            <if test="relatedId != null">related_id,</if>
-            <if test="status != null and status != ''">status,</if>
-            <if test="createBy != null">create_by,</if>
+            <if test="type != null and type != ''">change_type,</if>
+            <if test="amount != null">change_amount,</if>
+            <if test="balance != null">after_balance,</if>
+            <if test="businessType != null and businessType != ''">business_type,</if>
+            <if test="relatedId != null">business_id,</if>
             <if test="createTime != null">create_time,</if>
             <if test="remark != null">remark,</if>
         </trim>
         <trim prefix="values (" suffix=")" suffixOverrides=",">
-            <if test="accountId != null">#{accountId},</if>
             <if test="userId != null">#{userId},</if>
             <if test="type != null and type != ''">#{type},</if>
             <if test="amount != null">#{amount},</if>
             <if test="balance != null">#{balance},</if>
-            <if test="source != null">#{source},</if>
+            <if test="businessType != null and businessType != ''">#{businessType},</if>
             <if test="relatedId != null">#{relatedId},</if>
-            <if test="status != null and status != ''">#{status},</if>
-            <if test="createBy != null">#{createBy},</if>
             <if test="createTime != null">#{createTime},</if>
             <if test="remark != null">#{remark},</if>
         </trim>
@@ -80,14 +65,12 @@
     <update id="updateAiQuotaRecord" parameterType="com.smartscript.platform.review.domain.AiQuotaRecord">
         UPDATE sys_ai_quota_record
         <trim prefix="SET" suffixOverrides=",">
-            <if test="accountId != null">account_id = #{accountId},</if>
             <if test="userId != null">user_id = #{userId},</if>
-            <if test="type != null and type != ''">type = #{type},</if>
-            <if test="amount != null">amount = #{amount},</if>
-            <if test="balance != null">balance = #{balance},</if>
-            <if test="source != null">source = #{source},</if>
-            <if test="relatedId != null">related_id = #{relatedId},</if>
-            <if test="status != null and status != ''">status = #{status},</if>
+            <if test="type != null and type != ''">change_type = #{type},</if>
+            <if test="amount != null">change_amount = #{amount},</if>
+            <if test="balance != null">after_balance = #{balance},</if>
+            <if test="businessType != null and businessType != ''">business_type = #{businessType},</if>
+            <if test="relatedId != null">business_id = #{relatedId},</if>
             <if test="remark != null">remark = #{remark},</if>
         </trim>
         WHERE record_id = #{recordId}
@@ -96,5 +79,17 @@
     <delete id="deleteAiQuotaRecordById" parameterType="Long">
         DELETE FROM sys_ai_quota_record WHERE record_id = #{recordId}
     </delete>
+
+    <select id="countTodayCalls" resultType="int">
+        SELECT COUNT(*) FROM sys_ai_quota_record WHERE create_time >= CURDATE()
+    </select>
+
+    <select id="countFailedCalls" resultType="int">
+        SELECT COUNT(*) FROM sys_ai_quota_record WHERE business_type = 'failed'
+    </select>
+
+    <select id="countRefundedCalls" resultType="int">
+        SELECT COUNT(*) FROM sys_ai_quota_record WHERE change_type = 'refund'
+    </select>
 
 </mapper>

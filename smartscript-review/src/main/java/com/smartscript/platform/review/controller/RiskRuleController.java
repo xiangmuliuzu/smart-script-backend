@@ -58,6 +58,12 @@ public class RiskRuleController {
     @PostMapping
     public Map<String, Object> add(@RequestBody RiskRule riskRule) {
         Map<String, Object> result = new HashMap<>();
+        if (riskRule.getSort() == null) {
+            riskRule.setSort(0);
+        }
+        if (riskRule.getStatus() == null || riskRule.getStatus().isEmpty()) {
+            riskRule.setStatus("enabled");
+        }
         riskRuleService.insertRiskRule(riskRule);
         result.put("code", 200);
         result.put("msg", "操作成功");

@@ -18,6 +18,7 @@ public class AiQuotaAccount {
     private BigDecimal totalEarned;
     private BigDecimal totalConsumed;
     private BigDecimal totalRefunded;
+    private Long version;
     private String status;
     private String createBy;
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
@@ -46,6 +47,8 @@ public class AiQuotaAccount {
     public void setTotalConsumed(BigDecimal totalConsumed) { this.totalConsumed = totalConsumed; }
     public BigDecimal getTotalRefunded() { return totalRefunded; }
     public void setTotalRefunded(BigDecimal totalRefunded) { this.totalRefunded = totalRefunded; }
+    public Long getVersion() { return version; }
+    public void setVersion(Long version) { this.version = version; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
     public String getCreateBy() { return createBy; }
