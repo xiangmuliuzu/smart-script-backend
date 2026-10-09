@@ -8,6 +8,7 @@ public interface SysOrderMapper
     List<SysOrder> selectOrderList(SysOrder order);
     SysOrder selectOrderById(Long orderId);
     SysOrder selectOrderByInquiryId(Long inquiryId);
+    List<SysOrder> selectAuthorizationHistoryByWorkId(Long workId);
     int insertOrder(SysOrder order);
     int updateOrder(SysOrder order);
 }

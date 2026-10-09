@@ -73,6 +73,12 @@
         limit 1
     </select>
 
+    <select id="selectAuthorizationHistoryByWorkId" parameterType="Long" resultMap="SysOrderResult">
+        <include refid="selectOrderVo"/>
+        where o.work_id = #{workId}
+        order by o.created_at desc
+    </select>
+
     <sql id="selectOrderVo">
         select o.order_id, o.order_no, o.inquiry_id, o.quote_id, o.work_id,
                o.buyer_id, o.seller_id, o.order_type, o.license_type,

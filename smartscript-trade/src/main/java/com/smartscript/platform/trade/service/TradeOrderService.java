@@ -48,6 +48,12 @@ public class TradeOrderService
         return logMapper.selectLogsByOrderId(orderId);
     }
 
+    /** 按作品 ID 查询授权历史（订单列表），供版权资产页调用 */
+    public List<SysOrder> selectAuthorizationHistoryByWorkId(Long workId)
+    {
+        return orderMapper.selectAuthorizationHistoryByWorkId(workId);
+    }
+
     /**
      * 依据询盘生成授权订单（幂等）。转订单与接受报价两条路径共用。
      * 幂等：同一 inquiry_id 已存在订单则直接返回；并由 sys_order.inquiry_id 唯一索引兜底并发。
