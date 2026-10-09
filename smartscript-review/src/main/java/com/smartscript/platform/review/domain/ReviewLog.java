@@ -17,6 +17,7 @@ public class ReviewLog {
     private String beforeStatus;
     private String afterStatus;
     private String reviewOpinion;
+    private String workTitle;
     private String createBy;
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private Date createTime;
@@ -41,6 +42,8 @@ public class ReviewLog {
     public void setAfterStatus(String afterStatus) { this.afterStatus = afterStatus; }
     public String getReviewOpinion() { return reviewOpinion; }
     public void setReviewOpinion(String reviewOpinion) { this.reviewOpinion = reviewOpinion; }
+    public String getWorkTitle() { return workTitle; }
+    public void setWorkTitle(String workTitle) { this.workTitle = workTitle; }
     public String getCreateBy() { return createBy; }
     public void setCreateBy(String createBy) { this.createBy = createBy; }
     public Date getCreateTime() { return createTime; }

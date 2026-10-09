@@ -12,7 +12,7 @@
         <result property="reviewerId"   column="reviewer_id"    />
         <result property="reviewedAt"   column="review_end_time"    />
         <result property="createBy"     column="create_by"      />
-        <result property="createTime"   column="create_time"    />
+        <result property="createTime"   column="created_at"    />
         <result property="updateBy"     column="update_by"      />
         <result property="updateTime"   column="update_time"    />
         <result property="remark"       column="remark"          />
@@ -26,7 +26,7 @@
     <sql id="selectReviewRecordVo">
         SELECT r.review_id, r.target_type, r.target_id, r.status, r.ai_result,
                r.review_opinion, r.reviewer_id, r.review_end_time,
-               r.create_by, r.create_time, r.update_by, r.update_time, r.remark,
+               r.create_by, r.created_at, r.update_by, r.update_time, r.remark,
                w.title as work_title, w.work_type, c.category_name as genre_name,
                u.nick_name as author_name,
                CAST(JSON_EXTRACT(r.ai_result, '$.score') AS UNSIGNED) as ai_score
@@ -46,7 +46,7 @@
                 AND r.target_type = #{targetType}
             </if>
         </where>
-        ORDER BY r.create_time DESC
+        ORDER BY r.created_at DESC
     </select>
 
     <select id="selectReviewRecordById" parameterType="Long" resultMap="ReviewRecordResult">
@@ -65,7 +65,7 @@
             <if test="reviewerId != null">reviewer_id,</if>
             <if test="reviewedAt != null">review_end_time,</if>
             <if test="createBy != null">create_by,</if>
-            <if test="createTime != null">create_time,</if>
+            <if test="createTime != null">created_at,</if>
             <if test="updateBy != null">update_by,</if>
             <if test="updateTime != null">update_time,</if>
             <if test="remark != null">remark,</if>

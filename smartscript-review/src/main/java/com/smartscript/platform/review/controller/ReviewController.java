@@ -98,7 +98,8 @@ public class ReviewController {
         String status = params.get("status").toString();
         String reviewOpinion = params.get("reviewOpinion") != null ? params.get("reviewOpinion").toString() : "";
         Long reviewerId = params.get("reviewerId") != null ? Long.valueOf(params.get("reviewerId").toString()) : 1L;
-        reviewService.operateReview(reviewId, status, reviewOpinion, reviewerId);
+        String operatorName = params.get("reviewerName") != null ? params.get("reviewerName").toString() : "管理员";
+        reviewService.operateReview(reviewId, status, reviewOpinion, reviewerId, operatorName);
         result.put("code", 200);
         result.put("msg", "审核操作成功");
         return result;
@@ -112,7 +113,8 @@ public class ReviewController {
         Map<String, Object> result = new HashMap<>();
         List<Long> reviewIds = (List<Long>) params.get("reviewIds");
         Long reviewerId = Long.valueOf(params.get("reviewerId").toString());
-        reviewService.batchAssign(reviewIds, reviewerId);
+        String operatorName = params.get("reviewerName") != null ? params.get("reviewerName").toString() : "管理员";
+        reviewService.batchAssign(reviewIds, reviewerId, operatorName);
         result.put("code", 200);
         result.put("msg", "批量分配成功");
         return result;
@@ -130,7 +132,8 @@ public class ReviewController {
             Map<String, Object> m = new HashMap<>();
             m.put("logId", l.getLogId());
             m.put("reviewId", l.getReviewId());
-            m.put("operator", l.getOperatorName());
+            m.put("operatorName", l.getOperatorName());
+            m.put("workTitle", l.getWorkTitle());
             m.put("action", l.getAction());
             m.put("beforeStatus", l.getBeforeStatus());
             m.put("afterStatus", l.getAfterStatus());

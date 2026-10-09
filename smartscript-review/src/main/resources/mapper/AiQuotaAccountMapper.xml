@@ -11,7 +11,7 @@
         <result property="totalConsumed" column="total_consumed"  />
         <result property="totalRefunded" column="total_refunded"  />
         <result property="createBy"      column="create_by"       />
-        <result property="createTime"  column="create_time"     />
+        <result property="createTime"  column="created_at"     />
         <result property="updateBy"     column="update_by"       />
         <result property="updateTime"   column="update_time"     />
         <result property="remark"       column="remark"          />
@@ -22,7 +22,7 @@
     <sql id="selectAiQuotaAccountVo">
         SELECT a.account_id, a.user_id, a.available_quota, a.reserved_quota,
                a.total_earned, a.total_consumed, a.total_refunded,
-               a.create_by, a.create_time, a.update_by, a.update_time, a.remark,
+               a.create_by, a.created_at, a.update_by, a.update_time, a.remark,
                u.nick_name, u.phonenumber
         FROM sys_ai_quota_account a
         LEFT JOIN sys_user u ON a.user_id = u.user_id
@@ -35,7 +35,7 @@
                 AND a.user_id = #{userId}
             </if>
         </where>
-        ORDER BY a.create_time DESC
+        ORDER BY a.created_at DESC
     </select>
 
     <select id="selectAiQuotaAccountById" parameterType="Long" resultMap="AiQuotaAccountResult">
@@ -61,7 +61,7 @@
             created_at,
             updated_at,
             <if test="createBy != null">create_by,</if>
-            <if test="createTime != null">create_time,</if>
+            <if test="createTime != null">created_at,</if>
             <if test="updateBy != null">update_by,</if>
             <if test="updateTime != null">update_time,</if>
             <if test="remark != null">remark,</if>

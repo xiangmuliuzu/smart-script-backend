@@ -60,7 +60,7 @@ public class ReviewService {
     /**
      * 审核操作（通过/驳回/发回修改）
      */
-    public int operateReview(Long reviewId, String status, String reviewOpinion, Long reviewerId) {
+    public int operateReview(Long reviewId, String status, String reviewOpinion, Long reviewerId, String operatorName) {
         ReviewRecord before = reviewRecordMapper.selectReviewRecordById(reviewId);
         ReviewRecord reviewRecord = new ReviewRecord();
         reviewRecord.setReviewId(reviewId);
@@ -74,6 +74,7 @@ public class ReviewService {
         log.setReviewId(reviewId);
         log.setAction("operate");
         log.setOperatorId(reviewerId);
+        log.setOperatorName(operatorName);
         log.setBeforeStatus(before != null ? before.getStatus() : null);
         log.setAfterStatus(status);
         log.setReviewOpinion(reviewOpinion);
@@ -84,7 +85,7 @@ public class ReviewService {
     /**
      * 批量分配审核任务
      */
-    public int batchAssign(List<Long> reviewIds, Long reviewerId) {
+    public int batchAssign(List<Long> reviewIds, Long reviewerId, String operatorName) {
         int count = 0;
         for (Long reviewId : reviewIds) {
             ReviewRecord before = reviewRecordMapper.selectReviewRecordById(reviewId);
@@ -98,6 +99,7 @@ public class ReviewService {
             log.setReviewId(reviewId);
             log.setAction("assign");
             log.setOperatorId(reviewerId);
+            log.setOperatorName(operatorName);
             log.setBeforeStatus(before != null ? before.getStatus() : null);
             log.setAfterStatus("pending_review");
             reviewLogMapper.insertReviewLog(log);

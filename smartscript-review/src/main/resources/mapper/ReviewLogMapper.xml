@@ -11,30 +11,34 @@
         <result property="beforeStatus"  column="before_status" />
         <result property="afterStatus"   column="after_status"  />
         <result property="reviewOpinion" column="review_opinion"/>
+        <result property="workTitle"     column="work_title"    />
         <result property="createBy"      column="create_by"     />
-        <result property="createTime"    column="create_time"   />
+        <result property="createTime"    column="created_at"   />
         <result property="updateBy"      column="update_by"     />
         <result property="updateTime"    column="update_time"   />
         <result property="remark"        column="remark"        />
     </resultMap>
 
     <sql id="selectReviewLogVo">
-        SELECT log_id, review_id, action, operator_id, operator_name, before_status, after_status, review_opinion,
-               create_by, create_time, update_by, update_time, remark
-        FROM sys_review_log
+        SELECT l.log_id, l.review_id, l.action, l.operator_id, l.operator_name, l.before_status, l.after_status, l.review_opinion,
+               w.title AS work_title,
+               l.create_by, l.created_at, l.update_by, l.update_time, l.remark
+        FROM sys_review_log l
+        LEFT JOIN sys_review_record r ON l.review_id = r.review_id
+        LEFT JOIN sys_work w ON r.target_id = w.work_id AND r.target_type = 'work'
     </sql>
 
     <select id="selectReviewLogList" parameterType="com.smartscript.platform.review.domain.ReviewLog" resultMap="ReviewLogResult">
         <include refid="selectReviewLogVo"/>
         <where>
             <if test="reviewId != null">
-                AND review_id = #{reviewId}
+                AND l.review_id = #{reviewId}
             </if>
             <if test="action != null and action != ''">
-                AND action = #{action}
+                AND l.action = #{action}
             </if>
         </where>
-        ORDER BY log_id DESC
+        ORDER BY l.log_id DESC
     </select>
 
     <select id="selectReviewLogById" parameterType="Long" resultMap="ReviewLogResult">
@@ -53,7 +57,7 @@
             <if test="afterStatus != null">after_status,</if>
             <if test="reviewOpinion != null">review_opinion,</if>
             <if test="createBy != null">create_by,</if>
-            <if test="createTime != null">create_time,</if>
+            <if test="createTime != null">created_at,</if>
             <if test="updateBy != null">update_by,</if>
             <if test="updateTime != null">update_time,</if>
             <if test="remark != null">remark,</if>

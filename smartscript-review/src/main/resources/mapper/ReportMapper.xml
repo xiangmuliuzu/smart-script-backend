@@ -13,7 +13,7 @@
         <result property="handlerId"   column="handler_id"    />
         <result property="handleResult" column="handle_result"/>
         <result property="createBy"    column="create_by"     />
-        <result property="createTime"  column="create_time"   />
+        <result property="createTime"  column="created_at"   />
         <result property="updateBy"    column="update_by"     />
         <result property="updateTime"  column="update_time"   />
         <result property="remark"      column="remark"        />
@@ -21,7 +21,7 @@
 
     <sql id="selectReportVo">
         SELECT report_id, user_id, target_type, target_id, reason, description,
-               status, handler_id, handle_result, create_by, create_time,
+               status, handler_id, handle_result, create_by, created_at,
                update_by, update_time, remark
         FROM sys_report
     </sql>
@@ -36,7 +36,7 @@
                 AND target_type = #{targetType}
             </if>
         </where>
-        ORDER BY create_time DESC
+        ORDER BY created_at DESC
     </select>
 
     <select id="selectReportById" parameterType="Long" resultMap="ReportResult">
@@ -56,7 +56,7 @@
             <if test="handlerId != null">handler_id,</if>
             <if test="handleResult != null">handle_result,</if>
             <if test="createBy != null">create_by,</if>
-            <if test="createTime != null">create_time,</if>
+            <if test="createTime != null">created_at,</if>
             <if test="updateBy != null">update_by,</if>
             <if test="updateTime != null">update_time,</if>
             <if test="remark != null">remark,</if>
