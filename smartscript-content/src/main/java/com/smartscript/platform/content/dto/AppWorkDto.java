@@ -2,6 +2,7 @@ package com.smartscript.platform.content.dto;
 
 import java.math.BigDecimal;
 import java.util.Date;
+import java.util.List;
 import com.fasterxml.jackson.annotation.JsonFormat;
 
 /**
@@ -39,6 +40,9 @@ public class AppWorkDto
 
     /** 题材名称（JOIN sys_category.category_name） */
     private String genreName;
+
+    /** 标签集合（sys_work_tag 关联 sys_tag，仅含启用标签，按 sort 排序） */
+    private List<AppTagDto> tags;
 
     /** 作品类型 */
     private String workType;
@@ -182,6 +186,16 @@ public class AppWorkDto
     public void setGenreName(String genreName)
     {
         this.genreName = genreName;
+    }
+
+    public List<AppTagDto> getTags()
+    {
+        return tags;
+    }
+
+    public void setTags(List<AppTagDto> tags)
+    {
+        this.tags = tags;
     }
 
     public String getWorkType()

@@ -2,7 +2,9 @@ package com.smartscript.platform.content.service.impl;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import com.github.pagehelper.PageHelper;
@@ -19,9 +21,11 @@ import com.smartscript.platform.content.dto.AppContactDto;
 import com.smartscript.platform.content.dto.AppPageResult;
 import com.smartscript.platform.content.dto.AppPreviewDto;
 import com.smartscript.platform.content.dto.AppRankingItem;
+import com.smartscript.platform.content.dto.AppTagDto;
 import com.smartscript.platform.content.dto.AppWorkDto;
 import com.smartscript.platform.content.dto.AppWorkFileDto;
 import com.smartscript.platform.content.dto.AppWorkQuery;
+import com.smartscript.platform.content.dto.AppWorkTagDto;
 import com.smartscript.platform.content.mapper.AppContactProfileMapper;
 import com.smartscript.platform.content.mapper.AppWorkAuthorizationMapper;
 import com.smartscript.platform.content.mapper.SysBannerMapper;
@@ -142,6 +146,8 @@ public class AppBookstoreServiceImpl implements IAppBookstoreService
         List<AppWorkDto> rows = workMapper.selectAppWorkList(safeQuery);
         // 必须在映射/包装前取 total：PageInfo 依赖 PageHelper 返回的 Page 类型
         long total = new PageInfo<>(rows).getTotal();
+        // 一次批量回填标签，避免逐作品查询造成 N+1
+        fillTags(rows);
         return AppPageResult.of(total, rows);
     }
 
@@ -152,7 +158,12 @@ public class AppBookstoreServiceImpl implements IAppBookstoreService
         {
             return null;
         }
-        return workMapper.selectAppWorkById(workId);
+        AppWorkDto work = workMapper.selectAppWorkById(workId);
+        if (work != null)
+        {
+            fillTags(List.of(work));
+        }
+        return work;
     }
 
     @Override
@@ -381,6 +392,55 @@ public class AppBookstoreServiceImpl implements IAppBookstoreService
             list.add(dto);
         }
         return list;
+    }
+
+    /**
+     * 为作品集合批量回填标签。
+     *
+     * 一次查询（IN 全部 workId）后按 workId 分组回填，避免逐作品查询造成 N+1；
+     * 无标签的作品回填空集合（而非 null），前端可无脑渲染 chips。
+     */
+    private void fillTags(List<AppWorkDto> works)
+    {
+        if (works == null || works.isEmpty())
+        {
+            return;
+        }
+        List<Long> workIds = new ArrayList<>(works.size());
+        for (AppWorkDto work : works)
+        {
+            if (work != null && work.getWorkId() != null)
+            {
+                workIds.add(work.getWorkId());
+            }
+        }
+        if (workIds.isEmpty())
+        {
+            return;
+        }
+        List<AppWorkTagDto> rows = tagMapper.selectWorkTagRows(workIds);
+        Map<Long, List<AppTagDto>> grouped = new HashMap<>();
+        for (AppWorkTagDto row : rows)
+        {
+            grouped.computeIfAbsent(row.getWorkId(), key -> new ArrayList<>()).add(toTagDto(row));
+        }
+        for (AppWorkDto work : works)
+        {
+            if (work == null || work.getWorkId() == null)
+            {
+                continue;
+            }
+            work.setTags(grouped.getOrDefault(work.getWorkId(), List.of()));
+        }
+    }
+
+    private static AppTagDto toTagDto(AppWorkTagDto row)
+    {
+        AppTagDto dto = new AppTagDto();
+        dto.setTagId(row.getTagId());
+        dto.setTagName(row.getTagName());
+        dto.setTagType(row.getTagType());
+        return dto;
     }
 
     /**

@@ -23,6 +23,13 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		<result property="remark"         column="remark"          />
 	</resultMap>
 
+	<resultMap type="com.smartscript.platform.content.dto.AppWorkTagDto" id="AppWorkTagResult">
+		<result property="workId"   column="work_id"   />
+		<result property="tagId"    column="tag_id"    />
+		<result property="tagName"  column="tag_name"  />
+		<result property="tagType"  column="tag_type"  />
+	</resultMap>
+
 	<sql id="selectTagVo">
 		select tag_id, tag_name, tag_type, use_count, sort, status,
 		       create_by, create_time, update_by, update_time, remark
@@ -117,6 +124,26 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 			</if>
 		</where>
 		order by use_count desc, sort, tag_id
+	</select>
+
+	<!--
+	  按作品批量查询关联标签（App 侧只读）。
+	  固定条件：仅启用标签（status = '0'，与 selectAppTagList 同口径）；
+	  按 sort 升序（标签展示顺序）。入参 workIds 由 Service 保证非空。
+	-->
+	<select id="selectWorkTagRows" resultMap="AppWorkTagResult">
+		select wt.work_id as work_id,
+		       t.tag_id   as tag_id,
+		       t.tag_name as tag_name,
+		       t.tag_type as tag_type
+		from sys_work_tag wt
+		join sys_tag t on t.tag_id = wt.tag_id
+		where wt.work_id in
+		<foreach item="workId" collection="workIds" open="(" separator="," close=")">
+			#{workId}
+		</foreach>
+		  and t.status = '0'
+		order by t.sort, t.tag_id
 	</select>
 
 </mapper>

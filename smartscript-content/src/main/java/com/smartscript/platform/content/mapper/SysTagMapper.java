@@ -1,8 +1,10 @@
 package com.smartscript.platform.content.mapper;
 
+import java.util.Collection;
 import java.util.List;
 import org.apache.ibatis.annotations.Param;
 import com.smartscript.platform.content.domain.SysTag;
+import com.smartscript.platform.content.dto.AppWorkTagDto;
 
 /**
  * 标签 数据层
@@ -32,6 +34,17 @@ public interface SysTagMapper
      * @return 标签集合
      */
     public List<SysTag> selectAppTagList(@Param("tagType") String tagType, @Param("categoryId") Long categoryId);
+
+    /**
+     * 按作品批量查询关联标签（App 侧只读）
+     *
+     * 固定条件：仅启用标签（sys_tag.status = '0'）；按 sort 升序（展示顺序）。
+     * 由调用方收集作品ID一次批量查询后按 workId 分组回填，避免逐作品查询造成 N+1。
+     *
+     * @param workIds 作品ID集合（不可为空）
+     * @return 作品-标签关联行集合
+     */
+    public List<AppWorkTagDto> selectWorkTagRows(@Param("workIds") Collection<Long> workIds);
 
     /**
      * 通过标签ID查询标签
