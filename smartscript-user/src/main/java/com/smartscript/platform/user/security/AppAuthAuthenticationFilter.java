@@ -74,6 +74,13 @@ public class AppAuthAuthenticationFilter extends OncePerRequestFilter
             // 章节正文为独立路径 /content/chapters/{chapterId}，必须在此登记，
             // 否则过滤器会先于授权规则按「需要身份」拒绝（401），permitAll 规则永远不生效。
             "/content/chapters",
+            // B 模块外部视频浏览（APP 2.8）：信息流 / 外部视频详情与找同款 / 剧集详情。
+            // 剧集列表落在 /content/works/**（上面已登记），此处补信息流、外部视频与剧集详情。
+            // 注意：/content/episodes 也会覆盖 /content/episodes/{id}/progress（需登录），
+            // 但该路径未在 permitAll 中登记，授权层仍按 authenticated 拒绝（401），不受影响。
+            "/content/drama-feed",
+            "/content/external-dramas",
+            "/content/episodes",
     };
 
     public AppAuthAuthenticationFilter(AppAccessTokenService accessTokenService)

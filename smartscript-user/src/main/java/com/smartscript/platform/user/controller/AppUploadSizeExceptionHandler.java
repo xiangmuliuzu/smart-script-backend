@@ -42,9 +42,13 @@ public class AppUploadSizeExceptionHandler
 {
     private static final Logger log = LoggerFactory.getLogger(AppUploadSizeExceptionHandler.class);
 
-    /** A 模块 App 域（App 契约信封）的端点前缀白名单；PC 管理端 {@code /api/v1/admin} 不在其中。 */
+    /**
+     * App 域的端点前缀白名单（App 契约信封）；PC 管理端 {@code /api/v1/admin} 不在其中。
+     *
+     * /api/v1/content 为 B 模块 App 域（2.9.1 内容上传），同样返回 App 信封。
+     */
     private static final List<String> APP_DOMAIN_PREFIXES = List.of(
-            "/api/v1/auth", "/api/v1/users", "/api/v1/messages", "/api/v1/feedback");
+            "/api/v1/auth", "/api/v1/users", "/api/v1/messages", "/api/v1/feedback", "/api/v1/content");
 
     /**
      * 是否为 App 域路径：必须同时覆盖**根路径本身**（如 {@code POST /api/v1/feedback}、
