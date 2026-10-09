@@ -10,7 +10,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 	  1. created_at 不映射（DB 默认值维护）；
 	  2. is_current tinyint ↔ String；version_id int ↔ Long；status 已 varchar；
 	  3. creatorName 为 JOIN 扩展字段：left join sys_user u on u.user_id = v.creator_id，
-	     取 u.nickname as creator_name；
+	     取 u.nick_name as creator_name（云端 sys_user 昵称列为 nick_name，非 nickname）；
 	  4. 列表不返回 content 全文（longtext 过大），用 selectVersionListVo 不含 content；
 	     详情用 selectVersionDetailVo 含 content 与 file_url。
 	-->
@@ -38,7 +38,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		select v.version_id, v.work_id, v.version_no, v.title, v.file_url,
 		       v.change_log, v.creator_id, v.status, v.is_current,
 		       v.create_by, v.create_time, v.update_by, v.update_time, v.remark,
-		       u.nickname as creator_name
+		       u.nick_name as creator_name
 		from sys_work_version v
 		left join sys_user u on u.user_id = v.creator_id
 	</sql>
@@ -48,7 +48,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		select v.version_id, v.work_id, v.version_no, v.title, v.content, v.file_url,
 		       v.change_log, v.creator_id, v.status, v.is_current,
 		       v.create_by, v.create_time, v.update_by, v.update_time, v.remark,
-		       u.nickname as creator_name
+		       u.nick_name as creator_name
 		from sys_work_version v
 		left join sys_user u on u.user_id = v.creator_id
 	</sql>
@@ -76,5 +76,35 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		<include refid="selectVersionDetailVo"/>
 		where v.version_id = #{versionId}
 	</select>
+
+	<!-- ==================== 上传与创作（App 接口文档 2.9.8） ==================== -->
+	<!--
+	  反推处理点：
+	  1. version_no 为 varchar(20)，取最大值按 cast as unsigned 数值比较，避免 '10' < '9' 的字典序错误。
+	  2. status 由 E 模块审核语义决定，此处不写（保持列为 NULL）。
+	-->
+	<select id="selectMaxVersionNo" resultType="java.lang.Integer">
+		select ifnull(max(cast(version_no as unsigned)), 0)
+		from sys_work_version
+		where work_id = #{workId}
+	</select>
+
+	<!-- 清除当前版本标记（单一职责：仅改 is_current） -->
+	<update id="clearCurrentFlag">
+		update sys_work_version
+		set is_current = '0'
+		where work_id = #{workId}
+	</update>
+
+	<!-- 新增版本（2.9.8） -->
+	<insert id="insertVersion" parameterType="SysWorkVersion" useGeneratedKeys="true" keyProperty="versionId">
+		insert into sys_work_version (
+			work_id, version_no, content, change_log, creator_id, is_current,
+			create_by, create_time
+		) values (
+			#{workId}, #{versionNo}, #{content}, #{changeLog}, #{creatorId}, #{isCurrent},
+			#{createBy}, sysdate()
+		)
+	</insert>
 
 </mapper>

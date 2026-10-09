@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.content.mapper.AppSubscriptionMapper">
+
+	<!--
+	  依据：云端 script_platform_dev 库 sys_subscribe 表（附件5.1 表3-35）。
+	  反推处理点：
+	  1. 表上有唯一索引 uk_user_work(user_id, work_id)（实测 non_unique=0），
+	     幂等仍用 INSERT ... SELECT ... WHERE NOT EXISTS，与 AppFavoriteMapper.xml 同一写法。
+	  2. notify_enabled 为 NOT NULL 且无默认值，订阅时显式写 1（默认开启更新提醒）。
+	  3. created_at 有 DEFAULT CURRENT_TIMESTAMP，仍显式写 now()，不依赖库默认值差异。
+	  4. 列表只回「已上架未删除」作品，与书城可见性口径一致。
+	  5. DTO 在 dto 包，typeAliasesPackage 只扫 **.domain，故用全限定类名。
+	-->
+	<insert id="insertSubscribeIfAbsent">
+		insert into sys_subscribe (user_id, work_id, notify_enabled, created_at)
+		select #{userId}, #{workId}, 1, now()
+		from dual
+		where not exists (
+			select 1 from sys_subscribe s
+			where s.user_id = #{userId} and s.work_id = #{workId}
+		)
+	</insert>
+
+	<delete id="deleteSubscribe">
+		delete from sys_subscribe
+		where user_id = #{userId}
+		  and work_id = #{workId}
+	</delete>
+
+	<select id="countSubscribe" resultType="int">
+		select count(1)
+		from sys_subscribe
+		where user_id = #{userId}
+		  and work_id = #{workId}
+	</select>
+
+	<resultMap type="com.smartscript.platform.content.dto.AppSubscriptionItem" id="AppSubscriptionItemResult">
+		<id     property="workId"        column="work_id"        />
+		<result property="title"         column="title"          />
+		<result property="cover"         column="cover"          />
+		<result property="authorName"    column="author_name"    />
+		<result property="episodeCount"  column="episode_count"  />
+		<result property="price"         column="price"          />
+		<result property="notifyEnabled" column="notify_enabled" />
+		<result property="createdAt"     column="created_at"     />
+	</resultMap>
+
+	<select id="selectSubscriptionWorks" resultMap="AppSubscriptionItemResult">
+		select w.work_id, w.title, w.cover, w.episode_count, w.price,
+		       u.nick_name as author_name,
+		       s.notify_enabled,
+		       s.created_at
+		from sys_subscribe s
+		inner join sys_work w on w.work_id = s.work_id
+		left join sys_user u on u.user_id = w.author_id
+		where s.user_id = #{userId}
+		  and w.is_deleted = 0
+		  and w.status = 'on_shelf'
+		order by s.created_at desc, s.id desc
+	</select>
+
+</mapper>

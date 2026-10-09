@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.content.mapper.AppPlayProgressMapper">
+
+	<!--
+	  依据：云端 script_platform_dev 库 sys_play_progress 表。
+	  反推处理点：
+	  1. 表上有唯一索引 uk_user_episode(user_id, episode_id)（实测 non_unique=0），
+	     一个用户对同一剧集只保留一行；写入由服务层「先 update，0 行再 insert」驱动。
+	  2. work_id NOT NULL，insert 必须显式赋值。
+	  3. updated_at 有 DEFAULT/ON UPDATE，仍显式写 now()，不依赖库默认值差异。
+	  4. DTO 在 dto 包，typeAliasesPackage 只扫 **.domain，故结果映射用全限定类名。
+	-->
+	<resultMap type="com.smartscript.platform.content.dto.AppPlayProgressDto" id="AppPlayProgressResult">
+		<result property="progress" column="progress_seconds" />
+		<result property="duration" column="total_duration"   />
+	</resultMap>
+
+	<select id="selectProgress" resultMap="AppPlayProgressResult">
+		select progress_seconds, total_duration
+		from sys_play_progress
+		where user_id = #{userId}
+		  and episode_id = #{episodeId}
+	</select>
+
+	<update id="updateProgress">
+		update sys_play_progress
+		set progress_seconds = #{progress},
+		    total_duration = #{duration},
+		    updated_at = now()
+		where user_id = #{userId}
+		  and episode_id = #{episodeId}
+	</update>
+
+	<insert id="insertProgress">
+		insert into sys_play_progress
+		    (user_id, episode_id, work_id, progress_seconds, total_duration, updated_at)
+		values
+		    (#{userId}, #{episodeId}, #{workId}, #{progress}, #{duration}, now())
+	</insert>
+
+</mapper>

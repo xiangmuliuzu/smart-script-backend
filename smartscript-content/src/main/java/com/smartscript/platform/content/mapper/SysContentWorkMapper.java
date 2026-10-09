@@ -3,6 +3,7 @@ package com.smartscript.platform.content.mapper;
 import java.util.List;
 import org.apache.ibatis.annotations.Param;
 import com.smartscript.platform.content.domain.SysWork;
+import com.smartscript.platform.content.dto.AppDraftWorkItem;
 import com.smartscript.platform.content.dto.AppRankingItem;
 import com.smartscript.platform.content.dto.AppWorkDto;
 import com.smartscript.platform.content.dto.AppWorkQuery;
@@ -156,4 +157,54 @@ public interface SysContentWorkMapper
      * @return 影响行数
      */
     public int updateCopyrightAssetStatus(@Param("workId") Long workId, @Param("status") String status, @Param("updateBy") String updateBy);
+
+    // ==================== 上传与创作（App 接口文档 2.9） ====================
+
+    /**
+     * 新增作品（2.9.2 创建作品）
+     *
+     * 服务层负责补齐 NOT NULL 列默认值（author_id/work_type/length_type/status/各类计数等），
+     * 并校验 genreId（category_id）非空与归属。
+     *
+     * @param work 作品对象（含业务字段 + createBy）
+     * @return 影响行数
+     */
+    public int insertWork(SysWork work);
+
+    /**
+     * 更新作品基础信息（2.9.3 更新作品，单一职责：仅 title/summary/price 三列）
+     *
+     * @param work 仅携带 workId + title/summary/price + updateBy；为 null 的字段不更新
+     * @return 影响行数
+     */
+    public int updateWorkBasic(SysWork work);
+
+    /**
+     * 逻辑删除作品（2.9.4 删除作品）
+     *
+     * 只置 is_deleted=1，不物理删除；调用方需先校验归属。
+     *
+     * @param work 仅携带 workId + updateBy
+     * @return 影响行数
+     */
+    public int softDeleteWork(SysWork work);
+
+    /**
+     * 草稿箱列表（2.9.5）
+     *
+     * 口径：author_id=当前用户 且 status='draft' 且 is_deleted=0，按 create_time 倒序。
+     *
+     * @param userId 当前登录用户ID（由服务层从身份上下文取，不接收请求体）
+     * @return 草稿条目集合（分页由调用方 PageHelper 驱动）
+     */
+    public List<AppDraftWorkItem> selectDraftWorks(@Param("userId") Long userId);
+
+    /**
+     * 按作者校验作品归属（供更新/删除/审核状态等操作前校验当前用户是否作品作者）
+     *
+     * @param workId 作品ID
+     * @param userId 当前登录用户ID
+     * @return 归属且未删除的作品（不存在或非本人返回 null）
+     */
+    public SysWork selectOwnedWork(@Param("workId") Long workId, @Param("userId") Long userId);
 }

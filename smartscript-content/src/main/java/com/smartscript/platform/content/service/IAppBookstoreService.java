@@ -47,10 +47,11 @@ public interface IAppBookstoreService
     /**
      * 标签列表（status 正常的标签）
      *
-     * @param tagType 标签类型（可选）
+     * @param tagType    标签类型（可选）
+     * @param categoryId 分类ID（可选，按分类收敛标签，接口文档表 2-126）
      * @return 标签集合（按 use_count 降序）
      */
-    public List<SysTag> listTags(String tagType);
+    public List<SysTag> listTags(String tagType, Long categoryId);
 
     /**
      * 书城作品列表（分页）

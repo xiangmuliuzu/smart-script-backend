@@ -96,13 +96,24 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 	  App 侧标签列表（只读，书城筛选用）。
 	  固定条件：status = '0'（PC 端口径：'0'=正常 '1'=停用，见标签管理页）；
 	  按 use_count 降序（热度高的在前）。
+	  categoryId 有值时收敛为该分类下已上架作品关联过的标签（接口文档表 2-126 的 category_id 入参）。
 	-->
-	<select id="selectAppTagList" parameterType="SysTag" resultMap="SysTagResult">
+	<select id="selectAppTagList" resultMap="SysTagResult">
 		<include refid="selectTagVo"/>
 		<where>
 			status = '0'
 			<if test="tagType != null and tagType != ''">
 				AND tag_type = #{tagType}
+			</if>
+			<if test="categoryId != null">
+				AND exists (
+					select 1 from sys_work_tag wt
+					join sys_work w on w.work_id = wt.work_id
+					where wt.tag_id = sys_tag.tag_id
+					  and w.genre_id = #{categoryId}
+					  and w.is_deleted = 0
+					  and w.status = 'on_shelf'
+				)
 			</if>
 		</where>
 		order by use_count desc, sort, tag_id

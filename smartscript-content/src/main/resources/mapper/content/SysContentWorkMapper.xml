@@ -309,6 +309,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 				limit #{limit}
 	</select>
 
+
 	<!-- 用户端修改作品基本信息（title/summary/genre_id，状态校验在服务层） -->
 	<update id="updateWorkBaseInfo" parameterType="SysContentWork">
 		update sys_work
@@ -372,4 +373,77 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		where work_id = #{workId}
 	</update>
 
+<!-- ==================== 上传与创作（App 接口文档 2.9） ==================== -->
+	<!--
+	  依据：接口文档 2.9.2~2.9.6 + 云端 sys_work 表 NOT NULL 约束。
+	  反推处理点：
+	  1. AppDraftWorkItem 在 dto 包（typeAliasesPackage 只扫 **.domain），XML 用全限定类名。
+	  2. NOT NULL 列默认值由服务层补齐后传入（本层只按传入值落库，不隐式兜底）。
+	  3. work_id 为 bigint auto_increment，insert 用 useGeneratedKeys 回填主键。
+	  4. 更新/删除均带 is_deleted = 0 条件，避免对已删除作品重复操作。
+	-->
+	<resultMap type="com.smartscript.platform.content.dto.AppDraftWorkItem" id="AppDraftWorkItemResult">
+		<id     property="workId"     column="work_id"     />
+		<result property="title"      column="title"       />
+		<result property="cover"      column="cover"       />
+		<result property="genreId"    column="genre_id"    />
+		<result property="genreName"  column="genre_name"  />
+		<result property="summary"    column="summary"     />
+		<result property="price"      column="price"       />
+		<result property="status"     column="status"      />
+		<result property="createTime" column="create_time" />
+	</resultMap>
+
+	<!-- 创建作品（2.9.2） -->
+	<insert id="insertWork" parameterType="SysContentWork" useGeneratedKeys="true" keyProperty="workId">
+		insert into sys_work (
+			title, cover, author_id, genre_id, work_type, length_type, summary,
+			price, trade_enabled, quote_valid_days, word_count, is_free, status,
+			is_copyrighted, view_count, favorite_count, sale_count, rating, is_deleted,
+			create_by, create_time
+		) values (
+			#{title}, #{cover}, #{authorId}, #{genreId}, #{workType}, #{lengthType}, #{summary},
+			#{price}, #{tradeEnabled}, #{quoteValidDays}, #{wordCount}, #{isFree}, #{status},
+			#{isCopyrighted}, #{viewCount}, #{favoriteCount}, #{saleCount}, #{rating}, #{isDeleted},
+			#{createBy}, sysdate()
+		)
+	</insert>
+
+	<!-- 更新作品基础信息（2.9.3 单一职责：仅 title/summary/price） -->
+	<update id="updateWorkBasic" parameterType="SysContentWork">
+		update sys_work
+		<set>
+			<if test="title != null">title = #{title},</if>
+			<if test="summary != null">summary = #{summary},</if>
+			<if test="price != null">price = #{price},</if>
+			update_by = #{updateBy},
+			update_time = sysdate()
+		</set>
+		where work_id = #{workId} and is_deleted = 0
+	</update>
+
+	<!-- 逻辑删除（2.9.4） -->
+	<update id="softDeleteWork" parameterType="SysContentWork">
+		update sys_work
+		set is_deleted = '1',
+		    update_by = #{updateBy},
+		    update_time = sysdate()
+		where work_id = #{workId} and is_deleted = 0
+	</update>
+
+	<!-- 草稿箱（2.9.5）：本人 + status='draft' + 未删除 -->
+	<select id="selectDraftWorks" resultMap="AppDraftWorkItemResult">
+		select w.work_id, w.title, w.cover, w.genre_id, w.summary, w.price, w.status, w.create_time,
+		       c.category_name as genre_name
+		from sys_work w
+		left join sys_category c on c.category_id = w.genre_id
+		where w.is_deleted = 0 and w.status = 'draft' and w.author_id = #{userId}
+		order by w.create_time desc, w.work_id desc
+	</select>
+
+	<!-- 归属校验：按作者取未删除作品（不存在或非本人返回 null） -->
+	<select id="selectOwnedWork" resultMap="SysWorkResult">
+		<include refid="selectWorkVo"/>
+		and w.work_id = #{workId} and w.author_id = #{userId}
+	</select>
 </mapper>

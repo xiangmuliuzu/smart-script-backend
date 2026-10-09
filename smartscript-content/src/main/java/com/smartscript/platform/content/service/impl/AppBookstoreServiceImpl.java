@@ -126,11 +126,9 @@ public class AppBookstoreServiceImpl implements IAppBookstoreService
     }
 
     @Override
-    public List<SysTag> listTags(String tagType)
+    public List<SysTag> listTags(String tagType, Long categoryId)
     {
-        SysTag query = new SysTag();
-        query.setTagType(tagType);
-        return tagMapper.selectAppTagList(query);
+        return tagMapper.selectAppTagList(tagType, categoryId);
     }
 
     @Override

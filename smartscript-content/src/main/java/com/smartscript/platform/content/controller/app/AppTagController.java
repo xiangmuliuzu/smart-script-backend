@@ -31,13 +31,16 @@ public class AppTagController
     /**
      * 标签列表
      *
-     * @param tagType 标签类型（可选）
+     * @param tagType    标签类型（可选）
+     * @param categoryId 分类ID（可选，按分类收敛标签，接口文档表 2-126 输入参数）
      */
     @GetMapping
-    public AppApiResponse<Map<String, Object>> list(@RequestParam(required = false) String tagType)
+    public AppApiResponse<Map<String, Object>> list(
+            @RequestParam(required = false) String tagType,
+            @RequestParam(required = false) Long categoryId)
     {
         Map<String, Object> data = new LinkedHashMap<>();
-        data.put("list", bookstoreService.listTags(tagType));
+        data.put("list", bookstoreService.listTags(tagType, categoryId));
         return AppApiResponse.ok(data);
     }
 }

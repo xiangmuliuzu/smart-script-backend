@@ -69,7 +69,27 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		select ifnull(max(chapter_no), 0) from sys_work_chapter where work_id = #{workId}
 	</select>
 
-	<!-- 用户端新增章节 -->
+	<!--
+	  App 章节编辑：归属判定只取元信息（不含 content 长文本）。
+	-->
+	<select id="selectChapterMeta" parameterType="Long" resultMap="SysWorkChapterResult">
+		select chapter_id, work_id, chapter_no, chapter_title, word_count, is_free, status
+		from sys_work_chapter
+		where chapter_id = #{chapterId}
+	</select>
+
+	<!--
+	  chapter_no 唯一键 uk_work_chapter_no(work_id, chapter_no) 由本查询前置校验；
+	  并发下的竞态仍由该唯一键兜底（违反时抛异常，不会产生重复序号）。
+	-->
+	<select id="countChapterNo" resultType="int">
+		select count(1)
+		from sys_work_chapter
+		where work_id = #{workId}
+		  and chapter_no = #{chapterNo}
+	</select>
+
+	<!-- 用户端新增章节（word_count/status 由服务层给定；updated_at 由库 ON UPDATE 维护） -->
 	<insert id="insertChapter" parameterType="SysWorkChapter" useGeneratedKeys="true" keyProperty="chapterId">
 		insert into sys_work_chapter
 		<trim prefix="(" suffix=")" suffixOverrides=",">
@@ -98,7 +118,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		</trim>
 	</insert>
 
-	<!-- 用户端修改章节 -->
+	<!-- 用户端修改章节（为 null 的字段不更新） -->
 	<update id="updateChapter" parameterType="SysWorkChapter">
 		update sys_work_chapter
 		<trim prefix="SET" suffixOverrides=",">
@@ -118,6 +138,12 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 	<!-- 用户端删除章节 -->
 	<delete id="deleteChapterById" parameterType="Long">
 		delete from sys_work_chapter where chapter_id = #{chapterId}
+	</delete>
+
+	<!-- 章节编辑删除章节（物理删除，同上） -->
+	<delete id="deleteChapter" parameterType="Long">
+		delete from sys_work_chapter
+		where chapter_id = #{chapterId}
 	</delete>
 
 </mapper>

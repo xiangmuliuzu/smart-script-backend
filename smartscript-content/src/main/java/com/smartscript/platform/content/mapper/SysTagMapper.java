@@ -1,6 +1,7 @@
 package com.smartscript.platform.content.mapper;
 
 import java.util.List;
+import org.apache.ibatis.annotations.Param;
 import com.smartscript.platform.content.domain.SysTag;
 
 /**
@@ -24,11 +25,13 @@ public interface SysTagMapper
      * App 侧标签列表（只读）
      *
      * 固定条件：status = '1'；按 use_count 降序（筛选用，热度高的在前）。
+     * categoryId 有值时只返回该分类下已上架作品关联过的标签（接口文档表 2-126 的 category_id）。
      *
-     * @param query 查询条件（tagType 精确，可选）
+     * @param tagType    标签类型（可选）
+     * @param categoryId 分类ID（可选，按分类收敛标签）
      * @return 标签集合
      */
-    public List<SysTag> selectAppTagList(SysTag query);
+    public List<SysTag> selectAppTagList(@Param("tagType") String tagType, @Param("categoryId") Long categoryId);
 
     /**
      * 通过标签ID查询标签

@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.content.mapper.AppEpisodeLikeMapper">
+
+	<!--
+	  依据：云端 script_platform_dev 库 sys_episode_like + sys_episode 表（接口文档 2.8.12）。
+	  反推处理点：
+	  1. 唯一键 uk_user_episode(user_id, episode_id) 已存在，INSERT IGNORE 即幂等。
+	  2. created_at 显式写 now()，不依赖库默认值。
+	  3. like_count 无触发器维护，写入后由服务层按影响行数决定是否自增/自减。
+	  4. 自减用 GREATEST(like_count - 1, 0)，防止历史计数缺失导致负数。
+	-->
+	<insert id="insertLikeIfAbsent">
+		insert ignore into sys_episode_like (user_id, episode_id, created_at)
+		values (#{userId}, #{episodeId}, now())
+	</insert>
+
+	<delete id="deleteLike">
+		delete from sys_episode_like
+		where user_id = #{userId}
+		  and episode_id = #{episodeId}
+	</delete>
+
+	<update id="incrementEpisodeLikeCount">
+		update sys_episode
+		set like_count = like_count + 1
+		where episode_id = #{episodeId}
+	</update>
+
+	<update id="decrementEpisodeLikeCount">
+		update sys_episode
+		set like_count = greatest(like_count - 1, 0)
+		where episode_id = #{episodeId}
+	</update>
+
+	<select id="selectEpisodeLikeCount" resultType="java.lang.Integer">
+		select like_count
+		from sys_episode
+		where episode_id = #{episodeId}
+	</select>
+
+</mapper>

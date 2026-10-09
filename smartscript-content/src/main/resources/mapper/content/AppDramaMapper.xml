@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.content.mapper.AppDramaMapper">
+
+	<!--
+	  依据：云端 script_platform_dev 库 sys_external_drama + sys_drama_channel 表。
+	  反推处理点：
+	  1. DTO 位于 dto 包（非 domain），typeAliasesPackage 只扫 **.domain，故此处用全限定类名。
+	  2. 信息流/详情只回 status='on_shelf' 的记录（varchar(20)，与 sys_work 上下架口径一致）。
+	  3. has_related_work 由 (d.related_work_id is not null) 计算，口径与 2.8.16 找同款剧本一致；
+	     MySQL 返回 0/1，MyBatis 映射到 Boolean。
+	  4. 不下发 authorization_status / copyright_note（版权内控信息，App 公开接口不投递）。
+	  5. 分页由调用方 PageHelper 驱动，SQL 内不写 limit。
+	-->
+	<resultMap type="com.smartscript.platform.content.dto.AppDramaFeedItem" id="AppDramaFeedItemResult">
+		<id     property="dramaId"        column="drama_id"          />
+		<result property="title"          column="title"             />
+		<result property="coverFileId"    column="cover_file_id"     />
+		<result property="externalUrl"    column="external_url"      />
+		<result property="sourceType"     column="source_type"       />
+		<result property="channelId"      column="channel_id"        />
+		<result property="channelName"    column="channel_name"      />
+		<result property="relatedWorkId"  column="related_work_id"   />
+		<result property="hasRelatedWork" column="has_related_work"  />
+	</resultMap>
+
+	<resultMap type="com.smartscript.platform.content.dto.AppExternalDramaDetailDto" id="AppExternalDramaDetailResult">
+		<id     property="dramaId"        column="drama_id"          />
+		<result property="title"          column="title"             />
+		<result property="coverFileId"    column="cover_file_id"     />
+		<result property="externalUrl"    column="external_url"      />
+		<result property="sourceType"     column="source_type"       />
+		<result property="channelId"      column="channel_id"        />
+		<result property="channelName"    column="channel_name"      />
+		<result property="platform"       column="platform"          />
+		<result property="relatedWorkId"  column="related_work_id"   />
+		<result property="hasRelatedWork" column="has_related_work"  />
+		<result property="status"         column="status"            />
+	</resultMap>
+
+	<select id="selectDramaFeed" resultMap="AppDramaFeedItemResult">
+		select d.drama_id, d.title, d.cover_file_id, d.external_url, d.source_type,
+		       d.channel_id, dc.channel_name, d.related_work_id,
+		       (d.related_work_id is not null) as has_related_work
+		from sys_external_drama d
+		left join sys_drama_channel dc on dc.channel_id = d.channel_id
+		where d.status = 'on_shelf'
+		order by d.drama_id desc
+	</select>
+
+	<select id="selectDramaDetailById" resultMap="AppExternalDramaDetailResult">
+		select d.drama_id, d.title, d.cover_file_id, d.external_url, d.source_type,
+		       d.channel_id, dc.channel_name, dc.platform, d.related_work_id,
+		       (d.related_work_id is not null) as has_related_work, d.status
+		from sys_external_drama d
+		left join sys_drama_channel dc on dc.channel_id = d.channel_id
+		where d.drama_id = #{dramaId}
+		  and d.status = 'on_shelf'
+	</select>
+
+</mapper>
