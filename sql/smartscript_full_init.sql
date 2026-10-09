@@ -2068,7 +2068,33 @@ DELETE FROM sys_role_menu WHERE role_id = 2
     ,1030,1031,1032,1033,1034
     ,1035,1036,1037,1038);
 
--- 4) 校验：系统管理(1)与日志管理(108)应不存在；500/501 应挂在 5002 下
+-- 4) 删除 A1 种子遗留的 5001 内容与作品树（幂等）
+--    第 4 部分只把 5001 那行改写为 2000，对从 A1 基线升级上来的库不会移除旧行，
+--    于是 5001 与 2000 两个目录都写 path='content'。前端按 path 作 el-sub-menu 的
+--    index，两个目录共用一个展开状态，点一个另一个跟着伸缩（子项 category/tag/ranking
+--    同样冲突）。此树是第 4 部分不定义的树，新库本来就没有。
+DELETE FROM sys_role_menu WHERE menu_id IN (
+  SELECT menu_id FROM (
+    SELECT menu_id FROM sys_menu
+    WHERE menu_id = 5001 OR parent_id = 5001
+       OR parent_id IN (SELECT menu_id FROM (SELECT menu_id FROM sys_menu WHERE parent_id = 5001) d)
+  ) t
+);
+DELETE FROM sys_menu
+WHERE menu_id = 5001 OR parent_id = 5001
+   OR parent_id IN (SELECT menu_id FROM (SELECT menu_id FROM sys_menu WHERE parent_id = 5001) d);
+
+-- 5) 校验：系统管理(1)与日志管理(108)应不存在；500/501 应挂在 5002 下；
+--    5001 遗留树应清空；同级目录 path 不得重复（否则侧边栏展开状态会串）
 SELECT
   (SELECT COUNT(*) FROM sys_menu WHERE menu_id IN (1,108)) AS deleted_dir_should_be_0,
-  (SELECT COUNT(*) FROM sys_menu WHERE menu_id IN (500,501) AND parent_id = 5002) AS logs_under_stats_should_be_2;
+  (SELECT COUNT(*) FROM sys_menu WHERE menu_id IN (500,501) AND parent_id = 5002) AS logs_under_stats_should_be_2,
+  (SELECT COUNT(*) FROM sys_menu
+    WHERE menu_id = 5001 OR parent_id = 5001
+       OR parent_id IN (SELECT menu_id FROM (SELECT menu_id FROM sys_menu WHERE parent_id = 5001) d)
+  ) AS legacy_content_tree_should_be_0,
+  (SELECT COUNT(*) FROM (
+    SELECT parent_id, path FROM sys_menu
+    WHERE menu_type IN ('M','C') AND status = '0'
+    GROUP BY parent_id, path HAVING COUNT(*) > 1
+  ) dup) AS duplicate_sibling_path_should_be_0;
