@@ -1137,6 +1137,7 @@ INSERT INTO sys_menu (menu_id, menu_name, parent_id, order_num, path, component,
 (2027, '关联剧本',           2012, 3, 'bind',           'content/external-drama/bind/index',    '', 1, 0, 'C', '0', '0', 'content:dramabind:list',  'Link',       'b-migration', 'B模块外部视频菜单'),
 (2028, '上下架管理',         2012, 4, 'status',         'content/external-drama/status/index',  '', 1, 0, 'C', '0', '0', 'content:dramastatus:list','Switch',     'b-migration', 'B模块外部视频菜单'),
 (2029, '播放数据',           2012, 5, 'stats',          'content/external-drama/stats/index',   '', 1, 0, 'C', '0', '0', 'content:dramastats:list', 'DataLine',   'b-migration', 'B模块外部视频菜单'),
+(2051, '外部漫剧发行',       2000, 9, 'external-video', 'operation/ShortDrama',                 '', 1, 0, 'C', '0', '0', 'smartscript:content:video','VideoPlay',  'b-migration', 'B模块外部漫剧发行（原 A1 5104 迁移）'),
 (5110, '运营数据总览',       5002, 1, 'overview', 'statistics/OperationOverview', '', 1, 0, 'C', '0', '0', 'smartscript:stats:overview', 'DataLine', 'A1', 'A1SEED'),
 (5111, '明细数据查询',       5002, 2, 'detail',   'statistics/DetailQuery',       '', 1, 0, 'C', '0', '0', 'smartscript:stats:detail',   'Search',   'A1', 'A1SEED'),
 (5125, 'AI初审+人工复核',    5003, 1, 'ai-review', NULL,                          '', 1, 0, 'M', '0', '0', NULL,                             'Stamp', 'A1', 'A1SEED'),
@@ -1279,7 +1280,7 @@ CROSS JOIN (
   UNION ALL SELECT 2035 UNION ALL SELECT 2036 UNION ALL SELECT 2037 UNION ALL SELECT 2039
   UNION ALL SELECT 2040 UNION ALL SELECT 2041 UNION ALL SELECT 2042 UNION ALL SELECT 2043 UNION ALL SELECT 2044
   UNION ALL SELECT 2045 UNION ALL SELECT 2046 UNION ALL SELECT 2047 UNION ALL SELECT 2048 UNION ALL SELECT 2049
-  UNION ALL SELECT 2050
+  UNION ALL SELECT 2050 UNION ALL SELECT 2051
   UNION ALL SELECT 5130 UNION ALL SELECT 5131 UNION ALL SELECT 5132 UNION ALL SELECT 5133
   UNION ALL SELECT 5135 UNION ALL SELECT 5136 UNION ALL SELECT 5137 UNION ALL SELECT 5138
   UNION ALL SELECT 5180 UNION ALL SELECT 5181 UNION ALL SELECT 5182 UNION ALL SELECT 5183
