@@ -20,6 +20,7 @@
 --   第 6 部分  C 交易域 15 张业务表（含列补齐与唯一索引）
 --   第 7 部分  交易字典（14 类型 / 50 项）+ 7.1 授权类型枚举收敛归一
 --   第 8 部分  询盘过期自动关闭定时任务
+--   第 9 部分  公告接收范围与消息/公告业务权限（菜单精简之后执行）
 -- 与历史迁移脚本的差异：
 --   - 原迁移的控制表/快照表（a2_/a4_ 前缀）为升级回滚记账服务，此处不需要，已省略。
 --   - 原 C 迁移交易按钮 menu_id 5160-5174 与 B1 内容按钮 5160-5166 冲突（静默漏插），
@@ -1161,7 +1162,7 @@ INSERT INTO sys_menu (menu_id, menu_name, parent_id, order_num, path, component,
 (5143, '全局风控管理',         5005, 4, '/risk',          'risk/RiskManage',         '', 1, 0, 'C', '0', '0', 'smartscript:ops:risk',       'Warning',   'A1', 'A1SEED'),
 (5150, 'AI 创作与次数',       5006, 1, '/ai/operations',    'common/ModuleScaffold', '', 1, 0, 'C', '0', '0', 'smartscript:ai:operations',   'Magic',  'A1', 'A1SEED'),
 (5151, '福利与积分配置',      5006, 2, '/support/welfare',  'common/ModuleScaffold', '', 1, 0, 'C', '0', '0', 'smartscript:support:welfare', 'Present','A1', 'A1SEED'),
-(5152, '消息与公告',          5005, 5, '/support/messages', 'common/ModuleScaffold', '', 1, 0, 'C', '0', '0', 'smartscript:support:messages','Bell',   'A1', 'A1SEED'),
+(5152, '消息与公告',          5005, 5, '/support/messages', 'support/MessagesAnnouncements', '', 1, 0, 'C', '0', '0', 'smartscript:support:messages','Bell',   'A1', 'A1SEED'),
 (5201, '会话列表',           3000, 6, 'chat-sessions', 'chat/ChatSessions', '', 1, 0, 'C', '0', '0', 'chat:session:list',  'list',  'A3', 'A3 用户沟通会话列表（原 5200 目录迁入用户中心）'),
 (5202, '会话详情',           3000, 7, 'chat-detail',   'chat/ChatDetail',   '', 1, 0, 'C', '1', '0', 'chat:session:query', '#',     'A3', 'A3 用户沟通会话详情（原 5200 目录迁入用户中心）'),
 (5203, '分配管理员',         5201, 1, '',              NULL,                '', 1, 0, 'F', '0', '0', 'chat:session:assign','#',     'A3', 'A3 分配管理员按钮'),
@@ -2105,3 +2106,54 @@ SELECT
     WHERE menu_type IN ('M','C') AND status = '0'
     GROUP BY parent_id, path HAVING COUNT(*) > 1
   ) dup) AS duplicate_sibling_path_should_be_0;
+
+
+-- =====================================================================
+-- 第 9 部分：消息与公告接收范围、业务权限（2026-10-09，幂等）
+-- 历史公告始终默认 ADMIN；本段不把它们公开给普通用户。
+-- 必须在系统菜单精简之后执行，以保留公告权限的新父节点。
+-- =====================================================================
+SET @col_exists := (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'sys_notice' AND COLUMN_NAME = 'audience'
+);
+SET @ddl := IF(@col_exists = 0,
+  'ALTER TABLE sys_notice ADD COLUMN audience VARCHAR(8) NOT NULL DEFAULT ''ADMIN'' COMMENT ''USER普通用户/ADMIN后台管理员/ALL全部'' AFTER status',
+  'SELECT ''notice audience col ok'' AS note');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @chk_exists := (
+  SELECT COUNT(*) FROM information_schema.TABLE_CONSTRAINTS
+  WHERE CONSTRAINT_SCHEMA = DATABASE() AND TABLE_NAME = 'sys_notice'
+    AND CONSTRAINT_NAME = 'ck_sys_notice_audience' AND CONSTRAINT_TYPE = 'CHECK'
+);
+SET @ddl := IF(@chk_exists = 0,
+  'ALTER TABLE sys_notice ADD CONSTRAINT ck_sys_notice_audience CHECK (audience IN (''USER'',''ADMIN'',''ALL''))',
+  'SELECT ''notice audience check ok'' AS note');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @idx_exists := (
+  SELECT COUNT(*) FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'sys_notice' AND INDEX_NAME = 'idx_notice_status_audience'
+);
+SET @ddl := IF(@idx_exists = 0,
+  'ALTER TABLE sys_notice ADD INDEX idx_notice_status_audience (status, audience, notice_id)',
+  'SELECT ''notice visibility index ok'' AS note');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+UPDATE sys_menu SET component = 'support/MessagesAnnouncements' WHERE menu_id = 5152;
+INSERT INTO sys_menu (menu_id, menu_name, parent_id, order_num, path, component, query, route_name,
+  is_frame, is_cache, menu_type, visible, status, perms, icon, create_by, remark) VALUES
+(5300, '公告列表', 5152, 1, '#', NULL, '', '', 1, 0, 'F', '0', '0', 'system:notice:list', '#', 'notice_upgrade', '消息与公告权限'),
+(5301, '公告详情', 5152, 2, '#', NULL, '', '', 1, 0, 'F', '0', '0', 'system:notice:query', '#', 'notice_upgrade', '消息与公告权限'),
+(5302, '公告新增', 5152, 3, '#', NULL, '', '', 1, 0, 'F', '0', '0', 'system:notice:add', '#', 'notice_upgrade', '消息与公告权限'),
+(5303, '公告修改', 5152, 4, '#', NULL, '', '', 1, 0, 'F', '0', '0', 'system:notice:edit', '#', 'notice_upgrade', '消息与公告权限'),
+(5304, '公告删除', 5152, 5, '#', NULL, '', '', 1, 0, 'F', '0', '0', 'system:notice:remove', '#', 'notice_upgrade', '消息与公告权限'),
+(5305, '消息列表', 5152, 6, '#', NULL, '', '', 1, 0, 'F', '0', '0', 'user:message:list', '#', 'notice_upgrade', '消息与公告权限'),
+(5306, '消息详情', 5152, 7, '#', NULL, '', '', 1, 0, 'F', '0', '0', 'user:message:query', '#', 'notice_upgrade', '消息与公告权限'),
+(5307, '消息发送', 5152, 8, '#', NULL, '', '', 1, 0, 'F', '0', '0', 'user:message:add', '#', 'notice_upgrade', '消息与公告权限')
+ON DUPLICATE KEY UPDATE menu_name=VALUES(menu_name), parent_id=VALUES(parent_id),
+  order_num=VALUES(order_num), perms=VALUES(perms), remark=VALUES(remark);
+-- 不自动扩大任何受限角色权限。超级管理员依若依 *:*:* 使用新按钮。
+-- 回退：先停用 USER/ALL 公告并回退应用；随后移除5300-5307菜单及其角色绑定、
+-- 恢复5152旧组件，删除新增索引/约束/列。回退列会丢失范围信息，应先导出保存。

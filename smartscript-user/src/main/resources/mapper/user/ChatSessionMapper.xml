@@ -38,7 +38,7 @@
 
     <sql id="joinUsers">
         LEFT JOIN sys_user u1 ON s.user1_id = u1.user_id
-        LEFT JOIN sys_user u2 ON s.user2_id = u2.user_id
+        LEFT JOIN sys_user u2 ON COALESCE(s.assigned_admin_id, s.user2_id) = u2.user_id
     </sql>
 
     <sql id="userNames">
@@ -88,13 +88,29 @@
     </select>
 
     <!-- 用户端：我的会话列表 -->
+    <select id="selectForUpdate" resultMap="ChatSessionResult">
+        SELECT <include refid="sessionColumns"/> FROM sys_chat_session s
+        WHERE s.session_id = #{sessionId} FOR UPDATE
+    </select>
+
+    <update id="claimAdmin">
+        UPDATE sys_chat_session SET assigned_admin_id = #{adminId} WHERE session_id = #{sessionId}
+    </update>
+
+    <update id="refreshAdminUnread">
+        UPDATE sys_chat_session SET user2_unread = (
+            SELECT COUNT(*) FROM sys_chat_message
+            WHERE session_id = #{sessionId} AND sender_id = #{userId} AND is_read = 0
+        ) WHERE session_id = #{sessionId}
+    </update>
+
     <select id="selectMySessions" resultMap="ChatSessionResult">
         SELECT <include refid="sessionColumns"/>, <include refid="userNames"/>
         FROM sys_chat_session s
         <include refid="joinUsers"/>
         WHERE (s.user1_id = #{userId} OR s.user2_id = #{userId})
         <if test="status != null">
-            AND s.status = #{status}
+            <choose><when test="status == 0">AND s.status IN (0, 1)</when><otherwise>AND s.status = #{status}</otherwise></choose>
         </if>
         ORDER BY s.last_message_time DESC, s.created_at DESC
     </select>
@@ -106,7 +122,7 @@
         <include refid="joinUsers"/>
         <where>
             <if test="status != null">
-                AND s.status = #{status}
+                <choose><when test="status == 0">AND s.status IN (0, 1)</when><otherwise>AND s.status = #{status}</otherwise></choose>
             </if>
             <if test="businessType != null and businessType != ''">
                 AND s.business_type = #{businessType}
@@ -162,7 +178,7 @@
             0
         )
         FROM sys_chat_session
-        WHERE user1_id = #{userId} OR user2_id = #{userId}
+        WHERE user1_id = #{userId} OR COALESCE(assigned_admin_id, user2_id) = #{userId}
     </select>
 
     <!-- 更新状态 -->

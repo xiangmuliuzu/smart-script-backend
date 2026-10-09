@@ -3,7 +3,8 @@ package com.ruoyi.system.service.impl;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
-import com.ruoyi.system.domain.SysNoticeRead;
+import com.github.pagehelper.PageHelper;
+import com.ruoyi.system.service.NoticeRecipientService;
 import com.ruoyi.system.domain.SysNotice;
 import com.ruoyi.system.mapper.SysNoticeReadMapper;
 import com.ruoyi.system.service.ISysNoticeReadService;
@@ -19,16 +20,16 @@ public class SysNoticeReadServiceImpl implements ISysNoticeReadService
     @Autowired
     private SysNoticeReadMapper noticeReadMapper;
 
+    @Autowired
+    private NoticeRecipientService recipientService;
+
     /**
      * 标记已读
      */
     @Override
     public void markRead(Long noticeId, Long userId)
     {
-        SysNoticeRead record = new SysNoticeRead();
-        record.setNoticeId(noticeId);
-        record.setUserId(userId);
-        noticeReadMapper.insertNoticeRead(record);
+        recipientService.markRead(userId, "00", noticeId);
     }
 
     /**
@@ -37,7 +38,7 @@ public class SysNoticeReadServiceImpl implements ISysNoticeReadService
     @Override
     public int selectUnreadCount(Long userId)
     {
-        return noticeReadMapper.selectUnreadCount(userId);
+        return recipientService.unreadCount(userId, "00");
     }
 
     /**
@@ -46,7 +47,16 @@ public class SysNoticeReadServiceImpl implements ISysNoticeReadService
     @Override
     public List<SysNotice> selectNoticeListWithReadStatus(Long userId, int limit)
     {
-        return noticeReadMapper.selectNoticeListWithReadStatus(userId, limit);
+        PageHelper.startPage(1, Math.max(1, Math.min(100, limit)), false);
+        return recipientService.list(userId, "00").stream().map(receipt -> {
+            SysNotice notice = new SysNotice();
+            notice.setNoticeId(receipt.getNoticeId());
+            notice.setNoticeTitle(receipt.getNoticeTitle());
+            notice.setNoticeType(receipt.getNoticeType());
+            notice.setCreateTime(receipt.getCreateTime());
+            notice.setIsRead(receipt.getIsRead());
+            return notice;
+        }).toList();
     }
 
     /**
@@ -59,7 +69,7 @@ public class SysNoticeReadServiceImpl implements ISysNoticeReadService
         {
             return;
         }
-        noticeReadMapper.insertNoticeReadBatch(userId, noticeIds);
+        recipientService.markReadBatch(userId, "00", noticeIds);
     }
 
     /**

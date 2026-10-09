@@ -47,4 +47,9 @@
           AND is_read = 0
     </update>
 
+    <update id="markAdminReadThrough">
+        UPDATE sys_chat_message SET is_read = 1, read_time = #{readTime}
+        WHERE session_id = #{sessionId} AND sender_id = #{userId}
+          AND message_id &lt;= #{throughMessageId} AND is_read = 0
+    </update>
 </mapper>

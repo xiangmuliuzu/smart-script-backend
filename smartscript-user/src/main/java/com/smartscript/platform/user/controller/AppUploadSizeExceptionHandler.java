@@ -48,7 +48,7 @@ public class AppUploadSizeExceptionHandler
      * /api/v1/content 为 B 模块 App 域（2.9.1 内容上传），同样返回 App 信封。
      */
     private static final List<String> APP_DOMAIN_PREFIXES = List.of(
-            "/api/v1/auth", "/api/v1/users", "/api/v1/messages", "/api/v1/feedback", "/api/v1/content");
+            "/api/v1/auth", "/api/v1/users", "/api/v1/messages", "/api/v1/feedback", "/api/v1/content", "/api/v1/announcements");
 
     /**
      * 是否为 App 域路径：必须同时覆盖**根路径本身**（如 {@code POST /api/v1/feedback}、

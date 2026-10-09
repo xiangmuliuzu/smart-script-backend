@@ -6,7 +6,7 @@ import java.util.Date;
  * A3 聊天会话（sys_chat_session）。
  *
  * 会话双方为「App 用户」与「管理员」，按业务上下文（作品/印章/订单等）隔离。
- * status：0=待处理 1=处理中 2=已结束。
+ * status：0=进行中 2=已结束，历史值 1 兼容为进行中。
  */
 public class ChatSession
 {

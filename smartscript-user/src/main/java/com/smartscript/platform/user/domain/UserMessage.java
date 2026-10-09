@@ -11,6 +11,10 @@ import java.util.Date;
 public class UserMessage
 {
     private Long messageId;
+    private String source = "NOTIFICATION";
+
+    public String getSource() { return source; }
+    public void setSource(String source) { this.source = source; }
     private String type;
     private String title;
     private String content;

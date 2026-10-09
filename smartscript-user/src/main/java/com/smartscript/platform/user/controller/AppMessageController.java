@@ -16,6 +16,7 @@ import com.smartscript.platform.user.dto.PageResult;
 import com.smartscript.platform.user.exception.AppAuthException;
 import com.smartscript.platform.user.security.AppIdentityContext;
 import com.smartscript.platform.user.service.UserMessageService;
+import com.smartscript.platform.user.service.UserInboxService;
 
 /**
  * A5 消息中心（契约 §1.5，规格 §8.6）。
@@ -31,10 +32,12 @@ import com.smartscript.platform.user.service.UserMessageService;
 public class AppMessageController
 {
     private final UserMessageService messageService;
+    private final UserInboxService inboxService;
 
-    public AppMessageController(UserMessageService messageService)
+    public AppMessageController(UserMessageService messageService, UserInboxService inboxService)
     {
         this.messageService = messageService;
+        this.inboxService = inboxService;
     }
 
     @GetMapping
@@ -44,19 +47,25 @@ public class AppMessageController
         int pageNum = pageNum(params.get("pageNum"));
         int pageSize = pageSize(params.get("pageSize"));
         String type = str(params.get("type"));
+        if (Boolean.parseBoolean(str(params.get("includeAnnouncements"))))
+            return AppApiResponse.ok(inboxService.page(currentUserId(), currentIdentity().getUserType(), type, pageNum, pageSize));
         return AppApiResponse.ok(messageService.page(currentUserId(), type, pageNum, pageSize));
     }
 
     @GetMapping("/unread-count")
-    public AppApiResponse<Map<String, Object>> unreadCount()
+    public AppApiResponse<Map<String, Object>> unreadCount(@RequestParam(defaultValue = "false") boolean includeAnnouncements)
     {
-        return AppApiResponse.ok(messageService.unreadCount(currentUserId()));
+        return AppApiResponse.ok(includeAnnouncements
+                ? inboxService.unreadCount(currentUserId(), currentIdentity().getUserType())
+                : messageService.unreadCount(currentUserId()));
     }
 
     @PutMapping("/read-all")
-    public AppApiResponse<Map<String, Object>> readAll()
+    public AppApiResponse<Map<String, Object>> readAll(@RequestParam(defaultValue = "false") boolean includeAnnouncements)
     {
-        return AppApiResponse.ok(messageService.markAllRead(currentUserId()));
+        return AppApiResponse.ok(includeAnnouncements
+                ? inboxService.markAllRead(currentUserId(), currentIdentity().getUserType())
+                : messageService.markAllRead(currentUserId()));
     }
 
     @GetMapping("/{messageId}")

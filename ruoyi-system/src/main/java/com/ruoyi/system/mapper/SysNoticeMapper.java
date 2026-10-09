@@ -18,6 +18,9 @@ public interface SysNoticeMapper
      */
     public SysNotice selectNoticeById(Long noticeId);
 
+    /** 修改和删除时锁定主体，避免启用状态与范围检查之间发生并发修改。 */
+    public SysNotice selectNoticeForUpdate(Long noticeId);
+
     /**
      * 查询公告列表
      * 
