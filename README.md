@@ -172,3 +172,7 @@ java -jar ruoyi-admin/target/ruoyi-admin.jar
 ## 仓库地址
 
 `https://github.com/xiangmuliuzu/smart-script-backend`
+
+## 数据库密码配置
+
+数据库密码必须通过 `DB_PASSWORD` 环境变量注入，不再使用仓库内的默认值。本机开发仍可使用 `.env.local`；云端部署时也必须设置 `DB_PASSWORD`。
