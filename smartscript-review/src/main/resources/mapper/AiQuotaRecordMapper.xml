@@ -10,13 +10,13 @@
         <result property="balance"      column="after_balance"   />
         <result property="businessType" column="business_type"   />
         <result property="relatedId"    column="business_id"     />
-        <result property="createTime"  column="create_time"     />
+        <result property="createTime"  column="created_at"     />
         <result property="remark"      column="remark"          />
     </resultMap>
 
     <sql id="selectAiQuotaRecordVo">
         SELECT record_id, user_id, change_type, change_amount, before_balance,
-               after_balance, business_type, business_id, remark, create_time
+               after_balance, business_type, business_id, remark, created_at
         FROM sys_ai_quota_record
     </sql>
 
@@ -30,7 +30,7 @@
                 AND type = #{type}
             </if>
         </where>
-        ORDER BY create_time DESC
+        ORDER BY created_at DESC
     </select>
 
     <select id="selectAiQuotaRecordById" parameterType="Long" resultMap="AiQuotaRecordResult">
@@ -47,7 +47,7 @@
             <if test="balance != null">after_balance,</if>
             <if test="businessType != null and businessType != ''">business_type,</if>
             <if test="relatedId != null">business_id,</if>
-            <if test="createTime != null">create_time,</if>
+            <if test="createTime != null">created_at,</if>
             <if test="remark != null">remark,</if>
         </trim>
         <trim prefix="values (" suffix=")" suffixOverrides=",">
@@ -81,7 +81,7 @@
     </delete>
 
     <select id="countTodayCalls" resultType="int">
-        SELECT COUNT(*) FROM sys_ai_quota_record WHERE create_time >= CURDATE()
+        SELECT COUNT(*) FROM sys_ai_quota_record WHERE created_at >= CURDATE()
     </select>
 
     <select id="countFailedCalls" resultType="int">
