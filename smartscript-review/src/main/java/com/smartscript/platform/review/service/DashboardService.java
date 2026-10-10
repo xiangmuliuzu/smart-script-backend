@@ -52,7 +52,7 @@ public class DashboardService {
         List<Map<String, Object>> quick = new ArrayList<>();
         quick.add(quickItem("作品审核", num(row, "pendingWorks"), "待审核", "/copyright/ai-review/review"));
         quick.add(quickItem("订单管理", num(row, "pendingOrders"), "待处理", "/trade/orders"));
-        quick.add(quickItem("用户管理", num(row, "pendingUsers"), "待审核", "/user"));
+        quick.add(quickItem("用户管理", num(row, "pendingUsers"), "待审核", "/appuser/users"));
         quick.add(quickItem("风控管理", num(row, "pendingRisk"), "待处理", "/risk"));
 
         // 作品状态分布

@@ -1160,7 +1160,6 @@ INSERT INTO sys_menu (menu_id, menu_name, parent_id, order_num, path, component,
 (5134, '合同与结算',         5004, 9, 'contracts',  'common/ModuleScaffold', '', 1, 0, 'C', '0', '0', 'smartscript:trade:contracts', 'Document', 'A1', 'A1SEED'),
 (5140, '广告运营配置',         5005, 1, 'ad-config',      'operation/AdConfig',      '', 1, 0, 'C', '0', '0', 'smartscript:ops:adConfig',   'Picture',   'A1', 'A1SEED'),
 (5141, '用户画像与推荐配置',   5005, 2, 'user-profile-rec','operation/UserProfileRec','', 1, 0, 'C', '0', '0', 'smartscript:ops:userProfile','Operation', 'A1', 'A1SEED'),
-(5142, '用户与创作者管理',     5005, 3, '/user',          'user/UserManage',         '', 1, 0, 'C', '0', '0', 'smartscript:ops:creatorUser','User',      'A1', 'A1SEED-product-not-system-user'),
 (5143, '全局风控管理',         5005, 4, '/risk',          'risk/RiskManage',         '', 1, 0, 'C', '0', '0', 'smartscript:ops:risk',       'Warning',   'A1', 'A1SEED'),
 (5150, 'AI 创作与次数',       5006, 1, '/ai/operations',    'common/ModuleScaffold', '', 1, 0, 'C', '0', '0', 'smartscript:ai:operations',   'Magic',  'A1', 'A1SEED'),
 (5151, '福利与积分配置',      5006, 2, '/support/welfare',  'common/ModuleScaffold', '', 1, 0, 'C', '0', '0', 'smartscript:support:welfare', 'Present','A1', 'A1SEED'),
@@ -1182,14 +1181,13 @@ INSERT INTO sys_menu (menu_id, menu_name, parent_id, order_num, path, component,
 (3000, '用户中心',           0,    9, 'appuser',  NULL,                  '', NULL,        1, 0, 'M', '0', '0', NULL,                'peoples', 'a4_migration', 'A4 PC 管理能力权限（A4_20260922_002）'),
 (3001, 'App用户与创作者',    3000, 1, 'users',    'user/UserManage',     '', 'A4AppUser',  1, 0, 'C', '0', '0', 'user:app:list',     'user',    'a4_migration', 'A4 PC 管理能力权限（A4_20260922_002）'),
 (3005, '实名审核',           3000, 2, 'realname', 'user/realname/index', '', 'A4RealName', 1, 0, 'C', '0', '0', 'user:realname:list','form',    'a4_migration', 'A4 PC 管理能力权限（A4_20260922_002）'),
-(3008, '作者能力',           3000, 3, 'creator',  'user/UserManage',     '', 'A4Creator',  1, 0, 'C', '0', '0', 'user:creator:list', 'star',    'a4_migration', 'A4 PC 管理能力权限（A4_20260922_002）'),
 (3013, '用户反馈',           3000, 5, 'feedback', 'user/feedback/index', '', 'A4Feedback', 1, 0, 'C', '0', '0', 'user:feedback:list','edit',    'a4_migration', 'A4 PC 管理能力权限（A4_20260922_002）'),
 (3002, 'A4-App用户查询',     3001, 1, '#', NULL, '', NULL, 1, 0, 'F', '0', '0', 'user:app:query',      '#', 'a4_migration', 'A4 PC 管理能力权限（A4_20260922_002）'),
 (3003, 'A4-App用户状态',     3001, 2, '#', NULL, '', NULL, 1, 0, 'F', '0', '0', 'user:app:status',     '#', 'a4_migration', 'A4 PC 管理能力权限（A4_20260922_002）'),
 (3004, 'A4-用户角色授权',    3001, 3, '#', NULL, '', NULL, 1, 0, 'F', '0', '0', 'user:app:grant',      '#', 'a4_migration', 'A4 PC 管理能力权限（A4_20260922_002）'),
 (3006, 'A4-实名申请查询',    3005, 1, '#', NULL, '', NULL, 1, 0, 'F', '0', '0', 'user:realname:query', '#', 'a4_migration', 'A4 PC 管理能力权限（A4_20260922_002）'),
 (3007, 'A4-实名审核决定',    3005, 2, '#', NULL, '', NULL, 1, 0, 'F', '0', '0', 'user:realname:audit', '#', 'a4_migration', 'A4 PC 管理能力权限（A4_20260922_002）'),
-(3009, 'A4-作者能力变更',    3008, 1, '#', NULL, '', NULL, 1, 0, 'F', '0', '0', 'user:creator:update', '#', 'a4_migration', 'A4 PC 管理能力权限（A4_20260922_002）'),
+(3009, 'A4-作者能力变更',    3001, 4, '#', NULL, '', NULL, 1, 0, 'F', '0', '0', 'user:creator:update', '#', 'a4_migration', 'A4 PC 管理能力权限（A4_20260922_002）'),
 (3014, 'A4-反馈详情',        3013, 1, '#', NULL, '', NULL, 1, 0, 'F', '0', '0', 'user:feedback:query', '#', 'a4_migration', 'A4 PC 管理能力权限（A4_20260922_002）'),
 (3015, 'A4-反馈处理',        3013, 2, '#', NULL, '', NULL, 1, 0, 'F', '0', '0', 'user:feedback:handle','#', 'a4_migration', 'A4 PC 管理能力权限（A4_20260922_002）')
 ON DUPLICATE KEY UPDATE
@@ -1267,7 +1265,7 @@ FROM sys_role r
 CROSS JOIN (
   SELECT 3000 AS menu_id UNION ALL SELECT 3001 UNION ALL SELECT 3002 UNION ALL SELECT 3003
   UNION ALL SELECT 3004 UNION ALL SELECT 3005 UNION ALL SELECT 3006 UNION ALL SELECT 3007
-  UNION ALL SELECT 3008 UNION ALL SELECT 3009
+  UNION ALL SELECT 3009
   UNION ALL SELECT 3013 UNION ALL SELECT 3014 UNION ALL SELECT 3015
   UNION ALL SELECT 2000 UNION ALL SELECT 2010 UNION ALL SELECT 2011 UNION ALL SELECT 2012
   UNION ALL SELECT 2013 UNION ALL SELECT 2014 UNION ALL SELECT 2015 UNION ALL SELECT 2016 UNION ALL SELECT 2017
@@ -2011,7 +2009,7 @@ WHERE NOT EXISTS (SELECT 1 FROM sys_job WHERE invoke_target = 'tradeInquiryTask.
 -- ---------------------------------------------------------------------
 -- 系统管理目录下的页面（用户/角色/菜单/部门/岗位/字典/参数/通知/日志管理）
 -- 属于开发自管配置，不对管理员开放：
---   - 用户管理由用户中心"用户与创作者管理"(5142) 覆盖；
+--   - 用户管理由用户中心"App用户与创作者"(3001) 提供；
 --   - 系统参数（如验证码开关 sys.account.captchaEnabled）改由开发直连数据库维护；
 --   - 操作日志(500)/登录日志(501) 保留，挂到"数据统计"(5002) 目录下。
 -- 前端已同步删除对应 vue 页面与 api（smart-script-web）。
@@ -2063,6 +2061,22 @@ WHERE menu_id = 5001 OR parent_id = 5001
 --    INSERT 是 upsert，对已存在的库不会移除该行，故此处显式删除（含其角色绑定）。
 DELETE FROM sys_role_menu WHERE menu_id = 5200;
 DELETE FROM sys_menu WHERE menu_id = 5200;
+
+-- =====================================================================
+-- 平台运维管理的用户与创作者入口(5142)与用户中心(3001)重复。
+-- 用户中心的作者能力入口(3008)同样合并至3001，能力变更按钮(3009)迁入保留页面。
+-- 旧入口的角色只迁移页面入口及父目录授权；不新增查询/状态/角色变更等按钮权限。
+-- 新库不再种入5142/3008，旧库升级先迁移授权再删除菜单，重复执行无副作用。
+START TRANSACTION;
+INSERT IGNORE INTO sys_role_menu (role_id, menu_id)
+SELECT old.role_id, target.menu_id
+FROM sys_role_menu old
+JOIN sys_menu target ON target.menu_id IN (3000,3001)
+WHERE old.menu_id IN (5142,3008);
+UPDATE sys_menu SET parent_id = 3001, order_num = 4 WHERE menu_id = 3009;
+DELETE FROM sys_role_menu WHERE menu_id IN (5142,3008);
+DELETE FROM sys_menu WHERE menu_id IN (5142,3008);
+COMMIT;
 
 -- =====================================================================
 -- 第 9 部分：消息与公告接收范围、业务权限（2026-10-09，幂等）
@@ -2195,6 +2209,12 @@ SELECT
        OR parent_id IN (SELECT menu_id FROM (SELECT menu_id FROM sys_menu WHERE parent_id = 5001) d)
   ) AS legacy_content_tree_should_be_0,
   (SELECT COUNT(*) FROM sys_menu WHERE menu_id = 5200) AS chat_dir_should_be_0,
+  (SELECT COUNT(*) FROM sys_menu WHERE menu_id = 5142) AS duplicate_user_menu_should_be_0,
+  (SELECT COUNT(*) FROM sys_role_menu WHERE menu_id = 5142) AS duplicate_user_grants_should_be_0,
+  (SELECT COUNT(*) FROM sys_menu WHERE menu_id = 3001 AND parent_id = 3000) AS app_users_under_user_center_should_be_1,
+  (SELECT COUNT(*) FROM sys_menu WHERE menu_id = 3008) AS duplicate_creator_menu_should_be_0,
+  (SELECT COUNT(*) FROM sys_role_menu WHERE menu_id = 3008) AS duplicate_creator_grants_should_be_0,
+  (SELECT COUNT(*) FROM sys_menu WHERE menu_id = 3009 AND parent_id = 3001) AS creator_update_under_app_users_should_be_1,
   (SELECT COUNT(*) FROM sys_menu WHERE menu_id IN (3010,3011,3012)) AS legacy_message_menus_should_be_0,
   (SELECT COUNT(*) FROM sys_menu WHERE menu_id = 5152 AND parent_id = 5005) AS messages_under_operations_should_be_1,
   (SELECT COUNT(*) FROM (
