@@ -1075,22 +1075,34 @@ ON DUPLICATE KEY UPDATE
 
 -- 2026-10-08 菜单精简：系统管理目录已整体下线，不再调整其排序。
 
--- 旧库曾将 5141/5143 用作运维页面，但云端这两个 ID 是版权申请按钮。
--- 仅按旧页面的父目录和名称搬迁，避免误改版权授权；在产品菜单 upsert 前执行。
+-- 用户画像与推荐配置已下线：在产品菜单 upsert 前清理旧入口及授权，兼容旧 ID 5141/5400。
+-- 按父目录和名称/组件识别页面，保留使用 5141 的版权申请按钮。
+-- 旧风控页面 5143 仍迁至 5401，避免与版权申请删除按钮冲突。
 START TRANSACTION;
+DELETE rm FROM sys_role_menu rm
+LEFT JOIN sys_menu menu ON menu.menu_id = rm.menu_id
+LEFT JOIN sys_menu parent ON parent.menu_id = menu.parent_id
+WHERE (menu.parent_id = 5005 AND menu.menu_type = 'C'
+       AND (menu.menu_name = '用户画像与推荐配置' OR menu.component = 'operation/UserProfileRec'))
+   OR (parent.parent_id = 5005 AND parent.menu_type = 'C'
+       AND (parent.menu_name = '用户画像与推荐配置' OR parent.component = 'operation/UserProfileRec'));
+DELETE child, retired FROM sys_menu retired
+LEFT JOIN sys_menu child ON child.parent_id = retired.menu_id
+WHERE retired.parent_id = 5005 AND retired.menu_type = 'C'
+  AND (retired.menu_name = '用户画像与推荐配置' OR retired.component = 'operation/UserProfileRec');
+-- 云端历史删除可能只移除了菜单行，清理其遗留的 5400 授权。
+DELETE FROM sys_role_menu WHERE menu_id = 5400
+  AND NOT EXISTS (SELECT 1 FROM sys_menu WHERE menu_id = 5400);
 INSERT IGNORE INTO sys_role_menu (role_id, menu_id)
-SELECT rm.role_id, CASE old.menu_id WHEN 5141 THEN 5400 WHEN 5143 THEN 5401 END
+SELECT rm.role_id, 5401
 FROM sys_role_menu rm
 JOIN sys_menu old ON old.menu_id = rm.menu_id
-WHERE (old.menu_id = 5141 AND old.parent_id = 5005 AND old.menu_name = '用户画像与推荐配置' AND old.menu_type = 'C')
-   OR (old.menu_id = 5143 AND old.parent_id = 5005 AND old.menu_name = '全局风控管理' AND old.menu_type = 'C');
+WHERE old.menu_id = 5143 AND old.parent_id = 5005 AND old.menu_name = '全局风控管理' AND old.menu_type = 'C';
 DELETE rm FROM sys_role_menu rm
 JOIN sys_menu old ON old.menu_id = rm.menu_id
-WHERE (old.menu_id = 5141 AND old.parent_id = 5005 AND old.menu_name = '用户画像与推荐配置' AND old.menu_type = 'C')
-   OR (old.menu_id = 5143 AND old.parent_id = 5005 AND old.menu_name = '全局风控管理' AND old.menu_type = 'C');
+WHERE old.menu_id = 5143 AND old.parent_id = 5005 AND old.menu_name = '全局风控管理' AND old.menu_type = 'C';
 DELETE FROM sys_menu
-WHERE (menu_id = 5141 AND parent_id = 5005 AND menu_name = '用户画像与推荐配置' AND menu_type = 'C')
-   OR (menu_id = 5143 AND parent_id = 5005 AND menu_name = '全局风控管理' AND menu_type = 'C');
+WHERE menu_id = 5143 AND parent_id = 5005 AND menu_name = '全局风控管理' AND menu_type = 'C';
 COMMIT;
 
 INSERT INTO sys_menu (menu_id, menu_name, parent_id, order_num, path, component, query, is_frame, is_cache, menu_type, visible, status, perms, icon, create_by, remark) VALUES
@@ -1127,7 +1139,6 @@ INSERT INTO sys_menu (menu_id, menu_name, parent_id, order_num, path, component,
 (5138, '征集项目',           5004, 8, 'demand',     'trade/Demand',       '', 1, 0, 'C', '0', '0', 'trade:demand:list',    'List',   'c-migration', 'C模块交易菜单补全'),
 (5134, '合同与结算',         5004, 9, 'contracts',  'common/ModuleScaffold', '', 1, 0, 'C', '0', '0', 'smartscript:trade:contracts', 'Document', 'A1', 'A1SEED'),
 (5140, '广告运营配置',         5005, 1, 'ad-config',      'operation/AdConfig',      '', 1, 0, 'C', '0', '0', 'smartscript:ops:adConfig',   'Picture',   'A1', 'A1SEED'),
-(5400, '用户画像与推荐配置',   5005, 2, 'user-profile-rec','operation/UserProfileRec','', 1, 0, 'C', '0', '0', 'smartscript:ops:userProfile','Operation', 'A1', 'A1SEED'),
 (5401, '全局风控管理',         5005, 4, '/risk',          'risk/RiskManage',         '', 1, 0, 'C', '0', '0', 'smartscript:ops:risk',       'Warning',   'A1', 'A1SEED'),
 (5141, '版权申请查询',         5126, 1, '', NULL, '', 1, 0, 'F', '0', '0', 'smartscript:copyright:application:query',  '#', 'copyright-migration', '版权申请查询按钮权限'),
 (5142, '版权申请详情',         5126, 2, '', NULL, '', 1, 0, 'F', '0', '0', 'smartscript:copyright:application:detail', '#', 'copyright-migration', '版权申请详情按钮权限'),
@@ -1258,7 +1269,7 @@ CROSS JOIN (
   UNION ALL SELECT 5188 UNION ALL SELECT 5189 UNION ALL SELECT 5190 UNION ALL SELECT 5191
   UNION ALL SELECT 5192 UNION ALL SELECT 5193 UNION ALL SELECT 5194 UNION ALL SELECT 5195
   UNION ALL SELECT 5196 UNION ALL SELECT 5141 UNION ALL SELECT 5142 UNION ALL SELECT 5143
-  UNION ALL SELECT 5144 UNION ALL SELECT 5145 UNION ALL SELECT 5400 UNION ALL SELECT 5401
+  UNION ALL SELECT 5144 UNION ALL SELECT 5145 UNION ALL SELECT 5401
 ) m
 WHERE r.del_flag = '0' AND (r.role_key = 'admin' OR r.role_id = 1)
   AND NOT EXISTS (SELECT 1 FROM sys_role_menu rm WHERE rm.role_id = r.role_id AND rm.menu_id = m.menu_id);
@@ -2208,6 +2219,10 @@ SELECT
        OR parent_id IN (SELECT menu_id FROM (SELECT menu_id FROM sys_menu WHERE parent_id = 5001) d)
   ) AS legacy_content_tree_should_be_0,
   (SELECT COUNT(*) FROM sys_menu WHERE menu_id = 5200) AS chat_dir_should_be_0,
+  (SELECT COUNT(*) FROM sys_menu WHERE parent_id = 5005 AND menu_type = 'C'
+    AND (menu_name = '用户画像与推荐配置' OR component = 'operation/UserProfileRec')) AS retired_profile_menu_should_be_0,
+  (SELECT COUNT(*) FROM sys_role_menu WHERE menu_id = 5400
+    AND NOT EXISTS (SELECT 1 FROM sys_menu WHERE menu_id = 5400)) AS retired_profile_orphan_grants_should_be_0,
   (SELECT COUNT(*) FROM sys_menu WHERE parent_id = 5005 AND menu_name IN ('用户与创作者','用户与创作者管理') AND menu_type = 'C') AS duplicate_user_menu_should_be_0,
   (SELECT COUNT(*) FROM sys_role_menu rm JOIN sys_menu m ON m.menu_id = rm.menu_id WHERE m.parent_id = 5005 AND m.menu_name IN ('用户与创作者','用户与创作者管理') AND m.menu_type = 'C') AS duplicate_user_grants_should_be_0,
   (SELECT COUNT(*) FROM sys_menu WHERE menu_id = 5142 AND parent_id = 5126 AND perms = 'smartscript:copyright:application:detail') AS copyright_detail_menu_should_be_1,
