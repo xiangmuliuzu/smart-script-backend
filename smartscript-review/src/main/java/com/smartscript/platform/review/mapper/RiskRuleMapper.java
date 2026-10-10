@@ -37,4 +37,9 @@ public interface RiskRuleMapper {
      * 删除风控规则
      */
     int deleteRiskRuleById(@Param("ruleId") Long ruleId);
+
+    /**
+     * 查询启用的敏感词规则（业务 check 用，rule_type='sensitive' AND status=1）
+     */
+    List<RiskRule> selectActiveSensitiveRules();
 }

@@ -47,6 +47,11 @@
         WHERE task_id = #{taskId}
     </select>
 
+    <select id="selectTaskConfigByCode" parameterType="String" resultMap="TaskConfigResult">
+        <include refid="selectTaskConfigVo"/>
+        WHERE task_code = #{taskCode}
+    </select>
+
     <insert id="insertTaskConfig" parameterType="com.smartscript.platform.review.domain.TaskConfig" useGeneratedKeys="true" keyProperty="taskId">
         INSERT INTO sys_task
         <trim prefix="(" suffix=")" suffixOverrides=",">

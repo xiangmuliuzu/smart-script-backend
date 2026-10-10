@@ -94,6 +94,10 @@
             <if test="status != null and status != ''">status = #{status},</if>
             <if test="reviewResult != null and reviewResult != ''">review_result = #{reviewResult},</if>
             <if test="aiResult != null">ai_result = #{aiResult},</if>
+            <if test="aiRiskLevel != null and aiRiskLevel != ''">ai_risk_level = #{aiRiskLevel},</if>
+            <if test="aiSensitiveWords != null">ai_sensitive_words = #{aiSensitiveWords},</if>
+            <if test="aiStartTime != null">ai_start_time = #{aiStartTime},</if>
+            <if test="aiEndTime != null">ai_end_time = #{aiEndTime},</if>
             <if test="reviewOpinion != null">review_opinion = #{reviewOpinion},</if>
             <if test="reviewerId != null">reviewer_id = #{reviewerId},</if>
             <if test="reviewedAt != null">review_end_time = #{reviewedAt},</if>

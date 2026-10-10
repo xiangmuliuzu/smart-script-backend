@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.review.mapper.UserTaskMapper">
+
+    <resultMap id="UserTaskResult" type="com.smartscript.platform.review.domain.UserTask">
+        <id     property="id"           column="id"            />
+        <result property="userId"       column="user_id"       />
+        <result property="taskId"       column="task_id"       />
+        <result property="progress"     column="progress"      />
+        <result property="isCompleted"  column="is_completed"  />
+        <result property="isClaimed"    column="is_claimed"    />
+        <result property="completeTime" column="complete_time" />
+        <result property="claimTime"    column="claim_time"    />
+        <result property="periodDate"   column="period_date"   />
+        <result property="createdAt"    column="created_at"    />
+        <result property="updatedAt"    column="updated_at"    />
+        <result property="createBy"     column="create_by"     />
+        <result property="createTime"   column="create_time"   />
+        <result property="updateBy"     column="update_by"     />
+        <result property="updateTime"   column="update_time"   />
+        <result property="remark"       column="remark"        />
+    </resultMap>
+
+    <select id="countClaimed" resultType="int">
+        SELECT COUNT(*)
+        FROM sys_user_task
+        WHERE user_id = #{userId}
+          AND task_id = #{taskId}
+          AND period_date = #{periodDate}
+          AND is_claimed = 1
+    </select>
+
+    <select id="countClaimedAll" resultType="int">
+        SELECT COUNT(*)
+        FROM sys_user_task
+        WHERE user_id = #{userId}
+          AND task_id = #{taskId}
+          AND is_claimed = 1
+    </select>
+
+    <insert id="insertUserTask" parameterType="com.smartscript.platform.review.domain.UserTask">
+        INSERT INTO sys_user_task
+            (user_id, task_id, progress, is_completed, is_claimed,
+             complete_time, claim_time, period_date, created_at, updated_at,
+             create_by, create_time, update_by, update_time, remark)
+        VALUES
+            (#{userId}, #{taskId}, #{progress}, #{isCompleted}, #{isClaimed},
+             #{completeTime}, #{claimTime}, #{periodDate}, NOW(), NOW(),
+             #{createBy}, #{createTime}, #{updateBy}, #{updateTime}, #{remark})
+    </insert>
+
+</mapper>

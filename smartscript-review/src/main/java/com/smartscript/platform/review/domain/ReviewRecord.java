@@ -33,6 +33,14 @@ public class ReviewRecord {
     private String genreName;
     private String authorName;
     private Integer aiScore;
+    /** AI风险评估等级 low/medium/high */
+    private String aiRiskLevel;
+    /** AI命中敏感词（逗号分隔） */
+    private String aiSensitiveWords;
+    /** AI开始时间 */
+    private Date aiStartTime;
+    /** AI结束时间 */
+    private Date aiEndTime;
 
     // getter and setter
     public Long getReviewId() { return reviewId; }
@@ -73,4 +81,12 @@ public class ReviewRecord {
     public void setAuthorName(String authorName) { this.authorName = authorName; }
     public Integer getAiScore() { return aiScore; }
     public void setAiScore(Integer aiScore) { this.aiScore = aiScore; }
+    public String getAiRiskLevel() { return aiRiskLevel; }
+    public void setAiRiskLevel(String aiRiskLevel) { this.aiRiskLevel = aiRiskLevel; }
+    public String getAiSensitiveWords() { return aiSensitiveWords; }
+    public void setAiSensitiveWords(String aiSensitiveWords) { this.aiSensitiveWords = aiSensitiveWords; }
+    public Date getAiStartTime() { return aiStartTime; }
+    public void setAiStartTime(Date aiStartTime) { this.aiStartTime = aiStartTime; }
+    public Date getAiEndTime() { return aiEndTime; }
+    public void setAiEndTime(Date aiEndTime) { this.aiEndTime = aiEndTime; }
 }

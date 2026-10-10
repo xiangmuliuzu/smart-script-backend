@@ -36,4 +36,33 @@
         ORDER BY pa.balance DESC
     </select>
 
+    <select id="selectByUserId" parameterType="Long" resultMap="PointsAccountResult">
+        SELECT pa.account_id, pa.user_id, pa.balance, pa.total_earned, pa.total_spent,
+               pa.today_earned, pa.last_update_date, pa.create_by, pa.created_at,
+               pa.update_by, pa.update_time, pa.remark,
+               u.nick_name
+        FROM sys_points_account pa
+        LEFT JOIN sys_user u ON u.user_id = pa.user_id
+        WHERE pa.user_id = #{userId}
+    </select>
+
+    <insert id="insertAccount" parameterType="com.smartscript.platform.review.domain.PointsAccount" useGeneratedKeys="true" keyProperty="accountId">
+        INSERT INTO sys_points_account
+            (user_id, balance, total_earned, total_spent, today_earned,
+             last_update_date, created_at, updated_at, create_by, create_time, remark)
+        VALUES
+            (#{userId}, 0, 0, 0, 0,
+             #{lastUpdateDate}, NOW(), NOW(), #{createBy}, #{createTime}, #{remark})
+    </insert>
+
+    <update id="increaseBalance">
+        UPDATE sys_points_account
+        SET balance = balance + #{points},
+            total_earned = total_earned + #{points},
+            today_earned = IF(last_update_date = #{date}, today_earned + #{points}, #{points}),
+            last_update_date = #{date},
+            updated_at = NOW()
+        WHERE user_id = #{userId}
+    </update>
+
 </mapper>

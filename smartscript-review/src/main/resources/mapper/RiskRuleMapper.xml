@@ -46,6 +46,12 @@
         WHERE rule_id = #{ruleId}
     </select>
 
+    <select id="selectActiveSensitiveRules" resultMap="RiskRuleResult">
+        <include refid="selectRiskRuleVo"/>
+        WHERE rule_type = 'sensitive' AND status = 1
+        ORDER BY sort ASC, created_at DESC
+    </select>
+
     <insert id="insertRiskRule" parameterType="com.smartscript.platform.review.domain.RiskRule" useGeneratedKeys="true" keyProperty="ruleId">
         INSERT INTO sys_risk_rule
         <trim prefix="(" suffix=")" suffixOverrides=",">

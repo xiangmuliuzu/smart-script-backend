@@ -46,6 +46,12 @@
         WHERE rule_id = #{ruleId}
     </select>
 
+    <select id="selectActiveAiReviewRules" resultMap="AiReviewRuleResult">
+        <include refid="selectAiReviewRuleVo"/>
+        WHERE status = 1
+        ORDER BY sort ASC, created_at DESC
+    </select>
+
     <insert id="insertAiReviewRule" parameterType="com.smartscript.platform.review.domain.AiReviewRule" useGeneratedKeys="true" keyProperty="ruleId">
         INSERT INTO sys_ai_review_rule
         <trim prefix="(" suffix=")" suffixOverrides=",">
