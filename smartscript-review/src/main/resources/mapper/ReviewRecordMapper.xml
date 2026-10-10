@@ -22,6 +22,7 @@
         <result property="authorName"   column="author_name"    />
         <result property="userId"       column="user_id"        />
         <result property="aiScore"      column="ai_score"       />
+        <result property="reviewerName" column="reviewer_name"  />
     </resultMap>
 
     <sql id="selectReviewRecordVo">
@@ -30,10 +31,12 @@
                r.create_by, r.created_at, r.update_by, r.update_time, r.remark,
                w.title as work_title, w.work_type, c.category_name as genre_name,
                u.nick_name as author_name, w.author_id as user_id,
+               ru.nick_name as reviewer_name,
                CAST(JSON_EXTRACT(r.ai_result, '$.score') AS UNSIGNED) as ai_score
         FROM sys_review_record r
         LEFT JOIN sys_work w ON r.target_id = w.work_id AND r.target_type = 'work'
         LEFT JOIN sys_user u ON w.author_id = u.user_id
+        LEFT JOIN sys_user ru ON r.reviewer_id = ru.user_id
         LEFT JOIN sys_category c ON w.genre_id = c.category_id
     </sql>
 
@@ -57,6 +60,9 @@
             </if>
             <if test="endTime != null and endTime != ''">
                 AND r.created_at &lt;= #{endTime}
+            </if>
+            <if test="reviewerFilter != null">
+                AND (r.reviewer_id = #{reviewerFilter} OR r.reviewer_id IS NULL)
             </if>
         </where>
         ORDER BY r.created_at DESC
@@ -127,7 +133,26 @@
 
 
     <select id="selectStatusGroup" resultType="java.util.Map">
-        SELECT status, COUNT(*) AS cnt FROM sys_review_record GROUP BY status
+        SELECT status, COUNT(*) AS cnt FROM sys_review_record
+        <where>
+            <if test="reviewerFilter != null">
+                (reviewer_id = #{reviewerFilter} OR reviewer_id IS NULL)
+            </if>
+        </where>
+        GROUP BY status
+    </select>
+
+    <!-- 可分配审核员列表（管理端非 admin 用户，排除 APP/创作者/买家账号） -->
+    <select id="selectReviewers" resultType="java.util.Map">
+        SELECT user_id AS userId, nick_name AS nickName
+        FROM sys_user
+        WHERE status = 0
+          AND user_id != 1
+          AND user_name NOT LIKE 'app\_%'
+          AND user_name NOT LIKE 'author\_%'
+          AND user_name NOT LIKE 'creator%'
+          AND user_name != 'test_buyer'
+        ORDER BY user_id
     </select>
 
 </mapper>

@@ -39,7 +39,12 @@ public interface ReviewRecordMapper {
     int deleteReviewRecordById(@Param("reviewId") Long reviewId);
 
     /**
-     * 按状态统计审核记录数
+     * 按状态统计审核记录数（reviewerFilter 非空时只统计该审核员名下+未分配）
      */
-    java.util.List<java.util.Map<String, Object>> selectStatusGroup();
+    java.util.List<java.util.Map<String, Object>> selectStatusGroup(ReviewRecord reviewRecord);
+
+    /**
+     * 可分配审核员列表
+     */
+    java.util.List<java.util.Map<String, Object>> selectReviewers();
 }

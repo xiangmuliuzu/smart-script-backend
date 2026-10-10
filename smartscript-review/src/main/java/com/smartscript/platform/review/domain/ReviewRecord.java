@@ -18,6 +18,10 @@ public class ReviewRecord {
     private String aiResult;
     private String reviewOpinion;
     private Long reviewerId;
+    /** 审核员昵称（JOIN sys_user 展示） */
+    private String reviewerName;
+    /** 数据权限过滤：非管理员时按此审核员ID只看 分配给自己的 + 未分配 */
+    private Long reviewerFilter;
     private Date reviewedAt;
     private String createBy;
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
@@ -64,6 +68,10 @@ public class ReviewRecord {
     public void setReviewOpinion(String reviewOpinion) { this.reviewOpinion = reviewOpinion; }
     public Long getReviewerId() { return reviewerId; }
     public void setReviewerId(Long reviewerId) { this.reviewerId = reviewerId; }
+    public String getReviewerName() { return reviewerName; }
+    public void setReviewerName(String reviewerName) { this.reviewerName = reviewerName; }
+    public Long getReviewerFilter() { return reviewerFilter; }
+    public void setReviewerFilter(Long reviewerFilter) { this.reviewerFilter = reviewerFilter; }
     public Date getReviewedAt() { return reviewedAt; }
     public void setReviewedAt(Date reviewedAt) { this.reviewedAt = reviewedAt; }
     public String getCreateBy() { return createBy; }

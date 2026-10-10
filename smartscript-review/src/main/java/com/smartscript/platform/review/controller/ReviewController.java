@@ -1,6 +1,6 @@
 package com.smartscript.platform.review.controller;
 
-import com.ruoyi.common.annotation.Anonymous;
+import com.ruoyi.common.utils.SecurityUtils;
 import com.smartscript.platform.review.domain.ReviewRecord;
 import com.smartscript.platform.review.service.ReviewService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -14,7 +14,6 @@ import java.util.Map;
  *
  * @author smartscript
  */
-@Anonymous
 @RestController
 @RequestMapping("/api/v1/admin/review")
 public class ReviewController {
@@ -28,6 +27,11 @@ public class ReviewController {
     @GetMapping("/list")
     public Map<String, Object> list(ReviewRecord reviewRecord) {
         Map<String, Object> result = new HashMap<>();
+        // 数据权限：超级管理员(admin,user_id=1)看全部；普通审核员只看分给自己的+未分配
+        long userId = SecurityUtils.getUserId();
+        if (userId != 1L) {
+            reviewRecord.setReviewerFilter(userId);
+        }
         List<ReviewRecord> list = reviewService.selectReviewRecordList(reviewRecord);
         result.put("code", 200);
         result.put("msg", "操作成功");
@@ -114,7 +118,10 @@ public class ReviewController {
     @PostMapping("/batch-assign")
     public Map<String, Object> batchAssign(@RequestBody Map<String, Object> params) {
         Map<String, Object> result = new HashMap<>();
-        List<Long> reviewIds = (List<Long>) params.get("reviewIds");
+        // JSON 数字默认反序列化为 Integer，需统一转 Long，避免 (List<Long>) 强转后元素抛 ClassCastException
+        List<Long> reviewIds = ((List<?>) params.get("reviewIds")).stream()
+                .map(x -> Long.valueOf(x.toString()))
+                .collect(java.util.stream.Collectors.toList());
         Long reviewerId = Long.valueOf(params.get("reviewerId").toString());
         String operatorName = params.get("reviewerName") != null ? params.get("reviewerName").toString() : "管理员";
         reviewService.batchAssign(reviewIds, reviewerId, operatorName);
@@ -157,7 +164,13 @@ public class ReviewController {
     @GetMapping("/statistics")
     public Map<String, Object> statistics() {
         Map<String, Object> result = new HashMap<>();
-        Map<String, Object> stats = reviewService.selectReviewStatistics();
+        // 与列表同口径数据权限
+        com.smartscript.platform.review.domain.ReviewRecord q = new com.smartscript.platform.review.domain.ReviewRecord();
+        long userId = SecurityUtils.getUserId();
+        if (userId != 1L) {
+            q.setReviewerFilter(userId);
+        }
+        Map<String, Object> stats = reviewService.selectReviewStatistics(q);
         result.put("code", 200);
         result.put("msg", "操作成功");
         result.put("pending", stats.get("pending"));
@@ -165,6 +178,18 @@ public class ReviewController {
         result.put("approved", stats.get("approved"));
         result.put("rejected", stats.get("rejected"));
         result.put("revision", stats.get("revision"));
+        return result;
+    }
+
+    /**
+     * 可分配审核员列表
+     */
+    @GetMapping("/reviewers")
+    public Map<String, Object> reviewers() {
+        Map<String, Object> result = new HashMap<>();
+        result.put("code", 200);
+        result.put("msg", "操作成功");
+        result.put("rows", reviewService.selectReviewers());
         return result;
     }
 

@@ -198,10 +198,10 @@ public class ReviewService {
     /**
      * 审核统计（真实按状态分组）
      */
-    public java.util.Map<String, Object> selectReviewStatistics() {
+    public java.util.Map<String, Object> selectReviewStatistics(ReviewRecord reviewRecord) {
         java.util.Map<String, Object> stats = new java.util.HashMap<>();
         int pending = 0, aiReviewing = 0, approved = 0, rejected = 0, revision = 0;
-        for (java.util.Map<String, Object> row : reviewRecordMapper.selectStatusGroup()) {
+        for (java.util.Map<String, Object> row : reviewRecordMapper.selectStatusGroup(reviewRecord)) {
             String status = String.valueOf(row.get("status"));
             int cnt = ((Number) row.get("cnt")).intValue();
             if ("pending".equals(status) || "pending_review".equals(status)) pending += cnt;
@@ -216,5 +216,12 @@ public class ReviewService {
         stats.put("rejected", rejected);
         stats.put("revision", revision);
         return stats;
+    }
+
+    /**
+     * 可分配审核员列表
+     */
+    public java.util.List<java.util.Map<String, Object>> selectReviewers() {
+        return reviewRecordMapper.selectReviewers();
     }
 }
