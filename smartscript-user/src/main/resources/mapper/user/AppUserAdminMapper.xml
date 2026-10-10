@@ -37,6 +37,9 @@
         <result property="status" column="status"/>
         <result property="realNameStatus" column="real_name_status"/>
         <result property="authorCapability" column="author_capability"/>
+        <result property="reason" column="capability_reason"/>
+        <result property="operatorName" column="capability_operator_name"/>
+        <result property="updatedAt" column="capability_updated_at"/>
         <result property="createTime" column="create_time"/>
         <result property="lastLoginTime" column="last_login_time"/>
     </resultMap>
@@ -58,7 +61,7 @@
 
     <!--
       列表主查询：未删除的 App 用户。
-      角色/实名/作者状态用相关子查询取单值，避免主查询行数膨胀；
+      作者能力按user_id唯一键左连接，未设置能力的用户仍保留，主查询行数不膨胀；
       管理员域 user_type='00' 永不进入结果集。
     -->
     <select id="selectAppUserPage" parameterType="map" resultMap="AppUserSummaryMap">
@@ -75,11 +78,13 @@
               WHERE rna.user_id = u.user_id
               ORDER BY rna.id DESC
               LIMIT 1) AS real_name_status,
-            (SELECT uac.enabled
-               FROM user_author_capability uac
-              WHERE uac.user_id = u.user_id
-              LIMIT 1) AS author_capability
+            COALESCE(uac.enabled, 0) AS author_capability,
+            uac.reason AS capability_reason,
+            op.nick_name AS capability_operator_name,
+            uac.operated_at AS capability_updated_at
         FROM sys_user u
+        LEFT JOIN user_author_capability uac ON uac.user_id = u.user_id
+        LEFT JOIN sys_user op ON op.user_id = uac.operator_id
         WHERE <include refid="managedUserTypeFilter"/>
           AND u.del_flag = '0'
         <if test="keyword != null and keyword != ''">
@@ -103,10 +108,7 @@
                   LIMIT 1) = #{realNameStatus}
         </if>
         <if test="authorCapability != null">
-            AND COALESCE((SELECT uac.enabled
-                            FROM user_author_capability uac
-                           WHERE uac.user_id = u.user_id
-                           LIMIT 1), 0) = #{authorCapability}
+            AND COALESCE(uac.enabled, 0) = #{authorCapability}
         </if>
         <if test="roleCode != null and roleCode != ''">
             AND EXISTS (
