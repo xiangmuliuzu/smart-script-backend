@@ -4,14 +4,13 @@
 -- 用途：一个文件同时支持两种场景，可重复执行（幂等）：
 --   1) 全新空库：完整导入若依基线 + 平台全部结构/菜单/权限/字典/任务。
 --   2) 已有库（含历史版本建的库）：自动补齐缺失的表/列/索引/菜单/字典，
---      不删除、不覆盖任何既有业务数据。
---      例外：第 1/2/7 部分的「存量归一」会按已定稿的枚举口径纠正历史脏值
---      （如已退役的授权类型 negotiable → non_exclusive），属显式决策，非覆盖用户数据。
+--      补齐缺失结构并保留业务数据；按已定稿规则清理退役菜单、更新配置并归一历史枚举。
+--      例：第 1/2/7 部分纠正已退役的授权类型 negotiable → non_exclusive。
 -- 建议通过 scripts/db/init-database.sh / .ps1 执行（内部按本清单跑这一个文件）；
 -- 也可直接： mysql -h<host> -u<user> -p <库名> < sql/smartscript_full_init.sql
 --
 -- 结构：
---   第 0 部分  若依基线（仅当 sys_dept 不存在，即空库时才导入）
+--   第 0 部分  若依基线（仅当 sys_dept 不存在时导入，直接使用平台最终结构/种子）
 --   第 1 部分  sys_user 加固与数据归一（原 A2 迁移）
 --   第 2 部分  App/用户域 11 张表（原 A2 迁移 + A4-001 增量折入）
 --   第 3 部分  sys_user.bio（A5）、H12 覆盖索引、sys_role.app_grantable（A4-003）
@@ -19,15 +18,16 @@
 --   第 5 部分  角色与授权（A1 受限运营角色、超管授权）
 --   第 6 部分  C 交易域 15 张业务表（含列补齐与唯一索引）
 --   第 7 部分  交易字典（14 类型 / 50 项）+ 7.1 授权类型枚举收敛归一
---   第 8 部分  询盘过期自动关闭定时任务
---   第 9 部分  公告接收范围与消息/公告业务权限（菜单精简之后执行）
+--   第 8 部分  询盘过期自动关闭定时任务 + 8.1 存量菜单清理
+--   第 9 部分  公告接收范围与消息/公告业务权限
 --   第 10 部分 用户消息入口迁移与角色权限继承
---   收口自检  全部初始化/升级步骤完成后统一输出结果
+--   收口自检  所有结构、种子及存量清理完成后统一输出结果
 -- 与历史迁移脚本的差异：
 --   - 原迁移的控制表/快照表（a2_/a4_ 前缀）为升级回滚记账服务，此处不需要，已省略。
 --   - 原 C 迁移交易按钮 menu_id 5160-5174 与 B1 内容按钮 5160-5166 冲突（静默漏插），
 --     已将交易按钮重编号为 5180-5196。
---   - 基线若依内容内嵌于下方第 0 部分；sql/ry_20260320.sql 仅为 A3 联调子集保留。
+--   - 第 0 部分由若依基线适配为平台最终状态；sql/ry_20260320.sql 保留上游原文参照。
+--   - 新库不插入随后会被删除的目录/页面和普通角色绑定；存量库仍保留清理逻辑。
 -- =====================================================================
 
 SET NAMES utf8mb4;
@@ -88,12 +88,12 @@ create table sys_user (
   dept_id           bigint(20)      default null               comment '部门ID',
   user_name         varchar(30)     not null                   comment '用户账号',
   nick_name         varchar(30)     not null                   comment '用户昵称',
-  user_type         varchar(2)      default '00'               comment '用户类型（00系统用户）',
+  user_type         varchar(20)     default '00'               comment '用户类型00/01/02/03',
   email             varchar(50)     default ''                 comment '用户邮箱',
   phonenumber       varchar(11)     default ''                 comment '手机号码',
   sex               char(1)         default '0'                comment '用户性别（0男 1女 2未知）',
   avatar            varchar(100)    default ''                 comment '头像地址',
-  password          varchar(100)    default ''                 comment '密码',
+  password          varchar(255)    default ''                 comment '密码BCrypt',
   status            char(1)         default '0'                comment '账号状态（0正常 1停用）',
   del_flag          char(1)         default '0'                comment '删除标志（0代表存在 2代表删除）',
   login_ip          varchar(128)    default ''                 comment '最后登录IP',
@@ -104,14 +104,18 @@ create table sys_user (
   update_by         varchar(64)     default ''                 comment '更新者',
   update_time       datetime                                   comment '更新时间',
   remark            varchar(500)    default null               comment '备注',
-  primary key (user_id)
+  bio               varchar(200)   not null default ''         comment '个人简介（A5 用户中心，空串表示未填写）',
+  primary key (user_id),
+  unique key uk_sys_user_user_name (user_name),
+  unique key uk_sys_user_phonenumber (phonenumber),
+  key idx_user_type_del_flag (user_type, del_flag)
 ) engine=innodb auto_increment=100 comment = '用户信息表';
 
 -- | ----------------------------
 -- | 初始化-用户信息表数据
 -- | ----------------------------
-insert into sys_user values(1,  103, 'admin', '若依', '00', 'ry@163.com', '15888888888', '1', '', '$2a$10$7JB720yubVSZvUI0rEqK/.VqGOZTH.ulu33dHOiBE8ByOhJIrdAu2', '0', '0', '127.0.0.1', sysdate(), sysdate(), 'admin', sysdate(), '', null, '管理员');
-insert into sys_user values(2,  105, 'ry',    '若依', '00', 'ry@qq.com',  '15666666666', '1', '', '$2a$10$7JB720yubVSZvUI0rEqK/.VqGOZTH.ulu33dHOiBE8ByOhJIrdAu2', '0', '0', '127.0.0.1', sysdate(), sysdate(), 'admin', sysdate(), '', null, '测试员');
+insert into sys_user (user_id, dept_id, user_name, nick_name, user_type, email, phonenumber, sex, avatar, password, status, del_flag, login_ip, login_date, pwd_update_date, create_by, create_time, update_by, update_time, remark) values(1,  103, 'admin', '若依', '00', 'ry@163.com', '15888888888', '1', '', '$2a$10$7JB720yubVSZvUI0rEqK/.VqGOZTH.ulu33dHOiBE8ByOhJIrdAu2', '0', '0', '127.0.0.1', sysdate(), sysdate(), 'admin', sysdate(), '', null, '管理员');
+insert into sys_user (user_id, dept_id, user_name, nick_name, user_type, email, phonenumber, sex, avatar, password, status, del_flag, login_ip, login_date, pwd_update_date, create_by, create_time, update_by, update_time, remark) values(2,  105, 'ry',    '若依', '00', 'ry@qq.com',  '15666666666', '1', '', '$2a$10$7JB720yubVSZvUI0rEqK/.VqGOZTH.ulu33dHOiBE8ByOhJIrdAu2', '0', '0', '127.0.0.1', sysdate(), sysdate(), 'admin', sysdate(), '', null, '测试员');
 
 
 -- | ----------------------------
@@ -152,6 +156,7 @@ create table sys_role (
   role_key             varchar(100)    not null                   comment '角色权限字符串',
   role_sort            int(4)          not null                   comment '显示顺序',
   data_scope           char(1)         default '1'                comment '数据范围（1：全部数据权限 2：自定数据权限 3：本部门数据权限 4：本部门及以下数据权限）',
+  app_grantable        tinyint(1)      not null default 0         comment '是否可授予 App 用户（A4 权威来源；1=可授予，0=拒绝）',
   menu_check_strictly  tinyint(1)      default 1                  comment '菜单树选择项是否关联显示',
   dept_check_strictly  tinyint(1)      default 1                  comment '部门树选择项是否关联显示',
   status               char(1)         not null                   comment '角色状态（0正常 1停用）',
@@ -167,8 +172,8 @@ create table sys_role (
 -- | ----------------------------
 -- | 初始化-角色信息表数据
 -- | ----------------------------
-insert into sys_role values('1', '超级管理员',  'admin',  1, 1, 1, 1, '0', '0', 'admin', sysdate(), '', null, '超级管理员');
-insert into sys_role values('2', '普通角色',    'common', 2, 2, 1, 1, '0', '0', 'admin', sysdate(), '', null, '普通角色');
+insert into sys_role (role_id, role_name, role_key, role_sort, data_scope, menu_check_strictly, dept_check_strictly, status, del_flag, create_by, create_time, update_by, update_time, remark) values('1', '超级管理员',  'admin',  1, 1, 1, 1, '0', '0', 'admin', sysdate(), '', null, '超级管理员');
+insert into sys_role (role_id, role_name, role_key, role_sort, data_scope, menu_check_strictly, dept_check_strictly, status, del_flag, create_by, create_time, update_by, update_time, remark) values('2', '普通角色',    'common', 2, 2, 1, 1, '0', '0', 'admin', sysdate(), '', null, '普通角色');
 
 
 -- | ----------------------------
@@ -202,21 +207,12 @@ create table sys_menu (
 -- | ----------------------------
 -- | 初始化-菜单信息表数据
 -- | ----------------------------
+-- | 平台保留的若依菜单（系统管理目录/页面不再创建；保留按钮与旧脚本最终状态一致）
 -- | 一级菜单
-insert into sys_menu values('1', '系统管理', '0', '1', 'system',           null, '', '', 1, 0, 'M', '0', '0', '', 'system',   'admin', sysdate(), '', null, '系统管理目录');
 insert into sys_menu values('2', '系统监控', '0', '2', 'monitor',          null, '', '', 1, 0, 'M', '0', '0', '', 'monitor',  'admin', sysdate(), '', null, '系统监控目录');
 insert into sys_menu values('3', '系统工具', '0', '3', 'tool',             null, '', '', 1, 0, 'M', '0', '0', '', 'tool',     'admin', sysdate(), '', null, '系统工具目录');
 insert into sys_menu values('4', '若依官网', '0', '4', 'http://ruoyi.vip', null, '', '', 0, 0, 'M', '0', '0', '', 'guide',    'admin', sysdate(), '', null, '若依官网地址');
 -- | 二级菜单
-insert into sys_menu values('100',  '用户管理', '1',   '1', 'user',       'system/user/index',        '', '', 1, 0, 'C', '0', '0', 'system:user:list',        'user',          'admin', sysdate(), '', null, '用户管理菜单');
-insert into sys_menu values('101',  '角色管理', '1',   '2', 'role',       'system/role/index',        '', '', 1, 0, 'C', '0', '0', 'system:role:list',        'peoples',       'admin', sysdate(), '', null, '角色管理菜单');
-insert into sys_menu values('102',  '菜单管理', '1',   '3', 'menu',       'system/menu/index',        '', '', 1, 0, 'C', '0', '0', 'system:menu:list',        'tree-table',    'admin', sysdate(), '', null, '菜单管理菜单');
-insert into sys_menu values('103',  '部门管理', '1',   '4', 'dept',       'system/dept/index',        '', '', 1, 0, 'C', '0', '0', 'system:dept:list',        'tree',          'admin', sysdate(), '', null, '部门管理菜单');
-insert into sys_menu values('104',  '岗位管理', '1',   '5', 'post',       'system/post/index',        '', '', 1, 0, 'C', '0', '0', 'system:post:list',        'post',          'admin', sysdate(), '', null, '岗位管理菜单');
-insert into sys_menu values('105',  '字典管理', '1',   '6', 'dict',       'system/dict/index',        '', '', 1, 0, 'C', '0', '0', 'system:dict:list',        'dict',          'admin', sysdate(), '', null, '字典管理菜单');
-insert into sys_menu values('106',  '参数设置', '1',   '7', 'config',     'system/config/index',      '', '', 1, 0, 'C', '0', '0', 'system:config:list',      'edit',          'admin', sysdate(), '', null, '参数设置菜单');
-insert into sys_menu values('107',  '通知公告', '1',   '8', 'notice',     'system/notice/index',      '', '', 1, 0, 'C', '0', '0', 'system:notice:list',      'message',       'admin', sysdate(), '', null, '通知公告菜单');
-insert into sys_menu values('108',  '日志管理', '1',   '9', 'log',        '',                         '', '', 1, 0, 'M', '0', '0', '',                        'log',           'admin', sysdate(), '', null, '日志管理菜单');
 insert into sys_menu values('109',  '在线用户', '2',   '1', 'online',     'monitor/online/index',     '', '', 1, 0, 'C', '0', '0', 'monitor:online:list',     'online',        'admin', sysdate(), '', null, '在线用户菜单');
 insert into sys_menu values('110',  '定时任务', '2',   '2', 'job',        'monitor/job/index',        '', '', 1, 0, 'C', '0', '0', 'monitor:job:list',        'job',           'admin', sysdate(), '', null, '定时任务菜单');
 insert into sys_menu values('111',  '数据监控', '2',   '3', 'druid',      'monitor/druid/index',      '', '', 1, 0, 'C', '0', '0', 'monitor:druid:list',      'druid',         'admin', sysdate(), '', null, '数据监控菜单');
@@ -226,9 +222,9 @@ insert into sys_menu values('114',  '缓存列表', '2',   '6', 'cacheList',  'm
 insert into sys_menu values('115',  '表单构建', '3',   '1', 'build',      'tool/build/index',         '', '', 1, 0, 'C', '0', '0', 'tool:build:list',         'build',         'admin', sysdate(), '', null, '表单构建菜单');
 insert into sys_menu values('116',  '代码生成', '3',   '2', 'gen',        'tool/gen/index',           '', '', 1, 0, 'C', '0', '0', 'tool:gen:list',           'code',          'admin', sysdate(), '', null, '代码生成菜单');
 insert into sys_menu values('117',  '系统接口', '3',   '3', 'swagger',    'tool/swagger/index',       '', '', 1, 0, 'C', '0', '0', 'tool:swagger:list',       'swagger',       'admin', sysdate(), '', null, '系统接口菜单');
--- | 三级菜单
-insert into sys_menu values('500',  '操作日志', '108', '1', 'operlog',    'monitor/operlog/index',    '', '', 1, 0, 'C', '0', '0', 'monitor:operlog:list',    'form',          'admin', sysdate(), '', null, '操作日志菜单');
-insert into sys_menu values('501',  '登录日志', '108', '2', 'logininfor', 'monitor/logininfor/index', '', '', 1, 0, 'C', '0', '0', 'monitor:logininfor:list', 'logininfor',    'admin', sysdate(), '', null, '登录日志菜单');
+-- | 日志页面直接归属数据统计目录（第 4 部分创建 5002）
+insert into sys_menu values('500',  '操作日志', '5002', '99', 'operlog',    'monitor/operlog/index',    '', '', 1, 0, 'C', '0', '0', 'monitor:operlog:list',    'form',          'admin', sysdate(), '', null, '操作日志菜单');
+insert into sys_menu values('501',  '登录日志', '5002', '100', 'logininfor', 'monitor/logininfor/index', '', '', 1, 0, 'C', '0', '0', 'monitor:logininfor:list', 'logininfor',    'admin', sysdate(), '', null, '登录日志菜单');
 -- | 用户管理按钮
 insert into sys_menu values('1000', '用户查询', '100', '1',  '', '', '', '', 1, 0, 'F', '0', '0', 'system:user:query',          '#', 'admin', sysdate(), '', null, '');
 insert into sys_menu values('1001', '用户新增', '100', '2',  '', '', '', '', 1, 0, 'F', '0', '0', 'system:user:add',            '#', 'admin', sysdate(), '', null, '');
@@ -333,21 +329,11 @@ create table sys_role_menu (
 ) engine=innodb comment = '角色和菜单关联表';
 
 -- | ----------------------------
--- | 初始化-角色和菜单关联表数据
+-- | 初始化-角色和菜单关联表数据（仅插入最终保留的普通角色授权）
 -- | ----------------------------
-insert into sys_role_menu values ('2', '1');
 insert into sys_role_menu values ('2', '2');
 insert into sys_role_menu values ('2', '3');
 insert into sys_role_menu values ('2', '4');
-insert into sys_role_menu values ('2', '100');
-insert into sys_role_menu values ('2', '101');
-insert into sys_role_menu values ('2', '102');
-insert into sys_role_menu values ('2', '103');
-insert into sys_role_menu values ('2', '104');
-insert into sys_role_menu values ('2', '105');
-insert into sys_role_menu values ('2', '106');
-insert into sys_role_menu values ('2', '107');
-insert into sys_role_menu values ('2', '108');
 insert into sys_role_menu values ('2', '109');
 insert into sys_role_menu values ('2', '110');
 insert into sys_role_menu values ('2', '111');
@@ -359,45 +345,6 @@ insert into sys_role_menu values ('2', '116');
 insert into sys_role_menu values ('2', '117');
 insert into sys_role_menu values ('2', '500');
 insert into sys_role_menu values ('2', '501');
-insert into sys_role_menu values ('2', '1000');
-insert into sys_role_menu values ('2', '1001');
-insert into sys_role_menu values ('2', '1002');
-insert into sys_role_menu values ('2', '1003');
-insert into sys_role_menu values ('2', '1004');
-insert into sys_role_menu values ('2', '1005');
-insert into sys_role_menu values ('2', '1006');
-insert into sys_role_menu values ('2', '1007');
-insert into sys_role_menu values ('2', '1008');
-insert into sys_role_menu values ('2', '1009');
-insert into sys_role_menu values ('2', '1010');
-insert into sys_role_menu values ('2', '1011');
-insert into sys_role_menu values ('2', '1012');
-insert into sys_role_menu values ('2', '1013');
-insert into sys_role_menu values ('2', '1014');
-insert into sys_role_menu values ('2', '1015');
-insert into sys_role_menu values ('2', '1016');
-insert into sys_role_menu values ('2', '1017');
-insert into sys_role_menu values ('2', '1018');
-insert into sys_role_menu values ('2', '1019');
-insert into sys_role_menu values ('2', '1020');
-insert into sys_role_menu values ('2', '1021');
-insert into sys_role_menu values ('2', '1022');
-insert into sys_role_menu values ('2', '1023');
-insert into sys_role_menu values ('2', '1024');
-insert into sys_role_menu values ('2', '1025');
-insert into sys_role_menu values ('2', '1026');
-insert into sys_role_menu values ('2', '1027');
-insert into sys_role_menu values ('2', '1028');
-insert into sys_role_menu values ('2', '1029');
-insert into sys_role_menu values ('2', '1030');
-insert into sys_role_menu values ('2', '1031');
-insert into sys_role_menu values ('2', '1032');
-insert into sys_role_menu values ('2', '1033');
-insert into sys_role_menu values ('2', '1034');
-insert into sys_role_menu values ('2', '1035');
-insert into sys_role_menu values ('2', '1036');
-insert into sys_role_menu values ('2', '1037');
-insert into sys_role_menu values ('2', '1038');
 insert into sys_role_menu values ('2', '1039');
 insert into sys_role_menu values ('2', '1040');
 insert into sys_role_menu values ('2', '1041');
@@ -674,20 +621,23 @@ create table sys_notice (
   notice_type       char(1)         not null                   comment '公告类型（1通知 2公告）',
   notice_content    longblob        default null               comment '公告内容',
   status            char(1)         default '0'                comment '公告状态（0正常 1关闭）',
+  audience          varchar(8)     not null default 'ADMIN'    comment 'USER普通用户/ADMIN后台管理员/ALL全部',
   create_by         varchar(64)     default ''                 comment '创建者',
   create_time       datetime                                   comment '创建时间',
   update_by         varchar(64)     default ''                 comment '更新者',
   update_time       datetime                                   comment '更新时间',
   remark            varchar(255)    default null               comment '备注',
-  primary key (notice_id)
+  primary key (notice_id),
+  key idx_notice_status_audience (status, audience, notice_id),
+  constraint ck_sys_notice_audience check (audience IN ('USER','ADMIN','ALL'))
 ) engine=innodb auto_increment=10 comment = '通知公告表';
 
 -- | ----------------------------
 -- | 初始化-公告信息表数据
 -- | ----------------------------
-insert into sys_notice values('1', '温馨提醒：2018-07-01 若依新版本发布啦', '2', '新版本内容', '0', 'admin', sysdate(), '', null, '管理员');
-insert into sys_notice values('2', '维护通知：2018-07-01 若依系统凌晨维护', '1', '维护内容',   '0', 'admin', sysdate(), '', null, '管理员');
-insert into sys_notice values('3', '若依开源框架介绍', '1', '<p><span style=\"color: rgb(230, 0, 0);\">项目介绍</span></p><p><font color=\"#333333\">RuoYi开源项目是为企业用户定制的后台脚手架框架，为企业打造的一站式解决方案，降低企业开发成本，提升开发效率。主要包括用户管理、角色管理、部门管理、菜单管理、参数管理、字典管理、</font><span style=\"color: rgb(51, 51, 51);\">岗位管理</span><span style=\"color: rgb(51, 51, 51);\">、定时任务</span><span style=\"color: rgb(51, 51, 51);\">、</span><span style=\"color: rgb(51, 51, 51);\">服务监控、登录日志、操作日志、代码生成等功能。其中，还支持多数据源、数据权限、国际化、Redis缓存、Docker部署、滑动验证码、第三方认证登录、分布式事务、</span><font color=\"#333333\">分布式文件存储</font><span style=\"color: rgb(51, 51, 51);\">、分库分表处理等技术特点。</span></p><p><img src=\"https://foruda.gitee.com/images/1773931848342439032/a4d22313_1815095.png\" style=\"width: 64px;\"><br></p><p><span style=\"color: rgb(230, 0, 0);\">官网及演示</span></p><p><span style=\"color: rgb(51, 51, 51);\">若依官网地址：&nbsp;</span><a href=\"http://ruoyi.vip\" target=\"_blank\">http://ruoyi.vip</a><a href=\"http://ruoyi.vip\" target=\"_blank\"></a></p><p><span style=\"color: rgb(51, 51, 51);\">若依文档地址：&nbsp;</span><a href=\"http://doc.ruoyi.vip\" target=\"_blank\">http://doc.ruoyi.vip</a><br></p><p><span style=\"color: rgb(51, 51, 51);\">演示地址【不分离版】：&nbsp;</span><a href=\"http://demo.ruoyi.vip\" target=\"_blank\">http://demo.ruoyi.vip</a></p><p><span style=\"color: rgb(51, 51, 51);\">演示地址【分离版本】：&nbsp;</span><a href=\"http://vue.ruoyi.vip\" target=\"_blank\">http://vue.ruoyi.vip</a></p><p><span style=\"color: rgb(51, 51, 51);\">演示地址【微服务版】：&nbsp;</span><a href=\"http://cloud.ruoyi.vip\" target=\"_blank\">http://cloud.ruoyi.vip</a></p><p><span style=\"color: rgb(51, 51, 51);\">演示地址【移动端版】：&nbsp;</span><a href=\"http://h5.ruoyi.vip\" target=\"_blank\">http://h5.ruoyi.vip</a></p><p><br style=\"color: rgb(48, 49, 51); font-family: &quot;Helvetica Neue&quot;, Helvetica, Arial, sans-serif; font-size: 12px;\"></p>', '0', 'admin', sysdate(), '', null, '管理员');
+insert into sys_notice (notice_id, notice_title, notice_type, notice_content, status, create_by, create_time, update_by, update_time, remark) values('1', '温馨提醒：2018-07-01 若依新版本发布啦', '2', '新版本内容', '0', 'admin', sysdate(), '', null, '管理员');
+insert into sys_notice (notice_id, notice_title, notice_type, notice_content, status, create_by, create_time, update_by, update_time, remark) values('2', '维护通知：2018-07-01 若依系统凌晨维护', '1', '维护内容',   '0', 'admin', sysdate(), '', null, '管理员');
+insert into sys_notice (notice_id, notice_title, notice_type, notice_content, status, create_by, create_time, update_by, update_time, remark) values('3', '若依开源框架介绍', '1', '<p><span style=\"color: rgb(230, 0, 0);\">项目介绍</span></p><p><font color=\"#333333\">RuoYi开源项目是为企业用户定制的后台脚手架框架，为企业打造的一站式解决方案，降低企业开发成本，提升开发效率。主要包括用户管理、角色管理、部门管理、菜单管理、参数管理、字典管理、</font><span style=\"color: rgb(51, 51, 51);\">岗位管理</span><span style=\"color: rgb(51, 51, 51);\">、定时任务</span><span style=\"color: rgb(51, 51, 51);\">、</span><span style=\"color: rgb(51, 51, 51);\">服务监控、登录日志、操作日志、代码生成等功能。其中，还支持多数据源、数据权限、国际化、Redis缓存、Docker部署、滑动验证码、第三方认证登录、分布式事务、</span><font color=\"#333333\">分布式文件存储</font><span style=\"color: rgb(51, 51, 51);\">、分库分表处理等技术特点。</span></p><p><img src=\"https://foruda.gitee.com/images/1773931848342439032/a4d22313_1815095.png\" style=\"width: 64px;\"><br></p><p><span style=\"color: rgb(230, 0, 0);\">官网及演示</span></p><p><span style=\"color: rgb(51, 51, 51);\">若依官网地址：&nbsp;</span><a href=\"http://ruoyi.vip\" target=\"_blank\">http://ruoyi.vip</a><a href=\"http://ruoyi.vip\" target=\"_blank\"></a></p><p><span style=\"color: rgb(51, 51, 51);\">若依文档地址：&nbsp;</span><a href=\"http://doc.ruoyi.vip\" target=\"_blank\">http://doc.ruoyi.vip</a><br></p><p><span style=\"color: rgb(51, 51, 51);\">演示地址【不分离版】：&nbsp;</span><a href=\"http://demo.ruoyi.vip\" target=\"_blank\">http://demo.ruoyi.vip</a></p><p><span style=\"color: rgb(51, 51, 51);\">演示地址【分离版本】：&nbsp;</span><a href=\"http://vue.ruoyi.vip\" target=\"_blank\">http://vue.ruoyi.vip</a></p><p><span style=\"color: rgb(51, 51, 51);\">演示地址【微服务版】：&nbsp;</span><a href=\"http://cloud.ruoyi.vip\" target=\"_blank\">http://cloud.ruoyi.vip</a></p><p><span style=\"color: rgb(51, 51, 51);\">演示地址【移动端版】：&nbsp;</span><a href=\"http://h5.ruoyi.vip\" target=\"_blank\">http://h5.ruoyi.vip</a></p><p><br style=\"color: rgb(48, 49, 51); font-family: &quot;Helvetica Neue&quot;, Helvetica, Arial, sans-serif; font-size: 12px;\"></p>', '0', 'admin', sysdate(), '', null, '管理员');
 
 
 -- | ----------------------------
@@ -1125,6 +1075,24 @@ ON DUPLICATE KEY UPDATE
 
 -- 2026-10-08 菜单精简：系统管理目录已整体下线，不再调整其排序。
 
+-- 旧库曾将 5141/5143 用作运维页面，但云端这两个 ID 是版权申请按钮。
+-- 仅按旧页面的父目录和名称搬迁，避免误改版权授权；在产品菜单 upsert 前执行。
+START TRANSACTION;
+INSERT IGNORE INTO sys_role_menu (role_id, menu_id)
+SELECT rm.role_id, CASE old.menu_id WHEN 5141 THEN 5400 WHEN 5143 THEN 5401 END
+FROM sys_role_menu rm
+JOIN sys_menu old ON old.menu_id = rm.menu_id
+WHERE (old.menu_id = 5141 AND old.parent_id = 5005 AND old.menu_name = '用户画像与推荐配置' AND old.menu_type = 'C')
+   OR (old.menu_id = 5143 AND old.parent_id = 5005 AND old.menu_name = '全局风控管理' AND old.menu_type = 'C');
+DELETE rm FROM sys_role_menu rm
+JOIN sys_menu old ON old.menu_id = rm.menu_id
+WHERE (old.menu_id = 5141 AND old.parent_id = 5005 AND old.menu_name = '用户画像与推荐配置' AND old.menu_type = 'C')
+   OR (old.menu_id = 5143 AND old.parent_id = 5005 AND old.menu_name = '全局风控管理' AND old.menu_type = 'C');
+DELETE FROM sys_menu
+WHERE (menu_id = 5141 AND parent_id = 5005 AND menu_name = '用户画像与推荐配置' AND menu_type = 'C')
+   OR (menu_id = 5143 AND parent_id = 5005 AND menu_name = '全局风控管理' AND menu_type = 'C');
+COMMIT;
+
 INSERT INTO sys_menu (menu_id, menu_name, parent_id, order_num, path, component, query, is_frame, is_cache, menu_type, visible, status, perms, icon, create_by, remark) VALUES
 (5100, '数据总览',           5000, 1, '/dashboard', 'dashboard/Dashboard',            '', 1, 0, 'C', '0', '0', 'smartscript:dashboard:view',   'DataLine', 'A1', 'A1SEED'),
 (2010, '分类管理',           2000, 1, 'category',       'content/category/index',     '', 1, 0, 'C', '0', '0', 'content:category:list',        'Collection', 'b-migration', 'B模块内容管理菜单'),
@@ -1159,8 +1127,13 @@ INSERT INTO sys_menu (menu_id, menu_name, parent_id, order_num, path, component,
 (5138, '征集项目',           5004, 8, 'demand',     'trade/Demand',       '', 1, 0, 'C', '0', '0', 'trade:demand:list',    'List',   'c-migration', 'C模块交易菜单补全'),
 (5134, '合同与结算',         5004, 9, 'contracts',  'common/ModuleScaffold', '', 1, 0, 'C', '0', '0', 'smartscript:trade:contracts', 'Document', 'A1', 'A1SEED'),
 (5140, '广告运营配置',         5005, 1, 'ad-config',      'operation/AdConfig',      '', 1, 0, 'C', '0', '0', 'smartscript:ops:adConfig',   'Picture',   'A1', 'A1SEED'),
-(5141, '用户画像与推荐配置',   5005, 2, 'user-profile-rec','operation/UserProfileRec','', 1, 0, 'C', '0', '0', 'smartscript:ops:userProfile','Operation', 'A1', 'A1SEED'),
-(5143, '全局风控管理',         5005, 4, '/risk',          'risk/RiskManage',         '', 1, 0, 'C', '0', '0', 'smartscript:ops:risk',       'Warning',   'A1', 'A1SEED'),
+(5400, '用户画像与推荐配置',   5005, 2, 'user-profile-rec','operation/UserProfileRec','', 1, 0, 'C', '0', '0', 'smartscript:ops:userProfile','Operation', 'A1', 'A1SEED'),
+(5401, '全局风控管理',         5005, 4, '/risk',          'risk/RiskManage',         '', 1, 0, 'C', '0', '0', 'smartscript:ops:risk',       'Warning',   'A1', 'A1SEED'),
+(5141, '版权申请查询',         5126, 1, '', NULL, '', 1, 0, 'F', '0', '0', 'smartscript:copyright:application:query',  '#', 'copyright-migration', '版权申请查询按钮权限'),
+(5142, '版权申请详情',         5126, 2, '', NULL, '', 1, 0, 'F', '0', '0', 'smartscript:copyright:application:detail', '#', 'copyright-migration', '版权申请详情按钮权限'),
+(5143, '版权申请删除',         5126, 3, '', NULL, '', 1, 0, 'F', '0', '0', 'smartscript:copyright:application:remove', '#', 'copyright-migration', '版权申请删除按钮权限'),
+(5144, '版权申请同步',         5126, 4, '', NULL, '', 1, 0, 'F', '0', '0', 'smartscript:copyright:application:sync',   '#', 'copyright-migration', '版权申请同步按钮权限'),
+(5145, '版权申请导出',         5126, 5, '', NULL, '', 1, 0, 'F', '0', '0', 'smartscript:copyright:application:export', '#', 'copyright-migration', '版权申请导出按钮权限'),
 (5150, 'AI 创作与次数',       5006, 1, '/ai/operations',    'common/ModuleScaffold', '', 1, 0, 'C', '0', '0', 'smartscript:ai:operations',   'Magic',  'A1', 'A1SEED'),
 (5151, '福利与积分配置',      5006, 2, '/support/welfare',  'common/ModuleScaffold', '', 1, 0, 'C', '0', '0', 'smartscript:support:welfare', 'Present','A1', 'A1SEED'),
 (5152, '消息与公告',          5005, 5, '/support/messages', 'support/MessagesAnnouncements', '', 1, 0, 'C', '0', '0', 'smartscript:support:messages','Bell',   'A1', 'A1SEED'),
@@ -1284,7 +1257,8 @@ CROSS JOIN (
   UNION ALL SELECT 5184 UNION ALL SELECT 5185 UNION ALL SELECT 5186 UNION ALL SELECT 5187
   UNION ALL SELECT 5188 UNION ALL SELECT 5189 UNION ALL SELECT 5190 UNION ALL SELECT 5191
   UNION ALL SELECT 5192 UNION ALL SELECT 5193 UNION ALL SELECT 5194 UNION ALL SELECT 5195
-  UNION ALL SELECT 5196
+  UNION ALL SELECT 5196 UNION ALL SELECT 5141 UNION ALL SELECT 5142 UNION ALL SELECT 5143
+  UNION ALL SELECT 5144 UNION ALL SELECT 5145 UNION ALL SELECT 5400 UNION ALL SELECT 5401
 ) m
 WHERE r.del_flag = '0' AND (r.role_key = 'admin' OR r.role_id = 1)
   AND NOT EXISTS (SELECT 1 FROM sys_role_menu rm WHERE rm.role_id = r.role_id AND rm.menu_id = m.menu_id);
@@ -2005,7 +1979,7 @@ FROM DUAL
 WHERE NOT EXISTS (SELECT 1 FROM sys_job WHERE invoke_target = 'tradeInquiryTask.closeExpiredInquiries');
 
 -- =====================================================================
--- 第 7 部分：菜单精简（2026-10-08；幂等）
+-- 8.1 存量菜单清理（新库种子已是最终状态；保留旧库升级兼容，幂等）
 -- ---------------------------------------------------------------------
 -- 系统管理目录下的页面（用户/角色/菜单/部门/岗位/字典/参数/通知/日志管理）
 -- 属于开发自管配置，不对管理员开放：
@@ -2028,17 +2002,9 @@ DELETE FROM sys_role_menu WHERE menu_id IN (
 );
 DELETE FROM sys_menu WHERE menu_id IN (1,108) OR parent_id IN (1,108);
 
--- 3) 清理普通角色(2)对已删菜单的绑定（若依基线遗留）
+-- 3) 清理普通角色(2)对已删菜单的绑定（存量若依授权；新库不再插入）
 DELETE FROM sys_role_menu WHERE role_id = 2
-  AND menu_id IN (1,100,101,102,103,104,105,106,107,108
-    ,1000,1001,1002,1003,1004,1005,1006
-    ,1007,1008,1009,1010,1011
-    ,1012,1013,1014,1015
-    ,1016,1017,1018,1019
-    ,1020,1021,1022,1023,1024
-    ,1025,1026,1027,1028,1029
-    ,1030,1031,1032,1033,1034
-    ,1035,1036,1037,1038);
+  AND (menu_id IN (1,108) OR menu_id BETWEEN 100 AND 107 OR menu_id BETWEEN 1000 AND 1038);
 
 -- 4) 删除 A1 种子遗留的 5001 内容与作品树（幂等）
 --    第 4 部分只把 5001 那行改写为 2000，对从 A1 基线升级上来的库不会移除旧行，
@@ -2063,19 +2029,53 @@ DELETE FROM sys_role_menu WHERE menu_id = 5200;
 DELETE FROM sys_menu WHERE menu_id = 5200;
 
 -- =====================================================================
--- 平台运维管理的用户与创作者入口(5142)与用户中心(3001)重复。
--- 用户中心的作者能力入口(3008)同样合并至3001，能力变更按钮(3009)迁入保留页面。
--- 旧入口的角色只迁移页面入口及父目录授权；不新增查询/状态/角色变更等按钮权限。
--- 新库不再种入5142/3008，旧库升级先迁移授权再删除菜单，重复执行无副作用。
+-- 按目录和名称识别平台运维管理下重复的用户与创作者入口；不能按 5142 删除，
+-- 因云端 5142 是版权申请详情按钮。用户中心作者能力页并入 3001，保留 3009 按钮。
+-- 旧页面的角色只迁移页面入口及父目录授权；不新增用户查询/状态/角色授权按钮。
 START TRANSACTION;
 INSERT IGNORE INTO sys_role_menu (role_id, menu_id)
 SELECT old.role_id, target.menu_id
 FROM sys_role_menu old
+JOIN sys_menu legacy ON legacy.menu_id = old.menu_id
 JOIN sys_menu target ON target.menu_id IN (3000,3001)
-WHERE old.menu_id IN (5142,3008);
-UPDATE sys_menu SET parent_id = 3001, order_num = 4 WHERE menu_id = 3009;
-DELETE FROM sys_role_menu WHERE menu_id IN (5142,3008);
-DELETE FROM sys_menu WHERE menu_id IN (5142,3008);
+WHERE (legacy.parent_id = 5005 AND legacy.menu_name IN ('用户与创作者','用户与创作者管理') AND legacy.menu_type = 'C')
+   OR (legacy.parent_id = 3000 AND legacy.menu_name = '作者能力' AND legacy.path = 'creator' AND legacy.menu_type = 'C');
+UPDATE sys_menu button_menu
+JOIN sys_menu legacy ON legacy.menu_id = button_menu.parent_id
+SET button_menu.parent_id = 3001, button_menu.order_num = 4
+WHERE button_menu.perms = 'user:creator:update'
+  AND legacy.parent_id = 3000 AND legacy.menu_name = '作者能力'
+  AND legacy.path = 'creator' AND legacy.menu_type = 'C';
+DELETE FROM sys_role_menu WHERE menu_id IN (
+  SELECT doomed_id FROM (
+    SELECT parent.menu_id AS doomed_id FROM sys_menu parent
+    WHERE parent.parent_id = 5005 AND parent.menu_name IN ('用户与创作者','用户与创作者管理') AND parent.menu_type = 'C'
+    UNION
+    SELECT child.menu_id FROM sys_menu child JOIN sys_menu parent ON parent.menu_id = child.parent_id
+    WHERE parent.parent_id = 5005 AND parent.menu_name IN ('用户与创作者','用户与创作者管理') AND parent.menu_type = 'C'
+    UNION
+    SELECT parent.menu_id FROM sys_menu parent
+    WHERE parent.parent_id = 3000 AND parent.menu_name = '作者能力' AND parent.path = 'creator' AND parent.menu_type = 'C'
+    UNION
+    SELECT child.menu_id FROM sys_menu child JOIN sys_menu parent ON parent.menu_id = child.parent_id
+    WHERE parent.parent_id = 3000 AND parent.menu_name = '作者能力' AND parent.path = 'creator' AND parent.menu_type = 'C'
+  ) doomed
+);
+DELETE FROM sys_menu WHERE menu_id IN (
+  SELECT doomed_id FROM (
+    SELECT parent.menu_id AS doomed_id FROM sys_menu parent
+    WHERE parent.parent_id = 5005 AND parent.menu_name IN ('用户与创作者','用户与创作者管理') AND parent.menu_type = 'C'
+    UNION
+    SELECT child.menu_id FROM sys_menu child JOIN sys_menu parent ON parent.menu_id = child.parent_id
+    WHERE parent.parent_id = 5005 AND parent.menu_name IN ('用户与创作者','用户与创作者管理') AND parent.menu_type = 'C'
+    UNION
+    SELECT parent.menu_id FROM sys_menu parent
+    WHERE parent.parent_id = 3000 AND parent.menu_name = '作者能力' AND parent.path = 'creator' AND parent.menu_type = 'C'
+    UNION
+    SELECT child.menu_id FROM sys_menu child JOIN sys_menu parent ON parent.menu_id = child.parent_id
+    WHERE parent.parent_id = 3000 AND parent.menu_name = '作者能力' AND parent.path = 'creator' AND parent.menu_type = 'C'
+  ) doomed
+);
 COMMIT;
 
 -- =====================================================================
@@ -2111,7 +2111,6 @@ SET @ddl := IF(@idx_exists = 0,
   'SELECT ''notice visibility index ok'' AS note');
 PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
-UPDATE sys_menu SET component = 'support/MessagesAnnouncements' WHERE menu_id = 5152;
 INSERT INTO sys_menu (menu_id, menu_name, parent_id, order_num, path, component, query, route_name,
   is_frame, is_cache, menu_type, visible, status, perms, icon, create_by, remark) VALUES
 (5300, '公告列表', 5152, 1, '#', NULL, '', '', 1, 0, 'F', '0', '0', 'system:notice:list', '#', 'notice_upgrade', '消息与公告权限'),
@@ -2209,11 +2208,12 @@ SELECT
        OR parent_id IN (SELECT menu_id FROM (SELECT menu_id FROM sys_menu WHERE parent_id = 5001) d)
   ) AS legacy_content_tree_should_be_0,
   (SELECT COUNT(*) FROM sys_menu WHERE menu_id = 5200) AS chat_dir_should_be_0,
-  (SELECT COUNT(*) FROM sys_menu WHERE menu_id = 5142) AS duplicate_user_menu_should_be_0,
-  (SELECT COUNT(*) FROM sys_role_menu WHERE menu_id = 5142) AS duplicate_user_grants_should_be_0,
+  (SELECT COUNT(*) FROM sys_menu WHERE parent_id = 5005 AND menu_name IN ('用户与创作者','用户与创作者管理') AND menu_type = 'C') AS duplicate_user_menu_should_be_0,
+  (SELECT COUNT(*) FROM sys_role_menu rm JOIN sys_menu m ON m.menu_id = rm.menu_id WHERE m.parent_id = 5005 AND m.menu_name IN ('用户与创作者','用户与创作者管理') AND m.menu_type = 'C') AS duplicate_user_grants_should_be_0,
+  (SELECT COUNT(*) FROM sys_menu WHERE menu_id = 5142 AND parent_id = 5126 AND perms = 'smartscript:copyright:application:detail') AS copyright_detail_menu_should_be_1,
   (SELECT COUNT(*) FROM sys_menu WHERE menu_id = 3001 AND parent_id = 3000) AS app_users_under_user_center_should_be_1,
-  (SELECT COUNT(*) FROM sys_menu WHERE menu_id = 3008) AS duplicate_creator_menu_should_be_0,
-  (SELECT COUNT(*) FROM sys_role_menu WHERE menu_id = 3008) AS duplicate_creator_grants_should_be_0,
+  (SELECT COUNT(*) FROM sys_menu WHERE parent_id = 3000 AND menu_name = '作者能力' AND path = 'creator' AND menu_type = 'C') AS duplicate_creator_menu_should_be_0,
+  (SELECT COUNT(*) FROM sys_role_menu rm JOIN sys_menu m ON m.menu_id = rm.menu_id WHERE m.parent_id = 3000 AND m.menu_name = '作者能力' AND m.path = 'creator' AND m.menu_type = 'C') AS duplicate_creator_grants_should_be_0,
   (SELECT COUNT(*) FROM sys_menu WHERE menu_id = 3009 AND parent_id = 3001) AS creator_update_under_app_users_should_be_1,
   (SELECT COUNT(*) FROM sys_menu WHERE menu_id IN (3010,3011,3012)) AS legacy_message_menus_should_be_0,
   (SELECT COUNT(*) FROM sys_menu WHERE menu_id = 5152 AND parent_id = 5005) AS messages_under_operations_should_be_1,
