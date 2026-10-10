@@ -1,0 +1,149 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.content.mapper.SysTagMapper">
+
+	<!--
+	  依据：云端 script_platform_dev 库 sys_tag 表（13 字段）。
+	  反推处理点：created_at/updated_at 不映射（DB 默认值维护）；
+	  status tinyint ↔ String；tag_id int ↔ Long。
+	-->
+	<resultMap type="SysTag" id="SysTagResult">
+		<id     property="tagId"          column="tag_id"          />
+		<result property="tagName"        column="tag_name"        />
+		<result property="tagType"        column="tag_type"        />
+		<result property="useCount"       column="use_count"       />
+		<result property="sort"           column="sort"            />
+		<result property="status"         column="status"          />
+		<result property="createBy"       column="create_by"       />
+		<result property="createTime"     column="create_time"     />
+		<result property="updateBy"       column="update_by"       />
+		<result property="updateTime"     column="update_time"     />
+		<result property="remark"         column="remark"          />
+	</resultMap>
+
+	<resultMap type="com.smartscript.platform.content.dto.AppWorkTagDto" id="AppWorkTagResult">
+		<result property="workId"   column="work_id"   />
+		<result property="tagId"    column="tag_id"    />
+		<result property="tagName"  column="tag_name"  />
+		<result property="tagType"  column="tag_type"  />
+	</resultMap>
+
+	<sql id="selectTagVo">
+		select tag_id, tag_name, tag_type, use_count, sort, status,
+		       create_by, create_time, update_by, update_time, remark
+		from sys_tag
+	</sql>
+
+	<select id="selectTagList" parameterType="SysTag" resultMap="SysTagResult">
+		<include refid="selectTagVo"/>
+		<where>
+			<if test="tagName != null and tagName != ''">
+				AND tag_name like concat('%', #{tagName}, '%')
+			</if>
+			<if test="tagType != null and tagType != ''">
+				AND tag_type = #{tagType}
+			</if>
+			<if test="status != null and status != ''">
+				AND status = #{status}
+			</if>
+		</where>
+		order by sort, tag_id
+	</select>
+
+	<select id="selectTagById" parameterType="Long" resultMap="SysTagResult">
+		<include refid="selectTagVo"/>
+		where tag_id = #{tagId}
+	</select>
+
+	<select id="checkTagNameUnique" parameterType="String" resultMap="SysTagResult">
+		<include refid="selectTagVo"/>
+		where tag_name = #{tagName} limit 1
+	</select>
+
+	<!--
+	  新增：use_count/sort/status 云端列 NOT NULL 无默认值（反推：由 Service 兜底默认 0/0/'0'），
+	  此处直接写入。created_at/updated_at 由 DB 默认值维护，不写。
+	-->
+	<insert id="insertTag" parameterType="SysTag" useGeneratedKeys="true" keyProperty="tagId">
+		insert into sys_tag(
+			tag_name, tag_type, use_count, sort, status,
+			create_by, create_time, remark
+		) values (
+			#{tagName}, #{tagType}, #{useCount}, #{sort}, #{status},
+			#{createBy}, sysdate(), #{remark}
+		)
+	</insert>
+
+	<!-- 动态更新：仅更新非空字段；use_count 不允许通过本接口改（由作品关联逻辑维护） -->
+	<update id="updateTag" parameterType="SysTag">
+		update sys_tag
+		<set>
+			<if test="tagName != null and tagName != ''">tag_name = #{tagName},</if>
+			<if test="tagType != null and tagType != ''">tag_type = #{tagType},</if>
+			<if test="sort != null">sort = #{sort},</if>
+			<if test="status != null and status != ''">status = #{status},</if>
+			<if test="updateBy != null and updateBy != ''">update_by = #{updateBy},</if>
+			<if test="remark != null">remark = #{remark},</if>
+			update_time = sysdate()
+		</set>
+		where tag_id = #{tagId}
+	</update>
+
+	<!-- 物理删除（无文档依据，反推：若依原生 sys_post 同为物理删除） -->
+	<delete id="deleteTagByIds">
+		delete from sys_tag where tag_id in
+		<foreach item="tagId" collection="array" open="(" separator="," close=")">
+			#{tagId}
+		</foreach>
+	</delete>
+
+	<!--
+	  App 侧标签列表（只读，书城筛选用）。
+	  固定条件：status = '0'（PC 端口径：'0'=正常 '1'=停用，见标签管理页）；
+	  按 use_count 降序（热度高的在前）。
+	  categoryId 有值时收敛为该分类下已上架作品关联过的标签（接口文档表 2-126 的 category_id 入参）。
+	-->
+	<select id="selectAppTagList" resultMap="SysTagResult">
+		<include refid="selectTagVo"/>
+		<where>
+			status = '0'
+			<if test="tagType != null and tagType != ''">
+				AND tag_type = #{tagType}
+			</if>
+			<if test="categoryId != null">
+				AND exists (
+					select 1 from sys_work_tag wt
+					join sys_work w on w.work_id = wt.work_id
+					where wt.tag_id = sys_tag.tag_id
+					  and w.genre_id = #{categoryId}
+					  and w.is_deleted = 0
+					  and w.status = 'on_shelf'
+				)
+			</if>
+		</where>
+		order by use_count desc, sort, tag_id
+	</select>
+
+	<!--
+	  按作品批量查询关联标签（App 侧只读）。
+	  固定条件：仅启用标签（status = '0'，与 selectAppTagList 同口径）；
+	  按 sort 升序（标签展示顺序）。入参 workIds 由 Service 保证非空。
+	-->
+	<select id="selectWorkTagRows" resultMap="AppWorkTagResult">
+		select wt.work_id as work_id,
+		       t.tag_id   as tag_id,
+		       t.tag_name as tag_name,
+		       t.tag_type as tag_type
+		from sys_work_tag wt
+		join sys_tag t on t.tag_id = wt.tag_id
+		where wt.work_id in
+		<foreach item="workId" collection="workIds" open="(" separator="," close=")">
+			#{workId}
+		</foreach>
+		  and t.status = '0'
+		order by t.sort, t.tag_id
+	</select>
+
+</mapper>

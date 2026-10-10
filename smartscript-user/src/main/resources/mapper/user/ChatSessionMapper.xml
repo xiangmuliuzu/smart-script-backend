@@ -1,0 +1,216 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.user.mapper.ChatSessionMapper">
+
+    <resultMap id="ChatSessionResult" type="com.smartscript.platform.user.domain.ChatSession">
+        <id     property="sessionId"        column="session_id"/>
+        <result property="sessionType"      column="session_type"/>
+        <result property="inquiryId"        column="inquiry_id"/>
+        <result property="user1Id"          column="user1_id"/>
+        <result property="user2Id"          column="user2_id"/>
+        <result property="lastMessage"      column="last_message"/>
+        <result property="lastMessageTime"  column="last_message_time"/>
+        <result property="user1Unread"      column="user1_unread"/>
+        <result property="user2Unread"      column="user2_unread"/>
+        <result property="status"           column="status"/>
+        <result property="assignedAdminId"  column="assigned_admin_id"/>
+        <result property="businessType"     column="business_type"/>
+        <result property="businessId"       column="business_id"/>
+        <result property="businessName"     column="business_name"/>
+        <result property="createdAt"        column="created_at"/>
+        <result property="updatedAt"        column="updated_at"/>
+        <result property="user1Name"        column="user1_name"/>
+        <result property="user2Name"        column="user2_name"/>
+        <result property="user1Avatar"      column="user1_avatar"/>
+        <result property="user2Avatar"      column="user2_avatar"/>
+    </resultMap>
+
+    <sql id="sessionColumns">
+        s.session_id, s.session_type, s.inquiry_id,
+        s.user1_id, s.user2_id,
+        s.last_message, s.last_message_time,
+        s.user1_unread, s.user2_unread,
+        s.status, s.assigned_admin_id,
+        s.business_type, s.business_id, s.business_name,
+        s.created_at, s.updated_at
+    </sql>
+
+    <sql id="joinUsers">
+        LEFT JOIN sys_user u1 ON s.user1_id = u1.user_id
+        LEFT JOIN sys_user u2 ON COALESCE(s.assigned_admin_id, s.user2_id) = u2.user_id
+    </sql>
+
+    <sql id="userNames">
+        u1.nick_name AS user1_name, u2.nick_name AS user2_name,
+        u1.avatar    AS user1_avatar, u2.avatar   AS user2_avatar
+    </sql>
+
+    <!-- 插入会话（唯一键冲突返回 0） -->
+    <insert id="insertSession" parameterType="com.smartscript.platform.user.domain.ChatSession"
+            useGeneratedKeys="true" keyProperty="sessionId">
+        INSERT INTO sys_chat_session
+            (session_type, inquiry_id, user1_id, user2_id,
+             user1_unread, user2_unread, status,
+             business_type, business_id, business_name,
+             assigned_admin_id, created_at)
+        VALUES
+            (#{sessionType}, #{inquiryId}, #{user1Id}, #{user2Id},
+             0, 0, 0,
+             #{businessType}, #{businessId}, #{businessName},
+             #{assignedAdminId}, NOW())
+    </insert>
+
+    <!-- 按业务上下文查找（NULL-safe：business_id 为 null 时用 IS NULL 判定） -->
+    <select id="selectByBusiness" resultMap="ChatSessionResult">
+        SELECT <include refid="sessionColumns"/>, <include refid="userNames"/>
+        FROM sys_chat_session s
+        <include refid="joinUsers"/>
+        WHERE s.user1_id = #{user1Id} AND s.user2_id = #{user2Id}
+        <choose>
+            <when test="businessId != null">
+                AND s.business_type = #{businessType} AND s.business_id = #{businessId}
+            </when>
+            <otherwise>
+                AND s.business_type = #{businessType} AND s.business_id IS NULL
+            </otherwise>
+        </choose>
+        LIMIT 1
+    </select>
+
+    <!-- 按 ID 查询 -->
+    <select id="selectById" resultMap="ChatSessionResult">
+        SELECT <include refid="sessionColumns"/>, <include refid="userNames"/>
+        FROM sys_chat_session s
+        <include refid="joinUsers"/>
+        WHERE s.session_id = #{sessionId}
+        LIMIT 1
+    </select>
+
+    <!-- 用户端：我的会话列表 -->
+    <select id="selectForUpdate" resultMap="ChatSessionResult">
+        SELECT <include refid="sessionColumns"/> FROM sys_chat_session s
+        WHERE s.session_id = #{sessionId} FOR UPDATE
+    </select>
+
+    <update id="claimAdmin">
+        UPDATE sys_chat_session SET assigned_admin_id = #{adminId} WHERE session_id = #{sessionId}
+    </update>
+
+    <update id="refreshAdminUnread">
+        UPDATE sys_chat_session SET user2_unread = (
+            SELECT COUNT(*) FROM sys_chat_message
+            WHERE session_id = #{sessionId} AND sender_id = #{userId} AND is_read = 0
+        ) WHERE session_id = #{sessionId}
+    </update>
+
+    <select id="selectMySessions" resultMap="ChatSessionResult">
+        SELECT <include refid="sessionColumns"/>, <include refid="userNames"/>
+        FROM sys_chat_session s
+        <include refid="joinUsers"/>
+        WHERE (s.user1_id = #{userId} OR s.user2_id = #{userId})
+        <if test="status != null">
+            <choose><when test="status == 0">AND s.status IN (0, 1)</when><otherwise>AND s.status = #{status}</otherwise></choose>
+        </if>
+        ORDER BY s.last_message_time DESC, s.created_at DESC
+    </select>
+
+    <!-- 管理端：全部会话列表 -->
+    <select id="selectAdminSessions" resultMap="ChatSessionResult">
+        SELECT <include refid="sessionColumns"/>, <include refid="userNames"/>
+        FROM sys_chat_session s
+        <include refid="joinUsers"/>
+        <where>
+            <if test="status != null">
+                <choose><when test="status == 0">AND s.status IN (0, 1)</when><otherwise>AND s.status = #{status}</otherwise></choose>
+            </if>
+            <if test="businessType != null and businessType != ''">
+                AND s.business_type = #{businessType}
+            </if>
+            <if test="keyword != null and keyword != ''">
+                AND (u1.nick_name LIKE CONCAT('%', #{keyword}, '%')
+                     OR u2.nick_name LIKE CONCAT('%', #{keyword}, '%')
+                     OR s.business_name LIKE CONCAT('%', #{keyword}, '%'))
+            </if>
+        </where>
+        ORDER BY s.last_message_time DESC, s.created_at DESC
+    </select>
+
+    <!-- 更新最后消息 -->
+    <update id="updateLastMessage">
+        UPDATE sys_chat_session
+        SET last_message = #{lastMessage}, last_message_time = #{lastMessageTime}
+        WHERE session_id = #{sessionId}
+    </update>
+
+    <!-- 对方未读 +1（isUser1Receiver 由 Service 层判定后传入） -->
+    <update id="incrementUnread">
+        UPDATE sys_chat_session
+        <choose>
+            <when test="isUser1Receiver">
+                SET user1_unread = user1_unread + 1
+            </when>
+            <otherwise>
+                SET user2_unread = user2_unread + 1
+            </otherwise>
+        </choose>
+        WHERE session_id = #{sessionId}
+    </update>
+
+    <!-- 清除当前用户在该会话的未读（isUser1 由 Service 层判定后传入） -->
+    <update id="clearUnread">
+        UPDATE sys_chat_session
+        <choose>
+            <when test="isUser1">
+                SET user1_unread = 0
+            </when>
+            <otherwise>
+                SET user2_unread = 0
+            </otherwise>
+        </choose>
+        WHERE session_id = #{sessionId}
+    </update>
+
+    <!-- 我的未读总数 -->
+    <select id="sumMyUnread" resultType="int">
+        SELECT COALESCE(
+            SUM(CASE WHEN user1_id = #{userId} THEN user1_unread ELSE user2_unread END),
+            0
+        )
+        FROM sys_chat_session
+        WHERE user1_id = #{userId} OR COALESCE(assigned_admin_id, user2_id) = #{userId}
+    </select>
+
+    <!-- 更新状态 -->
+    <update id="updateStatus">
+        UPDATE sys_chat_session SET status = #{status} WHERE session_id = #{sessionId}
+    </update>
+
+    <!-- 分配管理员：同步移交会话参与方 user2_id（用户端按 user2 识别对方管理员），未读归零 -->
+    <update id="updateAssignedAdmin">
+        UPDATE sys_chat_session
+        SET assigned_admin_id = #{adminId}, user2_id = #{adminId}, user2_unread = 0
+        WHERE session_id = #{sessionId}
+    </update>
+
+    <!-- 查用户显示名（昵称优先，空则用登录名） -->
+    <select id="selectUserNameById" resultType="java.lang.String">
+        SELECT IFNULL(NULLIF(nick_name, ''), user_name) FROM sys_user WHERE user_id = #{userId}
+    </select>
+
+    <select id="selectAdminCandidates" resultType="java.util.LinkedHashMap">
+        SELECT u.user_id   AS userId,
+               u.user_name AS userName,
+               u.nick_name AS nickName,
+               u.avatar    AS avatar
+        FROM sys_user u
+        JOIN sys_user_role ur ON ur.user_id = u.user_id
+        JOIN sys_role r ON r.role_id = ur.role_id AND r.status = '0' AND r.del_flag = '0'
+        WHERE u.user_type = '00'
+          AND u.status = '0'
+          AND u.del_flag = '0'
+        GROUP BY u.user_id, u.user_name, u.nick_name, u.avatar
+        ORDER BY u.user_id
+    </select>
+
+</mapper>

@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.content.mapper.AppEpisodeMapper">
+
+	<!--
+	  依据：云端 script_platform_dev 库 sys_episode 表。
+	  反推处理点：
+	  1. DTO 位于 dto 包，typeAliasesPackage 只扫 **.domain，故用全限定类名。
+	  2. 不按 status 过滤（库端无权威枚举、无写入方；PC 侧既有查询同样不过滤），
+	     避免因枚举口径歧义误过滤导致列表全空。
+	  3. is_free tinyint → DTO 的 String（"0"/"1"），与 B 模块既有 tinyint 口径一致。
+	  4. 只读投影，不下发审计字段。
+	-->
+	<resultMap type="com.smartscript.platform.content.dto.AppEpisodeItem" id="AppEpisodeItemResult">
+		<id     property="episodeId"  column="episode_id"  />
+		<result property="workId"     column="work_id"     />
+		<result property="episodeNo"  column="episode_no"  />
+		<result property="title"      column="title"       />
+		<result property="coverUrl"   column="cover_url"   />
+		<result property="duration"   column="duration"    />
+		<result property="isFree"     column="is_free"     />
+		<result property="unlockType" column="unlock_type" />
+		<result property="price"      column="price"       />
+		<result property="playCount"  column="play_count"  />
+	</resultMap>
+
+	<resultMap type="com.smartscript.platform.content.dto.AppEpisodeDetailDto" id="AppEpisodeDetailResult">
+		<id     property="episodeId"  column="episode_id"  />
+		<result property="workId"     column="work_id"     />
+		<result property="episodeNo"  column="episode_no"  />
+		<result property="title"      column="title"       />
+		<result property="videoUrl"   column="video_url"   />
+		<result property="coverUrl"   column="cover_url"   />
+		<result property="duration"   column="duration"    />
+		<result property="isFree"     column="is_free"     />
+		<result property="unlockType" column="unlock_type" />
+		<result property="price"      column="price"       />
+	</resultMap>
+
+	<select id="selectAppEpisodesByWorkId" resultMap="AppEpisodeItemResult">
+		select episode_id, work_id, episode_no, title, cover_url, duration,
+		       is_free, unlock_type, price, play_count
+		from sys_episode
+		where work_id = #{workId}
+		order by episode_no
+	</select>
+
+	<select id="selectAppEpisodeById" resultMap="AppEpisodeDetailResult">
+		select episode_id, work_id, episode_no, title, video_url, cover_url, duration,
+		       is_free, unlock_type, price
+		from sys_episode
+		where episode_id = #{episodeId}
+	</select>
+
+</mapper>

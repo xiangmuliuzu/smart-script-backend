@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.review.mapper.AiQuotaAccountMapper">
+
+    <resultMap id="AiQuotaAccountResult" type="com.smartscript.platform.review.domain.AiQuotaAccount">
+        <id     property="accountId"      column="account_id"      />
+        <result property="userId"         column="user_id"         />
+        <result property="availableQuota" column="available_quota" />
+        <result property="reservedQuota" column="reserved_quota"  />
+        <result property="totalEarned"  column="total_earned"    />
+        <result property="totalConsumed" column="total_consumed"  />
+        <result property="totalRefunded" column="total_refunded"  />
+        <result property="createBy"      column="create_by"       />
+        <result property="createTime"  column="created_at"     />
+        <result property="updateBy"     column="update_by"       />
+        <result property="updateTime"   column="update_time"     />
+        <result property="remark"       column="remark"          />
+        <result property="nickname"     column="nick_name"        />
+        <result property="phone"       column="phonenumber"           />
+    </resultMap>
+
+    <sql id="selectAiQuotaAccountVo">
+        SELECT a.account_id, a.user_id, a.available_quota, a.reserved_quota,
+               a.total_earned, a.total_consumed, a.total_refunded,
+               a.create_by, a.created_at, a.update_by, a.update_time, a.remark,
+               u.nick_name, u.phonenumber
+        FROM sys_ai_quota_account a
+        LEFT JOIN sys_user u ON a.user_id = u.user_id
+    </sql>
+
+    <select id="selectAiQuotaAccountList" parameterType="com.smartscript.platform.review.domain.AiQuotaAccount" resultMap="AiQuotaAccountResult">
+        <include refid="selectAiQuotaAccountVo"/>
+        <where>
+            <if test="userId != null">
+                AND a.user_id = #{userId}
+            </if>
+        </where>
+        ORDER BY a.created_at DESC
+    </select>
+
+    <select id="selectAiQuotaAccountById" parameterType="Long" resultMap="AiQuotaAccountResult">
+        <include refid="selectAiQuotaAccountVo"/>
+        WHERE a.account_id = #{accountId}
+    </select>
+
+    <select id="selectAiQuotaAccountByUserId" parameterType="Long" resultMap="AiQuotaAccountResult">
+        <include refid="selectAiQuotaAccountVo"/>
+        WHERE a.user_id = #{userId}
+    </select>
+
+    <insert id="insertAiQuotaAccount" parameterType="com.smartscript.platform.review.domain.AiQuotaAccount" useGeneratedKeys="true" keyProperty="accountId">
+        INSERT INTO sys_ai_quota_account
+        <trim prefix="(" suffix=")" suffixOverrides=",">
+            <if test="userId != null">user_id,</if>
+            <if test="availableQuota != null">available_quota,</if>
+            <if test="reservedQuota != null">reserved_quota,</if>
+            total_earned,
+            total_consumed,
+            total_refunded,
+            version,
+            created_at,
+            updated_at,
+            <if test="createBy != null">create_by,</if>
+            <if test="createTime != null">created_at,</if>
+            <if test="updateBy != null">update_by,</if>
+            <if test="updateTime != null">update_time,</if>
+            <if test="remark != null">remark,</if>
+        </trim>
+        <trim prefix="values (" suffix=")" suffixOverrides=",">
+            <if test="userId != null">#{userId},</if>
+            <if test="availableQuota != null">#{availableQuota},</if>
+            <if test="reservedQuota != null">#{reservedQuota},</if>
+            COALESCE(#{totalEarned}, 0),
+            COALESCE(#{totalConsumed}, 0),
+            COALESCE(#{totalRefunded}, 0),
+            COALESCE(#{version}, 0),
+            NOW(),
+            NOW(),
+            <if test="createBy != null">#{createBy},</if>
+            <if test="createTime != null">#{createTime},</if>
+            <if test="updateBy != null">#{updateBy},</if>
+            <if test="updateTime != null">#{updateTime},</if>
+            <if test="remark != null">#{remark},</if>
+        </trim>
+    </insert>
+
+    <update id="updateAiQuotaAccount" parameterType="com.smartscript.platform.review.domain.AiQuotaAccount">
+        UPDATE sys_ai_quota_account
+        <trim prefix="SET" suffixOverrides=",">
+            <if test="userId != null">user_id = #{userId},</if>
+            <if test="availableQuota != null">available_quota = #{availableQuota},</if>
+            <if test="reservedQuota != null">reserved_quota = #{reservedQuota},</if>
+            <if test="totalEarned != null">total_earned = #{totalEarned},</if>
+            <if test="totalConsumed != null">total_consumed = #{totalConsumed},</if>
+            <if test="totalRefunded != null">total_refunded = #{totalRefunded},</if>
+            <if test="updateBy != null">update_by = #{updateBy},</if>
+            <if test="updateTime != null">update_time = #{updateTime},</if>
+            <if test="remark != null">remark = #{remark},</if>
+        </trim>
+        WHERE account_id = #{accountId}
+    </update>
+
+    <delete id="deleteAiQuotaAccountById" parameterType="Long">
+        DELETE FROM sys_ai_quota_account WHERE account_id = #{accountId}
+    </delete>
+
+    <select id="countAccounts" resultType="int">
+        SELECT COUNT(*) FROM sys_ai_quota_account
+    </select>
+
+</mapper>

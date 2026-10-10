@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <parent>
+        <artifactId>ruoyi</artifactId>
+        <groupId>com.ruoyi</groupId>
+        <version>3.9.2</version>
+    </parent>
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.smartscript</groupId>
+    <artifactId>smartscript-content</artifactId>
+    <packaging>jar</packaging>
+
+    <description>
+        A6 示例业务模块（内容/书城）。只通过 ruoyi-common 的 IdentityProvider 读取统一身份，
+        不依赖 smartscript-user，也不直接访问其认证表、Token 表与实名材料表。
+    </description>
+
+    <dependencies>
+        <!--
+          只依赖公共内核与框架：身份上下文与 IdentityProvider 接口在 ruoyi-common，
+          运行时由容器注入 smartscript-user 提供的实现。
+          刻意**不**依赖 smartscript-user：避免业务模块之间产生编译期反向耦合。
+        -->
+        <dependency>
+            <groupId>com.ruoyi</groupId>
+            <artifactId>ruoyi-common</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.ruoyi</groupId>
+            <artifactId>ruoyi-framework</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+</project>

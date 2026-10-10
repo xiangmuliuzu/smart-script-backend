@@ -1,0 +1,149 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.content.mapper.SysWorkChapterMapper">
+
+	<!--
+	  依据：云端 script_platform_dev 库 sys_work_chapter 表（附件5.1 表3-16）。
+	  作品管理页"章节查看"只读，列表不返回 content 全文。
+	  反推处理点：created_at/updated_at 不映射；is_free/status tinyint ↔ String。
+	-->
+	<resultMap type="SysWorkChapter" id="SysWorkChapterResult">
+		<id     property="chapterId"     column="chapter_id"     />
+		<result property="workId"        column="work_id"        />
+		<result property="chapterNo"     column="chapter_no"     />
+		<result property="chapterTitle"  column="chapter_title"  />
+		<result property="wordCount"     column="word_count"     />
+		<result property="isFree"        column="is_free"        />
+		<result property="status"        column="status"         />
+		<result property="createBy"      column="create_by"      />
+		<result property="createTime"    column="create_time"    />
+		<result property="updateBy"      column="update_by"      />
+		<result property="updateTime"    column="update_time"    />
+		<result property="remark"        column="remark"         />
+	</resultMap>
+
+	<!-- 章节列表：不返回 content 全文，仅摘要字段 -->
+	<sql id="selectChapterVo">
+		select chapter_id, work_id, chapter_no, chapter_title, word_count, is_free, status,
+		       create_by, create_time, update_by, update_time, remark
+		from sys_work_chapter
+	</sql>
+
+	<select id="selectChapterListByWorkId" parameterType="SysWorkChapter" resultMap="SysWorkChapterResult">
+		<include refid="selectChapterVo"/>
+		<where>
+			<if test="workId != null">
+				AND work_id = #{workId}
+			</if>
+			<if test="status != null and status != ''">
+				AND status = #{status}
+			</if>
+		</where>
+		order by chapter_no
+	</select>
+
+	<!--
+	  App 章节正文（只读，接口文档 2.7.8 免费试读）：含 content 全文。
+	  不带作品可见性条件，由服务层判定作品是否上架后决定 404 语义。
+	-->
+	<select id="selectChapterDetail" parameterType="Long" resultMap="SysWorkChapterResult">
+		select chapter_id, work_id, chapter_no, chapter_title, content, word_count, is_free, status,
+		       create_by, create_time, update_by, update_time, remark
+		from sys_work_chapter
+		where chapter_id = #{chapterId}
+	</select>
+
+	<!-- 用户端编辑：章节列表含 content 全文，按章节序号升序 -->
+	<select id="selectChapterListWithContentByWorkId" parameterType="Long" resultMap="SysWorkChapterResult">
+		select chapter_id, work_id, chapter_no, chapter_title, content, word_count, is_free, status,
+		       create_by, create_time, update_by, update_time, remark
+		from sys_work_chapter
+		where work_id = #{workId}
+		order by chapter_no
+	</select>
+
+	<!-- 查询作品最大章节序号 -->
+	<select id="selectMaxChapterNo" parameterType="Long" resultType="java.lang.Integer">
+		select ifnull(max(chapter_no), 0) from sys_work_chapter where work_id = #{workId}
+	</select>
+
+	<!--
+	  App 章节编辑：归属判定只取元信息（不含 content 长文本）。
+	-->
+	<select id="selectChapterMeta" parameterType="Long" resultMap="SysWorkChapterResult">
+		select chapter_id, work_id, chapter_no, chapter_title, word_count, is_free, status
+		from sys_work_chapter
+		where chapter_id = #{chapterId}
+	</select>
+
+	<!--
+	  chapter_no 唯一键 uk_work_chapter_no(work_id, chapter_no) 由本查询前置校验；
+	  并发下的竞态仍由该唯一键兜底（违反时抛异常，不会产生重复序号）。
+	-->
+	<select id="countChapterNo" resultType="int">
+		select count(1)
+		from sys_work_chapter
+		where work_id = #{workId}
+		  and chapter_no = #{chapterNo}
+	</select>
+
+	<!-- 用户端新增章节（word_count/status 由服务层给定；updated_at 由库 ON UPDATE 维护） -->
+	<insert id="insertChapter" parameterType="SysWorkChapter" useGeneratedKeys="true" keyProperty="chapterId">
+		insert into sys_work_chapter
+		<trim prefix="(" suffix=")" suffixOverrides=",">
+			<if test="workId != null">work_id,</if>
+			<if test="chapterNo != null">chapter_no,</if>
+			<if test="chapterTitle != null">chapter_title,</if>
+			<if test="content != null">content,</if>
+			<if test="wordCount != null">word_count,</if>
+			<if test="isFree != null">is_free,</if>
+			<if test="status != null">status,</if>
+			<if test="createBy != null">create_by,</if>
+			<if test="createTime != null">create_time,</if>
+			<if test="remark != null">remark,</if>
+		</trim>
+		<trim prefix="values (" suffix=")" suffixOverrides=",">
+			<if test="workId != null">#{workId},</if>
+			<if test="chapterNo != null">#{chapterNo},</if>
+			<if test="chapterTitle != null">#{chapterTitle},</if>
+			<if test="content != null">#{content},</if>
+			<if test="wordCount != null">#{wordCount},</if>
+			<if test="isFree != null">#{isFree},</if>
+			<if test="status != null">#{status},</if>
+			<if test="createBy != null">#{createBy},</if>
+			<if test="createTime != null">#{createTime},</if>
+			<if test="remark != null">#{remark},</if>
+		</trim>
+	</insert>
+
+	<!-- 用户端修改章节（为 null 的字段不更新） -->
+	<update id="updateChapter" parameterType="SysWorkChapter">
+		update sys_work_chapter
+		<trim prefix="SET" suffixOverrides=",">
+			<if test="chapterNo != null">chapter_no = #{chapterNo},</if>
+			<if test="chapterTitle != null">chapter_title = #{chapterTitle},</if>
+			<if test="content != null">content = #{content},</if>
+			<if test="wordCount != null">word_count = #{wordCount},</if>
+			<if test="isFree != null">is_free = #{isFree},</if>
+			<if test="status != null">status = #{status},</if>
+			<if test="updateBy != null">update_by = #{updateBy},</if>
+			<if test="updateTime != null">update_time = #{updateTime},</if>
+			<if test="remark != null">remark = #{remark},</if>
+		</trim>
+		where chapter_id = #{chapterId}
+	</update>
+
+	<!-- 用户端删除章节 -->
+	<delete id="deleteChapterById" parameterType="Long">
+		delete from sys_work_chapter where chapter_id = #{chapterId}
+	</delete>
+
+	<!-- 章节编辑删除章节（物理删除，同上） -->
+	<delete id="deleteChapter" parameterType="Long">
+		delete from sys_work_chapter
+		where chapter_id = #{chapterId}
+	</delete>
+
+</mapper>

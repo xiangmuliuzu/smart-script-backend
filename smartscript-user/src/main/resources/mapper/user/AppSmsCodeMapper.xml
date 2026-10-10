@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.user.mapper.AppSmsCodeMapper">
+
+    <resultMap id="AppSmsCodeResult" type="com.smartscript.platform.user.domain.AppSmsCode">
+        <id property="id" column="id"/>
+        <result property="phone" column="phone"/>
+        <result property="scene" column="scene"/>
+        <result property="codeHash" column="code_hash"/>
+        <result property="requestIp" column="request_ip"/>
+        <result property="failedAttempts" column="failed_attempts"/>
+        <result property="usedAt" column="used_at"/>
+        <result property="expiresAt" column="expires_at"/>
+        <result property="createTime" column="create_time"/>
+    </resultMap>
+
+    <insert id="insertSmsCode" parameterType="com.smartscript.platform.user.domain.AppSmsCode"
+            useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO app_sms_code(phone, scene, code_hash, request_ip, failed_attempts, used_at, expires_at, create_by)
+        VALUES (#{phone}, #{scene}, #{codeHash}, #{requestIp}, #{failedAttempts}, #{usedAt}, #{expiresAt}, 'system')
+    </insert>
+
+    <!-- Newest row regardless of used/expired: consumed and expired rows must yield
+         their own contract codes (40901 / 40002) instead of falling back to an older row. -->
+    <select id="selectLatest" resultMap="AppSmsCodeResult">
+        SELECT id, phone, scene, code_hash, request_ip, failed_attempts, used_at, expires_at, create_time
+        FROM app_sms_code
+        WHERE phone = #{phone} AND scene = #{scene}
+        ORDER BY id DESC
+        LIMIT 1
+    </select>
+
+    <update id="consumeCode">
+        UPDATE app_sms_code
+        SET used_at = #{now}, update_time = #{now}
+        WHERE id = #{id} AND used_at IS NULL AND expires_at &gt; #{now}
+    </update>
+
+    <update id="incrementFailed">
+        UPDATE app_sms_code
+        SET failed_attempts = failed_attempts + 1, update_time = NOW()
+        WHERE id = #{id}
+    </update>
+
+    <select id="countPhoneToday" resultType="int">
+        SELECT COUNT(*) FROM app_sms_code
+        WHERE phone = #{phone} AND scene = #{scene} AND create_time &gt;= #{start}
+    </select>
+
+    <select id="countIpLastHour" resultType="int">
+        SELECT COUNT(*) FROM app_sms_code
+        WHERE request_ip = #{ip} AND create_time &gt;= #{start}
+    </select>
+</mapper>

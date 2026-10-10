@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.content.mapper.AppReportMapper">
+
+	<!--
+	  依据：云端 script_platform_dev 库 sys_report 表（附件5.1 表3-36）。
+	  反推处理点：
+	  1. created_at/updated_at 有默认值仍显式写 now()，不依赖库默认值差异。
+	  2. status 由服务层传初始态 'pending'；handler_id/handle_result 本批不写（留给后台处置流程）。
+	  3. report_id 自增，Service 在同事务内用 selectLastInsertId 取回。
+	-->
+	<insert id="insertReport">
+		insert into sys_report
+		    (user_id, target_type, target_id, reason, description, status, created_at, updated_at)
+		values
+		    (#{userId}, #{targetType}, #{targetId}, #{reason}, #{description}, #{status}, now(), now())
+	</insert>
+
+	<select id="selectLastInsertId" resultType="java.lang.Long">
+		select last_insert_id()
+	</select>
+
+</mapper>

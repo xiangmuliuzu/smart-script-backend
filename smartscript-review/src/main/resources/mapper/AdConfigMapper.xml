@@ -1,0 +1,128 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.review.mapper.AdConfigMapper">
+
+    <resultMap id="AdConfigResult" type="com.smartscript.platform.review.domain.AdConfig">
+        <id     property="adId"           column="ad_id"           />
+        <result property="adName"         column="ad_name"         />
+        <result property="adPosition"     column="ad_position"     />
+        <result property="adType"         column="ad_type"         />
+        <result property="adSource"       column="ad_source"       />
+        <result property="adUnitId"       column="ad_unit_id"      />
+        <result property="isEnabled"      column="is_enabled"      />
+        <result property="frequencyLimit" column="frequency_limit" />
+        <result property="dailyCap"       column="daily_cap"       />
+        <result property="targetAudience" column="target_audience" />
+        <result property="watchLimit"     column="watch_limit"     />
+        <result property="rewardPoints"   column="reward_points"   />
+        <result property="sort"           column="sort"            />
+        <result property="startDate"      column="start_date"      />
+        <result property="endDate"        column="end_date"        />
+        <result property="createBy"       column="create_by"       />
+        <result property="createTime"     column="created_at"      />
+        <result property="updateBy"       column="update_by"       />
+        <result property="updateTime"     column="update_time"     />
+        <result property="remark"         column="remark"          />
+    </resultMap>
+
+    <sql id="selectAdConfigVo">
+        SELECT ad_id, ad_name, ad_position, ad_type, ad_source, ad_unit_id, is_enabled,
+               frequency_limit, daily_cap, target_audience, watch_limit, reward_points, sort,
+               start_date, end_date, create_by, created_at, update_by, update_time, remark
+        FROM sys_ad_config
+    </sql>
+
+    <select id="selectAdConfigList" parameterType="com.smartscript.platform.review.domain.AdConfig" resultMap="AdConfigResult">
+        <include refid="selectAdConfigVo"/>
+        <where>
+            <if test="adName != null and adName != ''">
+                AND ad_name LIKE CONCAT('%', #{adName}, '%')
+            </if>
+            <if test="adPosition != null and adPosition != ''">
+                AND ad_position = #{adPosition}
+            </if>
+            <if test="adSource != null and adSource != ''">
+                AND ad_source LIKE CONCAT('%', #{adSource}, '%')
+            </if>
+            <if test="isEnabled != null">
+                AND is_enabled = #{isEnabled}
+            </if>
+        </where>
+        ORDER BY sort ASC, created_at DESC
+    </select>
+
+    <select id="selectAdConfigById" parameterType="Long" resultMap="AdConfigResult">
+        <include refid="selectAdConfigVo"/>
+        WHERE ad_id = #{adId}
+    </select>
+
+    <insert id="insertAdConfig" parameterType="com.smartscript.platform.review.domain.AdConfig" useGeneratedKeys="true" keyProperty="adId">
+        INSERT INTO sys_ad_config
+        <trim prefix="(" suffix=")" suffixOverrides=",">
+            <if test="adName != null and adName != ''">ad_name,</if>
+            <if test="adPosition != null and adPosition != ''">ad_position,</if>
+            <if test="adType != null and adType != ''">ad_type,</if>
+            <if test="adSource != null and adSource != ''">ad_source,</if>
+            <if test="adUnitId != null">ad_unit_id,</if>
+            <if test="isEnabled != null">is_enabled,</if>
+            <if test="frequencyLimit != null">frequency_limit,</if>
+            <if test="dailyCap != null">daily_cap,</if>
+            <if test="targetAudience != null">target_audience,</if>
+            <if test="watchLimit != null">watch_limit,</if>
+            <if test="rewardPoints != null">reward_points,</if>
+            <if test="sort != null">sort,</if>
+            <if test="startDate != null">start_date,</if>
+            <if test="endDate != null">end_date,</if>
+            <if test="createBy != null">create_by,</if>
+            <if test="updateBy != null">update_by,</if>
+            <if test="remark != null">remark,</if>
+        </trim>
+        <trim prefix="values (" suffix=")" suffixOverrides=",">
+            <if test="adName != null and adName != ''">#{adName},</if>
+            <if test="adPosition != null and adPosition != ''">#{adPosition},</if>
+            <if test="adType != null and adType != ''">#{adType},</if>
+            <if test="adSource != null and adSource != ''">#{adSource},</if>
+            <if test="adUnitId != null">#{adUnitId},</if>
+            <if test="isEnabled != null">#{isEnabled},</if>
+            <if test="frequencyLimit != null">#{frequencyLimit},</if>
+            <if test="dailyCap != null">#{dailyCap},</if>
+            <if test="targetAudience != null">#{targetAudience},</if>
+            <if test="watchLimit != null">#{watchLimit},</if>
+            <if test="rewardPoints != null">#{rewardPoints},</if>
+            <if test="sort != null">#{sort},</if>
+            <if test="startDate != null">#{startDate},</if>
+            <if test="endDate != null">#{endDate},</if>
+            <if test="createBy != null">#{createBy},</if>
+            <if test="updateBy != null">#{updateBy},</if>
+            <if test="remark != null">#{remark},</if>
+        </trim>
+    </insert>
+
+    <update id="updateAdConfig" parameterType="com.smartscript.platform.review.domain.AdConfig">
+        UPDATE sys_ad_config
+        <trim prefix="SET" suffixOverrides=",">
+            <if test="adName != null and adName != ''">ad_name = #{adName},</if>
+            <if test="adPosition != null and adPosition != ''">ad_position = #{adPosition},</if>
+            <if test="adType != null and adType != ''">ad_type = #{adType},</if>
+            <if test="adSource != null and adSource != ''">ad_source = #{adSource},</if>
+            <if test="adUnitId != null">ad_unit_id = #{adUnitId},</if>
+            <if test="isEnabled != null">is_enabled = #{isEnabled},</if>
+            <if test="frequencyLimit != null">frequency_limit = #{frequencyLimit},</if>
+            <if test="dailyCap != null">daily_cap = #{dailyCap},</if>
+            <if test="targetAudience != null">target_audience = #{targetAudience},</if>
+            <if test="watchLimit != null">watch_limit = #{watchLimit},</if>
+            <if test="rewardPoints != null">reward_points = #{rewardPoints},</if>
+            <if test="sort != null">sort = #{sort},</if>
+            <if test="startDate != null">start_date = #{startDate},</if>
+            <if test="endDate != null">end_date = #{endDate},</if>
+            <if test="updateBy != null">update_by = #{updateBy},</if>
+            <if test="remark != null">remark = #{remark},</if>
+        </trim>
+        WHERE ad_id = #{adId}
+    </update>
+
+    <delete id="deleteAdConfigById" parameterType="Long">
+        DELETE FROM sys_ad_config WHERE ad_id = #{adId}
+    </delete>
+
+</mapper>

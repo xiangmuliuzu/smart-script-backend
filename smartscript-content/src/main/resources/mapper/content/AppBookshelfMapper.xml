@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.content.mapper.AppBookshelfMapper">
+
+	<!--
+	  依据：云端 script_platform_dev 库 sys_bookshelf_record 表（附件5.1 表3-32）。
+	  反推处理点：
+	  1. 表上有唯一索引 uk_user_work(user_id, work_id)，仍用
+	     INSERT ... SELECT ... WHERE NOT EXISTS 保证幂等（MySQL 允许 INSERT ... SELECT 读同一张表），
+	     与 AppFavoriteMapper.xml 同一写法；不依赖 INSERT IGNORE 的静默语义。
+	  2. add_source / is_deleted / created_at / updated_at 均为 NOT NULL 且无默认值，
+	     必须显式写入；created_at / updated_at 写 now()，不依赖库默认值差异。
+	  3. is_deleted 一律写 0；移出书架为物理删除，故查询与计数无需过滤该列。
+	  4. 列表只回「已上架未删除」作品，与 2.7.2 作品详情可见性口径一致；下架后书架关系保留，
+	     重新上架即恢复展示。
+	  5. 阅读进度（last_read_chapter_id / last_read_at）随列表一并下发；章节序号经
+	     LEFT JOIN sys_work_chapter.chapter_no 得到（章节被删则序号为空，仍展示时间）。
+	-->
+	<insert id="insertShelfIfAbsent">
+		insert into sys_bookshelf_record (user_id, work_id, add_source, is_deleted, created_at, updated_at)
+		select #{userId}, #{workId}, #{addSource}, 0, now(), now()
+		from dual
+		where not exists (
+			select 1 from sys_bookshelf_record r
+			where r.user_id = #{userId} and r.work_id = #{workId}
+		)
+	</insert>
+
+	<delete id="deleteShelf">
+		delete from sys_bookshelf_record
+		where user_id = #{userId}
+		  and work_id = #{workId}
+	</delete>
+
+	<select id="countShelf" resultType="int">
+		select count(1)
+		from sys_bookshelf_record
+		where user_id = #{userId}
+		  and work_id = #{workId}
+	</select>
+
+	<!-- 列表列与 SysContentWorkMapper.selectAppWorkList 一致（不含 core_setting/character_setting 长文本），
+	     在其 AppWorkDtoResult 结果映射上扩展进度列，避免同一批作品字段出现两套映射产生口径漂移 -->
+	<resultMap id="AppShelfWorkDtoResult"
+	           type="com.smartscript.platform.content.dto.AppShelfWorkDto"
+	           extends="com.smartscript.platform.content.mapper.SysContentWorkMapper.AppWorkDtoResult">
+		<result property="lastReadChapterId" column="last_read_chapter_id" />
+		<result property="lastReadChapterNo" column="last_read_chapter_no" />
+		<result property="lastReadAt"        column="last_read_at"         />
+	</resultMap>
+
+	<select id="selectShelfWorks" resultMap="AppShelfWorkDtoResult">
+		select w.work_id, w.title, w.cover, w.author_id, w.genre_id, w.work_type, w.upload_type,
+		       w.length_type, w.summary, w.price, w.trade_type, w.trade_enabled,
+		       w.word_count, w.episode_count, w.duration, w.is_free, w.preview_enabled,
+		       w.preview_episodes, w.status, w.is_copyrighted, w.quality_level,
+		       w.view_count, w.favorite_count, w.sale_count, w.rating, w.create_time,
+		       u.nick_name as author_name,
+		       c.category_name as genre_name,
+		       r.last_read_chapter_id,
+		       ch.chapter_no as last_read_chapter_no,
+		       r.last_read_at
+		from sys_bookshelf_record r
+		inner join sys_work w on w.work_id = r.work_id
+		left join sys_user u on u.user_id = w.author_id
+		left join sys_category c on c.category_id = w.genre_id
+		left join sys_work_chapter ch on ch.chapter_id = r.last_read_chapter_id
+		where r.user_id = #{userId}
+		  and w.is_deleted = 0
+		  and w.status = 'on_shelf'
+		order by r.created_at desc, r.id desc
+	</select>
+
+	<!--
+	  记录阅读进度（接口 2.7.12 补充写入，PUT /content/shelf/{workId}/progress）。
+	  仅当该作品已在该用户书架时有行可更新：影响 0 行即表示不在书架，由服务层按 404 处理。
+	  移出书架为物理删除，故无需再判 is_deleted。
+	-->
+	<update id="updateShelfProgress">
+		update sys_bookshelf_record
+		set last_read_chapter_id = #{chapterId},
+		    last_read_at = now(),
+		    updated_at = now()
+		where user_id = #{userId}
+		  and work_id = #{workId}
+	</update>
+
+</mapper>

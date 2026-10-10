@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.content.mapper.SysWorkReviewRecordMapper">
+
+	<!--
+	  依据：云端 script_platform_dev 库 sys_review_record 表。
+	  供 PC 用户端「作品详情-审核历史」查询与「提交审核」写入使用。
+	  反推处理点：created_at/updated_at 由 DB 默认值维护，created_at 映射为审核提交时间。
+	-->
+	<resultMap type="com.smartscript.platform.content.domain.SysWorkReviewRecord" id="SysWorkReviewRecordResult">
+		<id     property="reviewId"          column="review_id"           />
+		<result property="reviewNo"          column="review_no"           />
+		<result property="targetType"        column="target_type"         />
+		<result property="targetId"          column="target_id"           />
+		<result property="submitterId"       column="submitter_id"        />
+		<result property="reviewerId"        column="reviewer_id"         />
+		<result property="aiResult"          column="ai_result"           />
+		<result property="aiRiskLevel"       column="ai_risk_level"       />
+		<result property="aiSensitiveWords"  column="ai_sensitive_words"  />
+		<result property="reviewResult"      column="review_result"       />
+		<result property="reviewOpinion"     column="review_opinion"      />
+		<result property="status"            column="status"              />
+		<result property="aiStartTime"       column="ai_start_time"       />
+		<result property="aiEndTime"         column="ai_end_time"         />
+		<result property="reviewStartTime"   column="review_start_time"   />
+		<result property="reviewEndTime"     column="review_end_time"     />
+		<result property="createdAt"         column="created_at"          />
+		<result property="updatedAt"         column="updated_at"          />
+		<result property="submitterName"     column="submitter_name"      />
+		<result property="reviewerName"      column="reviewer_name"       />
+	</resultMap>
+
+	<sql id="selectRecordVo">
+		select r.review_id, r.review_no, r.target_type, r.target_id, r.submitter_id,
+		       r.reviewer_id, r.ai_result, r.ai_risk_level, r.ai_sensitive_words,
+		       r.review_result, r.review_opinion, r.status,
+		       r.ai_start_time, r.ai_end_time, r.review_start_time, r.review_end_time,
+		       r.created_at, r.updated_at,
+		       su.nick_name as submitter_name,
+		       ru.nick_name as reviewer_name
+		from sys_review_record r
+		left join sys_user su on su.user_id = r.submitter_id
+		left join sys_user ru on ru.user_id = r.reviewer_id
+	</sql>
+
+	<select id="selectByWorkId" parameterType="Long" resultMap="SysWorkReviewRecordResult">
+		<include refid="selectRecordVo"/>
+		where r.target_type = 'work'
+		  and r.target_id = #{workId}
+		order by r.created_at desc
+	</select>
+
+	<!-- 批量查询多部作品的审核记录（按创建时间倒序，服务层分组取每组第一条） -->
+	<select id="selectByWorkIds" resultMap="SysWorkReviewRecordResult">
+		<include refid="selectRecordVo"/>
+		where r.target_type = 'work'
+		  and r.target_id in
+		<foreach collection="workIds" item="wid" open="(" separator="," close=")">
+			#{wid}
+		</foreach>
+		order by r.created_at desc
+	</select>
+
+	<select id="countPendingByWorkId" parameterType="Long" resultType="java.lang.Integer">
+		select count(*)
+		from sys_review_record
+		where target_type = 'work'
+		  and target_id = #{workId}
+		  and status in ('pending', 'ai_reviewing')
+	</select>
+
+	<!-- 统计当天已生成的审核编号数量（review_no 前缀，如 RV20260920） -->
+	<select id="countTodayByPrefix" parameterType="string" resultType="java.lang.Integer">
+		select count(*)
+		from sys_review_record
+		where review_no like concat(#{prefix}, '%')
+	</select>
+
+	<insert id="insertRecord" parameterType="com.smartscript.platform.content.domain.SysWorkReviewRecord">
+		insert into sys_review_record
+		<trim prefix="(" suffix=")" suffixOverrides=",">
+			<if test="reviewNo != null">review_no,</if>
+			<if test="targetType != null">target_type,</if>
+			<if test="targetId != null">target_id,</if>
+			<if test="submitterId != null">submitter_id,</if>
+			<if test="reviewerId != null">reviewer_id,</if>
+			<if test="aiResult != null">ai_result,</if>
+			<if test="aiRiskLevel != null">ai_risk_level,</if>
+			<if test="aiSensitiveWords != null">ai_sensitive_words,</if>
+			<if test="reviewResult != null">review_result,</if>
+			<if test="reviewOpinion != null">review_opinion,</if>
+			<if test="status != null">status,</if>
+			<if test="aiStartTime != null">ai_start_time,</if>
+			<if test="aiEndTime != null">ai_end_time,</if>
+			<if test="reviewStartTime != null">review_start_time,</if>
+			<if test="reviewEndTime != null">review_end_time,</if>
+		</trim>
+		<trim prefix="values (" suffix=")" suffixOverrides=",">
+			<if test="reviewNo != null">#{reviewNo},</if>
+			<if test="targetType != null">#{targetType},</if>
+			<if test="targetId != null">#{targetId},</if>
+			<if test="submitterId != null">#{submitterId},</if>
+			<if test="reviewerId != null">#{reviewerId},</if>
+			<if test="aiResult != null">#{aiResult},</if>
+			<if test="aiRiskLevel != null">#{aiRiskLevel},</if>
+			<if test="aiSensitiveWords != null">#{aiSensitiveWords},</if>
+			<if test="reviewResult != null">#{reviewResult},</if>
+			<if test="reviewOpinion != null">#{reviewOpinion},</if>
+			<if test="status != null">#{status},</if>
+			<if test="aiStartTime != null">#{aiStartTime},</if>
+			<if test="aiEndTime != null">#{aiEndTime},</if>
+			<if test="reviewStartTime != null">#{reviewStartTime},</if>
+			<if test="reviewEndTime != null">#{reviewEndTime},</if>
+		</trim>
+	</insert>
+
+</mapper>

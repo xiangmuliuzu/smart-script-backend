@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.content.mapper.SysEpisodeMapper">
+
+	<!--
+	  依据：云端 script_platform_dev 库 sys_episode 表。
+	  反推处理点：created_at/updated_at 不映射；is_free/status tinyint ↔ String；
+	  unlock_type varchar 可空；price/completion_rate decimal ↔ BigDecimal。
+	-->
+	<resultMap type="SysEpisode" id="SysEpisodeResult">
+		<id     property="episodeId"       column="episode_id"       />
+		<result property="workId"         column="work_id"          />
+		<result property="episodeNo"      column="episode_no"       />
+		<result property="title"          column="title"             />
+		<result property="videoUrl"       column="video_url"         />
+		<result property="coverUrl"       column="cover_url"        />
+		<result property="duration"       column="duration"         />
+		<result property="isFree"         column="is_free"           />
+		<result property="unlockType"     column="unlock_type"      />
+		<result property="price"          column="price"             />
+		<result property="playCount"      column="play_count"       />
+		<result property="likeCount"      column="like_count"       />
+		<result property="commentCount"   column="comment_count"    />
+		<result property="completionRate" column="completion_rate"  />
+		<result property="status"         column="status"           />
+		<result property="createBy"       column="create_by"         />
+		<result property="createTime"     column="create_time"      />
+		<result property="updateBy"       column="update_by"        />
+		<result property="updateTime"     column="update_time"      />
+		<result property="remark"         column="remark"           />
+	</resultMap>
+
+	<sql id="selectEpisodeVo">
+		select episode_id, work_id, episode_no, title, video_url, cover_url, duration,
+		       is_free, unlock_type, price, play_count, like_count, comment_count,
+		       completion_rate, status,
+		       create_by, create_time, update_by, update_time, remark
+		from sys_episode
+	</sql>
+
+	<!-- 按作品ID查询剧集列表（按 episode_no 排序） -->
+	<select id="selectEpisodeListByWorkId" parameterType="SysEpisode" resultMap="SysEpisodeResult">
+		<include refid="selectEpisodeVo"/>
+		<where>
+			<if test="workId != null">
+				AND work_id = #{workId}
+			</if>
+		</where>
+		order by episode_no
+	</select>
+
+</mapper>

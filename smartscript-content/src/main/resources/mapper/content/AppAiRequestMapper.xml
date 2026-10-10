@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.content.mapper.AppAiRequestMapper">
+
+	<!--
+	  依据：云端 script_platform_dev 库 sys_ai_request 表（附件5.1 表3-26）。
+	  反推处理点：
+	  1. request_no 有唯一索引 uk_request_no，由服务层生成后传入。
+	  2. created_at / updated_at 均 NOT NULL 且无默认值，显式写 now()；
+	     若依审计列 create_time 一并写 now()。
+	  3. finished_at 由本层显式写入（表上终态触发器仅 BEFORE UPDATE，insert 不触发）。
+	-->
+	<insert id="insertAiRequest">
+		insert into sys_ai_request
+			(request_no, user_id, work_id, capability, quota_cost, status, provider,
+			 prompt_hash, started_at, finished_at, created_at, updated_at, create_time)
+		values
+			(#{requestNo}, #{userId}, #{workId}, #{capability}, #{quotaCost}, #{status}, #{provider},
+			 #{promptHash}, #{startedAt}, #{finishedAt}, now(), now(), now())
+	</insert>
+
+</mapper>

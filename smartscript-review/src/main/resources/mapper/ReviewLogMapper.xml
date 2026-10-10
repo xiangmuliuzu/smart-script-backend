@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.review.mapper.ReviewLogMapper">
+
+    <resultMap id="ReviewLogResult" type="com.smartscript.platform.review.domain.ReviewLog">
+        <id     property="logId"         column="log_id"        />
+        <result property="reviewId"      column="review_id"     />
+        <result property="action"        column="action"        />
+        <result property="operatorId"    column="operator_id"   />
+        <result property="operatorName"  column="operator_name" />
+        <result property="beforeStatus"  column="before_status" />
+        <result property="afterStatus"   column="after_status"  />
+        <result property="reviewOpinion" column="review_opinion"/>
+        <result property="workTitle"     column="work_title"    />
+        <result property="createBy"      column="create_by"     />
+        <result property="createTime"    column="created_at"   />
+        <result property="updateBy"      column="update_by"     />
+        <result property="updateTime"    column="update_time"   />
+        <result property="remark"        column="remark"        />
+    </resultMap>
+
+    <sql id="selectReviewLogVo">
+        SELECT l.log_id, l.review_id, l.action, l.operator_id, l.operator_name, l.before_status, l.after_status, l.review_opinion,
+               w.title AS work_title,
+               l.create_by, l.created_at, l.update_by, l.update_time, l.remark
+        FROM sys_review_log l
+        LEFT JOIN sys_review_record r ON l.review_id = r.review_id
+        LEFT JOIN sys_work w ON r.target_id = w.work_id AND r.target_type = 'work'
+    </sql>
+
+    <select id="selectReviewLogList" parameterType="com.smartscript.platform.review.domain.ReviewLog" resultMap="ReviewLogResult">
+        <include refid="selectReviewLogVo"/>
+        <where>
+            <if test="reviewId != null">
+                AND l.review_id = #{reviewId}
+            </if>
+            <if test="action != null and action != ''">
+                AND l.action = #{action}
+            </if>
+        </where>
+        ORDER BY l.log_id DESC
+    </select>
+
+    <select id="selectReviewLogById" parameterType="Long" resultMap="ReviewLogResult">
+        <include refid="selectReviewLogVo"/>
+        WHERE log_id = #{logId}
+    </select>
+
+    <insert id="insertReviewLog" parameterType="com.smartscript.platform.review.domain.ReviewLog" useGeneratedKeys="true" keyProperty="logId">
+        INSERT INTO sys_review_log
+        <trim prefix="(" suffix=")" suffixOverrides=",">
+            <if test="reviewId != null">review_id,</if>
+            <if test="action != null and action != ''">action,</if>
+            <if test="operatorId != null">operator_id,</if>
+            <if test="operatorName != null">operator_name,</if>
+            <if test="beforeStatus != null">before_status,</if>
+            <if test="afterStatus != null">after_status,</if>
+            <if test="reviewOpinion != null">review_opinion,</if>
+            <if test="createBy != null">create_by,</if>
+            <if test="createTime != null">created_at,</if>
+            <if test="updateBy != null">update_by,</if>
+            <if test="updateTime != null">update_time,</if>
+            <if test="remark != null">remark,</if>
+        </trim>
+        <trim prefix="values (" suffix=")" suffixOverrides=",">
+            <if test="reviewId != null">#{reviewId},</if>
+            <if test="action != null and action != ''">#{action},</if>
+            <if test="operatorId != null">#{operatorId},</if>
+            <if test="operatorName != null">#{operatorName},</if>
+            <if test="beforeStatus != null">#{beforeStatus},</if>
+            <if test="afterStatus != null">#{afterStatus},</if>
+            <if test="reviewOpinion != null">#{reviewOpinion},</if>
+            <if test="createBy != null">#{createBy},</if>
+            <if test="createTime != null">#{createTime},</if>
+            <if test="updateBy != null">#{updateBy},</if>
+            <if test="updateTime != null">#{updateTime},</if>
+            <if test="remark != null">#{remark},</if>
+        </trim>
+    </insert>
+
+</mapper>

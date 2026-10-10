@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.content.mapper.AppPlayHistoryMapper">
+
+	<!--
+	  依据：云端 script_platform_dev 库 sys_play_history + sys_episode + sys_work + sys_play_progress。
+	  反推处理点：
+	  1. DTO 在 dto 包，typeAliasesPackage 只扫 **.domain，故用全限定类名。
+	  2. 只回「已上架未删除」作品（w.status='on_shelf' AND w.is_deleted=0），
+	     下架/删除后历史行不再展示，与书城可见性口径一致。
+	  3. 续播位置 progress_seconds / total_duration 取自 sys_play_progress（按 user_id+episode_id），
+	     无进度行时为 NULL。
+	  4. 分页由调用方 PageHelper 驱动，SQL 内不写 limit。
+	-->
+	<resultMap type="com.smartscript.platform.content.dto.AppPlayHistoryItem" id="AppPlayHistoryItemResult">
+		<id     property="id"              column="id"                 />
+		<result property="workId"          column="work_id"            />
+		<result property="workTitle"       column="work_title"         />
+		<result property="episodeId"       column="episode_id"         />
+		<result property="episodeTitle"    column="episode_title"      />
+		<result property="coverUrl"        column="cover_url"          />
+		<result property="episodeNo"       column="episode_no"         />
+		<result property="playTime"        column="play_time"          />
+		<result property="progressSeconds" column="progress_seconds"   />
+		<result property="totalDuration"   column="total_duration"     />
+	</resultMap>
+
+	<select id="selectPlayHistoryByUser" resultMap="AppPlayHistoryItemResult">
+		select h.id, h.work_id, w.title as work_title,
+		       h.episode_id, e.title as episode_title, e.cover_url, e.episode_no,
+		       h.play_time,
+		       p.progress_seconds, p.total_duration
+		from sys_play_history h
+		inner join sys_work w on w.work_id = h.work_id
+		left join sys_episode e on e.episode_id = h.episode_id
+		left join sys_play_progress p on p.user_id = h.user_id and p.episode_id = h.episode_id
+		where h.user_id = #{userId}
+		  and w.is_deleted = 0
+		  and w.status = 'on_shelf'
+		order by h.play_time desc, h.id desc
+	</select>
+
+	<!--
+	  刷新播放时间：表上无 (user_id, episode_id) 唯一索引，同一剧集可能已有多行，
+	  故一次性把该用户该剧集的全部历史行刷新到当前时间，避免列表里同一剧集重复出现。
+	  影响 0 行表示该用户还没有该剧集的历史行，由服务层改走 insertHistory。
+	-->
+	<update id="touchHistory">
+		update sys_play_history
+		set play_time = now()
+		where user_id = #{userId}
+		  and episode_id = #{episodeId}
+	</update>
+
+	<!-- 新增播放历史：play_time 有默认值仍显式写 now()，不依赖库默认值差异 -->
+	<insert id="insertHistory">
+		insert into sys_play_history (user_id, episode_id, work_id, play_time)
+		values (#{userId}, #{episodeId}, #{workId}, now())
+	</insert>
+
+</mapper>

@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.review.mapper.DetailQueryMapper">
+
+    <!-- 作品明细 -->
+    <select id="selectWorkDetail" resultType="java.util.Map">
+        SELECT
+          w.work_id AS workId,
+          w.title AS title,
+          w.author_id AS authorId,
+          IFNULL(u.nick_name, CONCAT('user-', w.author_id)) AS authorName,
+          w.work_type AS workType,
+          w.status AS status,
+          w.view_count AS viewCount,
+          w.favorite_count AS favoriteCount,
+          w.sale_count AS saleCount,
+          w.price AS price,
+          w.created_at AS createdAt
+        FROM sys_work w
+        LEFT JOIN sys_user u ON u.user_id = w.author_id
+        <where>
+          w.is_deleted = 0
+          <if test="keyword != null and keyword != ''">
+            AND (w.title LIKE CONCAT('%', #{keyword}, '%')
+                 OR u.nick_name LIKE CONCAT('%', #{keyword}, '%'))
+          </if>
+          <if test="status != null and status != ''">
+            AND w.status = #{status}
+          </if>
+          <if test="startDate != null and startDate != ''">
+            AND DATE(w.created_at) &gt;= #{startDate}
+          </if>
+          <if test="endDate != null and endDate != ''">
+            AND DATE(w.created_at) &lt;= #{endDate}
+          </if>
+        </where>
+        ORDER BY w.created_at DESC
+    </select>
+
+    <!-- 用户明细 -->
+    <select id="selectUserDetail" resultType="java.util.Map">
+        SELECT
+          u.user_id AS userId,
+          u.user_name AS userName,
+          u.nick_name AS nickName,
+          u.user_type AS userType,
+          u.status AS status,
+          u.email AS email,
+          u.phonenumber AS phonenumber,
+          u.create_time AS createTime
+        FROM sys_user u
+        <where>
+          <if test="keyword != null and keyword != ''">
+            AND (u.user_name LIKE CONCAT('%', #{keyword}, '%')
+                 OR u.nick_name LIKE CONCAT('%', #{keyword}, '%')
+                 OR u.phonenumber LIKE CONCAT('%', #{keyword}, '%'))
+          </if>
+          <if test="userType != null and userType != ''">
+            AND u.user_type = #{userType}
+          </if>
+          <if test="startDate != null and startDate != ''">
+            AND DATE(u.create_time) &gt;= #{startDate}
+          </if>
+          <if test="endDate != null and endDate != ''">
+            AND DATE(u.create_time) &lt;= #{endDate}
+          </if>
+        </where>
+        ORDER BY u.create_time DESC
+    </select>
+
+    <!-- 广告收益明细（预留） -->
+    <select id="selectAdRevenue" resultType="java.util.Map">
+        SELECT
+          r.revenue_id AS revenueId,
+          r.stat_date AS statDate,
+          r.work_id AS workId,
+          IFNULL(w.title, CONCAT('work-', r.work_id)) AS workTitle,
+          r.ad_slot AS adSlot,
+          r.impressions AS impressions,
+          r.clicks AS clicks,
+          r.revenue_amount AS revenueAmount,
+          r.channel AS channel
+        FROM sys_ad_revenue r
+        LEFT JOIN sys_work w ON w.work_id = r.work_id
+        <where>
+          <if test="startDate != null and startDate != ''">
+            AND r.stat_date &gt;= #{startDate}
+          </if>
+          <if test="endDate != null and endDate != ''">
+            AND r.stat_date &lt;= #{endDate}
+          </if>
+        </where>
+        ORDER BY r.stat_date DESC, r.revenue_id DESC
+    </select>
+
+</mapper>

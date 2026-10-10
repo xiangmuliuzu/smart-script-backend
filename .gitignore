@@ -1,0 +1,54 @@
+######################################################################
+# Build Tools
+
+.gradle
+/build/
+!gradle/wrapper/gradle-wrapper.jar
+
+target/
+!.mvn/wrapper/maven-wrapper.jar
+
+######################################################################
+# IDE
+
+### STS ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+
+### IntelliJ IDEA ###
+.idea
+*.iws
+*.iml
+*.ipr
+
+### JRebel ###
+rebel.xml
+
+### NetBeans ###
+nbproject/private/
+build/*
+nbbuild/
+dist/
+nbdist/
+.nb-gradle/
+
+######################################################################
+# Others
+# 本地凭据加载与启动脚本，含数据库/密钥注入逻辑，禁止入库
+/.local/
+*.log
+*.xml.versionsBackup
+*.swp
+
+# 本地私有环境变量（见 .env.example 与 README「环境变量」）
+# 必须忽略：其中会放 TOKEN_SECRET / APP_TOKEN_SECRET 等本机密钥
+.env.local
+.env.*.local
+
+!*/build/*.java
+!*/build/*.html
+!*/build/*.xml

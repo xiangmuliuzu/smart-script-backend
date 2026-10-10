@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.review.mapper.StatsOverviewMapper">
+
+    <!-- 概览卡片聚合 -->
+    <select id="selectOverview" resultType="java.util.Map">
+        SELECT
+          (SELECT COUNT(*) FROM sys_user WHERE user_type = '00') AS totalUsers,
+          (SELECT COUNT(*) FROM sys_user WHERE user_type = '01') AS totalCreators,
+          (SELECT COUNT(*) FROM sys_work WHERE is_deleted = 0) AS totalWorks,
+          (SELECT COUNT(*) FROM sys_work WHERE is_deleted = 0 AND status = 'pending') AS pendingWorks,
+          (SELECT COUNT(*) FROM sys_work WHERE is_deleted = 0 AND status = 'on_shelf') AS onShelfWorks,
+          (SELECT COUNT(*) FROM sys_work WHERE is_deleted = 0 AND status = 'approved') AS approvedWorks,
+          (SELECT COUNT(*) FROM sys_user WHERE DATE(create_time) = CURDATE()) AS todayNewUsers,
+          (SELECT COUNT(*) FROM sys_work WHERE DATE(created_at) = CURDATE()) AS todayNewWorks
+    </select>
+
+    <!-- 近N天趋势：用户与作品按日新增 -->
+    <select id="selectTrend" parameterType="int" resultType="java.util.Map">
+        SELECT
+          t.d AS statDate,
+          IFNULL(u.cnt, 0) AS newUsers,
+          IFNULL(w.cnt, 0) AS newWorks
+        FROM (
+          SELECT DATE_SUB(CURDATE(), INTERVAL n DAY) AS d
+          FROM (
+            SELECT 0 n UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3
+            UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6
+            UNION ALL SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 9
+            UNION ALL SELECT 10 UNION ALL SELECT 11 UNION ALL SELECT 12 UNION ALL SELECT 13
+          ) nums
+          WHERE n &lt; #{days}
+        ) t
+        LEFT JOIN (
+          SELECT DATE(create_time) d, COUNT(*) cnt FROM sys_user GROUP BY DATE(create_time)
+        ) u ON u.d = t.d
+        LEFT JOIN (
+          SELECT DATE(created_at) d, COUNT(*) cnt FROM sys_work WHERE is_deleted = 0 GROUP BY DATE(created_at)
+        ) w ON w.d = t.d
+        ORDER BY t.d ASC
+    </select>
+
+    <!-- 创作者排行：已上架作品数 + 总浏览 -->
+    <select id="selectCreatorRank" parameterType="int" resultType="java.util.Map">
+        SELECT
+          w.author_id AS userId,
+          IFNULL(u.nick_name, CONCAT('user-', w.author_id)) AS nickname,
+          COUNT(*) AS publishedCount,
+          SUM(w.view_count) AS totalViews,
+          SUM(w.favorite_count) AS totalFavorites
+        FROM sys_work w
+        LEFT JOIN sys_user u ON u.user_id = w.author_id
+        WHERE w.is_deleted = 0 AND w.status = 'on_shelf'
+        GROUP BY w.author_id, u.nick_name
+        ORDER BY totalViews DESC
+        LIMIT #{limit}
+    </select>
+
+</mapper>
