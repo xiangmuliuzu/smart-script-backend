@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.review.mapper.PointsRecordMapper">
+
+    <resultMap id="PointsRecordResult" type="com.smartscript.platform.review.domain.PointsRecord">
+        <id     property="recordId"     column="record_id"      />
+        <result property="userId"        column="user_id"        />
+        <result property="changeType"    column="change_type"    />
+        <result property="points"        column="points"         />
+        <result property="balanceAfter"  column="balance_after"  />
+        <result property="source"        column="source"         />
+        <result property="relatedId"     column="related_id"     />
+        <result property="remark"        column="remark"         />
+        <result property="createdAt"     column="created_at"     />
+        <result property="createBy"      column="create_by"      />
+        <result property="createTime"    column="create_time"    />
+        <result property="updateBy"      column="update_by"      />
+        <result property="updateTime"    column="update_time"    />
+        <result property="nickname"      column="nick_name"      />
+    </resultMap>
+
+    <select id="selectPointsRecordList" parameterType="com.smartscript.platform.review.domain.PointsRecord" resultMap="PointsRecordResult">
+        SELECT pr.record_id, pr.user_id, pr.change_type, pr.points, pr.balance_after,
+               pr.source, pr.related_id, pr.remark, pr.created_at, pr.create_by,
+               pr.create_time, pr.update_by, pr.update_time,
+               u.nick_name
+        FROM sys_points_record pr
+        LEFT JOIN sys_user u ON u.user_id = pr.user_id
+        <where>
+            <if test="userId != null">
+                AND pr.user_id = #{userId}
+            </if>
+            <if test="changeType != null and changeType != ''">
+                AND pr.change_type = #{changeType}
+            </if>
+            <if test="source != null and source != ''">
+                AND pr.source = #{source}
+            </if>
+            <if test="startDate != null and startDate != ''">
+                AND DATE(pr.created_at) &gt;= #{startDate}
+            </if>
+            <if test="endDate != null and endDate != ''">
+                AND DATE(pr.created_at) &lt;= #{endDate}
+            </if>
+        </where>
+        ORDER BY pr.created_at DESC
+    </select>
+
+</mapper>

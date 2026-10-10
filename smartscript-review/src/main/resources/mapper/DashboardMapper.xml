@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.review.mapper.DashboardMapper">
+
+    <!-- 指标卡聚合：待审核/上架/交易额/活跃用户 + 快捷入口待办数 -->
+    <select id="selectOverviewRow" resultType="java.util.Map">
+        SELECT
+          (SELECT COUNT(*) FROM sys_work WHERE is_deleted = 0 AND status = 'pending') AS pendingWorks,
+          (SELECT COUNT(*) FROM sys_work WHERE is_deleted = 0 AND status = 'pending'
+             AND created_at &gt;= DATE_SUB(NOW(), INTERVAL 7 DAY)) AS newPending7,
+          (SELECT COUNT(*) FROM sys_work WHERE is_deleted = 0 AND status = 'pending'
+             AND created_at &gt;= DATE_SUB(NOW(), INTERVAL 14 DAY)
+             AND created_at &lt; DATE_SUB(NOW(), INTERVAL 7 DAY)) AS newPendingPrev,
+          (SELECT COUNT(*) FROM sys_work WHERE is_deleted = 0 AND status = 'on_shelf') AS listedWorks,
+          (SELECT COUNT(*) FROM sys_work WHERE is_deleted = 0 AND status = 'on_shelf'
+             AND created_at &gt;= DATE_SUB(NOW(), INTERVAL 7 DAY)) AS newListed7,
+          (SELECT COUNT(*) FROM sys_work WHERE is_deleted = 0 AND status = 'on_shelf'
+             AND created_at &gt;= DATE_SUB(NOW(), INTERVAL 14 DAY)
+             AND created_at &lt; DATE_SUB(NOW(), INTERVAL 7 DAY)) AS newListedPrev,
+          (SELECT IFNULL(SUM(total_amount),0) FROM sys_order
+             WHERE status = 'completed'
+               AND DATE_FORMAT(created_at,'%Y-%m') = DATE_FORMAT(NOW(),'%Y-%m')) AS monthTrade,
+          (SELECT IFNULL(SUM(total_amount),0) FROM sys_order
+             WHERE status = 'completed'
+               AND DATE_FORMAT(created_at,'%Y-%m') = DATE_FORMAT(DATE_SUB(NOW(), INTERVAL 1 MONTH),'%Y-%m')) AS prevMonthTrade,
+          (SELECT COUNT(DISTINCT user_name) FROM sys_logininfor
+             WHERE login_time &gt;= DATE_SUB(NOW(), INTERVAL 7 DAY)) AS activeUsers,
+          (SELECT COUNT(DISTINCT user_name) FROM sys_logininfor
+             WHERE login_time &gt;= DATE_SUB(NOW(), INTERVAL 14 DAY)
+               AND login_time &lt; DATE_SUB(NOW(), INTERVAL 7 DAY)) AS prevActiveUsers,
+          (SELECT COUNT(*) FROM sys_order WHERE status NOT IN ('completed','cancelled')) AS pendingOrders,
+          (SELECT COUNT(*) FROM user_real_name_auth WHERE status = 'PENDING') AS pendingUsers,
+          (SELECT COUNT(*) FROM sys_report WHERE status = 'pending') AS pendingRisk
+    </select>
+
+    <!-- 作品状态分布 -->
+    <select id="selectWorkStatusDist" resultType="java.util.Map">
+        SELECT status, COUNT(*) AS cnt
+        FROM sys_work
+        WHERE is_deleted = 0
+        GROUP BY status
+    </select>
+
+    <!-- 交易趋势：近7日按天 -->
+    <select id="selectTrendWeek" resultType="java.util.Map">
+        SELECT DATE_FORMAT(t.d, '%m/%d') AS label,
+               IFNULL(ROUND(o.amt / 10000, 1), 0) AS value
+        FROM (
+          SELECT DATE_SUB(CURDATE(), INTERVAL n DAY) AS d
+          FROM (
+            SELECT 0 n UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3
+            UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6
+          ) nums
+        ) t
+        LEFT JOIN (
+          SELECT DATE(created_at) d, SUM(total_amount) amt
+          FROM sys_order WHERE status = 'completed'
+          GROUP BY DATE(created_at)
+        ) o ON o.d = t.d
+        ORDER BY t.d ASC
+    </select>
+
+    <!-- 交易趋势：近30日按天 -->
+    <select id="selectTrendMonth" resultType="java.util.Map">
+        SELECT DATE_FORMAT(t.d, '%m/%d') AS label,
+               IFNULL(ROUND(o.amt / 10000, 1), 0) AS value
+        FROM (
+          SELECT DATE_SUB(CURDATE(), INTERVAL n DAY) AS d
+          FROM (
+            SELECT 0 n UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3
+            UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7
+            UNION ALL SELECT 8 UNION ALL SELECT 9 UNION ALL SELECT 10 UNION ALL SELECT 11
+            UNION ALL SELECT 12 UNION ALL SELECT 13 UNION ALL SELECT 14 UNION ALL SELECT 15
+            UNION ALL SELECT 16 UNION ALL SELECT 17 UNION ALL SELECT 18 UNION ALL SELECT 19
+            UNION ALL SELECT 20 UNION ALL SELECT 21 UNION ALL SELECT 22 UNION ALL SELECT 23
+            UNION ALL SELECT 24 UNION ALL SELECT 25 UNION ALL SELECT 26 UNION ALL SELECT 27
+            UNION ALL SELECT 28 UNION ALL SELECT 29
+          ) nums
+        ) t
+        LEFT JOIN (
+          SELECT DATE(created_at) d, SUM(total_amount) amt
+          FROM sys_order WHERE status = 'completed'
+          GROUP BY DATE(created_at)
+        ) o ON o.d = t.d
+        ORDER BY t.d ASC
+    </select>
+
+    <!-- 交易趋势：近12月按月 -->
+    <select id="selectTrendYear" resultType="java.util.Map">
+        SELECT DATE_FORMAT(t.d, '%Y-%m') AS label,
+               IFNULL(ROUND(o.amt / 10000, 1), 0) AS value
+        FROM (
+          SELECT DATE_SUB(CURDATE(), INTERVAL n MONTH) AS d
+          FROM (
+            SELECT 0 n UNION ALL SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3
+            UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7
+            UNION ALL SELECT 8 UNION ALL SELECT 9 UNION ALL SELECT 10 UNION ALL SELECT 11
+          ) nums
+        ) t
+        LEFT JOIN (
+          SELECT DATE_FORMAT(created_at, '%Y-%m') d, SUM(total_amount) amt
+          FROM sys_order WHERE status = 'completed'
+          GROUP BY DATE_FORMAT(created_at, '%Y-%m')
+        ) o ON o.d = t.d
+        ORDER BY t.d ASC
+    </select>
+
+    <!-- 最近审核列表 -->
+    <select id="selectRecentReviews" resultType="java.util.Map">
+        SELECT w.title AS name,
+               IFNULL(u.nick_name, CONCAT('user-', w.author_id)) AS author,
+               DATE_FORMAT(w.created_at, '%Y-%m-%d %H:%i') AS submitTime,
+               w.status
+        FROM sys_work w
+        LEFT JOIN sys_user u ON u.user_id = w.author_id
+        WHERE w.is_deleted = 0 AND w.status IN ('pending','approved','on_shelf','off_shelf')
+        ORDER BY w.updated_at DESC
+        LIMIT #{limit}
+    </select>
+
+</mapper>

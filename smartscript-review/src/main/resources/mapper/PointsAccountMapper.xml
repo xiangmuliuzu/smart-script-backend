@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.review.mapper.PointsAccountMapper">
+
+    <resultMap id="PointsAccountResult" type="com.smartscript.platform.review.domain.PointsAccount">
+        <id     property="accountId"     column="account_id"      />
+        <result property="userId"        column="user_id"         />
+        <result property="balance"       column="balance"         />
+        <result property="totalEarned"   column="total_earned"    />
+        <result property="totalSpent"    column="total_spent"     />
+        <result property="todayEarned"   column="today_earned"    />
+        <result property="lastUpdateDate" column="last_update_date" />
+        <result property="createBy"      column="create_by"       />
+        <result property="createTime"    column="created_at"      />
+        <result property="updateBy"      column="update_by"       />
+        <result property="updateTime"    column="update_time"     />
+        <result property="remark"        column="remark"           />
+        <result property="nickname"      column="nick_name"      />
+    </resultMap>
+
+    <select id="selectPointsAccountList" parameterType="com.smartscript.platform.review.domain.PointsAccount" resultMap="PointsAccountResult">
+        SELECT pa.account_id, pa.user_id, pa.balance, pa.total_earned, pa.total_spent,
+               pa.today_earned, pa.last_update_date, pa.create_by, pa.created_at,
+               pa.update_by, pa.update_time, pa.remark,
+               u.nick_name
+        FROM sys_points_account pa
+        LEFT JOIN sys_user u ON u.user_id = pa.user_id
+        <where>
+            <if test="userId != null">
+                AND pa.user_id = #{userId}
+            </if>
+            <if test="nickname != null and nickname != ''">
+                AND u.nick_name LIKE CONCAT('%', #{nickname}, '%')
+            </if>
+        </where>
+        ORDER BY pa.balance DESC
+    </select>
+
+</mapper>
