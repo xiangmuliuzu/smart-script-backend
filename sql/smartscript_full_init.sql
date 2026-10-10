@@ -21,6 +21,8 @@
 --   第 7 部分  交易字典（14 类型 / 50 项）+ 7.1 授权类型枚举收敛归一
 --   第 8 部分  询盘过期自动关闭定时任务
 --   第 9 部分  公告接收范围与消息/公告业务权限（菜单精简之后执行）
+--   第 10 部分 用户消息入口迁移与角色权限继承
+--   收口自检  全部初始化/升级步骤完成后统一输出结果
 -- 与历史迁移脚本的差异：
 --   - 原迁移的控制表/快照表（a2_/a4_ 前缀）为升级回滚记账服务，此处不需要，已省略。
 --   - 原 C 迁移交易按钮 menu_id 5160-5174 与 B1 内容按钮 5160-5166 冲突（静默漏插），
@@ -1181,7 +1183,6 @@ INSERT INTO sys_menu (menu_id, menu_name, parent_id, order_num, path, component,
 (3001, 'App用户与创作者',    3000, 1, 'users',    'user/UserManage',     '', 'A4AppUser',  1, 0, 'C', '0', '0', 'user:app:list',     'user',    'a4_migration', 'A4 PC 管理能力权限（A4_20260922_002）'),
 (3005, '实名审核',           3000, 2, 'realname', 'user/realname/index', '', 'A4RealName', 1, 0, 'C', '0', '0', 'user:realname:list','form',    'a4_migration', 'A4 PC 管理能力权限（A4_20260922_002）'),
 (3008, '作者能力',           3000, 3, 'creator',  'user/UserManage',     '', 'A4Creator',  1, 0, 'C', '0', '0', 'user:creator:list', 'star',    'a4_migration', 'A4 PC 管理能力权限（A4_20260922_002）'),
-(3010, '用户消息',           3000, 4, 'message',  'user/message/index',  '', 'A4Message',  1, 0, 'C', '0', '0', 'user:message:list', 'message', 'a4_migration', 'A4 PC 管理能力权限（A4_20260922_002）'),
 (3013, '用户反馈',           3000, 5, 'feedback', 'user/feedback/index', '', 'A4Feedback', 1, 0, 'C', '0', '0', 'user:feedback:list','edit',    'a4_migration', 'A4 PC 管理能力权限（A4_20260922_002）'),
 (3002, 'A4-App用户查询',     3001, 1, '#', NULL, '', NULL, 1, 0, 'F', '0', '0', 'user:app:query',      '#', 'a4_migration', 'A4 PC 管理能力权限（A4_20260922_002）'),
 (3003, 'A4-App用户状态',     3001, 2, '#', NULL, '', NULL, 1, 0, 'F', '0', '0', 'user:app:status',     '#', 'a4_migration', 'A4 PC 管理能力权限（A4_20260922_002）'),
@@ -1189,8 +1190,6 @@ INSERT INTO sys_menu (menu_id, menu_name, parent_id, order_num, path, component,
 (3006, 'A4-实名申请查询',    3005, 1, '#', NULL, '', NULL, 1, 0, 'F', '0', '0', 'user:realname:query', '#', 'a4_migration', 'A4 PC 管理能力权限（A4_20260922_002）'),
 (3007, 'A4-实名审核决定',    3005, 2, '#', NULL, '', NULL, 1, 0, 'F', '0', '0', 'user:realname:audit', '#', 'a4_migration', 'A4 PC 管理能力权限（A4_20260922_002）'),
 (3009, 'A4-作者能力变更',    3008, 1, '#', NULL, '', NULL, 1, 0, 'F', '0', '0', 'user:creator:update', '#', 'a4_migration', 'A4 PC 管理能力权限（A4_20260922_002）'),
-(3011, 'A4-消息创建',        3010, 1, '#', NULL, '', NULL, 1, 0, 'F', '0', '0', 'user:message:add',    '#', 'a4_migration', 'A4 PC 管理能力权限（A4_20260922_002）'),
-(3012, 'A4-消息详情',        3010, 2, '#', NULL, '', NULL, 1, 0, 'F', '0', '0', 'user:message:query',  '#', 'a4_migration', 'A4 PC 管理能力权限（A4_20260922_002）'),
 (3014, 'A4-反馈详情',        3013, 1, '#', NULL, '', NULL, 1, 0, 'F', '0', '0', 'user:feedback:query', '#', 'a4_migration', 'A4 PC 管理能力权限（A4_20260922_002）'),
 (3015, 'A4-反馈处理',        3013, 2, '#', NULL, '', NULL, 1, 0, 'F', '0', '0', 'user:feedback:handle','#', 'a4_migration', 'A4 PC 管理能力权限（A4_20260922_002）')
 ON DUPLICATE KEY UPDATE
@@ -1268,8 +1267,8 @@ FROM sys_role r
 CROSS JOIN (
   SELECT 3000 AS menu_id UNION ALL SELECT 3001 UNION ALL SELECT 3002 UNION ALL SELECT 3003
   UNION ALL SELECT 3004 UNION ALL SELECT 3005 UNION ALL SELECT 3006 UNION ALL SELECT 3007
-  UNION ALL SELECT 3008 UNION ALL SELECT 3009 UNION ALL SELECT 3010 UNION ALL SELECT 3011
-  UNION ALL SELECT 3012 UNION ALL SELECT 3013 UNION ALL SELECT 3014 UNION ALL SELECT 3015
+  UNION ALL SELECT 3008 UNION ALL SELECT 3009
+  UNION ALL SELECT 3013 UNION ALL SELECT 3014 UNION ALL SELECT 3015
   UNION ALL SELECT 2000 UNION ALL SELECT 2010 UNION ALL SELECT 2011 UNION ALL SELECT 2012
   UNION ALL SELECT 2013 UNION ALL SELECT 2014 UNION ALL SELECT 2015 UNION ALL SELECT 2016 UNION ALL SELECT 2017
   UNION ALL SELECT 2018 UNION ALL SELECT 2019
@@ -2008,31 +2007,6 @@ FROM DUAL
 WHERE NOT EXISTS (SELECT 1 FROM sys_job WHERE invoke_target = 'tradeInquiryTask.closeExpiredInquiries');
 
 -- =====================================================================
--- 收口自检
--- =====================================================================
-SELECT 'SMARTSCRIPT_INIT_DONE' AS step,
-       (SELECT COUNT(*) FROM information_schema.TABLES
-         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN
-           ('app_sms_code','app_refresh_session','app_user_consent','app_user_oauth',
-            'user_real_name_auth','user_phone_change_log','user_author_capability',
-            'user_creator_profile',
-            'user_notification','user_notification_receiver','user_notification_preference',
-            'user_feedback')) AS app_tables,
-       (SELECT COUNT(*) FROM information_schema.TABLES
-         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN
-           ('sys_business_follow','sys_chat_message','sys_chat_session','sys_contact_profile',
-            'sys_demand','sys_demand_submission','sys_inquiry','sys_offline_cooperation',
-            'sys_order','sys_order_status_log','sys_partner','sys_quote','sys_selection',
-            'sys_work','sys_demand_tag')) AS trade_tables,
-       (SELECT COUNT(*) FROM sys_menu WHERE menu_id BETWEEN 3000 AND 3015) AS a4_menus,
-       (SELECT COUNT(*) FROM sys_menu WHERE menu_id BETWEEN 5000 AND 5199) AS product_menus,
-       (SELECT COUNT(*) FROM sys_role WHERE role_key = 'a1_operator') AS a1_role,
-       (SELECT COUNT(DISTINCT dict_type) FROM sys_dict_data WHERE dict_type LIKE 'trade%') AS trade_dict_types,
-       (SELECT COUNT(*) FROM sys_job WHERE invoke_target = 'tradeInquiryTask.closeExpiredInquiries') AS inquiry_job,
-       (SELECT COUNT(*) FROM information_schema.COLUMNS
-         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'sys_user' AND COLUMN_NAME = 'bio') AS bio_col;
-
--- =====================================================================
 -- 第 7 部分：菜单精简（2026-10-08；幂等）
 -- ---------------------------------------------------------------------
 -- 系统管理目录下的页面（用户/角色/菜单/部门/岗位/字典/参数/通知/日志管理）
@@ -2090,24 +2064,6 @@ WHERE menu_id = 5001 OR parent_id = 5001
 DELETE FROM sys_role_menu WHERE menu_id = 5200;
 DELETE FROM sys_menu WHERE menu_id = 5200;
 
--- 6) 校验：系统管理(1)与日志管理(108)应不存在；500/501 应挂在 5002 下；
---    5001 遗留树应清空；5200 用户沟通目录应不存在；同级目录 path 不得重复
---    （否则侧边栏展开状态会串）
-SELECT
-  (SELECT COUNT(*) FROM sys_menu WHERE menu_id IN (1,108)) AS deleted_dir_should_be_0,
-  (SELECT COUNT(*) FROM sys_menu WHERE menu_id IN (500,501) AND parent_id = 5002) AS logs_under_stats_should_be_2,
-  (SELECT COUNT(*) FROM sys_menu
-    WHERE menu_id = 5001 OR parent_id = 5001
-       OR parent_id IN (SELECT menu_id FROM (SELECT menu_id FROM sys_menu WHERE parent_id = 5001) d)
-  ) AS legacy_content_tree_should_be_0,
-  (SELECT COUNT(*) FROM sys_menu WHERE menu_id = 5200) AS chat_dir_should_be_0,
-  (SELECT COUNT(*) FROM (
-    SELECT parent_id, path FROM sys_menu
-    WHERE menu_type IN ('M','C') AND status = '0'
-    GROUP BY parent_id, path HAVING COUNT(*) > 1
-  ) dup) AS duplicate_sibling_path_should_be_0;
-
-
 -- =====================================================================
 -- 第 9 部分：消息与公告接收范围、业务权限（2026-10-09，幂等）
 -- 历史公告始终默认 ADMIN；本段不把它们公开给普通用户。
@@ -2157,3 +2113,92 @@ ON DUPLICATE KEY UPDATE menu_name=VALUES(menu_name), parent_id=VALUES(parent_id)
 -- 不自动扩大任何受限角色权限。超级管理员依若依 *:*:* 使用新按钮。
 -- 回退：先停用 USER/ALL 公告并回退应用；随后移除5300-5307菜单及其角色绑定、
 -- 恢复5152旧组件，删除新增索引/约束/列。回退列会丢失范围信息，应先导出保存。
+
+-- =====================================================================
+-- 第 10 部分：用户消息入口与原角色授权迁移（幂等）
+-- =====================================================================
+-- 用户中心的用户消息迁入平台运维管理 / 消息与公告。
+-- 随初始化/升级流程执行；只修改菜单及角色菜单授权，不修改消息数据。
+-- 部署配套 PC 前端后，管理员退出并重新登录以刷新菜单和权限。
+SET NAMES utf8mb4;
+START TRANSACTION;
+
+INSERT INTO sys_menu (menu_id, menu_name, parent_id, order_num, path, component, query, route_name,
+  is_frame, is_cache, menu_type, visible, status, perms, icon, create_by, remark) VALUES
+(5005, '平台运维管理', 0, 5, 'operation', NULL, '', '', 1, 0, 'M', '0', '0', NULL, 'Operation', 'message_menu_upgrade', '平台运维管理'),
+(5152, '消息与公告', 5005, 5, '/support/messages', 'support/MessagesAnnouncements', '', '', 1, 0, 'C', '0', '0', 'smartscript:support:messages', 'Bell', 'message_menu_upgrade', '统一消息与公告入口'),
+(5305, '消息列表', 5152, 6, '#', NULL, '', '', 1, 0, 'F', '0', '0', 'user:message:list', '#', 'message_menu_upgrade', '消息与公告权限'),
+(5306, '消息详情', 5152, 7, '#', NULL, '', '', 1, 0, 'F', '0', '0', 'user:message:query', '#', 'message_menu_upgrade', '消息与公告权限'),
+(5307, '消息发送', 5152, 8, '#', NULL, '', '', 1, 0, 'F', '0', '0', 'user:message:add', '#', 'message_menu_upgrade', '消息与公告权限')
+ON DUPLICATE KEY UPDATE menu_name=VALUES(menu_name), parent_id=VALUES(parent_id),
+  order_num=VALUES(order_num), path=VALUES(path), component=VALUES(component),
+  menu_type=VALUES(menu_type), visible=VALUES(visible), status=VALUES(status),
+  perms=VALUES(perms), icon=VALUES(icon), remark=VALUES(remark);
+
+-- 逐项迁移原权限：列表、发送、详情分别映射，受限角色不会获得额外操作权限。
+INSERT IGNORE INTO sys_role_menu (role_id, menu_id)
+SELECT role_id, CASE menu_id WHEN 3010 THEN 5305 WHEN 3011 THEN 5307 WHEN 3012 THEN 5306 END
+FROM sys_role_menu WHERE menu_id IN (3010, 3011, 3012);
+
+-- 新旧消息权限均补齐可见入口和父目录。
+INSERT IGNORE INTO sys_role_menu (role_id, menu_id)
+SELECT DISTINCT rm.role_id, entry.menu_id
+FROM sys_role_menu rm
+CROSS JOIN (SELECT 5005 AS menu_id UNION ALL SELECT 5152) entry
+WHERE rm.menu_id IN (3010, 3011, 3012, 5305, 5306, 5307);
+
+-- 与初始化脚本中的 admin 角色默认消息权限保持一致。
+INSERT IGNORE INTO sys_role_menu (role_id, menu_id)
+SELECT r.role_id, entry.menu_id FROM sys_role r
+CROSS JOIN (SELECT 5005 AS menu_id UNION ALL SELECT 5152 UNION ALL SELECT 5305
+  UNION ALL SELECT 5306 UNION ALL SELECT 5307) entry
+WHERE r.role_key = 'admin' AND r.del_flag = '0';
+
+DELETE FROM sys_role_menu WHERE menu_id IN (3010, 3011, 3012);
+DELETE FROM sys_menu WHERE menu_id IN (3010, 3011, 3012);
+COMMIT;
+
+
+-- =====================================================================
+-- 收口自检
+-- =====================================================================
+SELECT 'SMARTSCRIPT_INIT_DONE' AS step,
+       (SELECT COUNT(*) FROM information_schema.TABLES
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN
+           ('app_sms_code','app_refresh_session','app_user_consent','app_user_oauth',
+            'user_real_name_auth','user_phone_change_log','user_author_capability',
+            'user_creator_profile',
+            'user_notification','user_notification_receiver','user_notification_preference',
+            'user_feedback')) AS app_tables,
+       (SELECT COUNT(*) FROM information_schema.TABLES
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN
+           ('sys_business_follow','sys_chat_message','sys_chat_session','sys_contact_profile',
+            'sys_demand','sys_demand_submission','sys_inquiry','sys_offline_cooperation',
+            'sys_order','sys_order_status_log','sys_partner','sys_quote','sys_selection',
+            'sys_work','sys_demand_tag')) AS trade_tables,
+       (SELECT COUNT(*) FROM sys_menu WHERE menu_id BETWEEN 3000 AND 3015) AS a4_menus,
+       (SELECT COUNT(*) FROM sys_menu WHERE menu_id BETWEEN 5000 AND 5199) AS product_menus,
+       (SELECT COUNT(*) FROM sys_role WHERE role_key = 'a1_operator') AS a1_role,
+       (SELECT COUNT(DISTINCT dict_type) FROM sys_dict_data WHERE dict_type LIKE 'trade%') AS trade_dict_types,
+       (SELECT COUNT(*) FROM sys_job WHERE invoke_target = 'tradeInquiryTask.closeExpiredInquiries') AS inquiry_job,
+       (SELECT COUNT(*) FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'sys_user' AND COLUMN_NAME = 'bio') AS bio_col;
+
+-- 6) 校验：系统管理(1)与日志管理(108)应不存在；500/501 应挂在 5002 下；
+--    5001 遗留树应清空；5200 用户沟通目录应不存在；同级目录 path 不得重复
+--    （否则侧边栏展开状态会串）
+SELECT
+  (SELECT COUNT(*) FROM sys_menu WHERE menu_id IN (1,108)) AS deleted_dir_should_be_0,
+  (SELECT COUNT(*) FROM sys_menu WHERE menu_id IN (500,501) AND parent_id = 5002) AS logs_under_stats_should_be_2,
+  (SELECT COUNT(*) FROM sys_menu
+    WHERE menu_id = 5001 OR parent_id = 5001
+       OR parent_id IN (SELECT menu_id FROM (SELECT menu_id FROM sys_menu WHERE parent_id = 5001) d)
+  ) AS legacy_content_tree_should_be_0,
+  (SELECT COUNT(*) FROM sys_menu WHERE menu_id = 5200) AS chat_dir_should_be_0,
+  (SELECT COUNT(*) FROM sys_menu WHERE menu_id IN (3010,3011,3012)) AS legacy_message_menus_should_be_0,
+  (SELECT COUNT(*) FROM sys_menu WHERE menu_id = 5152 AND parent_id = 5005) AS messages_under_operations_should_be_1,
+  (SELECT COUNT(*) FROM (
+    SELECT parent_id, path FROM sys_menu
+    WHERE menu_type IN ('M','C') AND status = '0'
+    GROUP BY parent_id, path HAVING COUNT(*) > 1
+  ) dup) AS duplicate_sibling_path_should_be_0;
