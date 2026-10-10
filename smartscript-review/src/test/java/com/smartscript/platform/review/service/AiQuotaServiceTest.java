@@ -236,4 +236,144 @@ class AiQuotaServiceTest {
         assertEquals(2, r.get("quotaEarned"));
         verify(aiQuotaAccountMapper, times(1)).insertAiQuotaAccount(any());
     }
+
+    /* ============ 预留锁定业务：reserve / confirm / release ============ */
+
+    @Test
+    void reserve_正常锁定() {
+        when(aiQuotaAccountMapper.selectAiQuotaAccountByUserId(106L)).thenReturn(account);
+        when(aiQuotaAccountMapper.updateReserve(106L, BigDecimal.valueOf(1), 1L)).thenReturn(1);
+
+        Map<String, Object> r = aiQuotaService.reserve(106L, "writing", 1, 32L, "idem_rsv_1");
+
+        assertEquals(200, r.get("code"));
+        assertEquals(49, r.get("availableQuota"));
+        assertEquals(1, r.get("reserved"));
+        verify(aiQuotaRecordMapper, times(1)).insertAiQuotaRecord(any(AiQuotaRecord.class));
+        verify(aiQuotaAccountMapper, times(1)).updateReserve(anyLong(), any(), anyLong());
+    }
+
+    @Test
+    void reserve_余额不足_拒绝() {
+        account.setAvailableQuota(BigDecimal.valueOf(0));
+        when(aiQuotaAccountMapper.selectAiQuotaAccountByUserId(106L)).thenReturn(account);
+
+        Map<String, Object> r = aiQuotaService.reserve(106L, "writing", 1, null, "idem_rsv_2");
+
+        assertEquals(400, r.get("code"));
+        assertTrue(r.get("msg").toString().contains("不足"));
+        verify(aiQuotaAccountMapper, never()).updateReserve(anyLong(), any(), anyLong());
+    }
+
+    @Test
+    void reserve_无账户_404() {
+        when(aiQuotaAccountMapper.selectAiQuotaAccountByUserId(106L)).thenReturn(null);
+
+        Map<String, Object> r = aiQuotaService.reserve(106L, "writing", 1, null, "idem_rsv_3");
+
+        assertEquals(404, r.get("code"));
+        verify(aiQuotaAccountMapper, never()).updateReserve(anyLong(), any(), anyLong());
+    }
+
+    @Test
+    void reserve_幂等键重复_不重复锁定() {
+        when(aiQuotaAccountMapper.selectAiQuotaAccountByUserId(106L)).thenReturn(account);
+        doThrow(new DuplicateKeyException("uk_idempotency_key")).when(aiQuotaRecordMapper).insertAiQuotaRecord(any());
+
+        Map<String, Object> r = aiQuotaService.reserve(106L, "writing", 1, 32L, "idem_same_rsv");
+
+        assertEquals(200, r.get("code"));
+        assertTrue(r.get("msg").toString().contains("已锁定"));
+        verify(aiQuotaAccountMapper, never()).updateReserve(anyLong(), any(), anyLong());
+    }
+
+    @Test
+    void confirm_正常确认消耗() {
+        account.setReservedQuota(BigDecimal.valueOf(1));
+        when(aiQuotaAccountMapper.selectAiQuotaAccountByUserId(106L)).thenReturn(account);
+        when(aiQuotaAccountMapper.updateConfirm(106L, BigDecimal.valueOf(1), 1L)).thenReturn(1);
+
+        Map<String, Object> r = aiQuotaService.confirm(106L, 1, 32L, "idem_cfm_1");
+
+        assertEquals(200, r.get("code"));
+        assertEquals(0, r.get("reservedQuota"));
+        assertEquals(1, r.get("totalConsumed"));
+        verify(aiQuotaAccountMapper, times(1)).updateConfirm(anyLong(), any(), anyLong());
+    }
+
+    @Test
+    void confirm_预留不足_拒绝() {
+        account.setReservedQuota(BigDecimal.ZERO);
+        when(aiQuotaAccountMapper.selectAiQuotaAccountByUserId(106L)).thenReturn(account);
+
+        Map<String, Object> r = aiQuotaService.confirm(106L, 1, 32L, "idem_cfm_2");
+
+        assertEquals(400, r.get("code"));
+        assertTrue(r.get("msg").toString().contains("预留"));
+        verify(aiQuotaAccountMapper, never()).updateConfirm(anyLong(), any(), anyLong());
+    }
+
+    @Test
+    void confirm_幂等键重复_不重复确认() {
+        account.setReservedQuota(BigDecimal.valueOf(1));
+        when(aiQuotaAccountMapper.selectAiQuotaAccountByUserId(106L)).thenReturn(account);
+        doThrow(new DuplicateKeyException("uk_idempotency_key")).when(aiQuotaRecordMapper).insertAiQuotaRecord(any());
+
+        Map<String, Object> r = aiQuotaService.confirm(106L, 1, 32L, "idem_same_cfm");
+
+        assertEquals(200, r.get("code"));
+        assertTrue(r.get("msg").toString().contains("已确认"));
+        verify(aiQuotaAccountMapper, never()).updateConfirm(anyLong(), any(), anyLong());
+    }
+
+    @Test
+    void release_正常释放回补() {
+        account.setReservedQuota(BigDecimal.valueOf(1));
+        account.setAvailableQuota(BigDecimal.valueOf(49));
+        when(aiQuotaAccountMapper.selectAiQuotaAccountByUserId(106L)).thenReturn(account);
+        when(aiQuotaAccountMapper.updateRelease(106L, BigDecimal.valueOf(1), 1L)).thenReturn(1);
+
+        Map<String, Object> r = aiQuotaService.release(106L, 1, 32L, "idem_rls_1");
+
+        assertEquals(200, r.get("code"));
+        assertEquals(50, r.get("availableQuota"));
+        assertEquals(0, r.get("reservedQuota"));
+        assertEquals(1, r.get("refunded"));
+        verify(aiQuotaAccountMapper, times(1)).updateRelease(anyLong(), any(), anyLong());
+    }
+
+    @Test
+    void release_预留不足_拒绝() {
+        account.setReservedQuota(BigDecimal.ZERO);
+        when(aiQuotaAccountMapper.selectAiQuotaAccountByUserId(106L)).thenReturn(account);
+
+        Map<String, Object> r = aiQuotaService.release(106L, 1, 32L, "idem_rls_2");
+
+        assertEquals(400, r.get("code"));
+        assertTrue(r.get("msg").toString().contains("预留"));
+        verify(aiQuotaAccountMapper, never()).updateRelease(anyLong(), any(), anyLong());
+    }
+
+    @Test
+    void release_幂等键重复_不重复释放() {
+        account.setReservedQuota(BigDecimal.valueOf(1));
+        when(aiQuotaAccountMapper.selectAiQuotaAccountByUserId(106L)).thenReturn(account);
+        doThrow(new DuplicateKeyException("uk_idempotency_key")).when(aiQuotaRecordMapper).insertAiQuotaRecord(any());
+
+        Map<String, Object> r = aiQuotaService.release(106L, 1, 32L, "idem_same_rls");
+
+        assertEquals(200, r.get("code"));
+        assertTrue(r.get("msg").toString().contains("已释放"));
+        verify(aiQuotaAccountMapper, never()).updateRelease(anyLong(), any(), anyLong());
+    }
+
+    @Test
+    void reserveConfirmRelease_参数缺失_400() {
+        assertEquals(400, aiQuotaService.reserve(null, "writing", 1, null, "k").get("code"));
+        assertEquals(400, aiQuotaService.reserve(106L, "writing", 0, null, "k").get("code"));
+        assertEquals(400, aiQuotaService.confirm(106L, 0, null, "k").get("code"));
+        assertEquals(400, aiQuotaService.confirm(106L, 1, null, "").get("code"));
+        assertEquals(400, aiQuotaService.release(null, 1, null, "k").get("code"));
+        assertEquals(400, aiQuotaService.release(106L, 0, null, "k").get("code"));
+    }
 }

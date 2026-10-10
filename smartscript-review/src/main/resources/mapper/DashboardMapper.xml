@@ -5,10 +5,10 @@
     <!-- 指标卡聚合：待审核/上架/交易额/活跃用户 + 快捷入口待办数 -->
     <select id="selectOverviewRow" resultType="java.util.Map">
         SELECT
-          (SELECT COUNT(*) FROM sys_work WHERE is_deleted = 0 AND status = 'pending') AS pendingWorks,
-          (SELECT COUNT(*) FROM sys_work WHERE is_deleted = 0 AND status = 'pending'
+          (SELECT COUNT(*) FROM sys_review_record WHERE status = 'pending') AS pendingWorks,
+          (SELECT COUNT(*) FROM sys_review_record WHERE status = 'pending'
              AND created_at &gt;= DATE_SUB(NOW(), INTERVAL 7 DAY)) AS newPending7,
-          (SELECT COUNT(*) FROM sys_work WHERE is_deleted = 0 AND status = 'pending'
+          (SELECT COUNT(*) FROM sys_review_record WHERE status = 'pending'
              AND created_at &gt;= DATE_SUB(NOW(), INTERVAL 14 DAY)
              AND created_at &lt; DATE_SUB(NOW(), INTERVAL 7 DAY)) AS newPendingPrev,
           (SELECT COUNT(*) FROM sys_work WHERE is_deleted = 0 AND status = 'on_shelf') AS listedWorks,
@@ -105,16 +105,17 @@
         ORDER BY t.d ASC
     </select>
 
-    <!-- 最近审核列表 -->
+    <!-- 最近审核列表（与审核工作台同源：取审核记录表） -->
     <select id="selectRecentReviews" resultType="java.util.Map">
         SELECT w.title AS name,
                IFNULL(u.nick_name, CONCAT('user-', w.author_id)) AS author,
-               DATE_FORMAT(w.created_at, '%Y-%m-%d %H:%i') AS submitTime,
-               w.status
-        FROM sys_work w
-        LEFT JOIN sys_user u ON u.user_id = w.author_id
-        WHERE w.is_deleted = 0 AND w.status IN ('pending','approved','on_shelf','off_shelf')
-        ORDER BY w.updated_at DESC
+               DATE_FORMAT(r.created_at, '%Y-%m-%d %H:%i') AS submitTime,
+               r.status
+        FROM sys_review_record r
+        LEFT JOIN sys_work w ON r.target_id = w.work_id AND r.target_type = 'work'
+        LEFT JOIN sys_user u ON w.author_id = u.user_id
+        WHERE r.target_type = 'work'
+        ORDER BY r.created_at DESC
         LIMIT #{limit}
     </select>
 

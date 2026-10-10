@@ -136,4 +136,32 @@
         WHERE user_id = #{userId} AND version = #{version}
     </update>
 
+    <update id="updateReserve">
+        UPDATE sys_ai_quota_account
+        SET available_quota = available_quota - #{amount},
+            reserved_quota = reserved_quota + #{amount},
+            version = version + 1,
+            updated_at = NOW()
+        WHERE user_id = #{userId} AND version = #{version} AND available_quota >= #{amount}
+    </update>
+
+    <update id="updateConfirm">
+        UPDATE sys_ai_quota_account
+        SET reserved_quota = reserved_quota - #{amount},
+            total_consumed = total_consumed + #{amount},
+            version = version + 1,
+            updated_at = NOW()
+        WHERE user_id = #{userId} AND version = #{version} AND reserved_quota >= #{amount}
+    </update>
+
+    <update id="updateRelease">
+        UPDATE sys_ai_quota_account
+        SET reserved_quota = reserved_quota - #{amount},
+            available_quota = available_quota + #{amount},
+            total_refunded = total_refunded + #{amount},
+            version = version + 1,
+            updated_at = NOW()
+        WHERE user_id = #{userId} AND version = #{version} AND reserved_quota >= #{amount}
+    </update>
+
 </mapper>

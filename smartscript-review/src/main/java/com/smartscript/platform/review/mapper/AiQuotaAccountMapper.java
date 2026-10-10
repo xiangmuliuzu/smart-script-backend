@@ -62,4 +62,19 @@ public interface AiQuotaAccountMapper {
      * 乐观锁增加次数（积分兑换等获得）
      */
     int updateEarn(@Param("userId") Long userId, @Param("amount") java.math.BigDecimal amount, @Param("version") Long version);
+
+    /**
+     * 预留锁定：可用次数转入预留（可用>=amount 且版本一致才成功）
+     */
+    int updateReserve(@Param("userId") Long userId, @Param("amount") java.math.BigDecimal amount, @Param("version") Long version);
+
+    /**
+     * 确认消耗：预留转为累计消耗（预留>=amount 且版本一致才成功）
+     */
+    int updateConfirm(@Param("userId") Long userId, @Param("amount") java.math.BigDecimal amount, @Param("version") Long version);
+
+    /**
+     * 释放预留：预留退回可用并计入累计补偿（预留>=amount 且版本一致才成功）
+     */
+    int updateRelease(@Param("userId") Long userId, @Param("amount") java.math.BigDecimal amount, @Param("version") Long version);
 }

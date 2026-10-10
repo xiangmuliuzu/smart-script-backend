@@ -20,6 +20,7 @@
         <result property="workType"     column="work_type"      />
         <result property="genreName"    column="genre_name"     />
         <result property="authorName"   column="author_name"    />
+        <result property="userId"       column="user_id"        />
         <result property="aiScore"      column="ai_score"       />
     </resultMap>
 
@@ -28,7 +29,7 @@
                r.review_opinion, r.reviewer_id, r.review_end_time,
                r.create_by, r.created_at, r.update_by, r.update_time, r.remark,
                w.title as work_title, w.work_type, c.category_name as genre_name,
-               u.nick_name as author_name,
+               u.nick_name as author_name, w.author_id as user_id,
                CAST(JSON_EXTRACT(r.ai_result, '$.score') AS UNSIGNED) as ai_score
         FROM sys_review_record r
         LEFT JOIN sys_work w ON r.target_id = w.work_id AND r.target_type = 'work'
@@ -44,6 +45,18 @@
             </if>
             <if test="targetType != null and targetType != ''">
                 AND r.target_type = #{targetType}
+            </if>
+            <if test="workType != null and workType != ''">
+                AND w.work_type = #{workType}
+            </if>
+            <if test="genreName != null and genreName != ''">
+                AND c.category_name = #{genreName}
+            </if>
+            <if test="beginTime != null and beginTime != ''">
+                AND r.created_at &gt;= #{beginTime}
+            </if>
+            <if test="endTime != null and endTime != ''">
+                AND r.created_at &lt;= #{endTime}
             </if>
         </where>
         ORDER BY r.created_at DESC

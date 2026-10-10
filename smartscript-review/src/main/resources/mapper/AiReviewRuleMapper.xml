@@ -35,7 +35,7 @@
                 AND rule_type = #{ruleType}
             </if>
             <if test="status != null and status != ''">
-                AND status = #{status}
+                AND status = CASE #{status} WHEN 'enabled' THEN 1 ELSE 0 END
             </if>
         </where>
         ORDER BY sort ASC, created_at DESC

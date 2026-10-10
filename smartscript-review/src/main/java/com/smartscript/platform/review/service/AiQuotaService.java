@@ -260,6 +260,212 @@ public class AiQuotaService {
         return result;
     }
 
+    /* ==================== 预留锁定业务（reserve → confirm / release） ==================== */
+
+    /**
+     * 预留锁定：发起AI任务时，将本次消耗次数从"可用"转入"预留"。
+     * 防重复锁定：idempotencyKey 唯一约束；并发安全：version 乐观锁 + 余额校验。
+     *
+     * @param userId         用户ID
+     * @param capability     AI能力 outline/writing/polish
+     * @param quotaCost      锁定次数
+     * @param workId         关联作品（可空）
+     * @param idempotencyKey 幂等键（同一调用重复请求不重复锁定）
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public Map<String, Object> reserve(Long userId, String capability, Integer quotaCost, Long workId, String idempotencyKey) {
+        Map<String, Object> result = new HashMap<>();
+        if (userId == null || quotaCost == null || quotaCost <= 0 || !StringUtils.hasText(capability) || !StringUtils.hasText(idempotencyKey)) {
+            result.put("code", 400);
+            result.put("msg", "参数不完整：userId/capability/quotaCost/idempotencyKey 必填，quotaCost>0");
+            return result;
+        }
+        AiQuotaAccount account = aiQuotaAccountMapper.selectAiQuotaAccountByUserId(userId);
+        if (account == null) {
+            result.put("code", 404);
+            result.put("msg", "AI次数账户不存在: " + userId);
+            return result;
+        }
+        BigDecimal cost = BigDecimal.valueOf(quotaCost);
+        if (account.getAvailableQuota().compareTo(cost) < 0) {
+            result.put("code", 400);
+            result.put("msg", "AI次数不足，当前可用: " + account.getAvailableQuota().intValue() + " 次");
+            return result;
+        }
+        Long version = account.getVersion() == null ? 0L : account.getVersion();
+        BigDecimal before = account.getAvailableQuota();
+        // 1) 先插流水（幂等键唯一，重复请求在此抛异常回滚，不重复锁定）
+        AiQuotaRecord record = new AiQuotaRecord();
+        record.setRecordNo(genNo("RS"));
+        record.setUserId(userId);
+        record.setType("reserve");
+        record.setAmount(cost);
+        record.setBeforeBalance(before);
+        record.setBalance(before.subtract(cost));
+        record.setBusinessType(capability);
+        record.setRelatedId(workId == null ? null : String.valueOf(workId));
+        record.setIdempotencyKey(idempotencyKey);
+        record.setCreateTime(new Date());
+        record.setRemark("AI调用预留锁定: " + capability);
+        try {
+            aiQuotaRecordMapper.insertAiQuotaRecord(record);
+        } catch (DuplicateKeyException e) {
+            result.put("code", 200);
+            result.put("msg", "重复请求（幂等已锁定），未重复预留");
+            result.put("availableQuota", before.intValue());
+            return result;
+        }
+        // 2) 乐观锁锁定（可用→预留）
+        int rows = aiQuotaAccountMapper.updateReserve(userId, cost, version);
+        if (rows == 0) {
+            throw new IllegalStateException("并发冲突或余额不足，预留锁定失败");
+        }
+        writeRequest(userId, capability, quotaCost, workId, "reserved", null);
+        logOperation("ai_quota", "reserve", "user", String.valueOf(userId), null, userId, "AI调用预留锁定" + quotaCost + "次");
+        result.put("code", 200);
+        result.put("msg", "AI次数预留成功");
+        result.put("availableQuota", before.subtract(cost).intValue());
+        result.put("reservedQuota", (account.getReservedQuota() == null ? BigDecimal.ZERO : account.getReservedQuota()).add(cost).intValue());
+        result.put("reserved", quotaCost);
+        return result;
+    }
+
+    /**
+     * 确认消耗：AI任务成功后，预留转为累计消耗。
+     * 防重复确认：idempotencyKey 唯一约束；并发安全：version 乐观锁 + 预留余额校验。
+     *
+     * @param userId         用户ID
+     * @param amount         确认消耗次数
+     * @param workId         关联作品（可空）
+     * @param idempotencyKey 幂等键
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public Map<String, Object> confirm(Long userId, Integer amount, Long workId, String idempotencyKey) {
+        Map<String, Object> result = new HashMap<>();
+        if (userId == null || amount == null || amount <= 0 || !StringUtils.hasText(idempotencyKey)) {
+            result.put("code", 400);
+            result.put("msg", "参数不完整：userId/amount/idempotencyKey 必填，amount>0");
+            return result;
+        }
+        AiQuotaAccount account = aiQuotaAccountMapper.selectAiQuotaAccountByUserId(userId);
+        if (account == null) {
+            result.put("code", 404);
+            result.put("msg", "AI次数账户不存在: " + userId);
+            return result;
+        }
+        BigDecimal cost = BigDecimal.valueOf(amount);
+        BigDecimal reserved = account.getReservedQuota() == null ? BigDecimal.ZERO : account.getReservedQuota();
+        if (reserved.compareTo(cost) < 0) {
+            result.put("code", 400);
+            result.put("msg", "预留次数不足，当前预留: " + reserved.intValue() + " 次，请先调用 reserve 锁定");
+            return result;
+        }
+        Long version = account.getVersion() == null ? 0L : account.getVersion();
+        BigDecimal before = reserved;
+        // 1) 先插流水（幂等键唯一，重复请求不重复确认）
+        AiQuotaRecord record = new AiQuotaRecord();
+        record.setRecordNo(genNo("CF"));
+        record.setUserId(userId);
+        record.setType("confirm");
+        record.setAmount(cost);
+        record.setBeforeBalance(before);
+        record.setBalance(before.subtract(cost));
+        record.setBusinessType("consume");
+        record.setRelatedId(workId == null ? null : String.valueOf(workId));
+        record.setIdempotencyKey(idempotencyKey);
+        record.setCreateTime(new Date());
+        record.setRemark("AI调用确认消耗（预留转消耗）");
+        try {
+            aiQuotaRecordMapper.insertAiQuotaRecord(record);
+        } catch (DuplicateKeyException e) {
+            result.put("code", 200);
+            result.put("msg", "重复请求（幂等已确认），未重复消耗");
+            result.put("reservedQuota", before.intValue());
+            return result;
+        }
+        // 2) 乐观锁确认（预留→累计消耗）
+        int rows = aiQuotaAccountMapper.updateConfirm(userId, cost, version);
+        if (rows == 0) {
+            throw new IllegalStateException("并发冲突或预留不足，确认消耗失败");
+        }
+        writeRequest(userId, "confirm", amount, workId, "consumed", null);
+        logOperation("ai_quota", "confirm", "user", String.valueOf(userId), null, userId, "AI调用确认消耗" + amount + "次");
+        result.put("code", 200);
+        result.put("msg", "AI次数确认消耗成功");
+        result.put("reservedQuota", before.subtract(cost).intValue());
+        result.put("totalConsumed", (account.getTotalConsumed() == null ? BigDecimal.ZERO : account.getTotalConsumed()).add(cost).intValue());
+        result.put("consumed", amount);
+        return result;
+    }
+
+    /**
+     * 释放预留：AI任务失败/取消时，预留退回可用并计入累计补偿。
+     * 防重复释放：idempotencyKey 唯一约束；并发安全：version 乐观锁 + 预留余额校验。
+     *
+     * @param userId         用户ID
+     * @param amount         释放次数
+     * @param workId         关联作品（可空）
+     * @param idempotencyKey 幂等键
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public Map<String, Object> release(Long userId, Integer amount, Long workId, String idempotencyKey) {
+        Map<String, Object> result = new HashMap<>();
+        if (userId == null || amount == null || amount <= 0 || !StringUtils.hasText(idempotencyKey)) {
+            result.put("code", 400);
+            result.put("msg", "参数不完整：userId/amount/idempotencyKey 必填，amount>0");
+            return result;
+        }
+        AiQuotaAccount account = aiQuotaAccountMapper.selectAiQuotaAccountByUserId(userId);
+        if (account == null) {
+            result.put("code", 404);
+            result.put("msg", "AI次数账户不存在: " + userId);
+            return result;
+        }
+        BigDecimal cost = BigDecimal.valueOf(amount);
+        BigDecimal reserved = account.getReservedQuota() == null ? BigDecimal.ZERO : account.getReservedQuota();
+        if (reserved.compareTo(cost) < 0) {
+            result.put("code", 400);
+            result.put("msg", "预留次数不足，当前预留: " + reserved.intValue() + " 次，无法释放");
+            return result;
+        }
+        Long version = account.getVersion() == null ? 0L : account.getVersion();
+        BigDecimal before = reserved;
+        // 1) 先插流水（幂等键唯一，重复请求不重复释放）
+        AiQuotaRecord record = new AiQuotaRecord();
+        record.setRecordNo(genNo("RL"));
+        record.setUserId(userId);
+        record.setType("release");
+        record.setAmount(cost);
+        record.setBeforeBalance(before);
+        record.setBalance(before.subtract(cost));
+        record.setBusinessType("failed");
+        record.setRelatedId(workId == null ? null : String.valueOf(workId));
+        record.setIdempotencyKey(idempotencyKey);
+        record.setCreateTime(new Date());
+        record.setRemark("AI调用释放预留（失败回补）");
+        try {
+            aiQuotaRecordMapper.insertAiQuotaRecord(record);
+        } catch (DuplicateKeyException e) {
+            result.put("code", 200);
+            result.put("msg", "重复请求（幂等已释放），未重复回补");
+            result.put("reservedQuota", before.intValue());
+            return result;
+        }
+        // 2) 乐观锁释放（预留→可用+累计补偿）
+        int rows = aiQuotaAccountMapper.updateRelease(userId, cost, version);
+        if (rows == 0) {
+            throw new IllegalStateException("并发冲突或预留不足，释放失败");
+        }
+        writeRequest(userId, "release", amount, workId, "refunded", null);
+        logOperation("ai_quota", "release", "user", String.valueOf(userId), null, userId, "AI调用释放预留（失败补偿）" + amount + "次");
+        result.put("code", 200);
+        result.put("msg", "AI次数释放成功");
+        result.put("availableQuota", account.getAvailableQuota().add(cost).intValue());
+        result.put("reservedQuota", before.subtract(cost).intValue());
+        result.put("refunded", amount);
+        return result;
+    }
+
     /**
      * 查询用户AI次数账户与最近流水
      */

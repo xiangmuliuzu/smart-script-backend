@@ -104,4 +104,80 @@ public class QuotaBusinessController {
             return r;
         }
     }
+
+    /**
+     * 预留锁定：发起AI任务时，将本次消耗次数从"可用"转入"预留"（幂等防重复锁定）
+     * POST /api/v1/ai/quota/reserve {"userId":106,"capability":"writing","quotaCost":1,"workId":32,"idempotencyKey":"rsv_xxx"}
+     */
+    @PostMapping("/reserve")
+    public Map<String, Object> reserve(@RequestBody Map<String, Object> params) {
+        try {
+            Long userId = params.get("userId") != null ? Long.valueOf(params.get("userId").toString()) : null;
+            String capability = params.get("capability") != null ? params.get("capability").toString() : null;
+            Integer quotaCost = params.get("quotaCost") != null ? Integer.valueOf(params.get("quotaCost").toString()) : null;
+            Long workId = params.get("workId") != null ? Long.valueOf(params.get("workId").toString()) : null;
+            String idempotencyKey = params.get("idempotencyKey") != null ? params.get("idempotencyKey").toString() : null;
+            return aiQuotaService.reserve(userId, capability, quotaCost, workId, idempotencyKey);
+        } catch (IllegalStateException e) {
+            Map<String, Object> r = new HashMap<>();
+            r.put("code", 400);
+            r.put("msg", e.getMessage());
+            return r;
+        } catch (Exception e) {
+            Map<String, Object> r = new HashMap<>();
+            r.put("code", 500);
+            r.put("msg", "AI次数预留失败: " + e.getMessage());
+            return r;
+        }
+    }
+
+    /**
+     * 确认消耗：AI任务成功后，预留转为累计消耗（幂等防重复确认）
+     * POST /api/v1/ai/quota/confirm {"userId":106,"amount":1,"workId":32,"idempotencyKey":"cfm_xxx"}
+     */
+    @PostMapping("/confirm")
+    public Map<String, Object> confirm(@RequestBody Map<String, Object> params) {
+        try {
+            Long userId = params.get("userId") != null ? Long.valueOf(params.get("userId").toString()) : null;
+            Integer amount = params.get("amount") != null ? Integer.valueOf(params.get("amount").toString()) : null;
+            Long workId = params.get("workId") != null ? Long.valueOf(params.get("workId").toString()) : null;
+            String idempotencyKey = params.get("idempotencyKey") != null ? params.get("idempotencyKey").toString() : null;
+            return aiQuotaService.confirm(userId, amount, workId, idempotencyKey);
+        } catch (IllegalStateException e) {
+            Map<String, Object> r = new HashMap<>();
+            r.put("code", 400);
+            r.put("msg", e.getMessage());
+            return r;
+        } catch (Exception e) {
+            Map<String, Object> r = new HashMap<>();
+            r.put("code", 500);
+            r.put("msg", "AI次数确认失败: " + e.getMessage());
+            return r;
+        }
+    }
+
+    /**
+     * 释放预留：AI任务失败/取消时，预留退回可用并计入累计补偿（幂等防重复释放）
+     * POST /api/v1/ai/quota/release {"userId":106,"amount":1,"workId":32,"idempotencyKey":"rls_xxx"}
+     */
+    @PostMapping("/release")
+    public Map<String, Object> release(@RequestBody Map<String, Object> params) {
+        try {
+            Long userId = params.get("userId") != null ? Long.valueOf(params.get("userId").toString()) : null;
+            Integer amount = params.get("amount") != null ? Integer.valueOf(params.get("amount").toString()) : null;
+            Long workId = params.get("workId") != null ? Long.valueOf(params.get("workId").toString()) : null;
+            String idempotencyKey = params.get("idempotencyKey") != null ? params.get("idempotencyKey").toString() : null;
+            return aiQuotaService.release(userId, amount, workId, idempotencyKey);
+        } catch (IllegalStateException e) {
+            Map<String, Object> r = new HashMap<>();
+            r.put("code", 400);
+            r.put("msg", e.getMessage());
+            return r;
+        } catch (Exception e) {
+            Map<String, Object> r = new HashMap<>();
+            r.put("code", 500);
+            r.put("msg", "AI次数释放失败: " + e.getMessage());
+            return r;
+        }
+    }
 }

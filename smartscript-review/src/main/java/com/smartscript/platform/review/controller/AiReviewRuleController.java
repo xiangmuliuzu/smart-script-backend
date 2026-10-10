@@ -1,6 +1,8 @@
 package com.smartscript.platform.review.controller;
 
 import com.smartscript.platform.review.domain.AiReviewRule;
+import com.smartscript.platform.review.domain.ReviewRecord;
+import com.smartscript.platform.review.mapper.ReviewRecordMapper;
 import com.smartscript.platform.review.service.AiReviewRuleService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
@@ -19,6 +21,40 @@ public class AiReviewRuleController {
 
     @Autowired
     private AiReviewRuleService aiReviewRuleService;
+
+    @Autowired
+    private ReviewRecordMapper reviewRecordMapper;
+
+    /**
+     * AI审核准确率统计：AI初筛建议与人工终审结果的一致性
+     * AI建议 = ai_score >= 70 判为通过，否则驳回；与人工终审状态对比
+     */
+    @GetMapping("/statistics")
+    public Map<String, Object> statistics() {
+        Map<String, Object> result = new HashMap<>();
+        List<ReviewRecord> records = reviewRecordMapper.selectReviewRecordList(new ReviewRecord());
+        int total = 0, consistent = 0, aiPass = 0, aiReject = 0;
+        for (ReviewRecord r : records) {
+            Integer score = r.getAiScore();
+            String status = r.getStatus();
+            if (score == null || status == null) continue;
+            if (!"approved".equals(status) && !"rejected".equals(status)) continue;
+            total++;
+            boolean aiSuggestPass = score >= 70;
+            if (aiSuggestPass) aiPass++; else aiReject++;
+            boolean humanPass = "approved".equals(status);
+            if (aiSuggestPass == humanPass) consistent++;
+        }
+        double accuracy = total == 0 ? 0 : Math.round(consistent * 10000.0 / total) / 100.0;
+        result.put("code", 200);
+        result.put("msg", "操作成功");
+        result.put("total", total);
+        result.put("consistent", consistent);
+        result.put("aiPass", aiPass);
+        result.put("aiReject", aiReject);
+        result.put("accuracy", accuracy);
+        return result;
+    }
 
     /**
      * 查询AI审核规则列表
