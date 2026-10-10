@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.review.mapper.AiRequestMapper">
+
+    <insert id="insertAiRequest" parameterType="com.smartscript.platform.review.domain.AiRequest" useGeneratedKeys="true" keyProperty="requestId">
+        INSERT INTO sys_ai_request
+            (request_no, user_id, work_id, capability, quota_cost, status, error_code,
+             provider, started_at, finished_at, created_at, updated_at)
+        VALUES
+            (#{requestNo}, #{userId}, #{workId}, #{capability}, #{quotaCost}, #{status}, #{errorCode},
+             'internal', NOW(), NOW(), NOW(), NOW())
+    </insert>
+
+</mapper>

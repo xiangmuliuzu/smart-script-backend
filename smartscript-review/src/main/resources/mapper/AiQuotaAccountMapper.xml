@@ -10,6 +10,7 @@
         <result property="totalEarned"  column="total_earned"    />
         <result property="totalConsumed" column="total_consumed"  />
         <result property="totalRefunded" column="total_refunded"  />
+        <result property="version"      column="version"          />
         <result property="createBy"      column="create_by"       />
         <result property="createTime"  column="created_at"     />
         <result property="updateBy"     column="update_by"       />
@@ -21,7 +22,7 @@
 
     <sql id="selectAiQuotaAccountVo">
         SELECT a.account_id, a.user_id, a.available_quota, a.reserved_quota,
-               a.total_earned, a.total_consumed, a.total_refunded,
+               a.total_earned, a.total_consumed, a.total_refunded, a.version,
                a.create_by, a.created_at, a.update_by, a.update_time, a.remark,
                u.nick_name, u.phonenumber
         FROM sys_ai_quota_account a
@@ -107,5 +108,32 @@
     <select id="countAccounts" resultType="int">
         SELECT COUNT(*) FROM sys_ai_quota_account
     </select>
+
+    <update id="updateConsume">
+        UPDATE sys_ai_quota_account
+        SET available_quota = available_quota - #{amount},
+            total_consumed = total_consumed + #{amount},
+            version = version + 1,
+            updated_at = NOW()
+        WHERE user_id = #{userId} AND version = #{version} AND available_quota >= #{amount}
+    </update>
+
+    <update id="updateRefund">
+        UPDATE sys_ai_quota_account
+        SET available_quota = available_quota + #{amount},
+            total_refunded = total_refunded + #{amount},
+            version = version + 1,
+            updated_at = NOW()
+        WHERE user_id = #{userId} AND version = #{version}
+    </update>
+
+    <update id="updateEarn">
+        UPDATE sys_ai_quota_account
+        SET available_quota = available_quota + #{amount},
+            total_earned = total_earned + #{amount},
+            version = version + 1,
+            updated_at = NOW()
+        WHERE user_id = #{userId} AND version = #{version}
+    </update>
 
 </mapper>

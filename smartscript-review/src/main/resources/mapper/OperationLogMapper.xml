@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.review.mapper.OperationLogMapper">
+
+    <resultMap id="OperationLogResult" type="com.smartscript.platform.review.domain.OperationLog">
+        <id     property="logId"        column="log_id"        />
+        <result property="requestId"    column="request_id"    />
+        <result property="operatorId"   column="operator_id"   />
+        <result property="operatorName" column="operator_name" />
+        <result property="module"       column="module"        />
+        <result property="operation"    column="operation"     />
+        <result property="targetType"   column="target_type"   />
+        <result property="targetId"     column="target_id"     />
+        <result property="targetName"   column="target_name"   />
+        <result property="requestMethod" column="request_method" />
+        <result property="requestUrl"   column="request_url"   />
+        <result property="requestParams" column="request_params" />
+        <result property="responseResult" column="response_result" />
+        <result property="ipAddress"    column="ip_address"    />
+        <result property="userAgent"    column="user_agent"    />
+        <result property="status"       column="status"        />
+        <result property="errorMsg"     column="error_msg"     />
+        <result property="costTime"     column="cost_time"     />
+        <result property="createdAt"    column="created_at"    />
+        <result property="remark"       column="remark"        />
+    </resultMap>
+
+    <insert id="insertOperationLog" parameterType="com.smartscript.platform.review.domain.OperationLog" useGeneratedKeys="true" keyProperty="logId">
+        INSERT INTO sys_operation_log
+            (request_id, operator_id, operator_name, module, operation, target_type, target_id,
+             target_name, request_method, request_url, request_params, response_result, ip_address,
+             user_agent, status, error_msg, cost_time, created_at, remark)
+        VALUES
+            (#{requestId}, #{operatorId}, #{operatorName}, #{module}, #{operation}, #{targetType}, #{targetId},
+             #{targetName}, #{requestMethod}, #{requestUrl}, #{requestParams}, #{responseResult}, #{ipAddress},
+             #{userAgent}, #{status}, #{errorMsg}, #{costTime}, NOW(), #{remark})
+    </insert>
+
+    <select id="selectOperationLogList" parameterType="com.smartscript.platform.review.domain.OperationLog" resultMap="OperationLogResult">
+        SELECT log_id, request_id, operator_id, operator_name, module, operation, target_type,
+               target_id, target_name, request_method, request_url, request_params, response_result,
+               ip_address, user_agent, status, error_msg, cost_time, created_at, remark
+        FROM sys_operation_log
+        <where>
+            <if test="module != null and module != ''">
+                AND module = #{module}
+            </if>
+            <if test="operation != null and operation != ''">
+                AND operation = #{operation}
+            </if>
+            <if test="operatorId != null">
+                AND operator_id = #{operatorId}
+            </if>
+            <if test="targetId != null and targetId != ''">
+                AND target_id = #{targetId}
+            </if>
+            <if test="status != null and status != ''">
+                AND status = #{status}
+            </if>
+        </where>
+        ORDER BY created_at DESC, log_id DESC
+    </select>
+
+    <select id="countByModuleAndOperation" resultType="int">
+        SELECT COUNT(*) FROM sys_operation_log
+        WHERE module = #{module} AND operation = #{operation}
+          AND (#{targetId} IS NULL OR target_id = #{targetId})
+    </select>
+
+</mapper>

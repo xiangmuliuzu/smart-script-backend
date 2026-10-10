@@ -28,4 +28,9 @@ public interface PointsAccountMapper {
     int increaseBalance(@Param("userId") Long userId,
                         @Param("points") int points,
                         @Param("date") String date);
+
+    /**
+     * 扣减积分（兑换等消费）：余额不足返回 0。
+     */
+    int decreaseBalance(@Param("userId") Long userId, @Param("points") int points);
 }

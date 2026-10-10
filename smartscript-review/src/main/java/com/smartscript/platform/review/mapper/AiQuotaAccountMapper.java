@@ -47,4 +47,19 @@ public interface AiQuotaAccountMapper {
      * 统计配额账户数
      */
     int countAccounts();
+
+    /**
+     * 乐观锁扣减次数（可用不足或版本不符返回0）
+     */
+    int updateConsume(@Param("userId") Long userId, @Param("amount") java.math.BigDecimal amount, @Param("version") Long version);
+
+    /**
+     * 乐观锁回补次数（失败补偿）
+     */
+    int updateRefund(@Param("userId") Long userId, @Param("amount") java.math.BigDecimal amount, @Param("version") Long version);
+
+    /**
+     * 乐观锁增加次数（积分兑换等获得）
+     */
+    int updateEarn(@Param("userId") Long userId, @Param("amount") java.math.BigDecimal amount, @Param("version") Long version);
 }

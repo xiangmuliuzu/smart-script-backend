@@ -65,4 +65,12 @@
         WHERE user_id = #{userId}
     </update>
 
+    <update id="decreaseBalance">
+        UPDATE sys_points_account
+        SET balance = balance - #{points},
+            total_spent = total_spent + #{points},
+            updated_at = NOW()
+        WHERE user_id = #{userId} AND balance &gt;= #{points}
+    </update>
+
 </mapper>

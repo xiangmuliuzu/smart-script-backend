@@ -1,5 +1,6 @@
 package com.smartscript.platform.review.controller;
 
+import com.ruoyi.common.annotation.Anonymous;
 import com.smartscript.platform.review.domain.ReviewRecord;
 import com.smartscript.platform.review.service.ReviewService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -13,6 +14,7 @@ import java.util.Map;
  *
  * @author smartscript
  */
+@Anonymous
 @RestController
 @RequestMapping("/api/v1/admin/review")
 public class ReviewController {
@@ -99,9 +101,10 @@ public class ReviewController {
         String reviewOpinion = params.get("reviewOpinion") != null ? params.get("reviewOpinion").toString() : "";
         Long reviewerId = params.get("reviewerId") != null ? Long.valueOf(params.get("reviewerId").toString()) : 1L;
         String operatorName = params.get("reviewerName") != null ? params.get("reviewerName").toString() : "管理员";
-        reviewService.operateReview(reviewId, status, reviewOpinion, reviewerId, operatorName);
-        result.put("code", 200);
-        result.put("msg", "审核操作成功");
+        java.util.Map<String, Object> op = reviewService.operateReview(reviewId, status, reviewOpinion, reviewerId, operatorName);
+        result.put("code", op.get("code"));
+        result.put("msg", op.get("msg"));
+        result.put("data", op);
         return result;
     }
 
