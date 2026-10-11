@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.content.mapper.SysCopyrightCenterConfigMapper">
+    
+    <resultMap type="SysCopyrightCenterConfig" id="SysCopyrightCenterConfigResult">
+        <result property="configId"    column="config_id"    />
+        <result property="centerCode"    column="center_code"    />
+        <result property="centerName"    column="center_name"    />
+        <result property="apiUrl"    column="api_endpoint"    />
+        <result property="apiKey"    column="api_key"    />
+        <result property="apiSecret"    column="api_secret"    />
+        <result property="status"    column="status"    />
+        <result property="priority"    column="priority"    />
+        <result property="configJson"    column="config_json"    />
+        <result property="remark"    column="remark"    />
+        <result property="createBy"    column="create_by"    />
+        <result property="createTime"    column="create_time"    />
+        <result property="updateBy"    column="update_by"    />
+        <result property="updateTime"    column="update_time"    />
+    </resultMap>
+
+    <sql id="selectCopyrightCenterConfigVo">
+        select config_id, center_code, center_name, api_endpoint, 
+               api_key, api_secret, status, priority, 
+               config_json, remark, create_by, create_time, update_by, update_time
+        from sys_copyright_center_config
+    </sql>
+
+    <select id="selectCopyrightCenterConfigList" parameterType="SysCopyrightCenterConfig" resultMap="SysCopyrightCenterConfigResult">
+        <include refid="selectCopyrightCenterConfigVo"/>
+        <where>  
+            <if test="centerCode != null  and centerCode != ''"> and center_code = #{centerCode}</if>
+            <if test="centerName != null  and centerName != ''"> and center_name like concat('%', #{centerName}, '%')</if>
+            <if test="apiUrl != null  and apiUrl != ''"> and api_endpoint like concat('%', #{apiUrl}, '%')</if>
+            <if test="status != null  and status != ''"> and status = #{status}</if>
+        </where>
+        order by priority, create_time desc
+    </select>
+    
+    <select id="selectCopyrightCenterConfigByConfigId" parameterType="Long" resultMap="SysCopyrightCenterConfigResult">
+        <include refid="selectCopyrightCenterConfigVo"/>
+        where config_id = #{configId}
+    </select>
+
+    <select id="selectActiveConfig" resultMap="SysCopyrightCenterConfigResult">
+        <include refid="selectCopyrightCenterConfigVo"/>
+        where status = 'enabled'
+        order by priority, create_time desc
+        limit 1
+    </select>
+        
+    <insert id="insertCopyrightCenterConfig" parameterType="SysCopyrightCenterConfig" useGeneratedKeys="true" keyProperty="configId">
+        insert into sys_copyright_center_config
+        <trim prefix="(" suffix=")" suffixOverrides=",">
+            <if test="centerCode != null and centerCode != ''">center_code,</if>
+            <if test="centerName != null and centerName != ''">center_name,</if>
+            <if test="apiUrl != null and apiUrl != ''">api_endpoint,</if>
+            <if test="apiKey != null">api_key,</if>
+            <if test="apiSecret != null">api_secret,</if>
+            <if test="status != null">status,</if>
+            <if test="priority != null">priority,</if>
+            <if test="configJson != null">config_json,</if>
+            <if test="remark != null">remark,</if>
+            <if test="createBy != null">create_by,</if>
+            <if test="createTime != null">create_time,</if>
+         </trim>
+        <trim prefix="values (" suffix=")" suffixOverrides=",">
+            <if test="centerCode != null and centerCode != ''">#{centerCode},</if>
+            <if test="centerName != null and centerName != ''">#{centerName},</if>
+            <if test="apiUrl != null and apiUrl != ''">#{apiUrl},</if>
+            <if test="apiKey != null">#{apiKey},</if>
+            <if test="apiSecret != null">#{apiSecret},</if>
+            <if test="status != null">#{status},</if>
+            <if test="priority != null">#{priority},</if>
+            <if test="configJson != null">#{configJson},</if>
+            <if test="remark != null">#{remark},</if>
+            <if test="createBy != null">#{createBy},</if>
+            <if test="createTime != null">#{createTime},</if>
+         </trim>
+    </insert>
+
+    <update id="updateCopyrightCenterConfig" parameterType="SysCopyrightCenterConfig">
+        update sys_copyright_center_config
+        <trim prefix="SET" suffixOverrides=",">
+            <if test="centerCode != null and centerCode != ''">center_code = #{centerCode},</if>
+            <if test="centerName != null and centerName != ''">center_name = #{centerName},</if>
+            <if test="apiUrl != null and apiUrl != ''">api_endpoint = #{apiUrl},</if>
+            <if test="apiKey != null">api_key = #{apiKey},</if>
+            <if test="apiSecret != null">api_secret = #{apiSecret},</if>
+            <if test="status != null">status = #{status},</if>
+            <if test="priority != null">priority = #{priority},</if>
+            <if test="configJson != null">config_json = #{configJson},</if>
+            <if test="remark != null">remark = #{remark},</if>
+            <if test="updateBy != null">update_by = #{updateBy},</if>
+            <if test="updateTime != null">update_time = #{updateTime},</if>
+        </trim>
+        where config_id = #{configId}
+    </update>
+
+    <delete id="deleteCopyrightCenterConfigByConfigId" parameterType="Long">
+        delete from sys_copyright_center_config where config_id = #{configId}
+    </delete>
+
+    <delete id="deleteCopyrightCenterConfigByConfigIds" parameterType="String">
+        delete from sys_copyright_center_config where config_id in 
+        <foreach item="configId" collection="array" open="(" separator="," close=")">
+            #{configId}
+        </foreach>
+    </delete>
+</mapper>

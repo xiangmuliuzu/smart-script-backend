@@ -52,4 +52,43 @@
         WHERE c.cert_id = #{certId}
     </select>
 
+    <select id="selectCertByWorkId" resultMap="SysCopyrightCertResult">
+        SELECT 
+            c.cert_id, c.work_id, c.user_id, c.cert_no, c.blockchain_hash,
+            c.cert_url, c.status, c.apply_time, c.cert_time,
+            c.create_time, c.update_time, c.remark,
+            w.title AS work_name,
+            u.nick_name AS user_name
+        FROM sys_copyright_cert c
+        LEFT JOIN sys_work w ON c.work_id = w.work_id
+        LEFT JOIN sys_user u ON c.user_id = u.user_id
+        WHERE c.work_id = #{workId}
+    </select>
+
+    <insert id="insertCert" parameterType="com.smartscript.platform.content.domain.SysCopyrightCert" useGeneratedKeys="true" keyProperty="certId">
+        INSERT INTO sys_copyright_cert (
+            work_id, 
+            user_id, 
+            cert_no, 
+            blockchain_hash, 
+            cert_url, 
+            status, 
+            apply_time, 
+            cert_time,
+            create_time,
+            remark
+        ) VALUES (
+            #{workId}, 
+            #{userId}, 
+            #{certNo}, 
+            #{blockchainHash}, 
+            #{certUrl}, 
+            #{status}, 
+            #{applyTime}, 
+            #{certTime},
+            NOW(),
+            #{remark}
+        )
+    </insert>
+
 </mapper>

@@ -9,4 +9,8 @@ public interface SysCopyrightCertMapper
     List<SysCopyrightCert> selectCertList(@Param("status") String status, @Param("keyword") String keyword);
     
     SysCopyrightCert selectCertById(@Param("certId") Long certId);
+    
+    int insertCert(SysCopyrightCert cert);
+    
+    SysCopyrightCert selectCertByWorkId(@Param("workId") Long workId);
 }
