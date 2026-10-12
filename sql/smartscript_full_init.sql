@@ -21,6 +21,9 @@
 --   第 8 部分  询盘过期自动关闭定时任务 + 8.1 存量菜单清理
 --   第 9 部分  公告接收范围与消息/公告业务权限
 --   第 10 部分 用户消息入口迁移与角色权限继承
+--   第 11 部分 移除用户中心会话列表入口，保留用户沟通权限
+--   第 12 部分 App 用户名称唯一索引
+--   第 13 部分 恢复系统管理目录、页面及权限
 --   收口自检  所有结构、种子及存量清理完成后统一输出结果
 -- 与历史迁移脚本的差异：
 --   - 原迁移的控制表/快照表（a2_/a4_ 前缀）为升级回滚记账服务，此处不需要，已省略。
@@ -207,8 +210,16 @@ create table sys_menu (
 -- | ----------------------------
 -- | 初始化-菜单信息表数据
 -- | ----------------------------
--- | 平台保留的若依菜单（系统管理目录/页面不再创建；保留按钮与旧脚本最终状态一致）
+-- | 平台若依菜单（系统管理保留七个管理页面；日志与公告使用当前平台目录）
 -- | 一级菜单
+insert into sys_menu values('1', '系统管理', '0', '90', 'system',           null, '', '', 1, 0, 'M', '0', '0', '', 'system',   'admin', sysdate(), '', null, '系统管理目录');
+insert into sys_menu values('100',  '用户管理', '1',   '1', 'user',       'system/user/index',        '', '', 1, 0, 'C', '0', '0', 'system:user:list',        'user',          'admin', sysdate(), '', null, '用户管理菜单');
+insert into sys_menu values('101',  '角色管理', '1',   '2', 'role',       'system/role/index',        '', '', 1, 0, 'C', '0', '0', 'system:role:list',        'peoples',       'admin', sysdate(), '', null, '角色管理菜单');
+insert into sys_menu values('102',  '菜单管理', '1',   '3', 'menu',       'system/menu/index',        '', '', 1, 0, 'C', '0', '0', 'system:menu:list',        'tree-table',    'admin', sysdate(), '', null, '菜单管理菜单');
+insert into sys_menu values('103',  '部门管理', '1',   '4', 'dept',       'system/dept/index',        '', '', 1, 0, 'C', '0', '0', 'system:dept:list',        'tree',          'admin', sysdate(), '', null, '部门管理菜单');
+insert into sys_menu values('104',  '岗位管理', '1',   '5', 'post',       'system/post/index',        '', '', 1, 0, 'C', '0', '0', 'system:post:list',        'post',          'admin', sysdate(), '', null, '岗位管理菜单');
+insert into sys_menu values('105',  '字典管理', '1',   '6', 'dict',       'system/dict/index',        '', '', 1, 0, 'C', '0', '0', 'system:dict:list',        'dict',          'admin', sysdate(), '', null, '字典管理菜单');
+insert into sys_menu values('106',  '参数设置', '1',   '7', 'config',     'system/config/index',      '', '', 1, 0, 'C', '0', '0', 'system:config:list',      'edit',          'admin', sysdate(), '', null, '参数设置菜单');
 insert into sys_menu values('2', '系统监控', '0', '2', 'monitor',          null, '', '', 1, 0, 'M', '0', '0', '', 'monitor',  'admin', sysdate(), '', null, '系统监控目录');
 insert into sys_menu values('3', '系统工具', '0', '3', 'tool',             null, '', '', 1, 0, 'M', '0', '0', '', 'tool',     'admin', sysdate(), '', null, '系统工具目录');
 insert into sys_menu values('4', '若依官网', '0', '4', 'http://ruoyi.vip', null, '', '', 0, 0, 'M', '0', '0', '', 'guide',    'admin', sysdate(), '', null, '若依官网地址');
@@ -1073,7 +1084,7 @@ ON DUPLICATE KEY UPDATE
   menu_name=VALUES(menu_name), order_num=VALUES(order_num), path=VALUES(path),
   visible=VALUES(visible), status=VALUES(status), icon=VALUES(icon), remark=VALUES(remark);
 
--- 2026-10-08 菜单精简：系统管理目录已整体下线，不再调整其排序。
+-- 系统管理恢复后位于业务目录之后（order_num=90）。
 
 -- 用户画像与推荐配置已下线：在产品菜单 upsert 前清理旧入口及授权，兼容旧 ID 5141/5400。
 -- 按父目录和名称/组件识别页面，保留使用 5141 的版权申请按钮。
@@ -1148,14 +1159,14 @@ INSERT INTO sys_menu (menu_id, menu_name, parent_id, order_num, path, component,
 (5150, 'AI 创作与次数',       5006, 1, '/ai/operations',    'system/AiOperations', '', 1, 0, 'C', '0', '0', 'smartscript:ai:operations',   'Magic',  'A1', 'A1SEED'),
 (5151, '福利与积分配置',      5006, 2, '/support/welfare',  'welfare/WelfarePoints', '', 1, 0, 'C', '0', '0', 'smartscript:support:welfare', 'Present','A1', 'A1SEED'),
 (5152, '消息与公告',          5005, 5, '/support/messages', 'support/MessagesAnnouncements', '', 1, 0, 'C', '0', '0', 'smartscript:support:messages','Bell',   'A1', 'A1SEED'),
-(5201, '会话列表',           3000, 6, 'chat-sessions', 'chat/ChatSessions', '', 1, 0, 'C', '0', '0', 'chat:session:list',  'list',  'A3', 'A3 用户沟通会话列表（原 5200 目录迁入用户中心）'),
+(5201, '会话列表',           5152, 9, '#',             NULL,                '', 1, 0, 'F', '0', '0', 'chat:session:list',  '#',     'A3', '消息与公告用户沟通查询权限'),
 (5202, '会话详情',           3000, 7, 'chat-detail',   'chat/ChatDetail',   '', 1, 0, 'C', '1', '0', 'chat:session:query', '#',     'A3', 'A3 用户沟通会话详情（原 5200 目录迁入用户中心）'),
-(5203, '分配管理员',         5201, 1, '',              NULL,                '', 1, 0, 'F', '0', '0', 'chat:session:assign','#',     'A3', 'A3 分配管理员按钮'),
-(5204, '变更状态',           5201, 2, '',              NULL,                '', 1, 0, 'F', '0', '0', 'chat:session:status','#',     'A3', 'A3 变更状态按钮'),
-(5205, '发送消息',           5201, 3, '',              NULL,                '', 1, 0, 'F', '0', '0', 'chat:message:send',  '#',     'A3', 'A3 发送消息按钮'),
-(5206, '查看消息',           5201, 4, '',              NULL,                '', 1, 0, 'F', '0', '0', 'chat:message:list',  '#',     'A3', 'A3 查看消息按钮'),
-(5207, '标记已读',           5201, 5, '',              NULL,                '', 1, 0, 'F', '0', '0', 'chat:session:read',  '#',     'A3', 'A3 标记已读按钮'),
-(5208, '创建会话',           5201, 6, '',              NULL,                '', 1, 0, 'F', '0', '0', 'chat:session:create','#',     'A3', 'A3 创建会话按钮')
+(5203, '分配管理员',         5152, 10, '',             NULL,                '', 1, 0, 'F', '0', '0', 'chat:session:assign','#',     'A3', 'A3 分配管理员按钮'),
+(5204, '变更状态',           5152, 11, '',             NULL,                '', 1, 0, 'F', '0', '0', 'chat:session:status','#',     'A3', 'A3 变更状态按钮'),
+(5205, '发送消息',           5152, 12, '',             NULL,                '', 1, 0, 'F', '0', '0', 'chat:message:send',  '#',     'A3', 'A3 发送消息按钮'),
+(5206, '查看消息',           5152, 13, '',             NULL,                '', 1, 0, 'F', '0', '0', 'chat:message:list',  '#',     'A3', 'A3 查看消息按钮'),
+(5207, '标记已读',           5152, 14, '',             NULL,                '', 1, 0, 'F', '0', '0', 'chat:session:read',  '#',     'A3', 'A3 标记已读按钮'),
+(5208, '创建会话',           5152, 15, '',             NULL,                '', 1, 0, 'F', '0', '0', 'chat:session:create','#',     'A3', 'A3 创建会话按钮')
 ON DUPLICATE KEY UPDATE
   menu_name=VALUES(menu_name), parent_id=VALUES(parent_id), order_num=VALUES(order_num),
   path=VALUES(path), component=VALUES(component), menu_type=VALUES(menu_type),
@@ -1992,30 +2003,16 @@ WHERE NOT EXISTS (SELECT 1 FROM sys_job WHERE invoke_target = 'tradeInquiryTask.
 -- =====================================================================
 -- 8.1 存量菜单清理（新库种子已是最终状态；保留旧库升级兼容，幂等）
 -- ---------------------------------------------------------------------
--- 系统管理目录下的页面（用户/角色/菜单/部门/岗位/字典/参数/通知/日志管理）
--- 属于开发自管配置，不对管理员开放：
---   - 用户管理由用户中心"App用户与创作者"(3001) 提供；
---   - 系统参数（如验证码开关 sys.account.captchaEnabled）改由开发直连数据库维护；
---   - 操作日志(500)/登录日志(501) 保留，挂到"数据统计"(5002) 目录下。
--- 前端已同步删除对应 vue 页面与 api（smart-script-web）。
--- =====================================================================
-
--- 1) 日志菜单挂到数据统计目录
+-- 系统管理已恢复用户/角色/菜单/部门/岗位/字典/参数七个页面。
+-- 本段只清理已迁移的旧公告、日志入口，不删除系统管理根目录和管理权限。
+-- 日志保留在数据统计；公告使用平台运维管理的消息与公告。
 UPDATE sys_menu SET parent_id = 5002, order_num = 99 WHERE menu_id = 500 AND menu_type = 'C';
 UPDATE sys_menu SET parent_id = 5002, order_num = 100 WHERE menu_id = 501 AND menu_type = 'C';
-
--- 2) 删除系统管理子菜单（含按钮权限与角色绑定）
 DELETE FROM sys_role_menu WHERE menu_id IN (
-  SELECT menu_id FROM (
-    SELECT menu_id FROM sys_menu WHERE menu_id IN (1,108)
-       OR parent_id IN (1,108)
-  ) t
+  SELECT menu_id FROM (SELECT menu_id FROM sys_menu WHERE menu_id IN (107,108) OR parent_id IN (107,108)) t
 );
-DELETE FROM sys_menu WHERE menu_id IN (1,108) OR parent_id IN (1,108);
-
--- 3) 清理普通角色(2)对已删菜单的绑定（存量若依授权；新库不再插入）
-DELETE FROM sys_role_menu WHERE role_id = 2
-  AND (menu_id IN (1,108) OR menu_id BETWEEN 100 AND 107 OR menu_id BETWEEN 1000 AND 1038);
+DELETE FROM sys_menu WHERE menu_id IN (107,108) OR parent_id IN (107,108);
+DELETE FROM sys_role_menu WHERE role_id = 2 AND (menu_id IN (107,108) OR menu_id BETWEEN 1035 AND 1038);
 
 -- 4) 删除 A1 种子遗留的 5001 内容与作品树（幂等）
 --    第 4 部分只把 5001 那行改写为 2000，对从 A1 基线升级上来的库不会移除旧行，
@@ -2184,6 +2181,117 @@ COMMIT;
 
 
 -- =====================================================================
+-- 第 11 部分：用户中心会话列表退役（幂等）。保留原菜单 ID 和逐项授权，
+-- 查询及操作权限挂到消息与公告；会话详情仍为隐藏路由，业务数据不变。
+-- =====================================================================
+START TRANSACTION;
+UPDATE sys_menu SET parent_id = 5152, menu_type = 'F', path = '#', component = NULL,
+  route_name = '', icon = '#', remark = '消息与公告用户沟通查询权限'
+WHERE menu_id = 5201 AND perms = 'chat:session:list';
+
+UPDATE sys_menu SET parent_id = 5152
+WHERE parent_id = 5201 AND menu_type = 'F';
+
+-- 原会话查询角色补齐新的页面入口和父目录，不授予额外沟通或公告操作权限。
+INSERT IGNORE INTO sys_role_menu (role_id, menu_id)
+SELECT DISTINCT rm.role_id, entry.menu_id
+FROM sys_role_menu rm
+CROSS JOIN (SELECT 5005 AS menu_id UNION ALL SELECT 5152) entry
+JOIN sys_menu m ON m.menu_id = rm.menu_id
+WHERE m.perms = 'chat:session:list';
+COMMIT;
+
+-- =====================================================================
+-- 第 12 部分：App 用户名称唯一索引（幂等）
+-- =====================================================================
+-- App 业务名称唯一；管理员昵称和逻辑删除账号不参与名称占用。
+-- 生成列沿用 sys_user 的排序规则，首尾空格及大小写不构成不同名称。
+-- 有历史重复名称的数据库需先处理冲突，再执行本段；不自动改写用户资料。
+SET @col_exists := (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'sys_user' AND COLUMN_NAME = 'app_display_name'
+);
+SET @ddl := IF(@col_exists = 0,
+  'ALTER TABLE sys_user ADD COLUMN app_display_name VARCHAR(30) GENERATED ALWAYS AS (CASE WHEN user_type IN (''01'',''02'',''03'') AND del_flag = ''0'' THEN NULLIF(TRIM(nick_name), '''') ELSE NULL END) VIRTUAL',
+  'SELECT ''app display name column ok'' AS note');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @idx_exists := (
+  SELECT COUNT(*) FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'sys_user' AND INDEX_NAME = 'uk_sys_user_app_display_name'
+);
+SET @ddl := IF(@idx_exists = 0,
+  'ALTER TABLE sys_user ADD UNIQUE INDEX uk_sys_user_app_display_name (app_display_name)',
+  'SELECT ''app display name unique index ok'' AS note');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- =====================================================================
+-- 第 13 部分：恢复完整系统管理（幂等，新库与已有库共用）
+-- 保留现有系统根目录 ID；新增菜单不会扩大受限角色的操作权限。
+-- =====================================================================
+START TRANSACTION;
+SET @system_root := (SELECT menu_id FROM sys_menu WHERE parent_id=0 AND path='system' AND menu_type='M' ORDER BY menu_id LIMIT 1);
+INSERT INTO sys_menu (menu_id,menu_name,parent_id,order_num,path,component,query,route_name,is_frame,is_cache,menu_type,visible,status,perms,icon,create_by,create_time,update_by,update_time,remark)
+SELECT '1', '系统管理', '0', '90', 'system',           null, '', '', 1, 0, 'M', '0', '0', '', 'system',   'admin', sysdate(), '', null, '系统管理目录' FROM DUAL WHERE @system_root IS NULL;
+SET @system_root := (SELECT menu_id FROM sys_menu WHERE parent_id=0 AND path='system' AND menu_type='M' ORDER BY menu_id LIMIT 1);
+UPDATE sys_menu SET menu_name='系统管理',visible='0',status='0',order_num=90 WHERE menu_id=@system_root;
+INSERT INTO sys_menu (menu_id,menu_name,parent_id,order_num,path,component,query,route_name,is_frame,is_cache,menu_type,visible,status,perms,icon,create_by,create_time,update_by,update_time,remark) VALUES
+('100',  '用户管理', @system_root,   '1', 'user',       'system/user/index',        '', '', 1, 0, 'C', '0', '0', 'system:user:list',        'user',          'admin', sysdate(), '', null, '用户管理菜单'),
+('101',  '角色管理', @system_root,   '2', 'role',       'system/role/index',        '', '', 1, 0, 'C', '0', '0', 'system:role:list',        'peoples',       'admin', sysdate(), '', null, '角色管理菜单'),
+('102',  '菜单管理', @system_root,   '3', 'menu',       'system/menu/index',        '', '', 1, 0, 'C', '0', '0', 'system:menu:list',        'tree-table',    'admin', sysdate(), '', null, '菜单管理菜单'),
+('103',  '部门管理', @system_root,   '4', 'dept',       'system/dept/index',        '', '', 1, 0, 'C', '0', '0', 'system:dept:list',        'tree',          'admin', sysdate(), '', null, '部门管理菜单'),
+('104',  '岗位管理', @system_root,   '5', 'post',       'system/post/index',        '', '', 1, 0, 'C', '0', '0', 'system:post:list',        'post',          'admin', sysdate(), '', null, '岗位管理菜单'),
+('105',  '字典管理', @system_root,   '6', 'dict',       'system/dict/index',        '', '', 1, 0, 'C', '0', '0', 'system:dict:list',        'dict',          'admin', sysdate(), '', null, '字典管理菜单'),
+('106',  '参数设置', @system_root,   '7', 'config',     'system/config/index',      '', '', 1, 0, 'C', '0', '0', 'system:config:list',      'edit',          'admin', sysdate(), '', null, '参数设置菜单'),
+('1000', '用户查询', '100', '1',  '', '', '', '', 1, 0, 'F', '0', '0', 'system:user:query',          '#', 'admin', sysdate(), '', null, ''),
+('1001', '用户新增', '100', '2',  '', '', '', '', 1, 0, 'F', '0', '0', 'system:user:add',            '#', 'admin', sysdate(), '', null, ''),
+('1002', '用户修改', '100', '3',  '', '', '', '', 1, 0, 'F', '0', '0', 'system:user:edit',           '#', 'admin', sysdate(), '', null, ''),
+('1003', '用户删除', '100', '4',  '', '', '', '', 1, 0, 'F', '0', '0', 'system:user:remove',         '#', 'admin', sysdate(), '', null, ''),
+('1004', '用户导出', '100', '5',  '', '', '', '', 1, 0, 'F', '0', '0', 'system:user:export',         '#', 'admin', sysdate(), '', null, ''),
+('1005', '用户导入', '100', '6',  '', '', '', '', 1, 0, 'F', '0', '0', 'system:user:import',         '#', 'admin', sysdate(), '', null, ''),
+('1006', '重置密码', '100', '7',  '', '', '', '', 1, 0, 'F', '0', '0', 'system:user:resetPwd',       '#', 'admin', sysdate(), '', null, ''),
+('1007', '角色查询', '101', '1',  '', '', '', '', 1, 0, 'F', '0', '0', 'system:role:query',          '#', 'admin', sysdate(), '', null, ''),
+('1008', '角色新增', '101', '2',  '', '', '', '', 1, 0, 'F', '0', '0', 'system:role:add',            '#', 'admin', sysdate(), '', null, ''),
+('1009', '角色修改', '101', '3',  '', '', '', '', 1, 0, 'F', '0', '0', 'system:role:edit',           '#', 'admin', sysdate(), '', null, ''),
+('1010', '角色删除', '101', '4',  '', '', '', '', 1, 0, 'F', '0', '0', 'system:role:remove',         '#', 'admin', sysdate(), '', null, ''),
+('1011', '角色导出', '101', '5',  '', '', '', '', 1, 0, 'F', '0', '0', 'system:role:export',         '#', 'admin', sysdate(), '', null, ''),
+('1012', '菜单查询', '102', '1',  '', '', '', '', 1, 0, 'F', '0', '0', 'system:menu:query',          '#', 'admin', sysdate(), '', null, ''),
+('1013', '菜单新增', '102', '2',  '', '', '', '', 1, 0, 'F', '0', '0', 'system:menu:add',            '#', 'admin', sysdate(), '', null, ''),
+('1014', '菜单修改', '102', '3',  '', '', '', '', 1, 0, 'F', '0', '0', 'system:menu:edit',           '#', 'admin', sysdate(), '', null, ''),
+('1015', '菜单删除', '102', '4',  '', '', '', '', 1, 0, 'F', '0', '0', 'system:menu:remove',         '#', 'admin', sysdate(), '', null, ''),
+('1016', '部门查询', '103', '1',  '', '', '', '', 1, 0, 'F', '0', '0', 'system:dept:query',          '#', 'admin', sysdate(), '', null, ''),
+('1017', '部门新增', '103', '2',  '', '', '', '', 1, 0, 'F', '0', '0', 'system:dept:add',            '#', 'admin', sysdate(), '', null, ''),
+('1018', '部门修改', '103', '3',  '', '', '', '', 1, 0, 'F', '0', '0', 'system:dept:edit',           '#', 'admin', sysdate(), '', null, ''),
+('1019', '部门删除', '103', '4',  '', '', '', '', 1, 0, 'F', '0', '0', 'system:dept:remove',         '#', 'admin', sysdate(), '', null, ''),
+('1020', '岗位查询', '104', '1',  '', '', '', '', 1, 0, 'F', '0', '0', 'system:post:query',          '#', 'admin', sysdate(), '', null, ''),
+('1021', '岗位新增', '104', '2',  '', '', '', '', 1, 0, 'F', '0', '0', 'system:post:add',            '#', 'admin', sysdate(), '', null, ''),
+('1022', '岗位修改', '104', '3',  '', '', '', '', 1, 0, 'F', '0', '0', 'system:post:edit',           '#', 'admin', sysdate(), '', null, ''),
+('1023', '岗位删除', '104', '4',  '', '', '', '', 1, 0, 'F', '0', '0', 'system:post:remove',         '#', 'admin', sysdate(), '', null, ''),
+('1024', '岗位导出', '104', '5',  '', '', '', '', 1, 0, 'F', '0', '0', 'system:post:export',         '#', 'admin', sysdate(), '', null, ''),
+('1025', '字典查询', '105', '1', '#', '', '', '', 1, 0, 'F', '0', '0', 'system:dict:query',          '#', 'admin', sysdate(), '', null, ''),
+('1026', '字典新增', '105', '2', '#', '', '', '', 1, 0, 'F', '0', '0', 'system:dict:add',            '#', 'admin', sysdate(), '', null, ''),
+('1027', '字典修改', '105', '3', '#', '', '', '', 1, 0, 'F', '0', '0', 'system:dict:edit',           '#', 'admin', sysdate(), '', null, ''),
+('1028', '字典删除', '105', '4', '#', '', '', '', 1, 0, 'F', '0', '0', 'system:dict:remove',         '#', 'admin', sysdate(), '', null, ''),
+('1029', '字典导出', '105', '5', '#', '', '', '', 1, 0, 'F', '0', '0', 'system:dict:export',         '#', 'admin', sysdate(), '', null, ''),
+('1030', '参数查询', '106', '1', '#', '', '', '', 1, 0, 'F', '0', '0', 'system:config:query',        '#', 'admin', sysdate(), '', null, ''),
+('1031', '参数新增', '106', '2', '#', '', '', '', 1, 0, 'F', '0', '0', 'system:config:add',          '#', 'admin', sysdate(), '', null, ''),
+('1032', '参数修改', '106', '3', '#', '', '', '', 1, 0, 'F', '0', '0', 'system:config:edit',         '#', 'admin', sysdate(), '', null, ''),
+('1033', '参数删除', '106', '4', '#', '', '', '', 1, 0, 'F', '0', '0', 'system:config:remove',       '#', 'admin', sysdate(), '', null, ''),
+('1034', '参数导出', '106', '5', '#', '', '', '', 1, 0, 'F', '0', '0', 'system:config:export',       '#', 'admin', sysdate(), '', null, '')
+ON DUPLICATE KEY UPDATE menu_name=VALUES(menu_name),parent_id=VALUES(parent_id),order_num=VALUES(order_num),
+  path=VALUES(path),component=VALUES(component),menu_type=VALUES(menu_type),visible=VALUES(visible),
+  status=VALUES(status),perms=VALUES(perms),icon=VALUES(icon);
+
+-- 超级管理员角色恢复全部系统管理授权；其他角色保留原有逐项授权。
+INSERT IGNORE INTO sys_role_menu (role_id,menu_id)
+SELECT r.role_id,m.menu_id FROM sys_role r JOIN sys_menu m
+  ON m.menu_id=@system_root OR m.menu_id BETWEEN 100 AND 106 OR m.menu_id BETWEEN 1000 AND 1034
+WHERE r.del_flag='0' AND (r.role_id=1 OR r.role_key='admin');
+INSERT IGNORE INTO sys_role_menu (role_id,menu_id)
+SELECT DISTINCT role_id,@system_root FROM sys_role_menu WHERE menu_id BETWEEN 100 AND 106;
+COMMIT;
+
+-- =====================================================================
 -- 收口自检
 -- =====================================================================
 SELECT 'SMARTSCRIPT_INIT_DONE' AS step,
@@ -2208,11 +2316,13 @@ SELECT 'SMARTSCRIPT_INIT_DONE' AS step,
        (SELECT COUNT(*) FROM information_schema.COLUMNS
          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'sys_user' AND COLUMN_NAME = 'bio') AS bio_col;
 
--- 6) 校验：系统管理(1)与日志管理(108)应不存在；500/501 应挂在 5002 下；
+-- 6) 校验：系统管理根目录与七个页面已恢复；旧日志目录(108)不存在；日志仍在数据统计；
 --    5001 遗留树应清空；5200 用户沟通目录应不存在；同级目录 path 不得重复
 --    （否则侧边栏展开状态会串）
 SELECT
-  (SELECT COUNT(*) FROM sys_menu WHERE menu_id IN (1,108)) AS deleted_dir_should_be_0,
+  (SELECT COUNT(*) FROM sys_menu WHERE menu_id = 108) AS deleted_log_dir_should_be_0,
+  (SELECT COUNT(*) FROM sys_menu WHERE parent_id=0 AND path='system' AND menu_type='M') AS system_root_should_be_1,
+  (SELECT COUNT(*) FROM sys_menu WHERE menu_id BETWEEN 100 AND 106 AND parent_id=@system_root) AS system_pages_should_be_7,
   (SELECT COUNT(*) FROM sys_menu WHERE menu_id IN (500,501) AND parent_id = 5002) AS logs_under_stats_should_be_2,
   (SELECT COUNT(*) FROM sys_menu
     WHERE menu_id = 5001 OR parent_id = 5001
@@ -2232,6 +2342,8 @@ SELECT
   (SELECT COUNT(*) FROM sys_menu WHERE menu_id = 3009 AND parent_id = 3001) AS creator_update_under_app_users_should_be_1,
   (SELECT COUNT(*) FROM sys_menu WHERE menu_id IN (3010,3011,3012)) AS legacy_message_menus_should_be_0,
   (SELECT COUNT(*) FROM sys_menu WHERE menu_id = 5152 AND parent_id = 5005) AS messages_under_operations_should_be_1,
+  (SELECT COUNT(*) FROM sys_menu WHERE parent_id = 3000 AND component = 'chat/ChatSessions') AS legacy_chat_pages_should_be_0,
+  (SELECT COUNT(*) FROM sys_menu WHERE menu_id = 5201 AND parent_id = 5152 AND menu_type = 'F') AS chat_list_permission_should_be_1,
   (SELECT COUNT(*) FROM (
     SELECT parent_id, path FROM sys_menu
     WHERE menu_type IN ('M','C') AND status = '0'
