@@ -41,6 +41,9 @@ public final class AppUserErrorCodes
     /** 409 重复提交。 */
     public static final int DUPLICATE_SUBMIT = 40906;
 
+    /** 409 用户名称已被其他 App 用户使用。 */
+    public static final int NICKNAME_TAKEN = 40907;
+
     /** 404 通用文案：与「不属于我」同文案，避免泄露资源是否存在。 */
     public static final String RESOURCE_NOT_FOUND_TEXT = "资源不存在";
 

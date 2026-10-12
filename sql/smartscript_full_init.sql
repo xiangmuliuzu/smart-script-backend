@@ -2184,6 +2184,30 @@ COMMIT;
 
 
 -- =====================================================================
+-- 第 12 部分：App 用户名称唯一索引（幂等）
+-- =====================================================================
+-- App 业务名称唯一；管理员昵称和逻辑删除账号不参与名称占用。
+-- 生成列沿用 sys_user 的排序规则，首尾空格及大小写不构成不同名称。
+-- 有历史重复名称的数据库需先处理冲突，再执行本段；不自动改写用户资料。
+SET @col_exists := (
+  SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'sys_user' AND COLUMN_NAME = 'app_display_name'
+);
+SET @ddl := IF(@col_exists = 0,
+  'ALTER TABLE sys_user ADD COLUMN app_display_name VARCHAR(30) GENERATED ALWAYS AS (CASE WHEN user_type IN (''01'',''02'',''03'') AND del_flag = ''0'' THEN NULLIF(TRIM(nick_name), '''') ELSE NULL END) VIRTUAL',
+  'SELECT ''app display name column ok'' AS note');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @idx_exists := (
+  SELECT COUNT(*) FROM information_schema.STATISTICS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'sys_user' AND INDEX_NAME = 'uk_sys_user_app_display_name'
+);
+SET @ddl := IF(@idx_exists = 0,
+  'ALTER TABLE sys_user ADD UNIQUE INDEX uk_sys_user_app_display_name (app_display_name)',
+  'SELECT ''app display name unique index ok'' AS note');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- =====================================================================
 -- 收口自检
 -- =====================================================================
 SELECT 'SMARTSCRIPT_INIT_DONE' AS step,

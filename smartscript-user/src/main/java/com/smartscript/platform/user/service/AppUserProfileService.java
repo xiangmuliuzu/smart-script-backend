@@ -8,6 +8,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import com.smartscript.platform.user.constant.AppAuthErrorCodes;
@@ -38,8 +39,8 @@ import com.smartscript.platform.user.util.AppHashes;
 @Service
 public class AppUserProfileService
 {
-    /** 昵称长度上限，与 sys_user.nick_name 列宽（30）一致。 */
-    private static final int NICKNAME_MAX = 30;
+    /** 用户名称最多 15 个 Unicode 字符；数据库保留原列宽以兼容历史资料。 */
+    private static final int NICKNAME_MAX = 15;
 
     /** 头像地址长度上限，与 sys_user.avatar 列宽（100）一致。 */
     private static final int AVATAR_MAX = 100;
@@ -87,7 +88,14 @@ public class AppUserProfileService
         if (request.getNickname() != null)
         {
             String nickName = normalizeNickname(request.getNickname());
-            centerMapper.updateNickName(userId, nickName);
+            try
+            {
+                centerMapper.updateNickName(userId, nickName);
+            }
+            catch (DuplicateKeyException e)
+            {
+                throw new AppAuthException(AppUserErrorCodes.NICKNAME_TAKEN, 409, "用户名称已被使用，请更换名称");
+            }
             user.setNickName(nickName);
         }
         if (request.getAvatar() != null)
@@ -110,11 +118,11 @@ public class AppUserProfileService
         String value = raw == null ? "" : raw.trim();
         if (value.isEmpty())
         {
-            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "nickname required");
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "用户名称不能为空");
         }
-        if (value.length() > NICKNAME_MAX)
+        if (value.codePointCount(0, value.length()) > NICKNAME_MAX)
         {
-            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "nickname too long");
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "用户名称不能超过 15 个字符");
         }
         return value;
     }

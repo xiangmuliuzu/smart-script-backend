@@ -319,11 +319,14 @@ public class AppAuthenticationService
         catch (DuplicateKeyException e)
         {
             AppUserRecord existing = userMapper.selectByPhone(phone);
-            if (existing == null)
+            if (existing != null)
             {
-                throw e;
+                return existing;
             }
-            return existing;
+            // 不同手机号的掩码可能相同；名称唯一索引冲突时用随机默认名称，避免阻断注册。
+            user.setNickName("用户" + randomAppUserName().substring(4, 17));
+            userMapper.insertAppUser(user);
+            return user;
         }
         return user;
     }
