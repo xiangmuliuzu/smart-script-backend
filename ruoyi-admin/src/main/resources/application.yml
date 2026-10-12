@@ -107,11 +107,6 @@ app:
   # A3 App 凭证域（变量名与默认上下限；密钥仅环境变量）
   auth:
     env: ${APP_AUTH_ENV:local}
-    token-secret: ${APP_TOKEN_SECRET:}
-    token-issuer: ${APP_TOKEN_ISSUER:}
-    token-audience: ${APP_TOKEN_AUDIENCE:}
-    access-token-ttl: ${APP_ACCESS_TOKEN_TTL:1800}
-    refresh-token-ttl: ${APP_REFRESH_TOKEN_TTL:1209600}
     redis-key-prefix: ${APP_REDIS_KEY_PREFIX:}
     sms:
       provider: ${SMS_PROVIDER:mock}

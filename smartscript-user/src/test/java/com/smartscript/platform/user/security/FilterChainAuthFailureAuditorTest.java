@@ -141,7 +141,7 @@ class FilterChainAuthFailureAuditorTest
     void scopeCoversAModulePathsOnly()
     {
         assertTrue(FilterChainAuthFailureAuditor.inScope("/api/v1/admin/app-users"));
-        assertTrue(FilterChainAuthFailureAuditor.inScope("/api/v1/auth/token/refresh"));
+        assertTrue(FilterChainAuthFailureAuditor.inScope("/api/v1/auth/login"));
         assertTrue(FilterChainAuthFailureAuditor.inScope("/api/v1/users/me/profile"));
         assertTrue(FilterChainAuthFailureAuditor.inScope("/api/v1/messages"));
         assertTrue(FilterChainAuthFailureAuditor.inScope("/api/v1/feedback/1"));

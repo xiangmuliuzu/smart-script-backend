@@ -10,7 +10,6 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import java.util.Date;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -19,19 +18,17 @@ import com.ruoyi.system.domain.SysLogininfor;
 import com.smartscript.platform.identity.IdentityContext;
 import com.smartscript.platform.identity.IdentityProvider;
 import com.smartscript.platform.user.constant.AppAuthErrorCodes;
-import com.smartscript.platform.user.domain.AppRefreshSession;
 import com.smartscript.platform.user.domain.AppUserRecord;
 import com.smartscript.platform.user.dto.PasswordLoginRequest;
 import com.smartscript.platform.user.dto.SmsLoginRequest;
 import com.smartscript.platform.user.exception.AppAuthException;
-import com.smartscript.platform.user.mapper.AppRefreshSessionMapper;
 import com.smartscript.platform.user.mapper.AppUserMapper;
-import com.smartscript.platform.user.security.AppAccessTokenService.IssuedAccessToken;
+import com.smartscript.platform.user.security.AppRuoYiSessionService;
 import com.smartscript.platform.user.service.AppSessionRevocationService;
-import com.smartscript.platform.user.service.RefreshSessionService.IssuedSession;
+
 
 /**
- * H15-REV-03（验收标准 §9.3）：登录成功/失败、禁用账号登录、Refresh Token 重放必须留可查询安全审计。
+ * H15-REV-03（验收标准 §9.3）：登录成功/失败、禁用账号登录必须留可查询安全审计。
  *
  * 不启动 Spring：Mockito 构造服务依赖，捕获 AppSecurityEventRecorder 收到的行，
  * 与黑盒脚本 `shared/scripts/h-a-login-replay-audit.mjs`（真实后端逐请求断言 sys_logininfor）互补。
@@ -67,10 +64,10 @@ class AppLoginAuditEventTest
     }
 
     private AppAuthenticationService service(CapturingRecorder recorder, AppUserMapper userMapper,
-            SmsCodeService smsCodeService, RefreshSessionService refreshSessionService)
+            SmsCodeService smsCodeService, AppRuoYiSessionService sessionService)
     {
         return new AppAuthenticationService(userMapper, smsCodeService, mock(AgreementService.class),
-                refreshSessionService, mock(AppSessionRevocationService.class),
+                sessionService, mock(AppSessionRevocationService.class),
                 new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder(),
                 identityProvider(), recorder);
     }
@@ -104,12 +101,6 @@ class AppLoginAuditEventTest
     }
 
     @SuppressWarnings("unchecked")
-    private RefreshSessionService refreshSessionService(CapturingRecorder recorder, AppRefreshSessionMapper mapper)
-    {
-        return new RefreshSessionService(new com.smartscript.platform.user.config.AppAuthProperties(),
-                mapper, null, mock(AppSessionRevocationService.class), recorder);
-    }
-
     // ------------------------------------------------------------ 密码登录
     @Test
     void passwordLoginFailureRecordsLoginFailWithoutPassword()
@@ -117,8 +108,10 @@ class AppLoginAuditEventTest
         CapturingRecorder recorder = new CapturingRecorder();
         AppUserMapper userMapper = mock(AppUserMapper.class);
         when(userMapper.selectByPhone(PHONE)).thenReturn(usableUser());
-        AppAuthenticationService service = service(recorder, userMapper, mock(SmsCodeService.class),
-                refreshSessionService(recorder, mock(AppRefreshSessionMapper.class)));
+        AppRuoYiSessionService sessions = mock(AppRuoYiSessionService.class);
+        org.mockito.Mockito.doThrow(new AppAuthException(AppAuthErrorCodes.PARAM, 400, "bad credential"))
+                .when(sessions).authenticate(any(), eq("TotallyWrong1"), any(), any());
+        AppAuthenticationService service = service(recorder, userMapper, mock(SmsCodeService.class), sessions);
 
         PasswordLoginRequest request = new PasswordLoginRequest();
         request.setPhone(PHONE);
@@ -140,7 +133,7 @@ class AppLoginAuditEventTest
         AppUserMapper userMapper = mock(AppUserMapper.class);
         when(userMapper.selectByPhone(PHONE)).thenReturn(disabledUser());
         AppAuthenticationService service = service(recorder, userMapper, mock(SmsCodeService.class),
-                refreshSessionService(recorder, mock(AppRefreshSessionMapper.class)));
+                mock(AppRuoYiSessionService.class));
 
         PasswordLoginRequest request = new PasswordLoginRequest();
         request.setPhone(PHONE);
@@ -161,12 +154,8 @@ class AppLoginAuditEventTest
         AppUserMapper userMapper = mock(AppUserMapper.class);
         when(userMapper.selectByPhone(PHONE)).thenReturn(usableUser());
 
-        RefreshSessionService rss = org.mockito.Mockito.mock(RefreshSessionService.class);
-        AppRefreshSession session = new AppRefreshSession();
-        session.setId(11L);
-        session.setUserId(901L);
-        when(rss.createSession(eq(901L), any(), any())).thenReturn(
-                new IssuedSession(session, "raw-refresh", new IssuedAccessToken("access", "jti", 11L, 300), 600));
+        AppRuoYiSessionService rss = mock(AppRuoYiSessionService.class);
+        when(rss.issue(any())).thenReturn("token");
         AppAuthenticationService service = service(recorder, userMapper, mock(SmsCodeService.class), rss);
 
         PasswordLoginRequest request = new PasswordLoginRequest();
@@ -190,7 +179,7 @@ class AppLoginAuditEventTest
         org.mockito.Mockito.doThrow(new AppAuthException(AppAuthErrorCodes.SMS_CODE_INVALID, 400, "sms code invalid"))
                 .when(sms).consumeOnce(PHONE, "LOGIN", "000000");
         AppAuthenticationService service = service(recorder, mock(AppUserMapper.class), sms,
-                refreshSessionService(recorder, mock(AppRefreshSessionMapper.class)));
+                mock(AppRuoYiSessionService.class));
 
         SmsLoginRequest request = new SmsLoginRequest();
         request.setPhone(PHONE);
@@ -213,7 +202,7 @@ class AppLoginAuditEventTest
         AppUserMapper userMapper = mock(AppUserMapper.class);
         when(userMapper.selectByPhone(PHONE)).thenReturn(disabledUser());
         AppAuthenticationService service = service(recorder, userMapper, sms,
-                refreshSessionService(recorder, mock(AppRefreshSessionMapper.class)));
+                mock(AppRuoYiSessionService.class));
 
         SmsLoginRequest request = new SmsLoginRequest();
         request.setPhone(PHONE);
@@ -226,12 +215,8 @@ class AppLoginAuditEventTest
         CapturingRecorder okRecorder = new CapturingRecorder();
         AppUserMapper okMapper = mock(AppUserMapper.class);
         when(okMapper.selectByPhone(PHONE)).thenReturn(null, usableUser());
-        RefreshSessionService rss = org.mockito.Mockito.mock(RefreshSessionService.class);
-        AppRefreshSession session = new AppRefreshSession();
-        session.setId(12L);
-        session.setUserId(901L);
-        when(rss.createSession(any(), any(), any())).thenReturn(
-                new IssuedSession(session, "raw-refresh", new IssuedAccessToken("access", "jti", 12L, 300), 600));
+        AppRuoYiSessionService rss = mock(AppRuoYiSessionService.class);
+        when(rss.issue(any())).thenReturn("token");
         AppAuthenticationService okService = new AppAuthenticationService(okMapper, sms,
                 mock(AgreementService.class), rss, mock(AppSessionRevocationService.class),
                 new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder(),
@@ -239,33 +224,6 @@ class AppLoginAuditEventTest
         okService.smsLogin(request, IP);
         assertEquals(1, okRecorder.rows.size());
         assertTrue(okRecorder.rows.get(0).startsWith("APP_LOGIN_SUCCESS|0|" + MASK + "|"), okRecorder.rows.get(0));
-    }
-
-    // ------------------------------------------------------------ Refresh 重放
-    @Test
-    void refreshReplayRecordsSecurityEventAndRevokesFamily()
-    {
-        CapturingRecorder recorder = new CapturingRecorder();
-        AppRefreshSessionMapper mapper = mock(AppRefreshSessionMapper.class);
-        AppRefreshSession revoked = new AppRefreshSession();
-        revoked.setId(21L);
-        revoked.setUserId(902L);
-        revoked.setFamilyId("family-abc");
-        revoked.setRevokedAt(new Date());
-        revoked.setRevokedReason("ROTATED");
-        when(mapper.selectByTokenHashForUpdate(anyString())).thenReturn(revoked);
-        RefreshSessionService rss = refreshSessionService(recorder, mapper);
-
-        AppAuthException ex = assertThrows(AppAuthException.class,
-                () -> rss.rotate("stolen-refresh-token", null, null, IP));
-        assertEquals(AppAuthErrorCodes.REFRESH_REPLAY, ex.getCode());
-
-        verify(mapper).revokeFamily(eq("family-abc"), eq("REPLAY"), any(Date.class));
-        assertEquals(1, recorder.rows.size());
-        String row = recorder.rows.get(0);
-        assertTrue(row.startsWith("APP_REFRESH_REPLAY|1|user-902|"), "重放事件/失败状态/内部标识 actor：" + row);
-        assertTrue(row.contains("family=family-abc"), row);
-        assertTrue(!row.contains("stolen-refresh-token"), "令牌原文不得入审计：" + row);
     }
 
     // ------------------------------------------------------------ Recorder 行口径
@@ -321,12 +279,8 @@ class AppLoginAuditEventTest
         CapturingRecorder recorder = new CapturingRecorder();
         AppUserMapper userMapper = mock(AppUserMapper.class);
         when(userMapper.selectByPhone(PHONE)).thenReturn(usableUser());
-        RefreshSessionService rss = org.mockito.Mockito.mock(RefreshSessionService.class);
-        AppRefreshSession session = new AppRefreshSession();
-        session.setId(31L);
-        session.setUserId(901L);
-        when(rss.createSession(any(), any(), any())).thenReturn(
-                new IssuedSession(session, "raw-refresh", new IssuedAccessToken("access", "jti", 31L, 300), 600));
+        AppRuoYiSessionService rss = mock(AppRuoYiSessionService.class);
+        when(rss.issue(any())).thenReturn("token");
         AppAuthenticationService service = service(recorder, userMapper, mock(SmsCodeService.class), rss);
 
         PasswordLoginRequest request = new PasswordLoginRequest();
@@ -354,8 +308,8 @@ class AppLoginAuditEventTest
         CapturingRecorder recorder = new CapturingRecorder();
         AppUserMapper userMapper = mock(AppUserMapper.class);
         when(userMapper.selectByPhone(PHONE)).thenReturn(usableUser());
-        RefreshSessionService rss = org.mockito.Mockito.mock(RefreshSessionService.class);
-        when(rss.createSession(any(), any(), any())).thenThrow(new RuntimeException("h15-rev05: session insert failed"));
+        AppRuoYiSessionService rss = mock(AppRuoYiSessionService.class);
+        when(rss.issue(any())).thenThrow(new RuntimeException("h15-rev05: session insert failed"));
         AppAuthenticationService service = service(recorder, userMapper, mock(SmsCodeService.class), rss);
 
         PasswordLoginRequest request = new PasswordLoginRequest();
@@ -376,7 +330,7 @@ class AppLoginAuditEventTest
         AppUserMapper userMapper = mock(AppUserMapper.class);
         when(userMapper.selectByPhone(PHONE)).thenReturn(disabledUser());
         AppAuthenticationService service = service(recorder, userMapper, mock(SmsCodeService.class),
-                refreshSessionService(recorder, mock(AppRefreshSessionMapper.class)));
+                mock(AppRuoYiSessionService.class));
 
         PasswordLoginRequest request = new PasswordLoginRequest();
         request.setPhone(PHONE);

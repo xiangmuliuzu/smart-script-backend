@@ -75,6 +75,19 @@ public class LoginUser implements UserDetails
      */
     private SysUser user;
 
+    /** Credential domain is stored in Redis and bound to the signed token. */
+    private String credentialDomain = "admin";
+
+    public String getCredentialDomain()
+    {
+        return credentialDomain;
+    }
+
+    public void setCredentialDomain(String credentialDomain)
+    {
+        this.credentialDomain = credentialDomain;
+    }
+
     public LoginUser()
     {
     }

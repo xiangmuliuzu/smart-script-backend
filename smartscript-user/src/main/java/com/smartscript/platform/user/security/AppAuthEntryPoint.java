@@ -35,8 +35,10 @@ public class AppAuthEntryPoint implements AuthenticationEntryPoint
         response.setStatus(401);
         response.setCharacterEncoding(StandardCharsets.UTF_8.name());
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-        response.getWriter().write(objectMapper.writeValueAsString(
-                AppApiResponse.fail(AppAuthErrorCodes.UNAUTHORIZED, "unauthorized")));
+        Object body = request.getRequestURI().startsWith("/api/v1/auth/")
+                ? com.ruoyi.common.core.domain.AjaxResult.error(AppAuthErrorCodes.UNAUTHORIZED, "unauthorized")
+                : AppApiResponse.fail(AppAuthErrorCodes.UNAUTHORIZED, "unauthorized");
+        response.getWriter().write(objectMapper.writeValueAsString(body));
         // 响应写完之后才回调审计；回调只读请求、不得改动响应。
         if (authenticationFailureAuditor != null)
         {

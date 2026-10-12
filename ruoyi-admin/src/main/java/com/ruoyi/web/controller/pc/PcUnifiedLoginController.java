@@ -72,12 +72,14 @@ public class PcUnifiedLoginController
         if (AppAdminConstants.isManagedUserType(account.getUserType()))
         {
             // App 用户域：验证码与 App 端登录共用若依验证码体系（config 关闭时跳过）。
-            loginService.validateCaptcha(identifier, body.getCode(), body.getUuid());
             try
             {
-                AuthSessionDto session = appAuthenticationService.pcPasswordLogin(identifier, password, clientIp(http));
+                AuthSessionDto session = appAuthenticationService.ruoyiPasswordLogin(identifier, password,
+                        body.getCode(), body.getUuid(), clientIp(http));
                 AjaxResult ajax = AjaxResult.success();
                 ajax.put("accountType", account.getUserType());
+                ajax.put("token", session.getToken());
+                ajax.put("user", session.getUser());
                 ajax.put("session", session);
                 return ajax;
             }
