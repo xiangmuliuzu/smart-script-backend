@@ -8,6 +8,7 @@
         <result property="clientId"        column="client_id" />
         <result property="title"           column="title" />
         <result property="genreId"         column="genre_id" />
+        <result property="tags"            column="tags" />
         <result property="budget"          column="budget" />
         <result property="deadline"        column="deadline" />
         <result property="requirement"     column="requirement" />
@@ -25,7 +26,7 @@
     </resultMap>
 
     <select id="selectDemandList" parameterType="com.smartscript.platform.trade.domain.SysDemand" resultMap="SysDemandResult">
-        select d.demand_id, d.demand_no, d.client_id, d.title, d.genre_id, d.budget, d.deadline,
+        select d.demand_id, d.demand_no, d.client_id, d.title, d.genre_id, d.tags, d.budget, d.deadline,
                d.requirement, d.contact_info, d.submission_count, d.status,
                d.created_at, d.updated_at, d.create_by, d.create_time, d.update_by, d.update_time, d.remark,
                uc.nick_name as client_name
@@ -43,7 +44,7 @@
     </select>
 
     <select id="selectDemandById" parameterType="Long" resultMap="SysDemandResult">
-        select d.demand_id, d.demand_no, d.client_id, d.title, d.genre_id, d.budget, d.deadline,
+        select d.demand_id, d.demand_no, d.client_id, d.title, d.genre_id, d.tags, d.budget, d.deadline,
                d.requirement, d.contact_info, d.submission_count, d.status,
                d.created_at, d.updated_at, d.create_by, d.create_time, d.update_by, d.update_time, d.remark,
                uc.nick_name as client_name
@@ -54,11 +55,11 @@
 
     <insert id="insertDemand" parameterType="com.smartscript.platform.trade.domain.SysDemand" useGeneratedKeys="true" keyProperty="demandId">
         insert into sys_demand (
-            demand_no, client_id, title, genre_id, budget, deadline,
+            demand_no, client_id, title, genre_id, tags, budget, deadline,
             requirement, contact_info, submission_count, status,
             create_by, create_time, remark
         ) values (
-            #{demandNo}, #{clientId}, #{title}, #{genreId}, #{budget}, #{deadline},
+            #{demandNo}, #{clientId}, #{title}, #{genreId}, #{tags}, #{budget}, #{deadline},
             #{requirement}, #{contactInfo}, #{submissionCount}, #{status},
             #{createBy}, #{createTime}, #{remark}
         )

@@ -18,6 +18,7 @@ public class SysDemand extends BaseEntity
     private Long clientId;
     private String title;
     private Integer genreId;
+    private String tags;
     private BigDecimal budget;
 
     @JsonFormat(pattern = "yyyy-MM-dd")
@@ -47,6 +48,8 @@ public class SysDemand extends BaseEntity
     public void setTitle(String title) { this.title = title; }
     public Integer getGenreId() { return genreId; }
     public void setGenreId(Integer genreId) { this.genreId = genreId; }
+    public String getTags() { return tags; }
+    public void setTags(String tags) { this.tags = tags; }
     public BigDecimal getBudget() { return budget; }
     public void setBudget(BigDecimal budget) { this.budget = budget; }
     public Date getDeadline() { return deadline; }
