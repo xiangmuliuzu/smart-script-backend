@@ -93,7 +93,7 @@ public class AppUserWorkController
     }
 
     /**
-     * 修改作品基本信息（标题/简介/分类）
+     * 修改作品基本信息（标题/简介/分类/封面）
      */
     @PutMapping("/{workId}")
     public AppApiResponse<Void> update(@PathVariable Long workId, @RequestBody Map<String, Object> body)
@@ -102,7 +102,8 @@ public class AppUserWorkController
         try
         {
             userWorkService.updateWorkBase(userId, workId,
-                    str(body.get("title")), str(body.get("summary")), integer(body.get("genreId")));
+                    str(body.get("title")), str(body.get("summary")), integer(body.get("genreId")),
+                    str(body.get("cover")));
             return AppApiResponse.ok();
         }
         catch (IllegalArgumentException e)

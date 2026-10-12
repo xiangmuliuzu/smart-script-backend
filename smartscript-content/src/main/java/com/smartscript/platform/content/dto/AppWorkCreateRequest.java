@@ -27,6 +27,15 @@ public class AppWorkCreateRequest
     /** 价格（可选，缺省 0.00） */
     private BigDecimal price;
 
+    /** 剧本文件地址（可选；上传接口 2.9.1 返回的 url，落 sys_work_file.file_url） */
+    private String scriptUrl;
+
+    /** 剧本文件名（可选，落 sys_work_file.file_name） */
+    private String scriptName;
+
+    /** 剧本文件大小（字节，可选，落 sys_work_file.file_size） */
+    private Long scriptSize;
+
     public String getTitle()
     {
         return title;
@@ -75,5 +84,35 @@ public class AppWorkCreateRequest
     public void setPrice(BigDecimal price)
     {
         this.price = price;
+    }
+
+    public String getScriptUrl()
+    {
+        return scriptUrl;
+    }
+
+    public void setScriptUrl(String scriptUrl)
+    {
+        this.scriptUrl = scriptUrl;
+    }
+
+    public String getScriptName()
+    {
+        return scriptName;
+    }
+
+    public void setScriptName(String scriptName)
+    {
+        this.scriptName = scriptName;
+    }
+
+    public Long getScriptSize()
+    {
+        return scriptSize;
+    }
+
+    public void setScriptSize(Long scriptSize)
+    {
+        this.scriptSize = scriptSize;
     }
 }

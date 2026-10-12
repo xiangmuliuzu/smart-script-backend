@@ -144,6 +144,10 @@ public class AppWorkManageController
         createRequest.setDescription(trimToNull(asString(request, "description")));
         createRequest.setCover(trimToNull(asString(request, "cover")));
         createRequest.setPrice(price);
+        // 剧本文件随创建一并登记（2.9.1 上传返回的 url/name/size），落 sys_work_file
+        createRequest.setScriptUrl(asStringAny(request, "script_url", "scriptUrl"));
+        createRequest.setScriptName(asStringAny(request, "script_name", "scriptName"));
+        createRequest.setScriptSize(asLong(request, "script_size", "scriptSize"));
         Long workId = workManageService.createWork(createRequest);
         if (workId == null)
         {
@@ -318,6 +322,57 @@ public class AppWorkManageController
         }
         Object raw = body.get(key);
         return raw instanceof String text ? text : (raw == null ? null : String.valueOf(raw));
+    }
+
+    /**
+     * 从请求体取字符串，按 keys 顺序尝试首个非空值（兼容 snake_case 与 camelCase）。
+     */
+    private static String asStringAny(Map<String, Object> body, String... keys)
+    {
+        if (body == null)
+        {
+            return null;
+        }
+        for (String key : keys)
+        {
+            String value = trimToNull(asString(body, key));
+            if (value != null)
+            {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 从请求体取长整数，按 keys 顺序尝试（兼容 snake_case 与 camelCase）。
+     */
+    private static Long asLong(Map<String, Object> body, String... keys)
+    {
+        if (body == null)
+        {
+            return null;
+        }
+        for (String key : keys)
+        {
+            Object raw = body.get(key);
+            if (raw instanceof Number number)
+            {
+                return number.longValue();
+            }
+            if (raw instanceof String text && !text.isBlank())
+            {
+                try
+                {
+                    return Long.valueOf(text.trim());
+                }
+                catch (NumberFormatException ignored)
+                {
+                    return null;
+                }
+            }
+        }
+        return null;
     }
 
     /**

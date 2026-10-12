@@ -164,6 +164,17 @@ java -jar ruoyi-admin/target/ruoyi-admin.jar
 
 数据库结构变更统一维护在 `sql/smartscript_full_init.sql`（幂等）；应用启动不自动改表。
 
+## 上传文件目录（团队共享）
+
+上传产物（作品封面、轮播图、漫剧视频、剧本文件等）统一落在**仓库内** `uploadPath/`，
+根目录由 `ruoyi.profile` 决定，默认 `${RUOYI_PROFILE:uploadPath}`（相对启动工作目录）：
+
+- **必须从仓库根目录启动后端**（见上节命令），否则会落到 `ruoyi-admin/` 等模块目录；
+  需要固定到别处时设置环境变量 `RUOYI_PROFILE`。
+- 该目录**纳入版本控制**。上传后需把 `uploadPath/` 下新增文件提交推送，其他开发拉取后即可见；
+  否则云端共享库里虽有记录、别人本地没有文件，图片/视频仍然破图。
+- 数据库存的是 `/profile/upload/yyyy/MM/dd/xxx.ext` 这类地址，移动根目录不影响已有记录。
+
 ## 目录导航
 
 | 路径 | 内容 |
@@ -171,6 +182,7 @@ java -jar ruoyi-admin/target/ruoyi-admin.jar
 | `sql/smartscript_full_init.sql` | 平台数据库唯一初始化/增量升级入口（基线 + 全部增量，自幂等） |
 | `sql/ry_20260320.sql` | 若依基线原文（已内嵌进全量脚本，仅供上游参照） |
 | `scripts/db/` | 初始化脚本（`.sh` / `.ps1`）与全量步骤清单 `init-steps.txt` |
+| `uploadPath/` | 上传产物根目录（随仓库分发，上传后需提交推送） |
 
 **建库只有这一条路径**：所有建库动作都走 `scripts/db/init-database.*`，仓库内不存在
 第二个初始化命令，也没有任何会 `DROP DATABASE` 的建库脚本。

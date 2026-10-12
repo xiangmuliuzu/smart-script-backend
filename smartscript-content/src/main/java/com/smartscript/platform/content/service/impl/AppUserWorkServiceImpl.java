@@ -25,7 +25,8 @@ import com.smartscript.platform.content.service.IAppUserWorkService;
  *   pending / ai_reviewing -> reviewing（审核中，只读）
  *   revision    -> revision（待修改，可编辑）
  *   rejected    -> rejected（已驳回，可编辑）
- *   approved    -> published（审核通过，只读）
+ *   approved    -> published（已发布，可编辑；改动后需重新提交审核）
+ * 编辑闸门：仅 reviewing（审核中）锁定，其余状态均允许编辑。
  * 提交审核只写 sys_review_record，不修改 sys_work.status。
  *
  * 鉴权：userId 由控制器从 IdentityProvider 取得后传入，本服务不做请求体信任。
@@ -37,9 +38,6 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
 {
     /** 审核中状态：待审核 / AI审核中（不可编辑、不可重复提交） */
     private static final java.util.Set<String> REVIEWING_STATUS = java.util.Set.of("pending", "ai_reviewing");
-
-    /** 可编辑状态：无记录（草稿）/ 待修改 / 已驳回 */
-    private static final java.util.Set<String> EDITABLE_STATUS = java.util.Set.of("revision", "rejected");
 
     private final SysContentWorkMapper workMapper;
     private final SysWorkChapterMapper chapterMapper;
@@ -73,9 +71,9 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
     }
 
     @Override
-    public void updateWorkBase(Long userId, Long workId, String title, String summary, Integer genreId)
+    public void updateWorkBase(Long userId, Long workId, String title, String summary, Integer genreId, String cover)
     {
-        SysWork work = requireOwnWork(userId, workId);
+        requireOwnWork(userId, workId);
         requireEditable(workId, userId);
 
         SysWork update = new SysWork();
@@ -83,6 +81,7 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
         update.setTitle(title);
         update.setSummary(summary);
         update.setGenreId(genreId);
+        update.setCover(cover);
         update.setUpdateBy(String.valueOf(userId));
         update.setUpdateTime(new Date());
         workMapper.updateWorkBaseInfo(update);
@@ -156,14 +155,9 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
         {
             throw new IllegalStateException("作品正在审核中，请勿重复提交");
         }
-        // 已审核通过的作品不允许重新提交（需先走平台流程）
-        List<SysWorkReviewRecord> records = reviewRecordMapper.selectByWorkId(workId);
-        if (!records.isEmpty() && "approved".equals(records.get(0).getStatus()))
-        {
-            throw new IllegalStateException("作品已审核通过，无需重复提交");
-        }
 
         // 云端模型：只写审核记录，不修改 sys_work.status
+        // 已发布（approved）作品允许再次提交：作品改动后需重新走审核流程
         SysWorkReviewRecord record = new SysWorkReviewRecord();
         record.setReviewNo(generateReviewNo());
         record.setTargetType("work");
@@ -215,6 +209,7 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
             Map<String, Object> item = new LinkedHashMap<>();
             item.put("workId", work.getWorkId());
             item.put("title", work.getTitle());
+            item.put("cover", work.getCover());
             item.put("summary", work.getSummary());
             item.put("genreId", work.getGenreId());
             item.put("genreName", work.getGenreName());
@@ -258,7 +253,7 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
         return chapter;
     }
 
-    /** 校验作品可编辑：无审核记录（草稿）或最近状态为 待修改/已驳回 */
+    /** 校验作品可编辑：仅「审核中」锁定，其余状态（含已发布）均允许编辑 */
     private void requireEditable(Long workId, Long userId)
     {
         List<SysWorkReviewRecord> records = reviewRecordMapper.selectByWorkId(workId);
@@ -267,9 +262,9 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
             return;
         }
         String latest = records.get(0).getStatus();
-        if (!EDITABLE_STATUS.contains(latest))
+        if (REVIEWING_STATUS.contains(latest))
         {
-            throw new IllegalStateException("当前状态（" + latest + "）不允许编辑");
+            throw new IllegalStateException("作品正在审核中，不允许编辑");
         }
     }
 

@@ -19,6 +19,9 @@ public class AppUploadResult
     /** 原始文件名 */
     private String fileName;
 
+    /** 文件大小（字节）。创建作品落 sys_work_file 时 file_size 为 NOT NULL，故需回传 */
+    private Long size;
+
     public Long getFileId()
     {
         return fileId;
@@ -47,5 +50,15 @@ public class AppUploadResult
     public void setFileName(String fileName)
     {
         this.fileName = fileName;
+    }
+
+    public Long getSize()
+    {
+        return size;
+    }
+
+    public void setSize(Long size)
+    {
+        this.size = size;
     }
 }

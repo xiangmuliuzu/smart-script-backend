@@ -6,8 +6,10 @@ ruoyi:
   version: 3.9.2
   # 版权年份
   copyrightYear: 2026
-  # 文件路径 示例（ Windows配置D:/ruoyi/uploadPath，Linux配置 /home/ruoyi/uploadPath）
-  profile: D:/ruoyi/uploadPath
+  # 文件上传根目录（相对启动工作目录，即仓库根下的 uploadPath/）。
+  # 该目录纳入版本控制：上传产物提交后其他开发拉取即可见，
+  # 前提是各开发均以仓库根目录为工作目录启动后端。如需覆盖用 RUOYI_PROFILE。
+  profile: ${RUOYI_PROFILE:uploadPath}
   # 获取ip地址开关
   addressEnabled: false
   # 验证码类型 math 数字计算 char 字符验证

@@ -310,13 +310,14 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 	</select>
 
 
-	<!-- 用户端修改作品基本信息（title/summary/genre_id，状态校验在服务层） -->
+	<!-- 用户端修改作品基本信息（title/summary/genre_id/cover，状态校验在服务层） -->
 	<update id="updateWorkBaseInfo" parameterType="SysContentWork">
 		update sys_work
 		<trim prefix="SET" suffixOverrides=",">
 			<if test="title != null and title != ''">title = #{title},</if>
 			<if test="summary != null">summary = #{summary},</if>
 			<if test="genreId != null">genre_id = #{genreId},</if>
+			<if test="cover != null and cover != ''">cover = #{cover},</if>
 			<if test="updateBy != null">update_by = #{updateBy},</if>
 			<if test="updateTime != null">update_time = #{updateTime},</if>
 		</trim>

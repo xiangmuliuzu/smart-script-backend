@@ -11,7 +11,6 @@ import com.ruoyi.common.exception.file.FileSizeLimitExceededException;
 import com.ruoyi.common.exception.file.InvalidExtensionException;
 import com.ruoyi.common.utils.file.FileUploadUtils;
 import com.ruoyi.common.utils.file.MimeTypeUtils;
-import com.ruoyi.framework.config.ServerConfig;
 import com.smartscript.platform.content.dto.AppUploadResult;
 import com.smartscript.platform.content.exception.AppContentUploadException;
 
@@ -28,6 +27,9 @@ import com.smartscript.platform.content.exception.AppContentUploadException;
  *   - 按 type 收敛扩展名白名单（cover=图片、script=剧本文档、其它=图片+文档），不接受视频；
  *   - 不落 sys_work_file：该表 work_id 为 NOT NULL，创建作品前无从关联，故 fileId 恒为 null；
  *   - 不把底层异常文案与原始文件名写入日志。
+ *   - url 下发**相对路径**（`/profile/upload/...`），由客户端按自身 baseUrl 解析：
+ *     返回绝对地址会把上传者所在机器（localhost / 模拟器 10.0.2.2 / 局域网 IP）写进数据库，
+ *     其他开发共用云端库时取不到图。上传产物统一落在 ruoyi.profile（仓库内 uploadPath/）。
  *
  * @author xiangsipeng
  */
@@ -61,19 +63,12 @@ public class AppContentFileUploadService
     private static final String[] DEFAULT_EXTENSION = {
             "bmp", "gif", "jpg", "jpeg", "png", "txt", "doc", "docx", "pdf" };
 
-    private final ServerConfig serverConfig;
-
-    public AppContentFileUploadService(ServerConfig serverConfig)
-    {
-        this.serverConfig = serverConfig;
-    }
-
     /**
      * 保存上传文件并返回可访问地址。
      *
      * @param file 上传文件（必填）
      * @param type 文件用途（可选：cover/script；其它值按默认白名单处理）
-     * @return {fileId=null, url, fileName}
+     * @return {fileId=null, url（相对路径）, fileName}
      */
     public AppUploadResult upload(MultipartFile file, String type)
     {
@@ -102,13 +97,16 @@ public class AppContentFileUploadService
             log.warn("app-content upload failed: {}", e.getClass().getSimpleName());
             throw new AppContentUploadException(CODE_SYSTEM_ERROR, "上传失败，请稍后重试");
         }
-        String url = serverConfig.getUrl() + storedPath;
+        // 下发相对路径（/profile/upload/...），由客户端按自身 baseUrl 解析，避免把上传者机器写进库
+        String url = storedPath;
         log.info("app-content uploaded path={}", storedPath);
         AppUploadResult result = new AppUploadResult();
         // 无通用文件表可落 file_id，明确置 null，由客户端以 url 为准
         result.setFileId(null);
         result.setUrl(url);
         result.setFileName(file.getOriginalFilename());
+        // 回传大小：客户端创建作品时随剧本文件一并提交，落 sys_work_file.file_size（NOT NULL）
+        result.setSize(file.getSize());
         return result;
     }
 

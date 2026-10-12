@@ -9,6 +9,7 @@ import org.springframework.transaction.annotation.Transactional;
 import com.github.pagehelper.PageHelper;
 import com.github.pagehelper.PageInfo;
 import com.smartscript.platform.content.domain.SysWork;
+import com.smartscript.platform.content.domain.SysWorkFile;
 import com.smartscript.platform.content.domain.SysWorkVersion;
 import com.smartscript.platform.content.dto.AppDraftWorkItem;
 import com.smartscript.platform.content.dto.AppPageResult;
@@ -17,6 +18,7 @@ import com.smartscript.platform.content.dto.AppWorkCreateRequest;
 import com.smartscript.platform.content.dto.AppWorkUpdateRequest;
 import com.smartscript.platform.content.dto.AppWorkVersionDto;
 import com.smartscript.platform.content.mapper.SysContentWorkMapper;
+import com.smartscript.platform.content.mapper.SysWorkFileMapper;
 import com.smartscript.platform.content.mapper.SysWorkVersionMapper;
 import com.smartscript.platform.content.service.IAppWorkManageService;
 import com.smartscript.platform.identity.IdentityProvider;
@@ -74,8 +76,23 @@ public class AppWorkManageServiceImpl implements IAppWorkManageService
     /** 当前版本标记 */
     private static final String FLAG_YES = "1";
 
+    /** 通用「否」标记（is_preview） */
+    private static final String FLAG_NO = "0";
+
+    /** 剧本文件类型（sys_work_file.file_type） */
+    private static final String FILE_TYPE_SCRIPT = "script";
+
+    /** 剧本文件默认排序 */
+    private static final int FILE_SORT_DEFAULT = 1;
+
+    /** 剧本文件名缺省占位（file_name 为 NOT NULL，url 无法推出名称时兜底） */
+    private static final String FILE_NAME_FALLBACK = "剧本文件";
+
     @Autowired
     private SysContentWorkMapper workMapper;
+
+    @Autowired
+    private SysWorkFileMapper workFileMapper;
 
     @Autowired
     private SysWorkVersionMapper versionMapper;
@@ -84,6 +101,7 @@ public class AppWorkManageServiceImpl implements IAppWorkManageService
     private IdentityProvider identityProvider;
 
     @Override
+    @Transactional
     public Long createWork(AppWorkCreateRequest request)
     {
         Long userId = identityProvider.currentUserId();
@@ -114,7 +132,52 @@ public class AppWorkManageServiceImpl implements IAppWorkManageService
         work.setRating(BigDecimal.ZERO);
         work.setIsDeleted("0");
         work.setCreateBy(String.valueOf(userId));
-        return workMapper.insertWork(work) > 0 ? work.getWorkId() : null;
+        if (workMapper.insertWork(work) <= 0)
+        {
+            return null;
+        }
+        insertScriptFile(work.getWorkId(), request, userId);
+        return work.getWorkId();
+    }
+
+    /**
+     * 登记随作品提交的剧本文件（sys_work_file）。
+     *
+     * 上传接口（2.9.1）在作品创建前无从落库（work_id NOT NULL），故在此补齐：
+     * 仅当调用方带了 scriptUrl 时落库；fileName/fileSize 为 NOT NULL，缺失时兜底。
+     */
+    private void insertScriptFile(Long workId, AppWorkCreateRequest request, Long userId)
+    {
+        String scriptUrl = trimToNull(request.getScriptUrl());
+        if (workId == null || scriptUrl == null)
+        {
+            return;
+        }
+        SysWorkFile file = new SysWorkFile();
+        file.setWorkId(workId);
+        file.setFileName(resolveFileName(request.getScriptName(), scriptUrl));
+        file.setFileUrl(scriptUrl);
+        file.setFileType(FILE_TYPE_SCRIPT);
+        file.setFileSize(request.getScriptSize() == null ? 0L : request.getScriptSize());
+        file.setIsPreview(FLAG_NO);
+        file.setSort(FILE_SORT_DEFAULT);
+        file.setCreateBy(String.valueOf(userId));
+        workFileMapper.insertWorkFile(file);
+    }
+
+    /**
+     * 剧本文件名兜底：优先用上送名称，其次取 url 末段，最后用占位名。
+     */
+    private static String resolveFileName(String scriptName, String scriptUrl)
+    {
+        String name = trimToNull(scriptName);
+        if (name != null)
+        {
+            return name;
+        }
+        int slash = scriptUrl.lastIndexOf('/');
+        String fromUrl = slash >= 0 ? trimToNull(scriptUrl.substring(slash + 1)) : null;
+        return fromUrl == null ? FILE_NAME_FALLBACK : fromUrl;
     }
 
     @Override

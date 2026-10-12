@@ -59,4 +59,15 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		order by sort, file_id
 	</select>
 
+<!-- App 创建作品（2.9.2）登记剧本文件；NOT NULL 列全部由调用方填充 -->
+	<insert id="insertWorkFile" parameterType="SysWorkFile" useGeneratedKeys="true" keyProperty="fileId">
+		insert into sys_work_file (
+			work_id, file_name, file_url, file_type, file_size, is_preview, sort,
+			create_by, create_time
+		) values (
+			#{workId}, #{fileName}, #{fileUrl}, #{fileType}, #{fileSize}, #{isPreview}, #{sort},
+			#{createBy}, sysdate()
+		)
+	</insert>
+
 </mapper>
