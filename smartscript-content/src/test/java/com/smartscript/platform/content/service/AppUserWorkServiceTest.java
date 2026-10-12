@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -159,7 +160,7 @@ class AppUserWorkServiceTest
     {
         when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
         when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of());
-        service.updateWorkBase(OWNER, WORK_ID, "新标题", "新简介", 5);
+        service.updateWorkBase(OWNER, WORK_ID, "新标题", "新简介", 5, null);
         verify(workMapper).updateWorkBaseInfo(any(SysWork.class));
     }
 
@@ -169,7 +170,7 @@ class AppUserWorkServiceTest
     {
         when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
         when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of(recordOf("revision")));
-        service.updateWorkBase(OWNER, WORK_ID, "新标题", "新简介", 5);
+        service.updateWorkBase(OWNER, WORK_ID, "新标题", "新简介", 5, null);
         verify(workMapper).updateWorkBaseInfo(any(SysWork.class));
     }
 
@@ -180,19 +181,18 @@ class AppUserWorkServiceTest
         when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
         when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of(recordOf("pending")));
         assertThrows(IllegalStateException.class,
-                () -> service.updateWorkBase(OWNER, WORK_ID, "新标题", "新简介", 5));
+                () -> service.updateWorkBase(OWNER, WORK_ID, "新标题", "新简介", 5, null));
         verify(workMapper, never()).updateWorkBaseInfo(any());
     }
 
     @Test
-    @DisplayName("修改基本信息：approved（已通过）禁止")
-    void updateWorkBaseRejectedInApproved()
+    @DisplayName("修改基本信息：approved（已发布）可编辑封面后重新送审")
+    void updateWorkBaseAllowedInApproved()
     {
         when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
         when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of(recordOf("approved")));
-        assertThrows(IllegalStateException.class,
-                () -> service.updateWorkBase(OWNER, WORK_ID, "新标题", "新简介", 5));
-        verify(workMapper, never()).updateWorkBaseInfo(any());
+        service.updateWorkBase(OWNER, WORK_ID, "新标题", "新简介", 5, "/profile/upload/cover.png");
+        verify(workMapper).updateWorkBaseInfo(argThat(work -> "/profile/upload/cover.png".equals(work.getCover())));
     }
 
     @Test
@@ -284,14 +284,13 @@ class AppUserWorkServiceTest
     }
 
     @Test
-    @DisplayName("提交审核：approved（已通过）禁止重复提交")
-    void submitReviewRejectedWhenApproved()
+    @DisplayName("提交审核：approved（已发布）允许改动后重新送审")
+    void submitReviewAllowedWhenApproved()
     {
         when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
         when(reviewRecordMapper.countPendingByWorkId(WORK_ID)).thenReturn(0);
-        when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of(recordOf("approved")));
-        assertThrows(IllegalStateException.class, () -> service.submitReview(OWNER, WORK_ID));
-        verify(reviewRecordMapper, never()).insertRecord(any());
+        service.submitReview(OWNER, WORK_ID);
+        verify(reviewRecordMapper).insertRecord(argThat(record -> "pending".equals(record.getStatus())));
     }
 
     @Test

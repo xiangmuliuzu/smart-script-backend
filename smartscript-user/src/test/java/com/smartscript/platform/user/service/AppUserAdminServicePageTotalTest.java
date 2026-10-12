@@ -2,13 +2,18 @@ package com.smartscript.platform.user.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.verify;
 import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import com.smartscript.platform.user.exception.AppAdminException;
 import com.github.pagehelper.Page;
 import com.smartscript.platform.user.domain.admin.AppUserSummary;
 import com.smartscript.platform.user.mapper.AppUserAdminMapper;
@@ -24,6 +29,36 @@ import com.smartscript.platform.user.mapper.AppUserAdminMapper;
  */
 class AppUserAdminServicePageTotalTest
 {
+    @Test
+    void httpBooleanFiltersAreBoundAsBooleansRatherThanMysqlStrings()
+    {
+        for (var filter : Map.of("true", true, "false", false, "1", true, "0", false).entrySet())
+        {
+            var mapper = mock(AppUserAdminMapper.class);
+            when(mapper.selectAppUserPage(anyMap())).thenReturn(List.of());
+            var service = new AppUserAdminService(mapper, mock(AppSessionRevocationService.class));
+            service.page(Map.of("authorCapability", filter.getKey()));
+            @SuppressWarnings("unchecked")
+            ArgumentCaptor<Map<String, Object>> params = ArgumentCaptor.forClass(Map.class);
+            verify(mapper).selectAppUserPage(params.capture());
+            assertEquals(filter.getValue(), params.getValue().get("authorCapability"));
+        }
+    }
+
+    @Test
+    void emptyCapabilityMeansAllAndMalformedFilterIsRejected()
+    {
+        var mapper = mock(AppUserAdminMapper.class);
+        when(mapper.selectAppUserPage(anyMap())).thenReturn(List.of());
+        var service = new AppUserAdminService(mapper, mock(AppSessionRevocationService.class));
+        service.page(Map.of("authorCapability", ""));
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Map<String, Object>> params = ArgumentCaptor.forClass(Map.class);
+        verify(mapper).selectAppUserPage(params.capture());
+        assertEquals(null, params.getValue().get("authorCapability"));
+        assertThrows(AppAdminException.class, () -> service.page(Map.of("authorCapability", "invalid")));
+    }
+
     @Test
     void emptyPageKeepsRealTotalForOutOfRangePage()
     {

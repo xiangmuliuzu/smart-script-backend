@@ -23,7 +23,7 @@ import com.smartscript.platform.user.util.AppMasks;
  *   - 只有 REJECTED 或 NOT_SUBMITTED 允许提交；重提走新增行，保留完整审计链。
  *   - 明文姓名与证件号**不落库**：只写 {real_name_mask, id_number_mask}，
  *     与 A4 审核端读取的掩码列一致（A4 不改列名、不解析明文）。
- *   - 材料引用沿用平台上传服务的返回地址；本服务不签发对外地址，
+ *   - 材料引用来自用户实名材料上传接口，校验归属与文件存在性；本服务不签发对外地址，
  *     审核端读取材料仍走 A4 的短时授权链路。
  *   - 日志不记录姓名、证件号与材料地址。
  */
@@ -48,10 +48,12 @@ public class AppRealNameService
     private static final String ID_NUMBER_PATTERN = "^\\d{15}|\\d{17}[0-9Xx]$";
 
     private final AppUserCenterMapper centerMapper;
+    private final AppRealNameMaterialService materialService;
 
-    public AppRealNameService(AppUserCenterMapper centerMapper)
+    public AppRealNameService(AppUserCenterMapper centerMapper, AppRealNameMaterialService materialService)
     {
         this.centerMapper = centerMapper;
+        this.materialService = materialService;
     }
 
     /** 查询实名状态；从未提交过时返回 NOT_SUBMITTED 占位而不是 404。 */
@@ -99,6 +101,7 @@ public class AppRealNameService
 
         String current = centerMapper.selectLatestRealNameStatus(userId);
         requireSubmittable(current);
+        materialService.requireOwnedMaterial(userId, materialRef);
 
         UserRealNameAuth record = new UserRealNameAuth();
         record.setUserId(userId);
