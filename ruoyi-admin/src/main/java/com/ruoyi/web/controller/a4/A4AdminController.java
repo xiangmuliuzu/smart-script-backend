@@ -232,9 +232,17 @@ public class A4AdminController extends BaseController
     @GetMapping("/app-users")
     public TableDataInfo listAppUsers(@RequestParam Map<String, Object> params)
     {
-        startPage(params);
-        List<AppUserSummary> rows = appUserAdminService.page(params);
-        return getDataTable(rows);
+        try
+        {
+            startPage(params);
+            List<AppUserSummary> rows = appUserAdminService.page(params);
+            return getDataTable(rows);
+        }
+        finally
+        {
+            // 参数校验可能在首条 SQL 前失败，仍需清理线程内的分页状态。
+            clearPage();
+        }
     }
 
     /**
