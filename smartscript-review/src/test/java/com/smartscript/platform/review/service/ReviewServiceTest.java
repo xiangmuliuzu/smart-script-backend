@@ -11,8 +11,6 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.util.Arrays;
-import java.util.Collections;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -22,7 +20,7 @@ import static org.mockito.Mockito.*;
 
 /**
  * 审核状态机单元测试
- * 覆盖：合法流转/非法跳跃拒绝/终态拒绝/发回后重新提交/批量分配校验
+ * 覆盖：合法流转/非法跳跃拒绝/终态拒绝/发回后重新提交
  */
 @ExtendWith(MockitoExtension.class)
 class ReviewServiceTest {
@@ -97,38 +95,5 @@ class ReviewServiceTest {
         Map<String, Object> r = reviewService.operateReview(1L, "approved", null, 1L, "管理员");
 
         assertEquals(404, r.get("code"));
-    }
-
-    @Test
-    void batchAssign_pending_可分配() {
-        when(reviewRecordMapper.selectReviewRecordById(1L)).thenReturn(record("pending"));
-        when(reviewRecordMapper.updateReviewRecord(any())).thenReturn(1);
-
-        int cnt = reviewService.batchAssign(Collections.singletonList(1L), 5L, "管理员");
-
-        assertEquals(1, cnt);
-        verify(reviewLogMapper, times(1)).insertReviewLog(any());
-    }
-
-    @Test
-    void batchAssign_approved_不可分配() {
-        when(reviewRecordMapper.selectReviewRecordById(1L)).thenReturn(record("approved"));
-
-        int cnt = reviewService.batchAssign(Collections.singletonList(1L), 5L, "管理员");
-
-        assertEquals(0, cnt);
-        verify(reviewRecordMapper, never()).updateReviewRecord(any());
-    }
-
-    @Test
-    void batchAssign_多记录_混合() {
-        when(reviewRecordMapper.selectReviewRecordById(1L)).thenReturn(record("pending"));
-        when(reviewRecordMapper.selectReviewRecordById(2L)).thenReturn(record("approved"));
-        when(reviewRecordMapper.selectReviewRecordById(3L)).thenReturn(record("ai_reviewing"));
-        when(reviewRecordMapper.updateReviewRecord(any())).thenReturn(1);
-
-        int cnt = reviewService.batchAssign(Arrays.asList(1L, 2L, 3L), 5L, "管理员");
-
-        assertEquals(2, cnt);
     }
 }

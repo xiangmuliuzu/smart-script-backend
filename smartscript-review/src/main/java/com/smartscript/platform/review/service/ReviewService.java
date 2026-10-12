@@ -64,7 +64,7 @@ public class ReviewService {
     /**
      * 审核状态机：合法流转表（状态不能跳跃）。
      * ai_reviewing(AI初筛中) -> pending(待人工) / revision(发回修改) / rejected(驳回)
-     * pending / pending_review -> approved(通过) / rejected(驳回) / revision(发回修改)
+     * pending -> approved(通过) / rejected(驳回) / revision(发回修改)
      * revision(发回修改) -> ai_reviewing(重新初筛) / pending
      * rejected(驳回) -> ai_reviewing(重新提交重审)
      * approved(通过) -> 终态，不可再流转
@@ -73,7 +73,6 @@ public class ReviewService {
     static {
         STATUS_FLOW.put("ai_reviewing", java.util.Arrays.asList("pending", "revision", "rejected"));
         STATUS_FLOW.put("pending", java.util.Arrays.asList("approved", "rejected", "revision"));
-        STATUS_FLOW.put("pending_review", java.util.Arrays.asList("approved", "rejected", "revision"));
         STATUS_FLOW.put("revision", java.util.Arrays.asList("ai_reviewing", "pending"));
         STATUS_FLOW.put("rejected", java.util.Arrays.asList("ai_reviewing"));
         STATUS_FLOW.put("approved", java.util.Collections.emptyList());
@@ -130,42 +129,8 @@ public class ReviewService {
             case "revision": return "revision";
             case "ai_reviewing": return "ai_review";
             case "pending": return "pending";
-            case "pending_review": return "assign";
             default: return "operate";
         }
-    }
-
-    /**
-     * 批量分配审核任务（仅待分配/初审中可分配，终态不可）
-     */
-    public int batchAssign(List<Long> reviewIds, Long reviewerId, String operatorName) {
-        int count = 0;
-        for (Long reviewId : reviewIds) {
-            ReviewRecord before = reviewRecordMapper.selectReviewRecordById(reviewId);
-            if (before == null) {
-                continue;
-            }
-            String from = before.getStatus();
-            if (!"pending".equals(from) && !"ai_reviewing".equals(from)) {
-                continue; // 终态或已分配/进行中的不重复分配
-            }
-            ReviewRecord reviewRecord = new ReviewRecord();
-            reviewRecord.setReviewId(reviewId);
-            reviewRecord.setReviewerId(reviewerId);
-            reviewRecord.setStatus("pending_review");
-            count += reviewRecordMapper.updateReviewRecord(reviewRecord);
-            // 写分配日志
-            ReviewLog log = new ReviewLog();
-            log.setReviewId(reviewId);
-            log.setAction("assign");
-            log.setOperatorId(reviewerId);
-            log.setOperatorName(operatorName);
-            log.setBeforeStatus(from);
-            log.setAfterStatus("pending_review");
-            reviewLogMapper.insertReviewLog(log);
-            logOp("assign", reviewId, reviewerId, operatorName, from, "pending_review", null);
-        }
-        return count;
     }
 
     private void logOp(String operation, Long reviewId, Long operatorId, String operatorName,
@@ -198,13 +163,13 @@ public class ReviewService {
     /**
      * 审核统计（真实按状态分组）
      */
-    public java.util.Map<String, Object> selectReviewStatistics(ReviewRecord reviewRecord) {
+    public java.util.Map<String, Object> selectReviewStatistics() {
         java.util.Map<String, Object> stats = new java.util.HashMap<>();
         int pending = 0, aiReviewing = 0, approved = 0, rejected = 0, revision = 0;
-        for (java.util.Map<String, Object> row : reviewRecordMapper.selectStatusGroup(reviewRecord)) {
+        for (java.util.Map<String, Object> row : reviewRecordMapper.selectStatusGroup()) {
             String status = String.valueOf(row.get("status"));
             int cnt = ((Number) row.get("cnt")).intValue();
-            if ("pending".equals(status) || "pending_review".equals(status)) pending += cnt;
+            if ("pending".equals(status)) pending += cnt;
             else if ("ai_reviewing".equals(status)) aiReviewing += cnt;
             else if ("approved".equals(status)) approved += cnt;
             else if ("rejected".equals(status)) rejected += cnt;
@@ -218,10 +183,4 @@ public class ReviewService {
         return stats;
     }
 
-    /**
-     * 可分配审核员列表
-     */
-    public java.util.List<java.util.Map<String, Object>> selectReviewers() {
-        return reviewRecordMapper.selectReviewers();
-    }
 }
