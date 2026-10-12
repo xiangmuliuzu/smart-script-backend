@@ -10,7 +10,7 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import com.ruoyi.framework.security.handle.AuthenticationFailureAuditor;
-import com.smartscript.platform.user.security.AppAccessTokenService;
+import com.smartscript.platform.user.security.AppRuoYiSessionService;
 import com.smartscript.platform.user.security.AppAuthAuthenticationFilter;
 import com.smartscript.platform.user.security.AppAuthEntryPoint;
 
@@ -50,7 +50,7 @@ public class AppAuthSecurityConfig
     @Bean
     @Order(100)
     public SecurityFilterChain appAuthFilterChain(HttpSecurity http,
-            AppAccessTokenService accessTokenService,
+            AppRuoYiSessionService accessTokenService,
             AppAuthEntryPoint appAuthEntryPoint) throws Exception
     {
         AppAuthAuthenticationFilter appFilter = new AppAuthAuthenticationFilter(accessTokenService, authenticationFailureAuditor);
@@ -61,13 +61,14 @@ public class AppAuthSecurityConfig
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.POST,
                                 "/api/v1/auth/sms/send",
+                                "/api/v1/auth/login",
                                 "/api/v1/auth/sms/login",
                                 "/api/v1/auth/password/login",
                                 "/api/v1/auth/password/reset",
                                 "/api/v1/auth/register",
-                                "/api/v1/auth/token/refresh",
                                 "/api/v1/pc-auth/login").permitAll()
                         .requestMatchers(HttpMethod.GET,
+                                "/api/v1/auth/captchaImage",
                                 "/api/v1/auth/agreements").permitAll()
                         .requestMatchers(HttpMethod.POST,
                                 "/api/v1/auth/oauth/wechat/login",

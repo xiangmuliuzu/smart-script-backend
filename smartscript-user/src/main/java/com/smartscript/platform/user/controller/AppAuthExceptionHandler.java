@@ -107,7 +107,6 @@ public class AppAuthExceptionHandler
             case AppAuthErrorCodes.UNAUTHORIZED -> "unauthorized";
             case AppAuthErrorCodes.ACCESS_EXPIRED -> "access token expired";
             case AppAuthErrorCodes.REFRESH_INVALID -> "refresh token invalid";
-            case AppAuthErrorCodes.REFRESH_REPLAY -> "refresh token replay";
             case AppAuthErrorCodes.DOMAIN_OR_PERMISSION -> "forbidden";
             case AppAuthErrorCodes.ACCOUNT_DISABLED -> "account disabled";
             case AppAuthErrorCodes.SMS_COOLDOWN -> "sms cooldown";

@@ -11,11 +11,6 @@ import org.springframework.stereotype.Component;
 public class AppAuthProperties
 {
     private String env = "local";
-    private String tokenSecret = "";
-    private String tokenIssuer = "";
-    private String tokenAudience = "";
-    private long accessTokenTtlSeconds = 1800L;
-    private long refreshTokenTtlSeconds = 1209600L;
     private String redisKeyPrefix = "";
     private Sms sms = new Sms();
     private Agreement agreement = new Agreement();
@@ -289,56 +284,6 @@ public class AppAuthProperties
     public void setEnv(String env)
     {
         this.env = env;
-    }
-
-    public String getTokenSecret()
-    {
-        return tokenSecret;
-    }
-
-    public void setTokenSecret(String tokenSecret)
-    {
-        this.tokenSecret = tokenSecret;
-    }
-
-    public String getTokenIssuer()
-    {
-        return tokenIssuer;
-    }
-
-    public void setTokenIssuer(String tokenIssuer)
-    {
-        this.tokenIssuer = tokenIssuer;
-    }
-
-    public String getTokenAudience()
-    {
-        return tokenAudience;
-    }
-
-    public void setTokenAudience(String tokenAudience)
-    {
-        this.tokenAudience = tokenAudience;
-    }
-
-    public long getAccessTokenTtlSeconds()
-    {
-        return accessTokenTtlSeconds;
-    }
-
-    public void setAccessTokenTtlSeconds(long accessTokenTtlSeconds)
-    {
-        this.accessTokenTtlSeconds = accessTokenTtlSeconds;
-    }
-
-    public long getRefreshTokenTtlSeconds()
-    {
-        return refreshTokenTtlSeconds;
-    }
-
-    public void setRefreshTokenTtlSeconds(long refreshTokenTtlSeconds)
-    {
-        this.refreshTokenTtlSeconds = refreshTokenTtlSeconds;
     }
 
     public String getRedisKeyPrefix()

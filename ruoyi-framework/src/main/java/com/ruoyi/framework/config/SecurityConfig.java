@@ -3,6 +3,7 @@ package com.ruoyi.framework.config;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
@@ -57,6 +58,15 @@ public class SecurityConfig
      */
     @Autowired
     private PermitAllUrlProperties permitAllUrl;
+
+    /** Only invoke the admin JWT filter inside its Spring Security chain. */
+    @Bean
+    public FilterRegistrationBean<JwtAuthenticationTokenFilter> jwtFilterRegistration()
+    {
+        FilterRegistrationBean<JwtAuthenticationTokenFilter> registration = new FilterRegistrationBean<>(authenticationTokenFilter);
+        registration.setEnabled(false);
+        return registration;
+    }
 
 	/**
 	 * 身份验证实现

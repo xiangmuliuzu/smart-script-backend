@@ -61,6 +61,10 @@ public class UserDetailsServiceImpl implements UserDetailsService
 
     public UserDetails createLoginUser(SysUser user)
     {
-        return new LoginUser(user.getUserId(), user.getDeptId(), user, permissionService.getMenuPermission(user));
+        boolean appUser = "01".equals(user.getUserType()) || "02".equals(user.getUserType()) || "03".equals(user.getUserType());
+        LoginUser loginUser = new LoginUser(user.getUserId(), user.getDeptId(), user,
+                appUser ? java.util.Set.of() : permissionService.getMenuPermission(user));
+        loginUser.setCredentialDomain(appUser ? "app" : "admin");
+        return loginUser;
     }
 }

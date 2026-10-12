@@ -3,6 +3,7 @@ package com.ruoyi.framework.web.service;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.util.Objects;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -61,8 +62,11 @@ public class TokenService
      */
     public LoginUser getLoginUser(HttpServletRequest request)
     {
-        // 获取请求携带的令牌
-        String token = getToken(request);
+        return getLoginUser(getToken(request));
+    }
+
+    public LoginUser getLoginUser(String token)
+    {
         if (StringUtils.isNotEmpty(token))
         {
             try
@@ -70,13 +74,24 @@ public class TokenService
                 Claims claims = parseToken(token);
                 // 解析对应的权限以及用户信息
                 String uuid = (String) claims.get(Constants.LOGIN_USER_KEY);
+                if (StringUtils.isEmpty(uuid))
+                {
+                    return null;
+                }
                 String userKey = getTokenKey(uuid);
                 LoginUser user = redisCache.getCacheObject(userKey);
+                String domain = claims.get("credential_domain", String.class);
+                if (user == null || !uuid.equals(user.getToken())
+                        || !Objects.equals(domain == null ? "admin" : domain, user.getCredentialDomain())
+                        || user.getExpireTime() == null || user.getExpireTime() <= System.currentTimeMillis())
+                {
+                    return null;
+                }
                 return user;
             }
             catch (Exception e)
             {
-                log.error("获取用户信息异常'{}'", e.getMessage());
+                log.warn("Login token validation failed ({})", e.getClass().getSimpleName());
             }
         }
         return null;
@@ -121,7 +136,28 @@ public class TokenService
         Map<String, Object> claims = new HashMap<>();
         claims.put(Constants.LOGIN_USER_KEY, token);
         claims.put(Constants.JWT_USERNAME, loginUser.getUsername());
+        claims.put("credential_domain", loginUser.getCredentialDomain());
         return createToken(claims);
+    }
+
+    /** Reuse the RuoYi online-session cache for password/account revocation. */
+    public void revokeUserSessions(Long userId, String domain, String keepToken)
+    {
+        var keys = redisCache.keys(CacheConstants.LOGIN_TOKEN_KEY + "*");
+        if (keys == null)
+        {
+            return;
+        }
+        for (String key : keys)
+        {
+            LoginUser session = redisCache.getCacheObject(key);
+            if (session != null && Objects.equals(userId, session.getUserId())
+                    && Objects.equals(domain, session.getCredentialDomain())
+                    && !Objects.equals(keepToken, session.getToken()))
+            {
+                delLoginUser(session.getToken());
+            }
+        }
     }
 
     /**
@@ -136,7 +172,10 @@ public class TokenService
         long currentTime = System.currentTimeMillis();
         if (expireTime - currentTime <= MILLIS_MINUTE_TWENTY)
         {
-            refreshToken(loginUser);
+            loginUser.setLoginTime(currentTime);
+            loginUser.setExpireTime(currentTime + this.expireTime * MILLIS_MINUTE);
+            redisCache.setCacheObjectIfPresent(getTokenKey(loginUser.getToken()), loginUser,
+                    this.expireTime, TimeUnit.MINUTES);
         }
     }
 
@@ -191,10 +230,14 @@ public class TokenService
      */
     private Claims parseToken(String token)
     {
-        return Jwts.parser()
+        var parsed = Jwts.parser()
                 .setSigningKey(secret)
-                .parseClaimsJws(token)
-                .getBody();
+                .parseClaimsJws(token);
+        if (!SignatureAlgorithm.HS512.getValue().equals(parsed.getHeader().getAlgorithm()))
+        {
+            throw new IllegalArgumentException("unexpected token algorithm");
+        }
+        return parsed.getBody();
     }
 
     /**

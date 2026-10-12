@@ -27,7 +27,7 @@ import com.ruoyi.framework.security.handle.AuthenticationFailureAuditor;
  */
 public class AppAuthAuthenticationFilter extends OncePerRequestFilter
 {
-    private final AppAccessTokenService accessTokenService;
+    private final AppRuoYiSessionService accessTokenService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     /**
@@ -42,11 +42,12 @@ public class AppAuthAuthenticationFilter extends OncePerRequestFilter
      */
     private static final String[] PUBLIC_PATHS = {
             "/auth/sms/send",
+            "/auth/login",
+            "/auth/captchaImage",
             "/auth/sms/login",
             "/auth/password/login",
             "/auth/password/reset",
             "/auth/register",
-            "/auth/token/refresh",
             "/auth/agreements",
             "/auth/oauth/wechat/login",
             "/auth/oauth/qq/login",
@@ -83,12 +84,12 @@ public class AppAuthAuthenticationFilter extends OncePerRequestFilter
             "/content/episodes",
     };
 
-    public AppAuthAuthenticationFilter(AppAccessTokenService accessTokenService)
+    public AppAuthAuthenticationFilter(AppRuoYiSessionService accessTokenService)
     {
         this(accessTokenService, null);
     }
 
-    public AppAuthAuthenticationFilter(AppAccessTokenService accessTokenService, AuthenticationFailureAuditor authFailureAuditor)
+    public AppAuthAuthenticationFilter(AppRuoYiSessionService accessTokenService, AuthenticationFailureAuditor authFailureAuditor)
     {
         this.accessTokenService = accessTokenService;
         this.authFailureAuditor = authFailureAuditor;
@@ -196,7 +197,10 @@ public class AppAuthAuthenticationFilter extends OncePerRequestFilter
         response.setStatus(status);
         response.setCharacterEncoding(StandardCharsets.UTF_8.name());
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-        response.getWriter().write(objectMapper.writeValueAsString(AppApiResponse.fail(code, message)));
+        Object body = request.getRequestURI().startsWith("/api/v1/auth/")
+                ? com.ruoyi.common.core.domain.AjaxResult.error(code, message)
+                : AppApiResponse.fail(code, message);
+        response.getWriter().write(objectMapper.writeValueAsString(body));
         // 响应写完之后才回调审计；回调只读请求、不得改动响应（见 AuthenticationFailureAuditor 约定）。
         // 第 15 批：403（凭证域不符/账号禁用）按事件类型携带 reason，由审计器落一条可定位的安全事件。
         if (authFailureAuditor != null)

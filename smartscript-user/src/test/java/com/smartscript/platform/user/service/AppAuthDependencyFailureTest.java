@@ -185,7 +185,7 @@ class AppAuthDependencyFailureTest
 
     private static AppSessionRevocationService keyOnlyRevocation()
     {
-        return new AppSessionRevocationService(new AppAuthProperties(), null, null);
+        return new AppSessionRevocationService(new AppAuthProperties(), null);
     }
 
     /** 构造一个键读取正常、setIfAbsent 结果可控的 RedisCache（直接设置 public redisTemplate 字段）。 */

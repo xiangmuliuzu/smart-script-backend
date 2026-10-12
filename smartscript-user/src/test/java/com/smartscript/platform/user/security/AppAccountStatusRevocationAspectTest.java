@@ -23,7 +23,7 @@ class AppAccountStatusRevocationAspectTest
 
         CapturingRevocation()
         {
-            super(new AppAuthProperties(), null, null);
+            super(new AppAuthProperties(), null);
         }
 
         @Override
