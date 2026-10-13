@@ -17,7 +17,7 @@ import java.util.List;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/pc/copyright/withdraw")
+@RequestMapping("/api/v1/admin/copyright/withdraw")
 public class WithdrawReviewController extends BaseController {
     private static final List<String> EXPORT_COLUMNS = List.of("提现编号", "用户编号", "用户名", "登录账号", "提现金额",
             "手续费", "实际到账", "提现方式", "账户名", "账号", "开户行", "状态", "审核时间", "审核意见", "申请时间", "打款时间");

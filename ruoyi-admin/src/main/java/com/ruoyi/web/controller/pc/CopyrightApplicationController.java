@@ -28,7 +28,7 @@ import com.ruoyi.common.core.page.TableDataInfo;
  * @date 2024-01-15
  */
 @RestController
-@RequestMapping("/content/copyright/application")
+@RequestMapping("/api/v1/admin/content/copyright/application")
 public class CopyrightApplicationController extends BaseController
 {
     @Autowired

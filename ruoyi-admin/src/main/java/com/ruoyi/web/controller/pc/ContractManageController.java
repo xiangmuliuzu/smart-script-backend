@@ -22,7 +22,7 @@ import java.util.List;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/pc/copyright/contract")
+@RequestMapping("/api/v1/admin/copyright/contract")
 public class ContractManageController extends BaseController {
     private final ContractManageService contractService;
 

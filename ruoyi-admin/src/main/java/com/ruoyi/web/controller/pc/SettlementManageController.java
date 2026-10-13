@@ -14,7 +14,7 @@ import java.util.List;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/pc/copyright/settlement")
+@RequestMapping("/api/v1/admin/copyright/settlement")
 public class SettlementManageController extends BaseController {
 
     private final SettlementManageService settlementService;
