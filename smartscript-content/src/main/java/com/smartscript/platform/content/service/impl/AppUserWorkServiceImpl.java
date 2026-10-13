@@ -11,6 +11,7 @@ import com.smartscript.platform.content.domain.SysWork;
 import com.smartscript.platform.content.domain.SysWorkChapter;
 import com.smartscript.platform.content.domain.SysWorkReviewRecord;
 import com.smartscript.platform.content.mapper.SysContentWorkMapper;
+import com.smartscript.platform.content.mapper.SysTagMapper;
 import com.smartscript.platform.content.mapper.SysWorkChapterMapper;
 import com.smartscript.platform.content.mapper.SysWorkReviewRecordMapper;
 import com.smartscript.platform.content.service.IAppUserWorkService;
@@ -39,17 +40,23 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
     /** 审核中状态：待审核 / AI审核中（不可编辑、不可重复提交） */
     private static final java.util.Set<String> REVIEWING_STATUS = java.util.Set.of("pending", "ai_reviewing");
 
+    /** 作品标签数量上限（接口文档 2.3.3：tagIds 最多 8 个） */
+    private static final int MAX_WORK_TAGS = 8;
+
     private final SysContentWorkMapper workMapper;
     private final SysWorkChapterMapper chapterMapper;
     private final SysWorkReviewRecordMapper reviewRecordMapper;
+    private final SysTagMapper tagMapper;
 
     public AppUserWorkServiceImpl(SysContentWorkMapper workMapper,
             SysWorkChapterMapper chapterMapper,
-            SysWorkReviewRecordMapper reviewRecordMapper)
+            SysWorkReviewRecordMapper reviewRecordMapper,
+            SysTagMapper tagMapper)
     {
         this.workMapper = workMapper;
         this.chapterMapper = chapterMapper;
         this.reviewRecordMapper = reviewRecordMapper;
+        this.tagMapper = tagMapper;
     }
 
     @Override
@@ -65,13 +72,17 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
         // 以审核派生状态覆盖 sys_work 原始上架状态，供前端直接渲染
         work.setStatus(deriveStatus(latest));
         result.put("work", work);
+        // 作品标签（接口文档 2.3.2 输出参数 tags）：仅启用标签，供设置页回填已选标签
+        result.put("tags", tagMapper.selectWorkTagRows(List.of(workId)));
         result.put("chapters", chapters);
         result.put("latestReview", latest);
         return result;
     }
 
     @Override
-    public void updateWorkBase(Long userId, Long workId, String title, String summary, Integer genreId, String cover)
+    @Transactional
+    public void updateWorkBase(Long userId, Long workId, String title, String summary, Integer genreId, String cover,
+            List<Integer> tagIds)
     {
         requireOwnWork(userId, workId);
         requireEditable(workId, userId);
@@ -85,6 +96,37 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
         update.setUpdateBy(String.valueOf(userId));
         update.setUpdateTime(new Date());
         workMapper.updateWorkBaseInfo(update);
+
+        if (tagIds != null)
+        {
+            replaceWorkTags(userId, workId, tagIds);
+        }
+    }
+
+    /**
+     * 全量覆盖作品标签（接口文档 2.3.3：tagIds 为全量覆盖语义，最多 8 个）。
+     *
+     * 先清空该作品现有标签再批量写入，空列表即清空；重复ID去重，避免撞 uk_work_tag 唯一索引。
+     */
+    private void replaceWorkTags(Long userId, Long workId, List<Integer> tagIds)
+    {
+        java.util.Set<Integer> uniqueTagIds = new java.util.LinkedHashSet<>();
+        for (Integer tagId : tagIds)
+        {
+            if (tagId != null)
+            {
+                uniqueTagIds.add(tagId);
+            }
+        }
+        if (uniqueTagIds.size() > MAX_WORK_TAGS)
+        {
+            throw new IllegalArgumentException("标签最多选择 " + MAX_WORK_TAGS + " 个");
+        }
+        tagMapper.deleteWorkTagByWorkId(workId);
+        if (!uniqueTagIds.isEmpty())
+        {
+            tagMapper.batchInsertWorkTag(workId, uniqueTagIds, String.valueOf(userId));
+        }
     }
 
     @Override
@@ -113,6 +155,8 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
         chapter.setCreateBy(String.valueOf(userId));
         chapter.setCreateTime(new Date());
         chapterMapper.insertChapter(chapter);
+        // 章节增删改后回写作品聚合列（word_count/episode_count），否则作品恒显示 0 字
+        workMapper.refreshWorkAggregates(workId);
         return chapter;
     }
 
@@ -132,6 +176,7 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
         update.setUpdateBy(String.valueOf(userId));
         update.setUpdateTime(new Date());
         chapterMapper.updateChapter(update);
+        workMapper.refreshWorkAggregates(workId);
     }
 
     @Override
@@ -142,6 +187,7 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
         requireEditable(workId, userId);
         requireOwnChapter(workId, chapterId);
         chapterMapper.deleteChapterById(chapterId);
+        workMapper.refreshWorkAggregates(workId);
     }
 
     @Override

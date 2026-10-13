@@ -51,6 +51,19 @@ public interface SysWorkChapterMapper
      */
     public Integer selectMaxChapterNo(Long workId);
 
+    /**
+     * 统计作品的免费（试读）章节数
+     *
+     * 口径：status='0'（正常章节）且 is_free='1'（作者逐章标记的免费章节）。
+     * 用于作品级「试读」展示：平台试读范围（sys_work.preview_enabled/preview_episodes）
+     * 当前无任何写入方，仅凭它判定会永远显示「未开启试读」，
+     * 故作品级试读状态需与本计数合并判定。
+     *
+     * @param workId 作品ID
+     * @return 免费章节数
+     */
+    public int countFreeChapters(Long workId);
+
     // ==================== App 章节编辑（接口文档无 CRUD 规格，按模块约定补齐） ====================
 
     /**

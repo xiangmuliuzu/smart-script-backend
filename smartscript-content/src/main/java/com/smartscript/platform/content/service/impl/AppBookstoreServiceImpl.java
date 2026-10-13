@@ -74,6 +74,9 @@ public class AppBookstoreServiceImpl implements IAppBookstoreService
     /** 试读开关「开启」取值（sys_work.preview_enabled 为 tinyint ↔ String） */
     private static final String PREVIEW_ENABLED = "1";
 
+    /** 章节免费标记「免费」取值（sys_work_chapter.is_free：0 付费 / 1 免费） */
+    private static final String CHAPTER_FREE = "1";
+
     /** 榜单类型白名单 */
     private static final List<String> RANKING_TYPES = List.of("view", "favorite", "sale", "rating");
 
@@ -162,8 +165,24 @@ public class AppBookstoreServiceImpl implements IAppBookstoreService
         if (work != null)
         {
             fillTags(List.of(work));
+            // 作品级试读状态需含作者逐章标记的免费章节：preview_enabled/preview_episodes
+            // 全项目无写入方，只认这两列会恒显示「未开启试读」
+            work.setFreeChapterCount(chapterMapper.countFreeChapters(workId));
         }
         return work;
+    }
+
+    @Override
+    public AppWorkDto getWorkDetail(Long workId)
+    {
+        if (workId == null)
+        {
+            return null;
+        }
+        // 详情入口浏览一次即 +1：先自增再查询，使本次返回的 viewCount 已含本次访问
+        // （作品不存在时自增 0 行，随后 getWork 返回 null，由控制层按 404 处理）
+        workMapper.incrementViewCount(workId);
+        return getWork(workId);
     }
 
     @Override
@@ -231,8 +250,8 @@ public class AppBookstoreServiceImpl implements IAppBookstoreService
         {
             return null;
         }
-        // 可读 = 在试读范围内 或 当前身份已获授权（两条分支，缺一不可）
-        boolean readable = isInPreviewRange(work, chapter.getChapterNo()) || isWorkAuthorized(work.getWorkId());
+        // 可读 = 在试读范围内 或 作者标记的免费章节 或 当前身份已获授权
+        boolean readable = isChapterReadable(work, chapter);
         AppChapterDetailDto dto = new AppChapterDetailDto();
         dto.setChapterId(chapter.getChapterId());
         dto.setWorkId(chapter.getWorkId());
@@ -257,7 +276,8 @@ public class AppBookstoreServiceImpl implements IAppBookstoreService
         dto.setPreviewEnabled(work.getPreviewEnabled());
         dto.setPreviewEpisodes(previewEpisodes(work));
         List<AppChapterDto> readable = new ArrayList<>();
-        // 免费试读语义固定为试读范围，不因已获授权而扩大为全文
+        // 试读包只收「可读」章节：试读范围 + 作者标记的免费章节，
+        // 不因已获授权而扩大为全文（unlocked 传 false）
         for (AppChapterDto chapter : toChapterDtos(work, false))
         {
             if (Boolean.TRUE.equals(chapter.getReadable()))
@@ -331,7 +351,7 @@ public class AppBookstoreServiceImpl implements IAppBookstoreService
         List<AppChapterDto> list = new ArrayList<>(rows.size());
         for (SysWorkChapter row : rows)
         {
-            list.add(toChapterDto(row, unlocked || isInPreviewRange(work, row.getChapterNo())));
+            list.add(toChapterDto(row, unlocked || isChapterReadable(work, row)));
         }
         return list;
     }
@@ -364,6 +384,21 @@ public class AppBookstoreServiceImpl implements IAppBookstoreService
     {
         int episodes = previewEpisodes(work);
         return isPreviewEnabled(work) && episodes > 0 && chapterNo != null && chapterNo <= episodes;
+    }
+
+    /**
+     * 章节对当前身份是否可读。三条放开分支，任一成立即可读：
+     *
+     *   1. 在作品试读范围内（见 {@link #isInPreviewRange}，由平台在审核通过时配置）；
+     *   2. 作者标记为免费章节（sys_work_chapter.is_free='1'，0 付费 / 1 免费）——
+     *      作者可在 App 章节编辑页逐章开启，若不纳入本判定，作者的标记在阅读端将完全无效；
+     *   3. 当前身份已获版权授权（见 {@link #isWorkAuthorized}）。
+     */
+    private boolean isChapterReadable(AppWorkDto work, SysWorkChapter chapter)
+    {
+        return isInPreviewRange(work, chapter.getChapterNo())
+                || CHAPTER_FREE.equals(chapter.getIsFree())
+                || isWorkAuthorized(work.getWorkId());
     }
 
     private static AppChapterDto toChapterDto(SysWorkChapter row, boolean readable)

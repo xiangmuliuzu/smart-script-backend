@@ -1,5 +1,7 @@
 package com.smartscript.platform.content.controller.app;
 
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -132,7 +134,9 @@ public class AppUserWorkController
     }
 
     /**
-     * 修改作品基本信息（标题/简介/分类/封面）
+     * 修改作品基本信息（标题/简介/分类/封面/标签）
+     *
+     * 依据：接口文档 2.3.3 修改剧本信息，入参含 tagIds（Array&lt;Int&gt;，全量覆盖，最多 8 个）。
      */
     @PutMapping("/{workId}")
     public AppApiResponse<Void> update(@PathVariable Long workId, @RequestBody Map<String, Object> body)
@@ -142,7 +146,7 @@ public class AppUserWorkController
         {
             userWorkService.updateWorkBase(userId, workId,
                     str(body.get("title")), str(body.get("summary")), integer(body.get("genreId")),
-                    str(body.get("cover")));
+                    str(body.get("cover")), integerList(body.get("tagIds")));
             return AppApiResponse.ok();
         }
         catch (IllegalArgumentException e)
@@ -340,5 +344,29 @@ public class AppUserWorkController
         {
             return null;
         }
+    }
+
+    /**
+     * 解析标签ID数组（接口文档 2.3.3 tagIds）。
+     *
+     * 字段缺失（null / 非数组）返回 null，表示「不下发 = 不改标签」；
+     * 空数组返回空集合，表示「全量覆盖为空 = 清空标签」，二者语义不同不可合并。
+     */
+    private List<Integer> integerList(Object value)
+    {
+        if (!(value instanceof Collection<?> raw))
+        {
+            return null;
+        }
+        List<Integer> tagIds = new ArrayList<>();
+        for (Object item : raw)
+        {
+            Integer tagId = integer(item);
+            if (tagId != null)
+            {
+                tagIds.add(tagId);
+            }
+        }
+        return tagIds;
     }
 }

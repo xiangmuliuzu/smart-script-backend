@@ -8,10 +8,11 @@ package com.smartscript.platform.content.dto;
  *
  * 口径说明：
  *   - isFree 为 tinyint 存储列，沿用既有 App 契约以字符串 "0"/"1" 下发（与 AppWorkDto 一致）；
- *   - readable 为服务端按当前请求身份计算的可读标识，两条放开分支取或：
+ *   - readable 为服务端按当前请求身份计算的可读标识，三条放开分支取或：
  *     试读范围内（preview_enabled='1' 且 preview_episodes>0 且 chapter_no<=preview_episodes），
+ *     或作者标记为免费章节（is_free='1'），
  *     或当前用户对作品持有生效中的版权授权（sys_copyright_authorization.status='active'），
- *     后者为 true 时整个目录 readable 全为 true。非库中列。
+ *     授权分支为 true 时整个目录 readable 全为 true。非库中列。
  *
  * @author xiangsipeng
  */

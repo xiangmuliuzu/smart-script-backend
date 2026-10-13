@@ -21,6 +21,7 @@ import com.smartscript.platform.content.domain.SysWork;
 import com.smartscript.platform.content.domain.SysWorkChapter;
 import com.smartscript.platform.content.domain.SysWorkReviewRecord;
 import com.smartscript.platform.content.mapper.SysContentWorkMapper;
+import com.smartscript.platform.content.mapper.SysTagMapper;
 import com.smartscript.platform.content.mapper.SysWorkChapterMapper;
 import com.smartscript.platform.content.mapper.SysWorkReviewRecordMapper;
 import com.smartscript.platform.content.service.impl.AppUserWorkServiceImpl;
@@ -41,6 +42,7 @@ class AppUserWorkServiceTest
     private SysContentWorkMapper workMapper;
     private SysWorkChapterMapper chapterMapper;
     private SysWorkReviewRecordMapper reviewRecordMapper;
+    private SysTagMapper tagMapper;
     private AppUserWorkServiceImpl service;
 
     @BeforeEach
@@ -49,7 +51,8 @@ class AppUserWorkServiceTest
         workMapper = mock(SysContentWorkMapper.class);
         chapterMapper = mock(SysWorkChapterMapper.class);
         reviewRecordMapper = mock(SysWorkReviewRecordMapper.class);
-        service = new AppUserWorkServiceImpl(workMapper, chapterMapper, reviewRecordMapper);
+        tagMapper = mock(SysTagMapper.class);
+        service = new AppUserWorkServiceImpl(workMapper, chapterMapper, reviewRecordMapper, tagMapper);
     }
 
     private SysWork workOf()
@@ -160,7 +163,7 @@ class AppUserWorkServiceTest
     {
         when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
         when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of());
-        service.updateWorkBase(OWNER, WORK_ID, "新标题", "新简介", 5, null);
+        service.updateWorkBase(OWNER, WORK_ID, "新标题", "新简介", 5, null, null);
         verify(workMapper).updateWorkBaseInfo(any(SysWork.class));
     }
 
@@ -170,7 +173,7 @@ class AppUserWorkServiceTest
     {
         when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
         when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of(recordOf("revision")));
-        service.updateWorkBase(OWNER, WORK_ID, "新标题", "新简介", 5, null);
+        service.updateWorkBase(OWNER, WORK_ID, "新标题", "新简介", 5, null, null);
         verify(workMapper).updateWorkBaseInfo(any(SysWork.class));
     }
 
@@ -181,7 +184,7 @@ class AppUserWorkServiceTest
         when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
         when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of(recordOf("pending")));
         assertThrows(IllegalStateException.class,
-                () -> service.updateWorkBase(OWNER, WORK_ID, "新标题", "新简介", 5, null));
+                () -> service.updateWorkBase(OWNER, WORK_ID, "新标题", "新简介", 5, null, null));
         verify(workMapper, never()).updateWorkBaseInfo(any());
     }
 
@@ -191,8 +194,61 @@ class AppUserWorkServiceTest
     {
         when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
         when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of(recordOf("approved")));
-        service.updateWorkBase(OWNER, WORK_ID, "新标题", "新简介", 5, "/profile/upload/cover.png");
+        service.updateWorkBase(OWNER, WORK_ID, "新标题", "新简介", 5, "/profile/upload/cover.png", null);
         verify(workMapper).updateWorkBaseInfo(argThat(work -> "/profile/upload/cover.png".equals(work.getCover())));
+    }
+
+    @Test
+    @DisplayName("设置标签：全量覆盖，先清空再批量写入，重复ID去重")
+    void updateWorkBaseReplacesTags()
+    {
+        when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
+        when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of());
+
+        service.updateWorkBase(OWNER, WORK_ID, "新标题", "新简介", 5, null, List.of(3, 1, 3));
+
+        verify(tagMapper).deleteWorkTagByWorkId(WORK_ID);
+        // 3 重复出现两次，去重后只写 2 条，避免撞 uk_work_tag(work_id, tag_id)
+        verify(tagMapper).batchInsertWorkTag(anyLong(),
+                argThat(ids -> ids.size() == 2 && ids.containsAll(List.of(1, 3))), anyString());
+    }
+
+    @Test
+    @DisplayName("设置标签：空列表表示清空，且不写入新关联")
+    void updateWorkBaseClearsTags()
+    {
+        when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
+        when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of());
+
+        service.updateWorkBase(OWNER, WORK_ID, "新标题", "新简介", 5, null, List.of());
+
+        verify(tagMapper).deleteWorkTagByWorkId(WORK_ID);
+        verify(tagMapper, never()).batchInsertWorkTag(anyLong(), any(), anyString());
+    }
+
+    @Test
+    @DisplayName("设置标签：tagIds 未下发（null）时不动标签")
+    void updateWorkBaseSkipsTagsWhenAbsent()
+    {
+        when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
+        when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of());
+
+        service.updateWorkBase(OWNER, WORK_ID, "新标题", "新简介", 5, null, null);
+
+        verify(tagMapper, never()).deleteWorkTagByWorkId(anyLong());
+    }
+
+    @Test
+    @DisplayName("设置标签：超过 8 个拒绝，且不产生任何删除")
+    void updateWorkBaseRejectsTooManyTags()
+    {
+        when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
+        when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of());
+
+        assertThrows(IllegalArgumentException.class, () -> service.updateWorkBase(
+                OWNER, WORK_ID, "新标题", "新简介", 5, null, List.of(1, 2, 3, 4, 5, 6, 7, 8, 9)));
+
+        verify(tagMapper, never()).deleteWorkTagByWorkId(anyLong());
     }
 
     @Test
@@ -331,7 +387,7 @@ class AppUserWorkServiceTest
                 .thenReturn(List.of(workWith(101L, "作品A"), workWith(102L, "作品B")));
         when(reviewRecordMapper.selectByWorkIds(any())).thenReturn(List.of());
 
-        List<Map<String, Object>> list = service.listWorks(OWNER, "all");
+        List<Map<String, Object>> list = service.listWorks(OWNER, "all", null, null);
 
         assertEquals(2, list.size());
         assertEquals("draft", list.get(0).get("status"));
@@ -348,7 +404,7 @@ class AppUserWorkServiceTest
         when(reviewRecordMapper.selectByWorkIds(any()))
                 .thenReturn(List.of(recordWith(102L, "pending")));
 
-        List<Map<String, Object>> list = service.listWorks(OWNER, "reviewing");
+        List<Map<String, Object>> list = service.listWorks(OWNER, "reviewing", null, null);
 
         assertEquals(1, list.size());
         assertEquals(102L, list.get(0).get("workId"));
@@ -364,11 +420,11 @@ class AppUserWorkServiceTest
         when(reviewRecordMapper.selectByWorkIds(any()))
                 .thenReturn(List.of(recordWith(103L, "approved")));
 
-        List<Map<String, Object>> published = service.listWorks(OWNER, "published");
+        List<Map<String, Object>> published = service.listWorks(OWNER, "published", null, null);
         assertEquals(1, published.size());
         assertEquals("published", published.get(0).get("status"));
 
         when(workMapper.selectWorkListByAuthor(OWNER)).thenReturn(List.of());
-        assertEquals(0, service.listWorks(OWNER, "all").size());
+        assertEquals(0, service.listWorks(OWNER, "all", null, null).size());
     }
 }

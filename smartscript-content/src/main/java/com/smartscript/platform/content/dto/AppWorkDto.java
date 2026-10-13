@@ -89,6 +89,15 @@ public class AppWorkDto
     /** 预览集数 */
     private Integer previewEpisodes;
 
+    /**
+     * 可试读（作者标记的免费）章节数。
+     *
+     * 派生字段，非库中列：sys_work_chapter 中 status='0' 且 is_free='1' 的章节数。
+     * 作品级「试读」展示需与本值合并判定——sys_work.preview_enabled/preview_episodes
+     * 当前无任何写入方，只认这两列会恒显示「未开启试读」。
+     */
+    private Integer freeChapterCount;
+
     /** 状态（书城只下发 on_shelf） */
     private String status;
 
@@ -346,6 +355,16 @@ public class AppWorkDto
     public void setPreviewEpisodes(Integer previewEpisodes)
     {
         this.previewEpisodes = previewEpisodes;
+    }
+
+    public Integer getFreeChapterCount()
+    {
+        return freeChapterCount;
+    }
+
+    public void setFreeChapterCount(Integer freeChapterCount)
+    {
+        this.freeChapterCount = freeChapterCount;
     }
 
     public String getStatus()

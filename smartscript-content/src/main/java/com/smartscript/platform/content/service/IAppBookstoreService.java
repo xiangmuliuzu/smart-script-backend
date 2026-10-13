@@ -19,7 +19,8 @@ import com.smartscript.platform.content.dto.AppWorkQuery;
  * 依据：接口文档 2.7 书城模块（表 2-81 作品列表 / 2-82 作品详情 / 2-87 作品榜单 /
  * 2-93 Banner 轮播）+ 云端 script_platform_dev 库真实表结构。
  *
- * 边界：本服务只做只读查询，不写库；书城可见性统一收敛为
+ * 边界：除「作品详情入口的浏览量自增」（见 {@link #getWorkDetail}）外只做只读查询，
+ * 不写其它任何库；书城可见性统一收敛为
  * 「未删除 + 已上架」/「status 正常」，避免调用方各自拼条件产生口径漂移。
  * 复用既有 Mapper（分类/标签复用管理端语句，作品/Banner 走 App 专用语句），不新建表访问路径。
  *
@@ -70,6 +71,19 @@ public interface IAppBookstoreService
      * @return 作品（未上架/已删除/不存在返回 null）
      */
     public AppWorkDto getWork(Long workId);
+
+    /**
+     * 书城作品详情（浏览一次）
+     *
+     * 与 {@link #getWork} 的唯一区别：本方法服务于「作品详情」入口，每次访问把作品浏览量 +1
+     * （一次浏览记一次，「量」口径即接口文档 2.7.2 的阅读量）。
+     * 章节目录 / 免费试读 / 版权联系方式等内部调用一律走 {@link #getWork}，
+     * 不在此处自增，避免同一次浏览被重复计数。
+     *
+     * @param workId 作品ID
+     * @return 作品（未上架/已删除/不存在返回 null）
+     */
+    public AppWorkDto getWorkDetail(Long workId);
 
     /**
      * 作品榜单

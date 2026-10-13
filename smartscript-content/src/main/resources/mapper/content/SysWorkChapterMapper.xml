@@ -70,6 +70,15 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 	</select>
 
 	<!--
+	  作品的免费（试读）章节数：status='0' 且 is_free='1'。
+	  用于作品级「试读」展示与 sys_work.preview_enabled 合并判定（后者当前无写入方）。
+	-->
+	<select id="countFreeChapters" parameterType="Long" resultType="java.lang.Integer">
+		select count(1) from sys_work_chapter
+		where work_id = #{workId} and status = '0' and is_free = '1'
+	</select>
+
+	<!--
 	  App 章节编辑：归属判定只取元信息（不含 content 长文本）。
 	-->
 	<select id="selectChapterMeta" parameterType="Long" resultMap="SysWorkChapterResult">

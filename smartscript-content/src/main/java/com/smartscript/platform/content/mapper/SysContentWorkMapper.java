@@ -207,4 +207,29 @@ public interface SysContentWorkMapper
      * @return 归属且未删除的作品（不存在或非本人返回 null）
      */
     public SysWork selectOwnedWork(@Param("workId") Long workId, @Param("userId") Long userId);
+
+    // ==================== 书城浏览统计与作品聚合列 ====================
+
+    /**
+     * 浏览量 +1（App 书城作品详情入口调用，一次访问记一次）
+     *
+     * 加 coalesce：view_count 为 NULL 的存量行也能正常自增，不会算成 NULL。
+     *
+     * @param workId 作品ID
+     * @return 影响行数（作品不存在为 0）
+     */
+    public int incrementViewCount(@Param("workId") Long workId);
+
+    /**
+     * 重算作品聚合统计列：word_count（字数）+ episode_count（章节数）
+     *
+     * 口径：word_count = 该作品全部章节 word_count 之和；episode_count = 章节总数。
+     * 这两列是冗余统计列，insertWork 时写死 0 且全项目无其它写入方，
+     * 故章节增删改后必须调用本方法回写；否则 App 作品详情/书城列表与 PC 作品管理
+     * 的「字数/章节数」恒显示 0。
+     *
+     * @param workId 作品ID
+     * @return 影响行数
+     */
+    public int refreshWorkAggregates(@Param("workId") Long workId);
 }

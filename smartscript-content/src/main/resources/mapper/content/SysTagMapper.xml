@@ -146,4 +146,24 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		order by t.sort, t.tag_id
 	</select>
 
+	<!--
+	  清空某作品的全部标签关联（作品标签全量覆盖的第一步）。
+	  依据：接口文档 2.3.3 tagIds「全量覆盖」语义 + 附件5.1 表3-13 sys_work_tag。
+	-->
+	<delete id="deleteWorkTagByWorkId">
+		delete from sys_work_tag where work_id = #{workId}
+	</delete>
+
+	<!--
+	  批量写入作品标签关联。
+	  唯一索引 uk_work_tag(work_id, tag_id) 由调用方先去重保证；created_at 非空且有默认值，这里显式写入。
+	-->
+	<insert id="batchInsertWorkTag">
+		insert into sys_work_tag (work_id, tag_id, created_at, create_by)
+		values
+		<foreach item="tagId" collection="tagIds" separator=",">
+			(#{workId}, #{tagId}, sysdate(), #{createBy})
+		</foreach>
+	</insert>
+
 </mapper>

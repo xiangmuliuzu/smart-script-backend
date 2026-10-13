@@ -70,14 +70,14 @@ public class AppWorkController
     }
 
     /**
-     * 作品详情
+     * 作品详情（每次访问该作品浏览量 +1）
      *
      * @param workId 作品ID
      */
     @GetMapping("/{workId}")
     public AppApiResponse<AppWorkDto> detail(@PathVariable Long workId)
     {
-        AppWorkDto work = bookstoreService.getWork(workId);
+        AppWorkDto work = bookstoreService.getWorkDetail(workId);
         if (work == null)
         {
             return AppApiResponse.fail(CODE_NOT_FOUND, "作品不存在或已下架");

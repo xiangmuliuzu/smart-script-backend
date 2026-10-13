@@ -47,6 +47,27 @@ public interface SysTagMapper
     public List<AppWorkTagDto> selectWorkTagRows(@Param("workIds") Collection<Long> workIds);
 
     /**
+     * 清空某作品的全部标签关联（作品标签全量覆盖的第一步）
+     *
+     * 接口文档 2.3.3：tagIds 为全量覆盖语义，故先删后插。
+     *
+     * @param workId 作品ID
+     * @return 删除行数
+     */
+    public int deleteWorkTagByWorkId(@Param("workId") Long workId);
+
+    /**
+     * 批量写入作品标签关联
+     *
+     * @param workId   作品ID
+     * @param tagIds   标签ID集合（不可为空，调用方需先去重）
+     * @param createBy 操作人（当前登录用户ID）
+     * @return 插入行数
+     */
+    public int batchInsertWorkTag(@Param("workId") Long workId, @Param("tagIds") Collection<Integer> tagIds,
+            @Param("createBy") String createBy);
+
+    /**
      * 通过标签ID查询标签
      *
      * @param tagId 标签ID

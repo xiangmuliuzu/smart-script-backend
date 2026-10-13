@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Objects;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import com.smartscript.platform.content.domain.SysWork;
 import com.smartscript.platform.content.domain.SysWorkChapter;
 import com.smartscript.platform.content.dto.AppAuthorChapterItem;
@@ -27,6 +28,8 @@ import com.smartscript.platform.identity.IdentityProvider;
  * 3. chapter_no 作品内唯一：前置 countChapterNo 校验（重复 400），并发竞态由唯一键兜底。
  * 4. is_free/status 为 tinyint，按模块约定以字符串 "0"/"1" 落库；新增默认 is_free="0"、status="0"。
  * 5. 新增/更新均落若依审计列 create_by/update_by = 当前用户ID 字符串。
+ * 6. 章节增删改后回写作品聚合列 word_count/episode_count（冗余统计列，
+ *    全项目无其它写入方，不回写则作品恒显示 0 字 / 0 章）。
  *
  * @author xiangsipeng
  */
@@ -116,6 +119,7 @@ public class AppChapterAuthorServiceImpl implements IAppChapterAuthorService
     }
 
     @Override
+    @Transactional
     public Long createChapter(Long workId, AppChapterCreateRequest request)
     {
         Long userId = identityProvider.currentUserId();
@@ -128,13 +132,22 @@ public class AppChapterAuthorServiceImpl implements IAppChapterAuthorService
         chapter.setIsFree(request.getIsFree() == null ? DEFAULT_IS_FREE : request.getIsFree());
         chapter.setStatus(DEFAULT_STATUS);
         chapter.setCreateBy(userId == null ? null : String.valueOf(userId));
-        return chapterMapper.insertChapter(chapter) > 0 ? chapter.getChapterId() : null;
+        if (chapterMapper.insertChapter(chapter) <= 0)
+        {
+            return null;
+        }
+        // 新章节已入库，回写作品 aggregate 列（本次 workId 由入参直接给出）
+        workMapper.refreshWorkAggregates(workId);
+        return chapter.getChapterId();
     }
 
     @Override
+    @Transactional
     public boolean updateChapter(Long chapterId, AppChapterUpdateRequest request)
     {
         Long userId = identityProvider.currentUserId();
+        // 章节表无 author_id，作品ID 需由章节元信息反查，供回写作品聚合列使用
+        SysWorkChapter meta = chapterMapper.selectChapterMeta(chapterId);
         SysWorkChapter update = new SysWorkChapter();
         update.setChapterId(chapterId);
         update.setChapterTitle(request.getChapterTitle());
@@ -147,13 +160,34 @@ public class AppChapterAuthorServiceImpl implements IAppChapterAuthorService
         update.setIsFree(request.getIsFree());
         update.setStatus(request.getStatus());
         update.setUpdateBy(userId == null ? null : String.valueOf(userId));
-        return chapterMapper.updateChapter(update) > 0;
+        if (chapterMapper.updateChapter(update) <= 0)
+        {
+            return false;
+        }
+        refreshWorkAggregates(meta);
+        return true;
     }
 
     @Override
+    @Transactional
     public boolean deleteChapter(Long chapterId)
     {
-        return chapterMapper.deleteChapter(chapterId) > 0;
+        SysWorkChapter meta = chapterMapper.selectChapterMeta(chapterId);
+        if (chapterMapper.deleteChapter(chapterId) <= 0)
+        {
+            return false;
+        }
+        refreshWorkAggregates(meta);
+        return true;
+    }
+
+    /** 章节变更后回写所属作品的聚合列；meta 为空（章节不存在）时不回写 */
+    private void refreshWorkAggregates(SysWorkChapter meta)
+    {
+        if (meta != null)
+        {
+            workMapper.refreshWorkAggregates(meta.getWorkId());
+        }
     }
 
     /** 按内容字符长度计算字数（null/空记为 0） */

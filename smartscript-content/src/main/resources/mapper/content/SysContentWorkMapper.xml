@@ -447,4 +447,31 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		<include refid="selectWorkVo"/>
 		and w.work_id = #{workId} and w.author_id = #{userId}
 	</select>
+
+	<!-- ==================== 书城浏览统计与作品聚合列 ==================== -->
+
+	<!--
+	  浏览量 +1（App 书城作品详情入口调用，一次访问记一次）。
+	  coalesce 兜底：view_count 为 NULL 的存量行自增后仍为 1，不会算成 NULL。
+	-->
+	<update id="incrementViewCount">
+		update sys_work
+		set view_count = coalesce(view_count, 0) + 1
+		where work_id = #{workId}
+	</update>
+
+	<!--
+	  重算作品聚合统计列：word_count = 全部章节字数和，episode_count = 章节总数。
+	  子查询取自 sys_work_chapter（与 sys_work 不同表），不触发 MySQL 同表更新限制。
+	-->
+	<update id="refreshWorkAggregates">
+		update sys_work w
+		set word_count = (select coalesce(sum(c.word_count), 0)
+		                  from sys_work_chapter c
+		                  where c.work_id = w.work_id),
+		    episode_count = (select count(1)
+		                     from sys_work_chapter c
+		                     where c.work_id = w.work_id)
+		where w.work_id = #{workId}
+	</update>
 </mapper>
