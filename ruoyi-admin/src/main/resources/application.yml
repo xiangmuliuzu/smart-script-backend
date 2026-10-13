@@ -56,6 +56,12 @@ spring:
     basename: i18n/messages
   profiles:
     active: druid
+  # 本机私有变量（.env.local 已被 .gitignore 忽略）按 .properties 格式导入，
+  # 这样 IDEA 直接 Run、java -jar、mvn spring-boot:run 都无需手工导出环境变量。
+  # 同时列 ./ 与 ../，兼顾工作目录是仓库根目录（java -jar / mvn）或 ruoyi-admin 模块目录（IDEA Run）。
+  # optional: 文件不存在时静默跳过（CI/云端不依赖此文件）；OS 环境变量优先级更高。
+  config:
+    import: optional:file:./.env.local[.properties],optional:file:../.env.local[.properties]
   # 文件上传
   servlet:
     multipart:
@@ -107,11 +113,6 @@ app:
   # A3 App 凭证域（变量名与默认上下限；密钥仅环境变量）
   auth:
     env: ${APP_AUTH_ENV:local}
-    token-secret: ${APP_TOKEN_SECRET:}
-    token-issuer: ${APP_TOKEN_ISSUER:}
-    token-audience: ${APP_TOKEN_AUDIENCE:}
-    access-token-ttl: ${APP_ACCESS_TOKEN_TTL:1800}
-    refresh-token-ttl: ${APP_REFRESH_TOKEN_TTL:1209600}
     redis-key-prefix: ${APP_REDIS_KEY_PREFIX:}
     sms:
       provider: ${SMS_PROVIDER:mock}

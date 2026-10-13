@@ -68,8 +68,9 @@ class AppUserCenterUnitTest
         assertThrows(AppAuthException.class, () -> AppUserProfileService.normalizeNickname("   "));
         assertThrows(AppAuthException.class, () -> AppUserProfileService.normalizeNickname(null));
         assertThrows(AppAuthException.class,
-                () -> AppUserProfileService.normalizeNickname("a".repeat(31)));
-        assertDoesNotThrow(() -> AppUserProfileService.normalizeNickname("a".repeat(30)));
+                () -> AppUserProfileService.normalizeNickname("名".repeat(16)));
+        assertDoesNotThrow(() -> AppUserProfileService.normalizeNickname("名".repeat(15)));
+        assertDoesNotThrow(() -> AppUserProfileService.normalizeNickname("😀".repeat(15)));
     }
 
     @Test
