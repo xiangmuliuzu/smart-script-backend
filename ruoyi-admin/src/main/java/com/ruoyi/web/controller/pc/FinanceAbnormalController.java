@@ -14,7 +14,7 @@ import java.util.List;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/pc/copyright/finance-abnormal")
+@RequestMapping("/api/v1/admin/copyright/finance-abnormal")
 public class FinanceAbnormalController extends BaseController {
 
     private final FinanceAbnormalService financeAbnormalService;

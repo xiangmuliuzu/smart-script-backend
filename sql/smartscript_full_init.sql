@@ -1128,9 +1128,6 @@ INSERT INTO sys_menu (menu_id, menu_name, parent_id, order_num, path, component,
 (2012, '外部视频管理',       2000, 8, 'external-drama', NULL,                         '', 1, 0, 'M', '0', '0', NULL,                           'VideoCamera','b-migration', 'B模块外部视频管理目录'),
 (2018, '渠道管理',           2012, 1, 'channel',        'content/external-drama/channel/index', '', 1, 0, 'C', '0', '0', 'content:channel:list',    'Guide',      'b-migration', 'B模块外部视频菜单'),
 (2019, '视频内容管理',       2012, 2, 'drama',          'content/external-drama/drama/index',   '', 1, 0, 'C', '0', '0', 'content:drama:list',      'VideoPlay',  'b-migration', 'B模块外部视频菜单'),
-(2027, '关联剧本',           2012, 3, 'bind',           'content/external-drama/bind/index',    '', 1, 0, 'C', '0', '0', 'content:dramabind:list',  'Link',       'b-migration', 'B模块外部视频菜单'),
-(2028, '上下架管理',         2012, 4, 'status',         'content/external-drama/status/index',  '', 1, 0, 'C', '0', '0', 'content:dramastatus:list','Switch',     'b-migration', 'B模块外部视频菜单'),
-(2029, '播放数据',           2012, 5, 'stats',          'content/external-drama/stats/index',   '', 1, 0, 'C', '0', '0', 'content:dramastats:list', 'DataLine',   'b-migration', 'B模块外部视频菜单'),
 (2051, '外部漫剧发行',       2000, 9, 'external-video', 'operation/ShortDrama',                 '', 1, 0, 'C', '0', '0', 'smartscript:content:video','VideoPlay',  'b-migration', 'B模块外部漫剧发行（原 A1 5104 迁移）'),
 (5110, '运营数据总览',       5002, 1, 'overview', 'statistics/OperationOverview', '', 1, 0, 'C', '0', '0', 'smartscript:stats:overview', 'DataLine', 'A1', 'A1SEED'),
 (5111, '明细数据查询',       5002, 2, 'detail',   'statistics/DetailQuery',       '', 1, 0, 'C', '0', '0', 'smartscript:stats:detail',   'Search',   'A1', 'A1SEED'),
@@ -1213,11 +1210,10 @@ INSERT INTO sys_menu (menu_id, menu_name, parent_id, order_num, path, component,
 (2043, '视频查询',   2019, 1, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'content:drama:query',       '#', 'b-migration', 'B模块外部视频按钮权限'),
 (2044, '视频新增',   2019, 2, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'content:drama:add',         '#', 'b-migration', 'B模块外部视频按钮权限'),
 (2045, '视频编辑',   2019, 3, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'content:drama:edit',        '#', 'b-migration', 'B模块外部视频按钮权限'),
-(2046, '关联查询',   2027, 1, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'content:dramabind:query',   '#', 'b-migration', 'B模块外部视频按钮权限'),
-(2047, '关联编辑',   2027, 2, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'content:dramabind:edit',    '#', 'b-migration', 'B模块外部视频按钮权限'),
-(2048, '上下架查询', 2028, 1, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'content:dramastatus:query', '#', 'b-migration', 'B模块外部视频按钮权限'),
-(2049, '上下架编辑', 2028, 2, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'content:dramastatus:edit',  '#', 'b-migration', 'B模块外部视频按钮权限'),
-(2050, '播放数据查询', 2029, 1, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'content:dramastats:query', '#', 'b-migration', 'B模块外部视频按钮权限'),
+(2047, '关联编辑',     2019, 4, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'content:dramabind:edit',    '#', 'b-migration', 'B模块外部视频按钮权限'),
+(2049, '上下架编辑',   2019, 5, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'content:dramastatus:edit',  '#', 'b-migration', 'B模块外部视频按钮权限'),
+(2050, '播放数据查询', 2019, 6, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'content:dramastats:query',  '#', 'b-migration', 'B模块外部视频按钮权限'),
+(2052, '播放历史查询', 2019, 7, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'content:dramastats:list',   '#', 'b-migration', 'B模块外部视频详情-播放历史'),
 (5180, '交易作品新增',   5130, 1, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'trade:works:add',       '#', 'c-perm-migration', 'C 模块交易按钮权限'),
 (5181, '交易作品编辑',   5130, 2, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'trade:works:edit',      '#', 'c-perm-migration', 'C 模块交易按钮权限'),
 (5182, '授权订单查询',   5131, 1, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'trade:orders:query',    '#', 'c-perm-migration', 'C 模块交易按钮权限'),
@@ -1267,12 +1263,11 @@ CROSS JOIN (
   UNION ALL SELECT 2018 UNION ALL SELECT 2019
   UNION ALL SELECT 2020 UNION ALL SELECT 2021 UNION ALL SELECT 2022
   UNION ALL SELECT 2023 UNION ALL SELECT 2024 UNION ALL SELECT 2025 UNION ALL SELECT 2026
-  UNION ALL SELECT 2027 UNION ALL SELECT 2028 UNION ALL SELECT 2029
   UNION ALL SELECT 2030 UNION ALL SELECT 2031 UNION ALL SELECT 2032 UNION ALL SELECT 2033 UNION ALL SELECT 2034
   UNION ALL SELECT 2035 UNION ALL SELECT 2036 UNION ALL SELECT 2037 UNION ALL SELECT 2039
   UNION ALL SELECT 2040 UNION ALL SELECT 2041 UNION ALL SELECT 2042 UNION ALL SELECT 2043 UNION ALL SELECT 2044
-  UNION ALL SELECT 2045 UNION ALL SELECT 2046 UNION ALL SELECT 2047 UNION ALL SELECT 2048 UNION ALL SELECT 2049
-  UNION ALL SELECT 2050 UNION ALL SELECT 2051
+  UNION ALL SELECT 2045 UNION ALL SELECT 2047 UNION ALL SELECT 2049
+  UNION ALL SELECT 2050 UNION ALL SELECT 2051 UNION ALL SELECT 2052
   UNION ALL SELECT 5130 UNION ALL SELECT 5131 UNION ALL SELECT 5132 UNION ALL SELECT 5133
   UNION ALL SELECT 5135 UNION ALL SELECT 5136 UNION ALL SELECT 5137 UNION ALL SELECT 5138
   UNION ALL SELECT 5180 UNION ALL SELECT 5181 UNION ALL SELECT 5182 UNION ALL SELECT 5183
@@ -2036,6 +2031,31 @@ WHERE menu_id = 5001 OR parent_id = 5001
 DELETE FROM sys_role_menu WHERE menu_id = 5200;
 DELETE FROM sys_menu WHERE menu_id = 5200;
 
+-- 6) 外部视频「关联剧本 / 上下架管理 / 播放数据」三页并入「视频内容管理」(2019)（幂等）
+--    三页功能已分别并入 2019 的详情弹窗与列表操作：
+--      关联剧本 → 详情「关联剧本」Tab（dramaBind/bind、dramaBind/unbind）
+--      上下架   → 列表「上下架」开关 + 「同步」行操作 + 「批量同步」（dramaStatus/changeStatus、sync）
+--      播放数据 → 详情「播放数据」Tab（dramaStats/{workId}、dramaStats/history）
+--    第 4 部分不再生成这三页，也不再生成废弃按钮 2046/2048，并把 2047/2049/2050 改挂 2019。
+--    旧库升级必须先把原持有者的权限平移到合并后的页面，否则受限角色会失去入口
+--    （超管权限会掩盖这个问题）：页面入口 2027/2028/2029 → 2019，并补齐父目录 2000、2012
+--    菜单才能渲染出来；详情按钮 2043（content:drama:query）是进入「关联剧本 / 播放数据」
+--    Tab 的唯一入口，原持 2027/2029 的角色必须一并获得，否则保留的 2047/2050 也无法触达；
+--    「播放历史」2052 只补给原持 2029 的角色，不扩大其他角色的操作范围。
+--    后端 /dramaBind、/dramaStatus、/dramaStats 接口全部保留，仅收敛入口。
+INSERT IGNORE INTO sys_role_menu (role_id, menu_id)
+SELECT DISTINCT rm.role_id, t.target_id
+FROM sys_role_menu rm
+JOIN (
+            SELECT 2027 AS legacy_id, 2000 AS target_id
+  UNION ALL SELECT 2027, 2012 UNION ALL SELECT 2027, 2019 UNION ALL SELECT 2027, 2043
+  UNION ALL SELECT 2028, 2000 UNION ALL SELECT 2028, 2012 UNION ALL SELECT 2028, 2019
+  UNION ALL SELECT 2029, 2000 UNION ALL SELECT 2029, 2012 UNION ALL SELECT 2029, 2019
+  UNION ALL SELECT 2029, 2043 UNION ALL SELECT 2029, 2052
+) t ON t.legacy_id = rm.menu_id;
+DELETE FROM sys_role_menu WHERE menu_id IN (2027, 2028, 2029, 2046, 2048);
+DELETE FROM sys_menu WHERE menu_id IN (2027, 2028, 2029, 2046, 2048);
+
 -- =====================================================================
 -- 按目录和名称识别平台运维管理下重复的用户与创作者入口；不能按 5142 删除，
 -- 因云端 5142 是版权申请详情按钮。用户中心作者能力页并入 3001，保留 3009 按钮。
@@ -2318,7 +2338,8 @@ SELECT 'SMARTSCRIPT_INIT_DONE' AS step,
 
 -- 6) 校验：系统管理根目录与七个页面已恢复；旧日志目录(108)不存在；日志仍在数据统计；
 --    5001 遗留树应清空；5200 用户沟通目录应不存在；同级目录 path 不得重复
---    （否则侧边栏展开状态会串）
+--    （否则侧边栏展开状态会串）；外部视频三页 2027/2028/2029 与废弃按钮 2046/2048 应不存在，
+--    其仍需的按钮权限应全部挂在「视频内容管理」2019 下
 SELECT
   (SELECT COUNT(*) FROM sys_menu WHERE menu_id = 108) AS deleted_log_dir_should_be_0,
   (SELECT COUNT(*) FROM sys_menu WHERE parent_id=0 AND path='system' AND menu_type='M') AS system_root_should_be_1,
@@ -2344,6 +2365,10 @@ SELECT
   (SELECT COUNT(*) FROM sys_menu WHERE menu_id = 5152 AND parent_id = 5005) AS messages_under_operations_should_be_1,
   (SELECT COUNT(*) FROM sys_menu WHERE parent_id = 3000 AND component = 'chat/ChatSessions') AS legacy_chat_pages_should_be_0,
   (SELECT COUNT(*) FROM sys_menu WHERE menu_id = 5201 AND parent_id = 5152 AND menu_type = 'F') AS chat_list_permission_should_be_1,
+  (SELECT COUNT(*) FROM sys_menu WHERE menu_id IN (2027,2028,2029,2046,2048)) AS retired_drama_menus_should_be_0,
+  (SELECT COUNT(*) FROM sys_role_menu WHERE menu_id IN (2027,2028,2029,2046,2048)) AS retired_drama_grants_should_be_0,
+  (SELECT COUNT(*) FROM sys_menu WHERE parent_id = 2019 AND menu_type = 'F'
+    AND perms IN ('content:dramabind:edit','content:dramastatus:edit','content:dramastats:query','content:dramastats:list')) AS drama_buttons_under_drama_should_be_4,
   (SELECT COUNT(*) FROM (
     SELECT parent_id, path FROM sys_menu
     WHERE menu_type IN ('M','C') AND status = '0'

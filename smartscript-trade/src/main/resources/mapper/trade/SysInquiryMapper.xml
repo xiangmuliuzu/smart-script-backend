@@ -36,6 +36,8 @@
         left join sys_user ub on i.buyer_id = ub.user_id
         left join sys_user us on i.seller_id = us.user_id
         <where>
+            <if test="buyerId != null">AND i.buyer_id = #{buyerId}</if>
+            <if test="sellerId != null">AND i.seller_id = #{sellerId}</if>
             <if test="inquiryNo != null and inquiryNo != ''">AND i.inquiry_no like concat('%', #{inquiryNo}, '%')</if>
             <if test="status != null and status != ''">AND i.status = #{status}</if>
             <if test="licenseType != null and licenseType != ''">AND i.license_type = #{licenseType}</if>

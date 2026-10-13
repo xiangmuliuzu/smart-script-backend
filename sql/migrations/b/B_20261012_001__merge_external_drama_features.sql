@@ -22,9 +22,14 @@
 --
 -- 说明：后端 /dramaStatus、/dramaBind、/dramaStats 接口全部保留，仅收敛入口，不改后端。
 --
+-- 状态（2026-10-13）：
+--   本变更已并入 smartscript_full_init.sql —— 第 4 部分种子不再生成这三页与废弃按钮
+--   2046/2048，并把 2047/2049/2050 直接挂到 2019、新增按钮 2052；8.1 存量菜单清理
+--   负责旧库的删除。本文件仅作历史记录，新库与旧库都不需要再单独执行。
+--
 -- 回滚：
---   重新执行 smartscript_full_init.sql 第 1119-1122 / 1205-1209 行的 INSERT，
---   并删除 menu_id=2052。
+--   重新执行 smartscript_full_init.sql 第 4 部分的 INSERT（原 2027/2028/2029/2046/2048
+--   五行见 git 历史），把 2047/2049/2050 改回挂 2027/2028/2029，并删除 menu_id=2052。
 --
 -- 执行：
 --   $env:MYSQL_PWD='<口令>'; mysql -h<主机> -u<账号> script_platform_dev `
@@ -49,14 +54,23 @@ UPDATE sys_menu SET parent_id = 2019, order_num = 6
 -- ---------------------------------------------------------------------
 -- 2. 新增「播放历史查询」按钮权限并授权
 -- ---------------------------------------------------------------------
-INSERT INTO sys_menu (menu_id, menu_name, parent_id, order_num, path, component, query, is_frame, is_cache, menu_type, visible, status, perms, icon, create_by, remark)
+INSERT INTO sys_menu (menu_id, menu_name, parent_id, order_num, path, component, query, route_name, is_frame, is_cache, menu_type, visible, status, perms, icon, create_by, remark)
 VALUES (2052, '播放历史查询', 2019, 7, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'content:dramastats:list', '#', 'b-migration', '外部视频详情-播放历史')
 ON DUPLICATE KEY UPDATE parent_id = 2019, order_num = 7,
   menu_name = '播放历史查询', perms = 'content:dramastats:list';
 
--- 原持有「播放数据」(2029) 的角色与新按钮权限对齐
+-- 原持有旧页面(2027/2028/2029)的受限角色，把入口平移到合并后的页面 (2019) 及其父目录
+-- (2000/2012)，并按需补详情按钮 2043 与播放历史按钮 2052；不扩大其他角色的操作范围。
 INSERT IGNORE INTO sys_role_menu (role_id, menu_id)
-SELECT DISTINCT rm.role_id, 2052 FROM sys_role_menu rm WHERE rm.menu_id = 2029;
+SELECT DISTINCT rm.role_id, t.target_id
+FROM sys_role_menu rm
+JOIN (
+            SELECT 2027 AS legacy_id, 2000 AS target_id
+  UNION ALL SELECT 2027, 2012 UNION ALL SELECT 2027, 2019 UNION ALL SELECT 2027, 2043
+  UNION ALL SELECT 2028, 2000 UNION ALL SELECT 2028, 2012 UNION ALL SELECT 2028, 2019
+  UNION ALL SELECT 2029, 2000 UNION ALL SELECT 2029, 2012 UNION ALL SELECT 2029, 2019
+  UNION ALL SELECT 2029, 2043 UNION ALL SELECT 2029, 2052
+) t ON t.legacy_id = rm.menu_id;
 
 -- admin 角色默认可见
 INSERT IGNORE INTO sys_role_menu (role_id, menu_id)
