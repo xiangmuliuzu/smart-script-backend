@@ -181,7 +181,11 @@ java -jar ruoyi-admin/target/ruoyi-admin.jar
   PC 端 `resolveMediaUrl` 与 App 端 `AppConfig.resolveAssetUrl` 会在展示时自动归一，无需刷库。
 - **服务器部署**：请显式设置 `RUOYI_PROFILE` 指向可写的**绝对路径**（如 `/opt/smart-script/uploads`），
   并把仓库 `uploadPath/` 下的存量资源同步到该目录；否则进程工作目录一变，旧图就会 404。
-  注意：上传接口下发的一律是相对地址，拼接由前端按各环境 baseUrl 完成，因此无需为服务器单独改配置。
+- **线上反向代理（必须，否则 App 端破图）**：后端把 `/profile/**` 暴露为公开静态资源，
+  因此 Caddy / Nginx 必须把 `/profile/**` **一并转发给后端**（与 `/prod-api/**` 并列）。
+  只代理 `/prod-api/**` 时，`/profile/**` 会被站点当成前端路由，返回 SPA 的 index.html，
+  表现为「PC 后台正常、App 端图片全是破图」。Caddy 示例：
+  `reverse_proxy /prod-api/* 127.0.0.1:8080` 与 `reverse_proxy /profile/* 127.0.0.1:8080` 两条并列。
 
 ## 目录导航
 
