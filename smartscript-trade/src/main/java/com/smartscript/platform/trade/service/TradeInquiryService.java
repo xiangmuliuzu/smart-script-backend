@@ -88,7 +88,11 @@ public class TradeInquiryService
         {
             inquiry.setExpireAt(daysFromNow(DEFAULT_INQUIRY_VALID_DAYS));
         }
-        inquiry.setCreateBy(SecurityUtils.getUsername());
+        // APP端已设置createBy时不再调用SecurityUtils.getUsername()
+        if (inquiry.getCreateBy() == null || inquiry.getCreateBy().isEmpty())
+        {
+            inquiry.setCreateBy(SecurityUtils.getUsername());
+        }
         inquiry.setCreateTime(new Date());
         inquiryMapper.insertInquiry(inquiry);
         return inquiry;
@@ -101,7 +105,15 @@ public class TradeInquiryService
     @Transactional
     public int acceptInquiry(Long inquiryId)
     {
-        return transitionInquiry(inquiryId, INQUIRY_STATUS_QUOTED, INQUIRY_STATUS_PENDING);
+        return transitionInquiry(inquiryId, INQUIRY_STATUS_QUOTED, null, INQUIRY_STATUS_PENDING);
+    }
+
+    /**
+     * 接受询盘（带操作人，供APP端调用）。
+     */
+    public int acceptInquiry(Long inquiryId, String updateBy)
+    {
+        return transitionInquiry(inquiryId, INQUIRY_STATUS_QUOTED, updateBy, INQUIRY_STATUS_PENDING);
     }
 
     /**
@@ -110,7 +122,15 @@ public class TradeInquiryService
     @Transactional
     public int rejectInquiry(Long inquiryId)
     {
-        return transitionInquiry(inquiryId, INQUIRY_STATUS_REJECTED, INQUIRY_STATUS_PENDING);
+        return transitionInquiry(inquiryId, INQUIRY_STATUS_REJECTED, null, INQUIRY_STATUS_PENDING);
+    }
+
+    /**
+     * 拒绝询盘（带操作人，供APP端调用）。
+     */
+    public int rejectInquiry(Long inquiryId, String updateBy)
+    {
+        return transitionInquiry(inquiryId, INQUIRY_STATUS_REJECTED, updateBy, INQUIRY_STATUS_PENDING);
     }
 
     /**
@@ -120,7 +140,17 @@ public class TradeInquiryService
     @Transactional
     public int closeInquiry(Long inquiryId)
     {
-        return transitionInquiry(inquiryId, INQUIRY_STATUS_CLOSED,
+        return transitionInquiry(inquiryId, INQUIRY_STATUS_CLOSED, null,
+                INQUIRY_STATUS_PENDING, INQUIRY_STATUS_ACCEPTED,
+                INQUIRY_STATUS_QUOTED, INQUIRY_STATUS_REJECTED);
+    }
+
+    /**
+     * 关闭询盘（带操作人，供APP端调用）。
+     */
+    public int closeInquiry(Long inquiryId, String updateBy)
+    {
+        return transitionInquiry(inquiryId, INQUIRY_STATUS_CLOSED, updateBy,
                 INQUIRY_STATUS_PENDING, INQUIRY_STATUS_ACCEPTED,
                 INQUIRY_STATUS_QUOTED, INQUIRY_STATUS_REJECTED);
     }
@@ -139,7 +169,7 @@ public class TradeInquiryService
     /**
      * 询盘状态机：仅当前状态在 allowedFrom 内才允许流转到 target，否则抛错。
      */
-    private int transitionInquiry(Long inquiryId, String target, String... allowedFrom)
+    private int transitionInquiry(Long inquiryId, String target, String updateBy, String... allowedFrom)
     {
         SysInquiry inquiry = inquiryMapper.selectInquiryById(inquiryId);
         if (inquiry == null)
@@ -163,7 +193,15 @@ public class TradeInquiryService
         SysInquiry update = new SysInquiry();
         update.setInquiryId(inquiryId);
         update.setStatus(target);
-        update.setUpdateBy(SecurityUtils.getUsername());
+        // APP端已设置updateBy时不再调用SecurityUtils.getUsername()
+        if (updateBy == null || updateBy.isEmpty())
+        {
+            update.setUpdateBy(SecurityUtils.getUsername());
+        }
+        else
+        {
+            update.setUpdateBy(updateBy);
+        }
         update.setUpdateTime(new Date());
         return inquiryMapper.updateInquiry(update);
     }
