@@ -100,11 +100,29 @@ public interface IAppUserWorkService
     List<SysWorkReviewRecord> listReviewRecords(Long userId, Long workId);
 
     /**
-     * 我的作品列表（按审核派生状态过滤）
+     * 我的作品列表（A1 工作台「我的作品」页；同时服务 App 端「我的作品」）
      *
-     * @param userId      当前用户ID
-     * @param statusFilter 状态过滤：all / draft / reviewing / revision / rejected / published（null 或 all 表示全部）
-     * @return 作品列表（含派生 status、作者昵称、分类名、更新时间）
+     * 过滤口径：
+     *   - statusFilter：all / draft / reviewing / revision / rejected / published，
+     *     支持逗号分隔多值（如 PC「待修改」= revision,rejected）；null / 空 / all 表示全部。
+     *   - keyword：作品标题模糊匹配（忽略大小写），null / 空表示不筛选。
+     *   - workType：作品类型精确匹配，null / 空表示不筛选。
+     *
+     * @param userId       当前用户ID
+     * @param statusFilter 状态过滤（支持逗号多值）
+     * @param keyword      标题关键词（可空）
+     * @param workType     作品类型（可空）
+     * @return 作品列表（含派生 status、分类名、审核意见摘要、创建/更新时间），按更新时间倒序
      */
-    List<Map<String, Object>> listWorks(Long userId, String statusFilter);
+    List<Map<String, Object>> listWorks(Long userId, String statusFilter, String keyword, String workType);
+
+    /**
+     * 工作台作品统计（A1 工作台首页统计卡片）
+     *
+     * 口径：「待修改」= revision + rejected（与 PC 作品列表「待修改」Tab 一致）。
+     *
+     * @param userId 当前用户ID
+     * @return {workTotal, draftCount, reviewingCount, revisionCount, publishedCount}
+     */
+    Map<String, Object> workStatistics(Long userId);
 }

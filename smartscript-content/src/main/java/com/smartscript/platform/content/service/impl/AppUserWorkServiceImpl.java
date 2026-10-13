@@ -176,7 +176,7 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
     }
 
     @Override
-    public List<Map<String, Object>> listWorks(Long userId, String statusFilter)
+    public List<Map<String, Object>> listWorks(Long userId, String statusFilter, String keyword, String workType)
     {
         List<SysWork> works = workMapper.selectWorkListByAuthor(userId);
         if (works.isEmpty())
@@ -184,48 +184,151 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
             return List.of();
         }
 
-        // 批量取最新审核记录，按作品ID分组（记录按创建时间倒序，每组第一条即最新）
-        List<SysWorkReviewRecord> records = reviewRecordMapper.selectByWorkIds(
-                works.stream().map(SysWork::getWorkId).toList());
-        Map<Long, SysWorkReviewRecord> latestByWork = new java.util.HashMap<>();
-        for (SysWorkReviewRecord record : records)
-        {
-            if (!latestByWork.containsKey(record.getTargetId()))
-            {
-                latestByWork.put(record.getTargetId(), record);
-            }
-        }
+        Map<Long, SysWorkReviewRecord> latestByWork = latestRecordsByWork(works);
 
-        String filter = statusFilter == null || statusFilter.isBlank() ? "all" : statusFilter.trim();
+        // 状态过滤支持逗号多值（PC「待修改」传 revision,rejected）；空集表示不过滤
+        java.util.Set<String> filters = parseStatusFilter(statusFilter);
+        String kw = keyword == null || keyword.isBlank() ? null : keyword.trim().toLowerCase();
+        String wt = workType == null || workType.isBlank() ? null : workType.trim();
+
         List<Map<String, Object>> result = new java.util.ArrayList<>();
         for (SysWork work : works)
         {
-            SysWorkReviewRecord latest = latestByWork.get(work.getWorkId());
-            String derived = deriveStatus(latest);
-            if (!"all".equals(filter) && !filter.equals(derived))
+            if (wt != null && !wt.equals(work.getWorkType()))
             {
                 continue;
             }
-            Map<String, Object> item = new LinkedHashMap<>();
-            item.put("workId", work.getWorkId());
-            item.put("title", work.getTitle());
-            item.put("cover", work.getCover());
-            item.put("summary", work.getSummary());
-            item.put("genreId", work.getGenreId());
-            item.put("genreName", work.getGenreName());
-            item.put("workType", work.getWorkType());
-            item.put("wordCount", work.getWordCount());
-            item.put("status", derived);
-            item.put("createTime", work.getCreateTime());
-            item.put("updateTime", work.getUpdateTime());
-            result.add(item);
+            if (kw != null && (work.getTitle() == null || !work.getTitle().toLowerCase().contains(kw)))
+            {
+                continue;
+            }
+            SysWorkReviewRecord latest = latestByWork.get(work.getWorkId());
+            String derived = deriveStatus(latest);
+            if (!filters.isEmpty() && !filters.contains(derived))
+            {
+                continue;
+            }
+            result.add(toListItem(work, derived, latest));
         }
         return result;
+    }
+
+    @Override
+    public Map<String, Object> workStatistics(Long userId)
+    {
+        List<SysWork> works = workMapper.selectWorkListByAuthor(userId);
+        int draft = 0;
+        int reviewing = 0;
+        int revision = 0;
+        int published = 0;
+        if (!works.isEmpty())
+        {
+            Map<Long, SysWorkReviewRecord> latestByWork = latestRecordsByWork(works);
+            for (SysWork work : works)
+            {
+                switch (deriveStatus(latestByWork.get(work.getWorkId())))
+                {
+                    case "draft" -> draft++;
+                    case "reviewing" -> reviewing++;
+                    // 「待修改」归并 revision 与 rejected（与列表页 Tab 同口径）
+                    case "revision", "rejected" -> revision++;
+                    case "published" -> published++;
+                    default -> { }
+                }
+            }
+        }
+
+        Map<String, Object> stats = new LinkedHashMap<>();
+        stats.put("workTotal", works.size());
+        stats.put("draftCount", draft);
+        stats.put("reviewingCount", reviewing);
+        stats.put("revisionCount", revision);
+        stats.put("publishedCount", published);
+        return stats;
     }
 
     // ------------------------------------------------------------------
     // 私有辅助
     // ------------------------------------------------------------------
+
+    /** 批量取最新审核记录并按作品ID分组（记录按创建时间倒序，每组第一条即最新） */
+    private Map<Long, SysWorkReviewRecord> latestRecordsByWork(List<SysWork> works)
+    {
+        List<SysWorkReviewRecord> records = reviewRecordMapper.selectByWorkIds(
+                works.stream().map(SysWork::getWorkId).toList());
+        Map<Long, SysWorkReviewRecord> latestByWork = new java.util.HashMap<>();
+        for (SysWorkReviewRecord record : records)
+        {
+            latestByWork.putIfAbsent(record.getTargetId(), record);
+        }
+        return latestByWork;
+    }
+
+    /** 解析状态过滤：逗号分隔多值，忽略空白与 all；返回空集表示不过滤 */
+    private java.util.Set<String> parseStatusFilter(String statusFilter)
+    {
+        if (statusFilter == null || statusFilter.isBlank())
+        {
+            return java.util.Set.of();
+        }
+        java.util.Set<String> filters = new java.util.HashSet<>();
+        for (String part : statusFilter.split(","))
+        {
+            String value = part.trim();
+            if (!value.isEmpty() && !"all".equals(value))
+            {
+                filters.add(value);
+            }
+        }
+        return filters;
+    }
+
+    /** 组装列表条目（字段口径与 App 端「我的作品」列表保持一致，新增 reviewSummary） */
+    private Map<String, Object> toListItem(SysWork work, String derivedStatus, SysWorkReviewRecord latest)
+    {
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("workId", work.getWorkId());
+        item.put("title", work.getTitle());
+        item.put("cover", work.getCover());
+        item.put("summary", work.getSummary());
+        item.put("genreId", work.getGenreId());
+        item.put("genreName", work.getGenreName());
+        item.put("workType", work.getWorkType());
+        item.put("wordCount", work.getWordCount());
+        item.put("status", derivedStatus);
+        item.put("reviewSummary", reviewSummary(latest));
+        item.put("createTime", work.getCreateTime());
+        item.put("updateTime", work.getUpdateTime());
+        return item;
+    }
+
+    /** 最近审核意见摘要：优先取审核意见原文，无意见时按审核状态给出默认文案 */
+    private String reviewSummary(SysWorkReviewRecord latest)
+    {
+        if (latest == null)
+        {
+            return null;
+        }
+        String opinion = latest.getReviewOpinion();
+        if (opinion != null && !opinion.isBlank())
+        {
+            return opinion;
+        }
+        String status = latest.getStatus();
+        if (status == null)
+        {
+            return null;
+        }
+        return switch (status)
+        {
+            case "pending" -> "等待人工审核";
+            case "ai_reviewing" -> "AI 审核中";
+            case "revision" -> "需修改后重新提交";
+            case "rejected" -> "审核未通过";
+            case "approved" -> "审核通过";
+            default -> null;
+        };
+    }
 
     /** 校验作品存在且归属当前用户（selectWorkById 已含 is_deleted=0 过滤） */
     private SysWork requireOwnWork(Long userId, Long workId)

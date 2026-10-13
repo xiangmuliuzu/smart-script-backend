@@ -173,7 +173,12 @@ java -jar ruoyi-admin/target/ruoyi-admin.jar
   需要固定到别处时设置环境变量 `RUOYI_PROFILE`。
 - 该目录**纳入版本控制**。上传后需把 `uploadPath/` 下新增文件提交推送，其他开发拉取后即可见；
   否则云端共享库里虽有记录、别人本地没有文件，图片/视频仍然破图。
-- 数据库存的是 `/profile/upload/yyyy/MM/dd/xxx.ext` 这类地址，移动根目录不影响已有记录。
+- 数据库存的是 `/profile/upload/yyyy/MM/dd/xxx.ext` 这类**相对地址**，移动根目录不影响已有记录。
+  历史数据可能残留早期上传写入的绝对地址（如 `http://localhost:8080/profile/...`），
+  PC 端 `resolveMediaUrl` 与 App 端 `AppConfig.resolveAssetUrl` 会在展示时自动归一，无需刷库。
+- **服务器部署**：请显式设置 `RUOYI_PROFILE` 指向可写的**绝对路径**（如 `/opt/smart-script/uploads`），
+  并把仓库 `uploadPath/` 下的存量资源同步到该目录；否则进程工作目录一变，旧图就会 404。
+  注意：上传接口下发的一律是相对地址，拼接由前端按各环境 baseUrl 完成，因此无需为服务器单独改配置。
 
 ## 目录导航
 

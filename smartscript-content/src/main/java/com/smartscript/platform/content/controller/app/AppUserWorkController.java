@@ -1,5 +1,6 @@
 package com.smartscript.platform.content.controller.app;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -52,23 +53,61 @@ public class AppUserWorkController
     }
 
     /**
-     * 我的作品列表（按审核派生状态过滤）
+     * 我的作品列表（A1 工作台「我的作品」页；同时服务 App 端「我的作品」）
      *
      * 路径固定为 /works（Spring 优先匹配字面路径，不会与 /{workId} 冲突）。
-     * status 取值：all / draft / reviewing / revision / rejected / published。
+     * status：all / draft / reviewing / revision / rejected / published，支持逗号多值
+     *         （PC「待修改」传 revision,rejected）。
+     * keyword：作品名称模糊；workType：作品类型精确。
+     * 分页：不传 pageNum 返回纯数组（App 端契约不变）；传 pageNum 返回
+     *       {total, pageNum, pageSize, list}（PC 分页）。
      */
     @GetMapping
-    public AppApiResponse<List<Map<String, Object>>> list(@RequestParam(required = false) String status)
+    public AppApiResponse<?> list(@RequestParam(required = false) String status,
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) String workType,
+            @RequestParam(required = false) Integer pageNum,
+            @RequestParam(required = false) Integer pageSize)
     {
         Long userId = requireLogin();
         try
         {
-            return AppApiResponse.ok(userWorkService.listWorks(userId, status));
+            List<Map<String, Object>> all = userWorkService.listWorks(userId, status, keyword, workType);
+            if (pageNum == null)
+            {
+                return AppApiResponse.ok(all);
+            }
+
+            int page = pageNum < 1 ? 1 : pageNum;
+            int size = pageSize == null || pageSize < 1 ? 10 : pageSize;
+            int total = all.size();
+            int from = Math.min((page - 1) * size, total);
+            int to = Math.min(from + size, total);
+
+            Map<String, Object> pageData = new LinkedHashMap<>();
+            pageData.put("total", total);
+            pageData.put("pageNum", page);
+            pageData.put("pageSize", size);
+            pageData.put("list", all.subList(from, to));
+            return AppApiResponse.ok(pageData);
         }
         catch (IllegalArgumentException e)
         {
             return AppApiResponse.fail(CODE_BAD_REQUEST, e.getMessage());
         }
+    }
+
+    /**
+     * 工作台作品统计（A1 工作台首页统计卡片）
+     *
+     * 返回 {workTotal, draftCount, reviewingCount, revisionCount, publishedCount}；
+     * 其中 revisionCount（待修改）= revision + rejected。
+     */
+    @GetMapping("/statistics")
+    public AppApiResponse<Map<String, Object>> statistics()
+    {
+        Long userId = requireLogin();
+        return AppApiResponse.ok(userWorkService.workStatistics(userId));
     }
 
     /**

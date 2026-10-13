@@ -6,7 +6,6 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -18,7 +17,6 @@ import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.common.utils.file.FileUploadUtils;
 import com.ruoyi.common.utils.file.FileUtils;
-import com.ruoyi.framework.config.ServerConfig;
 
 /**
  * 通用请求处理
@@ -30,9 +28,6 @@ import com.ruoyi.framework.config.ServerConfig;
 public class CommonController
 {
     private static final Logger log = LoggerFactory.getLogger(CommonController.class);
-
-    @Autowired
-    private ServerConfig serverConfig;
 
     private static final String FILE_DELIMITER = ",";
 
@@ -80,7 +75,10 @@ public class CommonController
             String filePath = RuoYiConfig.getUploadPath();
             // 上传并返回新文件名称
             String fileName = FileUploadUtils.upload(filePath, file);
-            String url = serverConfig.getUrl() + fileName;
+            // 下发相对路径（/profile/upload/...），由前端按自身 baseUrl 解析。
+            // 返回绝对地址会把上传那一刻的 host（localhost / 内网 IP）写进共享库，
+            // 其他开发与服务器端都会取不到图。
+            String url = fileName;
             AjaxResult ajax = AjaxResult.success();
             ajax.put("url", url);
             ajax.put("fileName", fileName);
@@ -112,7 +110,8 @@ public class CommonController
             {
                 // 上传并返回新文件名称
                 String fileName = FileUploadUtils.upload(filePath, file);
-                String url = serverConfig.getUrl() + fileName;
+                // 同 uploadFile：只下发相对路径，避免把上传者 host 写进库
+                String url = fileName;
                 urls.add(url);
                 fileNames.add(fileName);
                 newFileNames.add(FileUtils.getName(fileName));
