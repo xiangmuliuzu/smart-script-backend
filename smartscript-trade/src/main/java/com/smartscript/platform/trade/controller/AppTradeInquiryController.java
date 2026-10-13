@@ -7,13 +7,17 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import com.smartscript.platform.api.AppApiResponse;
 import com.smartscript.platform.trade.domain.SysInquiry;
+import com.smartscript.platform.trade.domain.SysWork;
 import com.smartscript.platform.trade.service.TradeInquiryService;
+import com.smartscript.platform.trade.service.TradeWorkService;
 
 /**
  * APP端询盘接口（C交易域）。
@@ -29,10 +33,12 @@ import com.smartscript.platform.trade.service.TradeInquiryService;
 public class AppTradeInquiryController
 {
     private final TradeInquiryService inquiryService;
+    private final TradeWorkService workService;
 
-    public AppTradeInquiryController(TradeInquiryService inquiryService)
+    public AppTradeInquiryController(TradeInquiryService inquiryService, TradeWorkService workService)
     {
         this.inquiryService = inquiryService;
+        this.workService = workService;
     }
 
     /**
@@ -90,6 +96,32 @@ public class AppTradeInquiryController
     }
 
     /**
+     * 创建询盘。
+     */
+    @PostMapping
+    public AppApiResponse<SysInquiry> create(@RequestBody SysInquiry inquiry)
+    {
+        Long currentUserId = currentUserId();
+        inquiry.setBuyerId(currentUserId);
+        inquiry.setStatus("pending");
+        // APP端设置createBy，避免TradeInquiryService调用SecurityUtils.getUsername()
+        inquiry.setCreateBy(String.valueOf(currentUserId));
+
+        // 根据workId查询作品，获取作者ID作为sellerId
+        if (inquiry.getWorkId() != null && inquiry.getSellerId() == null)
+        {
+            SysWork work = workService.selectWorkById(inquiry.getWorkId());
+            if (work != null)
+            {
+                inquiry.setSellerId(work.getAuthorId());
+            }
+        }
+
+        SysInquiry created = inquiryService.createInquiry(inquiry);
+        return AppApiResponse.ok(created);
+    }
+
+    /**
      * 询盘详情。
      */
     @GetMapping("/{id}")
@@ -129,7 +161,7 @@ public class AppTradeInquiryController
             return AppApiResponse.fail(403, "只有卖方可以接受询盘");
         }
 
-        inquiryService.acceptInquiry(id);
+        inquiryService.acceptInquiry(id, String.valueOf(currentUserId));
         return AppApiResponse.ok();
     }
 
@@ -151,7 +183,7 @@ public class AppTradeInquiryController
             return AppApiResponse.fail(403, "只有卖方可以拒绝询盘");
         }
 
-        inquiryService.rejectInquiry(id);
+        inquiryService.rejectInquiry(id, String.valueOf(currentUserId));
         return AppApiResponse.ok();
     }
 
@@ -173,7 +205,7 @@ public class AppTradeInquiryController
             return AppApiResponse.fail(403, "只有买方可以关闭询盘");
         }
 
-        inquiryService.closeInquiry(id);
+        inquiryService.closeInquiry(id, String.valueOf(currentUserId));
         return AppApiResponse.ok();
     }
 
@@ -184,16 +216,27 @@ public class AppTradeInquiryController
     private Long currentUserId()
     {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        if (auth == null || auth.getPrincipal() == null)
+        if (auth == null)
         {
-            throw new RuntimeException("未登录");
+            throw new RuntimeException("未登录：Authentication is null");
         }
         Object principal = auth.getPrincipal();
+        if (principal == null)
+        {
+            throw new RuntimeException("未登录：Principal is null");
+        }
         if (principal instanceof Long)
         {
             return (Long) principal;
         }
         // AppIdentityContext.getPrincipal() 返回 userId (Long)
-        return Long.valueOf(principal.toString());
+        try
+        {
+            return Long.valueOf(principal.toString());
+        }
+        catch (Exception e)
+        {
+            throw new RuntimeException("获取用户账户异常: principal=" + principal.getClass().getName() + ", value=" + principal);
+        }
     }
 }
