@@ -20,6 +20,7 @@ import com.smartscript.platform.user.dto.RegisterRequest;
 import com.smartscript.platform.user.dto.SmsLoginRequest;
 import com.smartscript.platform.user.exception.AppAuthException;
 import com.smartscript.platform.user.mapper.AppUserMapper;
+import com.smartscript.platform.user.mapper.AppIdentityMapper;
 import com.smartscript.platform.user.security.AppIdentityContext;
 import com.smartscript.platform.user.security.AppRuoYiSessionService;
 import com.smartscript.platform.identity.IdentityContext;
@@ -34,7 +35,7 @@ public class AppAuthenticationService
     private final AppRuoYiSessionService sessionService;
     private final AppSessionRevocationService revocationService;
     private final BCryptPasswordEncoder passwordEncoder;
-    private final com.smartscript.platform.identity.IdentityProvider identityProvider;
+    private final AppIdentityMapper identityMapper;
     /**
      * H15-REV-03（§9.3）：登录成功/失败、禁用账号登录的安全审计。可为 null（单测构造兜底）。
      * 事件落 sys_logininfor：actor 为掩码手机号，detail 只含场景/原因/用户 id，绝不含口令/验证码/令牌。
@@ -47,7 +48,7 @@ public class AppAuthenticationService
             AppRuoYiSessionService sessionService,
             AppSessionRevocationService revocationService,
             BCryptPasswordEncoder passwordEncoder,
-            com.smartscript.platform.identity.IdentityProvider identityProvider,
+            AppIdentityMapper identityMapper,
             AppSecurityEventRecorder securityEvents)
     {
         this.userMapper = userMapper;
@@ -56,7 +57,7 @@ public class AppAuthenticationService
         this.sessionService = sessionService;
         this.revocationService = revocationService;
         this.passwordEncoder = passwordEncoder;
-        this.identityProvider = identityProvider;
+        this.identityMapper = identityMapper;
         this.securityEvents = securityEvents;
     }
 
@@ -349,14 +350,14 @@ public class AppAuthenticationService
         dto.setAvatar(user.getAvatar() == null || user.getAvatar().isBlank() ? null : user.getAvatar());
         dto.setBio(user.getBio() == null || user.getBio().isBlank() ? null : user.getBio());
         dto.setPhoneMasked(AppHashes.maskPhone(user.getPhonenumber()));
-        // A5 起 /auth/me 返回真实角色与实名状态，供 App 统一身份能力使用
-        // （规格 §10：AuthState.currentUser.realNameStatus 与 hasRole）。
-        // A6 起补充权限标识与作者能力，并复用统一身份解析结果，避免同一份数据两处查询。
-        IdentityContext identity = identityProvider.currentIdentity();
-        dto.setRoles(identity.getRoleCodes().toArray(new String[0]));
-        dto.setPermissions(identity.getPermissionCodes().toArray(new String[0]));
-        dto.setAuthorCapability(identity.isAuthorCapability());
-        dto.setRealNameStatus(identity.getRealNameStatus());
+        // 登录入口仍是匿名请求，当前请求身份可能是游客或旧账号。
+        // 只按本次已验证账号查权威表；登录和身份恢复均读取最新授予/撤销状态。
+        Long userId = user.getUserId();
+        dto.setRoles(identityMapper.selectRoleCodes(userId).toArray(new String[0]));
+        dto.setPermissions(identityMapper.selectPermissionCodes(userId).toArray(new String[0]));
+        dto.setAuthorCapability(Boolean.TRUE.equals(identityMapper.selectAuthorCapabilityEnabled(userId)));
+        String realNameStatus = userMapper.selectRealNameStatus(userId);
+        dto.setRealNameStatus(realNameStatus == null ? IdentityContext.REAL_NAME_NOT_SUBMITTED : realNameStatus);
         dto.setHasPassword(user.getPassword() != null && !user.getPassword().isBlank());
         return dto;
     }

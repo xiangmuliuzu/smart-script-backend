@@ -3,6 +3,7 @@ package com.smartscript.platform.content.domain;
 import org.apache.commons.lang3.builder.ToStringBuilder;
 import org.apache.commons.lang3.builder.ToStringStyle;
 import com.ruoyi.common.core.domain.BaseEntity;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 
 /**
  * 作品章节对象 sys_work_chapter
@@ -92,10 +93,27 @@ public class SysWorkChapter extends BaseEntity
 
     public String getContent()
     {
-        return content;
+        // 阅读端仍获得纯正文；创作端通过 formattedContent 恢复排版。
+        return ScriptDocument.text(content);
     }
 
     public void setContent(String content)
+    {
+        this.content = content;
+    }
+
+    public String getFormattedContent()
+    {
+        return ScriptDocument.isFormatted(content) ? content : null;
+    }
+
+    @JsonIgnore
+    public String getStorageContent()
+    {
+        return content;
+    }
+
+    public void setStorageContent(String content)
     {
         this.content = content;
     }
