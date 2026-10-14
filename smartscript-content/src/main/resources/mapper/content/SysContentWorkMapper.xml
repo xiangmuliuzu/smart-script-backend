@@ -262,7 +262,14 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		<if test="tagId != null">
 			AND exists (select 1 from sys_work_tag wt where wt.work_id = w.work_id and wt.tag_id = #{tagId})
 		</if>
+		<if test="recommendStatus != null and recommendStatus != ''">
+			AND JSON_UNQUOTE(JSON_EXTRACT(w.ext_json, '$.recommendStatus')) = #{recommendStatus}
+			AND (JSON_UNQUOTE(JSON_EXTRACT(w.ext_json, '$.recommendExpireAt')) IS NULL
+			     OR JSON_UNQUOTE(JSON_EXTRACT(w.ext_json, '$.recommendExpireAt')) = ''
+			     OR JSON_UNQUOTE(JSON_EXTRACT(w.ext_json, '$.recommendExpireAt')) > NOW())
+		</if>
 		<choose>
+			<when test='recommendStatus != null and recommendStatus != ""'>order by JSON_EXTRACT(w.ext_json, '$.recommendWeight') desc, w.view_count desc, w.work_id desc</when>
 			<when test='sort != null and sort == "view"'>order by w.view_count desc, w.work_id desc</when>
 			<when test='sort != null and sort == "favorite"'>order by w.favorite_count desc, w.work_id desc</when>
 			<when test='sort != null and sort == "sale"'>order by w.sale_count desc, w.work_id desc</when>

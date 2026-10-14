@@ -22,6 +22,19 @@ public class AppWorkQuery
     /** 排序方式：latest/view/favorite/sale/rating/price_asc/price_desc */
     private String sort;
 
+    /** 推荐状态（从 ext_json 解析）：home_hot 首页热门 / category_rec 分类推荐 / none 无推荐 */
+    private String recommendStatus;
+
+    public String getRecommendStatus()
+    {
+        return recommendStatus;
+    }
+
+    public void setRecommendStatus(String recommendStatus)
+    {
+        this.recommendStatus = recommendStatus;
+    }
+
     public String getKeyword()
     {
         return keyword;

@@ -113,6 +113,11 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		where banner_id = #{bannerId}
 	</update>
 
+	<!-- 删除Banner（物理删除，sys_banner 无逻辑删除列） -->
+	<delete id="deleteBannerById" parameterType="Long">
+		delete from sys_banner where banner_id = #{bannerId}
+	</delete>
+
 	<!--
 	  App 首页 Banner 轮播（只读，接口文档 2.7.13 表 2-93）。
 	  固定条件：status = 'on' 且在展示时间窗内（start_time/end_time 为 NULL 视为不限制）；

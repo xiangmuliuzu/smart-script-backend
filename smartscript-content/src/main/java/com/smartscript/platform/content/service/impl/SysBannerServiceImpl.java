@@ -80,4 +80,10 @@ public class SysBannerServiceImpl implements ISysBannerService
         update.setUpdateBy(banner.getUpdateBy());
         return bannerMapper.updateBannerSort(update);
     }
+
+    @Override
+    public int deleteBannerById(Long bannerId)
+    {
+        return bannerMapper.deleteBannerById(bannerId);
+    }
 }

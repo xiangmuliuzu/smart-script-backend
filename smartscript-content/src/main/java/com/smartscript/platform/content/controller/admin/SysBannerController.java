@@ -4,6 +4,7 @@ import java.util.List;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -23,7 +24,7 @@ import com.smartscript.platform.content.service.ISysBannerService;
  * Banner管理（PC 后台）
  *
  * 依据：云端 script_platform_dev 库 sys_banner 表 + PC 功能清单（Banner 管理页：
- * 新增、编辑、启用/停用、排序；清单未列删除，故不提供）。
+ * 新增、编辑、启用/停用、排序、删除）。
  * 路由前缀 /api/v1/admin/content/banner（附件6.1 统一版本前缀 /api/v1 + 后台 /admin）。
  * 鉴权：若依 RBAC，@PreAuthorize + Bearer Token。
  * 返回：列表 TableDataInfo，其余 AjaxResult。
@@ -108,5 +109,18 @@ public class SysBannerController extends BaseController
     {
         banner.setUpdateBy(getUsername());
         return toAjax(bannerService.updateBannerSort(banner));
+    }
+
+    /**
+     * 删除Banner（物理删除）
+     *
+     * @param bannerId BannerID
+     */
+    @PreAuthorize("@ss.hasPermi('content:banner:edit')")
+    @Log(title = "Banner管理", businessType = BusinessType.DELETE)
+    @DeleteMapping("/{bannerId}")
+    public AjaxResult remove(@PathVariable Long bannerId)
+    {
+        return toAjax(bannerService.deleteBannerById(bannerId));
     }
 }

@@ -69,4 +69,12 @@ public interface SysBannerMapper
      * @return 影响行数
      */
     public int updateBannerSort(SysBanner banner);
+
+    /**
+     * 删除Banner（物理删除，sys_banner 无逻辑删除列）
+     *
+     * @param bannerId BannerID
+     * @return 影响行数
+     */
+    public int deleteBannerById(Long bannerId);
 }

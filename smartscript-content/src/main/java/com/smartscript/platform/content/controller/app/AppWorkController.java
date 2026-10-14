@@ -47,6 +47,8 @@ public class AppWorkController
      * @param tagId      标签ID（可选）
      * @param keyword    关键词（可选，按标题模糊）
      * @param sort       排序（可选：latest/view/favorite/sale/rating/price_asc/price_desc，非法值回落 latest）
+     * @param recommendStatus 推荐状态（可选：home_hot/category_rec；传入时只回未过期的推荐作品，
+     *                        按推荐权重降序，权重同级回落浏览量）
      * @param page       页码（可选，默认 1）
      * @param pageSize   每页条数（可选，默认 10，上限 50）
      */
@@ -56,6 +58,7 @@ public class AppWorkController
             @RequestParam(required = false) Long tagId,
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) String sort,
+            @RequestParam(required = false) String recommendStatus,
             @RequestParam(required = false) Integer page,
             @RequestParam(required = false) Integer pageSize)
     {
@@ -64,6 +67,7 @@ public class AppWorkController
         query.setTagId(tagId);
         query.setKeyword(keyword);
         query.setSort(sort);
+        query.setRecommendStatus(recommendStatus);
         int pageNum = page == null ? 1 : page;
         int size = pageSize == null ? 10 : pageSize;
         return AppApiResponse.ok(bookstoreService.pageWorks(query, pageNum, size));

@@ -7,7 +7,7 @@ import com.smartscript.platform.content.domain.SysBanner;
  * Banner 服务层
  *
  * 依据：云端 script_platform_dev 库 sys_banner 表 + PC 功能清单（Banner 管理页：
- * 新增、编辑、启用/停用、排序；清单未列删除，故不提供）。
+ * 新增、编辑、启用/停用、排序、删除）。
  *
  * @author xiangsipeng
  */
@@ -60,4 +60,12 @@ public interface ISysBannerService
      * @return 影响行数
      */
     public int updateBannerSort(SysBanner banner);
+
+    /**
+     * 删除Banner（物理删除）
+     *
+     * @param bannerId BannerID
+     * @return 影响行数
+     */
+    public int deleteBannerById(Long bannerId);
 }
