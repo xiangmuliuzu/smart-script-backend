@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
@@ -42,6 +43,7 @@ class AiOutlineDualWriteTest
     private AppAiWriteRecordMapper writeRecordMapper;
     private AiServiceClient aiServiceClient;
     private IdentityProvider identityProvider;
+    private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
     private AiWriteServiceImpl service;
 
     @BeforeEach
@@ -51,14 +53,17 @@ class AiOutlineDualWriteTest
         writeRecordMapper = mock(AppAiWriteRecordMapper.class);
         aiServiceClient = mock(AiServiceClient.class);
         identityProvider = mock(IdentityProvider.class);
+        jdbcTemplate = mock(org.springframework.jdbc.core.JdbcTemplate.class);
         service = new AiWriteServiceImpl();
         setField(service, "aiRequestMapper", aiRequestMapper);
         setField(service, "writeRecordMapper", writeRecordMapper);
         setField(service, "aiServiceClient", aiServiceClient);
         setField(service, "identityProvider", identityProvider);
+        setField(service, "jdbcTemplate", jdbcTemplate);
         setField(service, "aiModel", "deepseek-flash");
         setField(service, "aiProvider", "deepseek");
         when(identityProvider.currentUserId()).thenReturn(USER_ID);
+        when(jdbcTemplate.queryForObject(anyString(), eq(Integer.class), eq(USER_ID))).thenReturn(5);
     }
 
     @Test

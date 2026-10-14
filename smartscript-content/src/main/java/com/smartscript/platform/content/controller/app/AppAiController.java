@@ -16,6 +16,7 @@ import com.smartscript.platform.content.dto.AppAiWriteRecordItem;
 import com.smartscript.platform.content.dto.AppAiWriteRequest;
 import com.smartscript.platform.content.dto.AppAiWriteResult;
 import com.smartscript.platform.content.dto.AppPageResult;
+import com.smartscript.platform.content.exception.AiQuotaInsufficientException;
 import com.smartscript.platform.content.exception.AiServiceUnavailableException;
 import com.smartscript.platform.content.service.IAiWriteService;
 
@@ -81,6 +82,10 @@ public class AppAiController
         {
             return AppApiResponse.ok(aiWriteService.write(request));
         }
+        catch (AiQuotaInsufficientException e)
+        {
+            return AppApiResponse.fail(CODE_BAD_REQUEST, e.getMessage());
+        }
         catch (AiServiceUnavailableException e)
         {
             return AppApiResponse.fail(CODE_SERVICE_UNAVAILABLE, e.getMessage());
@@ -107,6 +112,10 @@ public class AppAiController
         try
         {
             return AppApiResponse.ok(aiWriteService.polish(request));
+        }
+        catch (AiQuotaInsufficientException e)
+        {
+            return AppApiResponse.fail(CODE_BAD_REQUEST, e.getMessage());
         }
         catch (AiServiceUnavailableException e)
         {
@@ -165,6 +174,10 @@ public class AppAiController
         try
         {
             return AppApiResponse.ok(aiWriteService.outline(request));
+        }
+        catch (AiQuotaInsufficientException e)
+        {
+            return AppApiResponse.fail(CODE_BAD_REQUEST, e.getMessage());
         }
         catch (AiServiceUnavailableException e)
         {

@@ -27,9 +27,11 @@ import com.smartscript.platform.content.dto.AppAiWriteResult;
 import com.smartscript.platform.content.dto.AppPageResult;
 import com.smartscript.platform.content.mapper.AppAiRequestMapper;
 import com.smartscript.platform.content.mapper.AppAiWriteRecordMapper;
+import com.smartscript.platform.content.exception.AiQuotaInsufficientException;
 import com.smartscript.platform.content.service.AiServiceClient;
 import com.smartscript.platform.content.service.IAiWriteService;
 import com.smartscript.platform.identity.IdentityProvider;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
  * AI 辅助创作 服务实现（App 2.9.10 ~ 2.9.13）。
@@ -102,6 +104,9 @@ public class AiWriteServiceImpl implements IAiWriteService
     @Autowired
     private IdentityProvider identityProvider;
 
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
     /** AI 模型名（AI 未返回时使用） */
     @Value("${AI_SERVICE_MODEL:smartscript-ai}")
     private String aiModel;
@@ -113,6 +118,7 @@ public class AiWriteServiceImpl implements IAiWriteService
     @Override
     public AppAiWriteResult write(AppAiWriteRequest request)
     {
+        checkQuota(identityProvider.currentUserId());
         JsonNode data = aiServiceClient.write(request.getPrompt(), request.getType());
         String content = text(data, "content");
         Long recordId = saveRecord(identityProvider.currentUserId(), request.getWorkId(),
@@ -123,6 +129,7 @@ public class AiWriteServiceImpl implements IAiWriteService
     @Override
     public AppAiWriteResult polish(AppAiPolishRequest request)
     {
+        checkQuota(identityProvider.currentUserId());
         JsonNode data = aiServiceClient.polish(request.getContent(), request.getStyle());
         String content = text(data, "content");
         Long recordId = saveRecord(identityProvider.currentUserId(), null,
@@ -157,6 +164,7 @@ public class AiWriteServiceImpl implements IAiWriteService
     @Override
     public AppAiOutlineResult outline(AppAiOutlineRequest request)
     {
+        checkQuota(identityProvider.currentUserId());
         Date startedAt = new Date();
         JsonNode data = aiServiceClient.outline(request.getInspiration(), request.getGenre(), request.getStyle());
         Date finishedAt = new Date();
@@ -172,6 +180,31 @@ public class AiWriteServiceImpl implements IAiWriteService
         saveRecord(identityProvider.currentUserId(), request.getWorkId(),
                 CAPABILITY_OUTLINE, buildOutlineInputText(request), outlineToText(outline), resolveModel(data));
         return new AppAiOutlineResult(outline, requestNo, QUOTA_COST_OUTLINE);
+    }
+
+    /**
+     * 校验用户 AI 可用次数：读取 sys_ai_quota_account.available_quota，
+     * 无账户或不足 1 次即抛 {@link AiQuotaInsufficientException}，由控制器转 400。
+     * 本批只校验不扣减（额度增减由 review 模块负责）。
+     */
+    private void checkQuota(Long userId)
+    {
+        Integer available;
+        try
+        {
+            available = jdbcTemplate.queryForObject(
+                    "SELECT available_quota FROM sys_ai_quota_account WHERE user_id = ?",
+                    Integer.class, userId);
+        }
+        catch (org.springframework.dao.EmptyResultDataAccessException e)
+        {
+            available = null;
+        }
+        int balance = available == null ? 0 : available;
+        if (balance < 1)
+        {
+            throw new AiQuotaInsufficientException("AI次数不足，当前可用: " + balance + " 次");
+        }
     }
 
     /**
