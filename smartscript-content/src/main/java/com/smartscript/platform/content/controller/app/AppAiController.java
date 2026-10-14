@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import com.smartscript.platform.api.AppApiResponse;
 import com.smartscript.platform.content.dto.AppAiOutlineRequest;
+import com.smartscript.platform.content.dto.AppAiOutlineRecordItem;
 import com.smartscript.platform.content.dto.AppAiOutlineResult;
 import com.smartscript.platform.content.dto.AppAiPolishRequest;
 import com.smartscript.platform.content.dto.AppAiWriteRecordItem;
@@ -128,6 +129,23 @@ public class AppAiController
         int pageNum = page == null ? 1 : page;
         int size = pageSize == null ? 20 : pageSize;
         return AppApiResponse.ok(aiWriteService.pageWriteRecords(pageNum, size));
+    }
+
+    /**
+     * AI 大纲请求记录（分页）
+     *
+     * @param page     页码（可选，默认 1）
+     * @param pageSize 每页条数（可选，默认 20，上限 50）
+     * @return data = {total, list}；仅当前登录身份的大纲请求记录
+     */
+    @GetMapping("/outline-records")
+    public AppApiResponse<AppPageResult<AppAiOutlineRecordItem>> outlineRecords(
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer pageSize)
+    {
+        int pageNum = page == null ? 1 : page;
+        int size = pageSize == null ? 20 : pageSize;
+        return AppApiResponse.ok(aiWriteService.pageOutlineRecords(pageNum, size));
     }
 
     /**

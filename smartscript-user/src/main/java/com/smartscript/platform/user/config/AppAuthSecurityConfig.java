@@ -45,7 +45,7 @@ public class AppAuthSecurityConfig
     static final String[] APP_PATH_PREFIXES = {
             "/api/v1/auth/**", "/api/v1/users/**", "/api/v1/messages/**", "/api/v1/feedback/**",
             "/api/v1/content/**", "/api/v1/pc-auth/**", "/api/v1/announcements/**",
-            "/api/v1/trade/**"
+            "/api/v1/trade/**", "/api/v1/welfare/**", "/api/v1/ad/**", "/api/v1/ai/**"
     };
 
     @Bean
@@ -108,7 +108,8 @@ public class AppAuthSecurityConfig
                         .requestMatchers("/api/v1/auth/**", "/api/v1/users/**",
                                 "/api/v1/messages/**", "/api/v1/feedback/**",
                                 "/api/v1/content/**", "/api/v1/announcements/**",
-                                "/api/v1/trade/**").authenticated()
+                                "/api/v1/trade/**", "/api/v1/welfare/**",
+                                "/api/v1/ad/**", "/api/v1/ai/**").authenticated()
                         .anyRequest().denyAll())
                 .addFilterBefore(appFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();

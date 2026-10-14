@@ -15,6 +15,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -22,6 +23,7 @@ import org.springframework.util.StringUtils;
 import java.math.BigDecimal;
 import java.text.SimpleDateFormat;
 import java.util.Date;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -56,8 +58,55 @@ public class AiQuotaService {
     @Autowired
     private OperationLogMapper operationLogMapper;
 
-    /** 积分兑换AI次数比例（默认10积分=1次，后续可改为配置项） */
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    /** 积分兑换AI次数比例（默认10积分=1次；存 sys_config key=ai.exchange.rate，管理员可调） */
     private static final int DEFAULT_EXCHANGE_RATE = 10;
+
+    /** 读取兑换比例：优先 sys_config(ai.exchange.rate)，异常/缺失回退默认值 */
+    public int getExchangeRate() {
+        try {
+            List<Map<String, Object>> rows = jdbcTemplate.queryForList(
+                "SELECT config_value FROM sys_config WHERE config_key = 'ai.exchange.rate' LIMIT 1");
+            if (!rows.isEmpty() && rows.get(0).get("config_value") != null) {
+                int v = Integer.parseInt(String.valueOf(rows.get(0).get("config_value")).trim());
+                if (v >= 1) return v;
+            }
+        } catch (Exception e) {
+            log.warn("读取兑换比例配置失败，使用默认值: {}", e.getMessage());
+        }
+        return DEFAULT_EXCHANGE_RATE;
+    }
+
+    /** 管理员更新兑换比例（sys_config upsert） */
+    public Map<String, Object> updateExchangeRate(int rate) {
+        Map<String, Object> result = new HashMap<>();
+        if (rate < 1) {
+            result.put("code", 400);
+            result.put("msg", "兑换比例必须 >= 1");
+            return result;
+        }
+        try {
+            int rows = jdbcTemplate.update(
+                "UPDATE sys_config SET config_value = ?, update_time = NOW() WHERE config_key = 'ai.exchange.rate'",
+                String.valueOf(rate));
+            if (rows == 0) {
+                jdbcTemplate.update(
+                    "INSERT INTO sys_config (config_name, config_key, config_value, config_type, create_time, remark) "
+                    + "VALUES ('AI次数兑换比例(积分/次)', 'ai.exchange.rate', ?, 'Y', NOW(), '积分兑换AI次数比例')",
+                    String.valueOf(rate));
+            }
+            result.put("code", 200);
+            result.put("msg", "兑换比例已更新为 " + rate + " 积分=1次");
+            result.put("rate", rate);
+            return result;
+        } catch (Exception e) {
+            result.put("code", 500);
+            result.put("msg", "更新兑换比例失败: " + e.getMessage());
+            return result;
+        }
+    }
 
     /**
      * 查询AI配额账户列表
@@ -220,8 +269,15 @@ public class AiQuotaService {
         }
         AiQuotaAccount account = aiQuotaAccountMapper.selectAiQuotaAccountByUserId(userId);
         if (account == null) {
-            result.put("code", 404);
-            result.put("msg", "AI次数账户不存在: " + userId);
+            // 账户不存在按 0 返回（与积分账户语义一致），App 端无需感知
+            result.put("code", 200);
+            result.put("msg", "ok");
+            result.put("availableQuota", 0);
+            result.put("totalEarned", 0);
+            result.put("totalConsumed", 0);
+            result.put("totalRefunded", 0);
+            result.put("rate", getExchangeRate());
+            result.put("records", new ArrayList<>());
             return result;
         }
         BigDecimal refundAmount = BigDecimal.valueOf(amount);
@@ -282,8 +338,14 @@ public class AiQuotaService {
         }
         AiQuotaAccount account = aiQuotaAccountMapper.selectAiQuotaAccountByUserId(userId);
         if (account == null) {
-            result.put("code", 404);
-            result.put("msg", "AI次数账户不存在: " + userId);
+            // 账户不存在按 0 返回（与积分账户语义一致），App 端无需感知
+            result.put("code", 200);
+            result.put("msg", "ok");
+            result.put("availableQuota", 0);
+            result.put("totalEarned", 0);
+            result.put("totalConsumed", 0);
+            result.put("totalRefunded", 0);
+            result.put("records", new ArrayList<>());
             return result;
         }
         BigDecimal cost = BigDecimal.valueOf(quotaCost);
@@ -349,8 +411,14 @@ public class AiQuotaService {
         }
         AiQuotaAccount account = aiQuotaAccountMapper.selectAiQuotaAccountByUserId(userId);
         if (account == null) {
-            result.put("code", 404);
-            result.put("msg", "AI次数账户不存在: " + userId);
+            // 账户不存在按 0 返回（与积分账户语义一致），App 端无需感知
+            result.put("code", 200);
+            result.put("msg", "ok");
+            result.put("availableQuota", 0);
+            result.put("totalEarned", 0);
+            result.put("totalConsumed", 0);
+            result.put("totalRefunded", 0);
+            result.put("records", new ArrayList<>());
             return result;
         }
         BigDecimal cost = BigDecimal.valueOf(amount);
@@ -478,8 +546,14 @@ public class AiQuotaService {
         }
         AiQuotaAccount account = aiQuotaAccountMapper.selectAiQuotaAccountByUserId(userId);
         if (account == null) {
-            result.put("code", 404);
-            result.put("msg", "AI次数账户不存在: " + userId);
+            // 账户不存在按 0 返回（与积分账户语义一致），App 端无需感知
+            result.put("code", 200);
+            result.put("msg", "ok");
+            result.put("availableQuota", 0);
+            result.put("totalEarned", 0);
+            result.put("totalConsumed", 0);
+            result.put("totalRefunded", 0);
+            result.put("records", new ArrayList<>());
             return result;
         }
         AiQuotaRecord query = new AiQuotaRecord();
@@ -491,6 +565,7 @@ public class AiQuotaService {
         result.put("totalEarned", account.getTotalEarned().intValue());
         result.put("totalConsumed", account.getTotalConsumed().intValue());
         result.put("totalRefunded", account.getTotalRefunded().intValue());
+        result.put("rate", getExchangeRate());
         result.put("records", records.size() > 10 ? records.subList(0, 10) : records);
         return result;
     }
@@ -512,7 +587,7 @@ public class AiQuotaService {
             result.put("msg", "参数不完整：userId/points/idempotencyKey 必填，points>0");
             return result;
         }
-        int rate = DEFAULT_EXCHANGE_RATE;
+        int rate = getExchangeRate();
         int quota = points / rate;
         if (quota <= 0) {
             result.put("code", 400);

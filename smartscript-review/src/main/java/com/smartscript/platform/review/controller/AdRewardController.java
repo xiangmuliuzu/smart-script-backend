@@ -21,6 +21,20 @@ public class AdRewardController {
     private AdConfigService adConfigService;
 
     /**
+     * 统一信封：{code, msg, data:{...}}，App 端按标准若依信封解析。
+     */
+    private Map<String, Object> wrap(Map<String, Object> result) {
+        Map<String, Object> data = new HashMap<>(result);
+        data.remove("code");
+        data.remove("msg");
+        Map<String, Object> env = new HashMap<>();
+        env.put("code", result.getOrDefault("code", 200));
+        env.put("msg", result.getOrDefault("msg", "success"));
+        env.put("data", data);
+        return env;
+    }
+
+    /**
      * 广告观看奖励发放
      * 请求体：{"adId": 2, "userId": 106}
      */
@@ -30,11 +44,11 @@ public class AdRewardController {
         try {
             Long adId = params.get("adId") != null ? Long.valueOf(params.get("adId").toString()) : null;
             Long userId = params.get("userId") != null ? Long.valueOf(params.get("userId").toString()) : null;
-            return adConfigService.reward(adId, userId);
+            return wrap(adConfigService.reward(adId, userId));
         } catch (Exception e) {
             result.put("code", 500);
             result.put("msg", "奖励发放失败: " + e.getMessage());
-            return result;
+            return wrap(result);
         }
     }
 }

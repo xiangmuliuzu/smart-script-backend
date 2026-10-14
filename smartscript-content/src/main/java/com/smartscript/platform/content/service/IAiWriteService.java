@@ -1,6 +1,7 @@
 package com.smartscript.platform.content.service;
 
 import com.smartscript.platform.content.dto.AppAiOutlineRequest;
+import com.smartscript.platform.content.dto.AppAiOutlineRecordItem;
 import com.smartscript.platform.content.dto.AppAiOutlineResult;
 import com.smartscript.platform.content.dto.AppAiPolishRequest;
 import com.smartscript.platform.content.dto.AppAiWriteRecordItem;
@@ -57,4 +58,13 @@ public interface IAiWriteService
      * @return {outline, requestNo, quotaUsed}（大纲来自 AI 服务，并落 sys_ai_request）
      */
     public AppAiOutlineResult outline(AppAiOutlineRequest request);
+
+    /**
+     * AI 大纲请求记录（分页）
+     *
+     * @param pageNum  页码（<=0 取默认 1）
+     * @param pageSize 每页条数（<=0 取默认 20，上限 50）
+     * @return {total, list}（仅当前登录身份的大纲请求记录）
+     */
+    public AppPageResult<AppAiOutlineRecordItem> pageOutlineRecords(int pageNum, int pageSize);
 }
