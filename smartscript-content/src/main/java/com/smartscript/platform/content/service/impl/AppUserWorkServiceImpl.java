@@ -171,7 +171,7 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
         SysWorkChapter update = new SysWorkChapter();
         update.setChapterId(chapterId);
         update.setChapterTitle(chapterTitle == null ? chapter.getChapterTitle() : chapterTitle);
-        update.setContent(content == null ? chapter.getContent() : content);
+        update.setContent(content == null ? chapter.getStorageContent() : content);
         update.setWordCount(countWords(update.getContent()));
         update.setUpdateBy(String.valueOf(userId));
         update.setUpdateTime(new Date());
@@ -445,7 +445,7 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
             return 0;
         }
         String trimmed = content.trim();
-        return (int) trimmed.chars().filter(c -> !Character.isWhitespace(c)).count();
+        return (int) trimmed.chars().filter(c -> !Character.isWhitespace(c) && !Character.isSpaceChar(c)).count();
     }
 
     /** 生成审核编号：RV + yyyyMMdd + 3位当天序号（与云端样例 RV20260920003 一致） */

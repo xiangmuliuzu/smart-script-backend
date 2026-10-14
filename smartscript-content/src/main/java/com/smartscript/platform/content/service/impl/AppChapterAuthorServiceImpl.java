@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import com.smartscript.platform.content.domain.SysWork;
 import com.smartscript.platform.content.domain.SysWorkChapter;
+import com.smartscript.platform.content.domain.ScriptDocument;
 import com.smartscript.platform.content.dto.AppAuthorChapterItem;
 import com.smartscript.platform.content.dto.AppChapterCreateRequest;
 import com.smartscript.platform.content.dto.AppChapterUpdateRequest;
@@ -193,6 +194,11 @@ public class AppChapterAuthorServiceImpl implements IAppChapterAuthorService
     /** 按内容字符长度计算字数（null/空记为 0） */
     private static int countWords(String content)
     {
+        if (ScriptDocument.isFormatted(content))
+        {
+            return (int) ScriptDocument.text(content).chars()
+                    .filter(c -> !Character.isWhitespace(c) && !Character.isSpaceChar(c)).count();
+        }
         return content == null ? 0 : content.length();
     }
 }

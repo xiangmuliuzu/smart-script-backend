@@ -15,8 +15,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import com.ruoyi.common.constant.Constants;
 import com.ruoyi.system.domain.SysLogininfor;
-import com.smartscript.platform.identity.IdentityContext;
-import com.smartscript.platform.identity.IdentityProvider;
+import com.smartscript.platform.user.mapper.AppIdentityMapper;
 import com.smartscript.platform.user.constant.AppAuthErrorCodes;
 import com.smartscript.platform.user.domain.AppUserRecord;
 import com.smartscript.platform.user.dto.PasswordLoginRequest;
@@ -69,14 +68,12 @@ class AppLoginAuditEventTest
         return new AppAuthenticationService(userMapper, smsCodeService, mock(AgreementService.class),
                 sessionService, mock(AppSessionRevocationService.class),
                 new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder(),
-                identityProvider(), recorder);
+                identityMapper(), recorder);
     }
 
-    private IdentityProvider identityProvider()
+    private AppIdentityMapper identityMapper()
     {
-        IdentityProvider provider = mock(IdentityProvider.class);
-        when(provider.currentIdentity()).thenReturn(IdentityContext.guest());
-        return provider;
+        return mock(AppIdentityMapper.class);
     }
 
     private AppUserRecord usableUser()
@@ -220,7 +217,7 @@ class AppLoginAuditEventTest
         AppAuthenticationService okService = new AppAuthenticationService(okMapper, sms,
                 mock(AgreementService.class), rss, mock(AppSessionRevocationService.class),
                 new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder(),
-                identityProvider(), okRecorder);
+                identityMapper(), okRecorder);
         okService.smsLogin(request, IP);
         assertEquals(1, okRecorder.rows.size());
         assertTrue(okRecorder.rows.get(0).startsWith("APP_LOGIN_SUCCESS|0|" + MASK + "|"), okRecorder.rows.get(0));
