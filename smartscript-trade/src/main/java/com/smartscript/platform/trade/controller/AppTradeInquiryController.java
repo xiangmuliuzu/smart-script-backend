@@ -18,6 +18,8 @@ import com.smartscript.platform.trade.domain.SysInquiry;
 import com.smartscript.platform.trade.domain.SysWork;
 import com.smartscript.platform.trade.service.TradeInquiryService;
 import com.smartscript.platform.trade.service.TradeWorkService;
+import com.smartscript.platform.user.dto.ChatSessionCreateRequest;
+import com.smartscript.platform.user.service.ChatService;
 
 /**
  * APP端询盘接口（C交易域）。
@@ -34,11 +36,13 @@ public class AppTradeInquiryController
 {
     private final TradeInquiryService inquiryService;
     private final TradeWorkService workService;
+    private final ChatService chatService;
 
-    public AppTradeInquiryController(TradeInquiryService inquiryService, TradeWorkService workService)
+    public AppTradeInquiryController(TradeInquiryService inquiryService, TradeWorkService workService, ChatService chatService)
     {
         this.inquiryService = inquiryService;
         this.workService = workService;
+        this.chatService = chatService;
     }
 
     /**
@@ -207,6 +211,72 @@ public class AppTradeInquiryController
 
         inquiryService.closeInquiry(id, String.valueOf(currentUserId));
         return AppApiResponse.ok();
+    }
+
+    /**
+     * 创建 TRADE 类型聊天会话（买卖双方沟通）。
+     *
+     * 根据询盘ID查找关联作品，确定卖方（作者）作为 user2，
+     * 当前用户作为 user1，创建幂等会话。
+     */
+    @PostMapping("/chat/sessions")
+    public AppApiResponse<Map<String, Object>> createTradeChatSession(@RequestParam Long inquiryId)
+    {
+        Long currentUserId = currentUserId();
+
+        // 查找询盘
+        SysInquiry inquiry = inquiryService.selectInquiryById(inquiryId);
+        if (inquiry == null)
+        {
+            return AppApiResponse.fail(404, "询盘不存在");
+        }
+
+        // 权限校验：只有询盘参与方可以创建会话
+        if (!currentUserId.equals(inquiry.getBuyerId()) && !currentUserId.equals(inquiry.getSellerId()))
+        {
+            return AppApiResponse.fail(403, "无权操作该询盘");
+        }
+
+        // 查找作品获取卖方ID和业务名称
+        SysWork work = null;
+        if (inquiry.getWorkId() != null)
+        {
+            work = workService.selectWorkById(inquiry.getWorkId());
+        }
+
+        // 确定 user1（买方）和 user2（卖方）
+        Long buyerId = inquiry.getBuyerId();
+        Long sellerId = inquiry.getSellerId();
+        if (sellerId == null && work != null)
+        {
+            sellerId = work.getAuthorId();
+        }
+        if (sellerId == null)
+        {
+            return AppApiResponse.fail(400, "询盘未关联卖方");
+        }
+
+        // 构建会话创建请求：user1=当前用户，user2=对方
+        ChatSessionCreateRequest req = new ChatSessionCreateRequest();
+        req.setSessionType("TRADE");
+        req.setInquiryId(inquiryId);
+        req.setBusinessType("INQUIRY");
+        req.setBusinessId(inquiryId);
+        req.setBusinessName(work != null ? work.getTitle() : "询盘#" + inquiryId);
+
+        if (currentUserId.equals(buyerId))
+        {
+            // 买方发起：user1=买方，user2=卖方
+            req.setTargetAdminId(sellerId);
+        }
+        else
+        {
+            // 卖方发起：user1=卖方，user2=买方
+            req.setTargetAdminId(buyerId);
+        }
+
+        Map<String, Object> result = chatService.createOrGetSession(currentUserId, req);
+        return AppApiResponse.ok(result);
     }
 
     /**

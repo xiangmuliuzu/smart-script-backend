@@ -156,7 +156,11 @@ public class TradeQuoteService
         // 卖方报价 → 待买方确认（本端可接受/拒绝）；买方议价 → 待卖方确认（本端不可接受/拒绝）
         quote.setStatus(QUOTER_ROLE_BUYER.equals(forcedRole) ? QUOTE_PENDING_SELLER : QUOTE_PENDING);
         quote.setExpireAt(daysFromNow(quote.getValidDays()));
-        quote.setCreateBy(SecurityUtils.getUsername());
+        // APP 端 Controller 已设置 createBy（userId），此处仅在未设置时回退到管理端 getUsername
+        if (quote.getCreateBy() == null || quote.getCreateBy().isEmpty())
+        {
+            quote.setCreateBy(safeGetOperatorName());
+        }
         quote.setCreateTime(new Date());
         quoteMapper.insertQuote(quote);
 
@@ -166,7 +170,7 @@ public class TradeQuoteService
             SysInquiry update = new SysInquiry();
             update.setInquiryId(inquiry.getInquiryId());
             update.setStatus(TradeInquiryService.INQUIRY_STATUS_QUOTED);
-            update.setUpdateBy(SecurityUtils.getUsername());
+            update.setUpdateBy(quote.getCreateBy());
             update.setUpdateTime(new Date());
             inquiryMapper.updateInquiry(update);
         }
@@ -223,7 +227,7 @@ public class TradeQuoteService
         {
             update.setExpireAt(daysFromNow(validDays));
         }
-        update.setUpdateBy(SecurityUtils.getUsername());
+        update.setUpdateBy(safeGetOperatorName());
         update.setUpdateTime(new Date());
         return quoteMapper.updateQuote(update);
     }
@@ -305,7 +309,7 @@ public class TradeQuoteService
             SysInquiry update = new SysInquiry();
             update.setInquiryId(inquiry.getInquiryId());
             update.setStatus(TradeInquiryService.INQUIRY_STATUS_DEAL);
-            update.setUpdateBy(SecurityUtils.getUsername());
+            update.setUpdateBy(safeGetOperatorName());
             update.setUpdateTime(new Date());
             inquiryMapper.updateInquiry(update);
         }
@@ -417,8 +421,29 @@ public class TradeQuoteService
         SysQuote quote = new SysQuote();
         quote.setQuoteId(quoteId);
         quote.setStatus(status);
-        quote.setUpdateBy(SecurityUtils.getUsername());
+        quote.setUpdateBy(safeGetOperatorName());
         quote.setUpdateTime(new Date());
         return quoteMapper.updateQuote(quote);
+    }
+
+    /**
+     * 安全获取当前操作者名称：APP 端返回 userId，管理端返回 username。
+     */
+    private String safeGetOperatorName()
+    {
+        org.springframework.security.core.Authentication auth =
+                org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+        if (auth instanceof com.smartscript.platform.user.security.AppIdentityContext identity)
+        {
+            return String.valueOf(identity.getUserId());
+        }
+        try
+        {
+            return SecurityUtils.getUsername();
+        }
+        catch (Exception e)
+        {
+            return "system";
+        }
     }
 }

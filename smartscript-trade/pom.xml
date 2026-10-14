@@ -31,6 +31,11 @@
             <groupId>com.ruoyi</groupId>
             <artifactId>ruoyi-system</artifactId>
         </dependency>
+        <!-- A3 聊天服务：TRADE 类型会话创建需要 ChatService -->
+        <dependency>
+            <groupId>com.smartscript</groupId>
+            <artifactId>smartscript-user</artifactId>
+        </dependency>
     </dependencies>
 
 </project>

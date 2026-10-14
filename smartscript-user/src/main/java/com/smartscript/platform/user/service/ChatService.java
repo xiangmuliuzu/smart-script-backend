@@ -57,7 +57,9 @@ public class ChatService
      * 创建或获取已有会话。
      *
      * 唯一键冲突时不报错，直接返回已有会话（任务 10）。
-     * userId 为发起方（App 用户），targetAdminId 为接收方（管理员）。
+     * userId 为发起方（App 用户）。
+     * sessionType=ADMIN 时，user2 = 管理员（targetAdminId 或默认）。
+     * sessionType=TRADE 时，user2 = 交易对手（由调用方通过 targetAdminId 传入，如作品作者）。
      */
     @Transactional
     public Map<String, Object> createOrGetSession(Long userId, ChatSessionCreateRequest req)
@@ -66,13 +68,24 @@ public class ChatService
         {
             throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "请求体不能为空");
         }
+        String sessionType = (req.getSessionType() != null && !req.getSessionType().isBlank())
+                ? req.getSessionType() : "ADMIN";
         Long user1Id = userId;
         Long user2Id = req.getTargetAdminId() != null ? req.getTargetAdminId() : DEFAULT_ADMIN_ID;
         String bizType = req.getBusinessType();
         Long bizId = req.getBusinessId();
 
         // 先查已有
-        ChatSession existing = sessionMapper.selectByBusiness(user1Id, user2Id, bizType, bizId);
+        ChatSession existing;
+        if ("TRADE".equals(sessionType) && req.getInquiryId() != null)
+        {
+            // TRADE 类型按询盘ID幂等
+            existing = sessionMapper.selectByInquiryId(req.getInquiryId());
+        }
+        else
+        {
+            existing = sessionMapper.selectByBusiness(user1Id, user2Id, bizType, bizId);
+        }
         if (existing != null)
         {
             resumeIfClosed(existing);
@@ -80,14 +93,15 @@ public class ChatService
         }
         // 新建
         ChatSession session = new ChatSession();
-        session.setSessionType("CHAT");
+        session.setSessionType(sessionType);
+        session.setInquiryId(req.getInquiryId());
         session.setUser1Id(user1Id);
         session.setUser2Id(user2Id);
         session.setBusinessType(bizType);
         session.setBusinessId(bizId);
         session.setBusinessName(req.getBusinessName());
         session.setStatus(STATUS_PENDING);
-        session.setAssignedAdminId(user2Id);
+        session.setAssignedAdminId("TRADE".equals(sessionType) ? null : user2Id);
         try
         {
             sessionMapper.insertSession(session);
@@ -95,7 +109,14 @@ public class ChatService
         catch (Exception e)
         {
             // 唯一键冲突 → 再查一次
-            existing = sessionMapper.selectByBusiness(user1Id, user2Id, bizType, bizId);
+            if ("TRADE".equals(sessionType) && req.getInquiryId() != null)
+            {
+                existing = sessionMapper.selectByInquiryId(req.getInquiryId());
+            }
+            else
+            {
+                existing = sessionMapper.selectByBusiness(user1Id, user2Id, bizType, bizId);
+            }
             if (existing != null)
             {
                 resumeIfClosed(existing);
@@ -111,15 +132,31 @@ public class ChatService
     /* ========== 任务 3/11：会话列表 ========== */
 
     /** 用户端：我的会话列表。SQL 层强制 user1_id 或 user2_id = userId（任务 11）。 */
-    public PageResult<Map<String, Object>> mySessions(Long userId, Integer status)
+    public PageResult<Map<String, Object>> mySessions(Long userId, Integer status, String sessionType)
     {
-        List<ChatSession> rows = sessionMapper.selectMySessions(userId, status);
+        List<ChatSession> rows = sessionMapper.selectMySessions(userId, status, sessionType);
         List<Map<String, Object>> list = new ArrayList<>();
         for (ChatSession s : rows)
         {
             list.add(toSessionVo(s, userId));
         }
         return PageResult.of(list.size(), list);
+    }
+
+    /** 用户端：单个会话详情。 */
+    public Map<String, Object> sessionDetail(Long sessionId, Long userId)
+    {
+        ChatSession s = sessionMapper.selectById(sessionId);
+        if (s == null)
+        {
+            throw new AppAuthException(AppUserErrorCodes.RESOURCE_NOT_FOUND, 404, "会话不存在");
+        }
+        // 校验当前用户是会话双方之一
+        if (!userId.equals(s.getUser1Id()) && !userId.equals(s.getUser2Id()))
+        {
+            throw new AppAuthException(AppUserErrorCodes.DOMAIN_OR_PERMISSION, 403, "无权查看该会话");
+        }
+        return toSessionVo(s, userId);
     }
 
     /** 管理端：全部会话列表（PageHelper 驱动，Controller 用 getDataTable 取分页）。 */
@@ -322,7 +359,7 @@ public class ChatService
     }
 
     /** 插入系统提示消息（sender/receiver 置 0，已读，不增加未读） */
-    private void insertSystemNotice(Long sessionId, String content)
+    public void insertSystemNotice(Long sessionId, String content)
     {
         ChatMessage notice = new ChatMessage();
         notice.setSessionId(sessionId);
@@ -332,6 +369,18 @@ public class ChatService
         notice.setContent(content);
         notice.setIsRead(Boolean.TRUE);
         messageMapper.insertMessage(notice);
+    }
+
+    /**
+     * 按询盘ID向关联的 TRADE 会话插入系统通知。
+     * 若该询盘无关联会话则静默跳过（不影响主流程）。
+     */
+    public void sendNoticeByInquiryId(Long inquiryId, String content)
+    {
+        if (inquiryId == null) return;
+        ChatSession session = sessionMapper.selectByInquiryId(inquiryId);
+        if (session == null) return;
+        insertSystemNotice(session.getSessionId(), content);
     }
 
     /**
@@ -437,6 +486,8 @@ public class ChatService
     {
         Map<String, Object> vo = new LinkedHashMap<>();
         vo.put("sessionId", s.getSessionId());
+        vo.put("sessionType", s.getSessionType());
+        vo.put("inquiryId", s.getInquiryId());
         vo.put("businessType", s.getBusinessType());
         vo.put("businessId", s.getBusinessId());
         vo.put("businessName", s.getBusinessName());
@@ -451,7 +502,7 @@ public class ChatService
         vo.put("unread", unread);
         // 对方信息
         boolean isUser1 = currentUserId.equals(s.getUser1Id());
-        vo.put("peerId", isUser1 ? handlerId(s) : s.getUser1Id());
+        vo.put("peerId", isUser1 ? s.getUser2Id() : s.getUser1Id());
         vo.put("peerName", isUser1 ? s.getUser2Name() : s.getUser1Name());
         vo.put("peerAvatar", isUser1 ? s.getUser2Avatar() : s.getUser1Avatar());
         return vo;

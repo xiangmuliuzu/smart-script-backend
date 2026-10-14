@@ -28,6 +28,15 @@ public class AppContactDto
     /** 展示范围：public/certified_partner/platform_forward/hidden（原样下发，无档案时为 null） */
     private String displayScope;
 
+    /** 手机号（明文，开发阶段直接下发） */
+    private String phone;
+
+    /** 邮箱（明文，开发阶段直接下发） */
+    private String email;
+
+    /** 微信号（明文，开发阶段直接下发） */
+    private String wechat;
+
     public AppContactDto()
     {
     }
@@ -60,5 +69,35 @@ public class AppContactDto
     public void setDisplayScope(String displayScope)
     {
         this.displayScope = displayScope;
+    }
+
+    public String getPhone()
+    {
+        return phone;
+    }
+
+    public void setPhone(String phone)
+    {
+        this.phone = phone;
+    }
+
+    public String getEmail()
+    {
+        return email;
+    }
+
+    public void setEmail(String email)
+    {
+        this.email = email;
+    }
+
+    public String getWechat()
+    {
+        return wechat;
+    }
+
+    public void setWechat(String wechat)
+    {
+        this.wechat = wechat;
     }
 }

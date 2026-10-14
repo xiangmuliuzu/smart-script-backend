@@ -93,9 +93,9 @@ class ChatWorkflowTest
     {
         ChatSession session = session(); session.setStatus(1);
         when(sessions.selectById(17L)).thenReturn(session);
-        when(sessions.selectMySessions(12L, null)).thenReturn(List.of(session));
+        when(sessions.selectMySessions(12L, null, null)).thenReturn(List.of(session));
         assertEquals(0, service.adminSessionDetail(17L).get("status"));
-        var user = service.mySessions(12L, null).getList().get(0);
+        var user = service.mySessions(12L, null, null).getList().get(0);
         assertEquals(0, user.get("status")); assertEquals(8L, user.get("peerId"));
     }
 }
