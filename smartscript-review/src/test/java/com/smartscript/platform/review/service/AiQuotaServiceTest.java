@@ -189,6 +189,24 @@ class AiQuotaServiceTest {
     }
 
     @Test
+    void exchange_非整数倍积分_只扣整数倍部分() {
+        when(pointsAccountMapper.selectByUserId(106L)).thenReturn(pointsAccount());
+        when(aiQuotaAccountMapper.selectAiQuotaAccountByUserId(106L)).thenReturn(account);
+        when(pointsAccountMapper.decreaseBalance(106L, 10)).thenReturn(1);
+        when(aiQuotaAccountMapper.updateEarn(106L, BigDecimal.valueOf(1), 1L)).thenReturn(1);
+
+        Map<String, Object> r = aiQuotaService.exchange(106L, 15, "idem_ex_15");
+
+        assertEquals(200, r.get("code"));
+        assertEquals(1, r.get("quotaEarned"));
+        assertEquals(10, r.get("pointsSpent"));
+        assertEquals(90, r.get("pointsBalance"));
+        assertEquals(51, r.get("quotaBalance"));
+        verify(pointsAccountMapper, times(1)).decreaseBalance(106L, 10);
+        verify(aiQuotaAccountMapper, times(1)).updateEarn(106L, BigDecimal.valueOf(1), 1L);
+    }
+
+    @Test
     void exchange_积分不足_拒绝() {
         PointsAccount pa = pointsAccount();
         pa.setBalance(5);
@@ -266,12 +284,13 @@ class AiQuotaServiceTest {
     }
 
     @Test
-    void reserve_无账户_404() {
+    void reserve_无账户_按0返回() {
         when(aiQuotaAccountMapper.selectAiQuotaAccountByUserId(106L)).thenReturn(null);
 
         Map<String, Object> r = aiQuotaService.reserve(106L, "writing", 1, null, "idem_rsv_3");
 
-        assertEquals(404, r.get("code"));
+        assertEquals(200, r.get("code"));
+        assertEquals(0, r.get("availableQuota"));
         verify(aiQuotaAccountMapper, never()).updateReserve(anyLong(), any(), anyLong());
     }
 

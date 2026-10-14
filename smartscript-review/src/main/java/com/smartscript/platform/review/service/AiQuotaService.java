@@ -594,6 +594,8 @@ public class AiQuotaService {
             result.put("msg", "积分不足兑换，当前比例 " + rate + " 积分=1次，至少需 " + rate + " 积分");
             return result;
         }
+        // 实际扣款按整数倍：rate=10、输入15 → 兑换1次、只扣10分，多出5分不扣
+        int spent = quota * rate;
         // 1) 积分账户校验
         PointsAccount pointsAccount = pointsAccountMapper.selectByUserId(userId);
         if (pointsAccount == null) {
@@ -601,9 +603,9 @@ public class AiQuotaService {
             result.put("msg", "积分账户不存在: " + userId);
             return result;
         }
-        if (pointsAccount.getBalance() < points) {
+        if (pointsAccount.getBalance() < spent) {
             result.put("code", 400);
-            result.put("msg", "积分不足，当前可用: " + pointsAccount.getBalance());
+            result.put("msg", "积分不足，当前可用: " + pointsAccount.getBalance() + "，本次需 " + spent + " 积分");
             return result;
         }
         // 2) AI账户（无则自动建，初始0次）
@@ -633,7 +635,7 @@ public class AiQuotaService {
         record.setBusinessType("exchange");
         record.setIdempotencyKey(idempotencyKey);
         record.setCreateTime(new Date());
-        record.setRemark("积分兑换AI次数: " + points + "积分=" + quota + "次");
+        record.setRemark("积分兑换AI次数: " + spent + "积分=" + quota + "次");
         try {
             aiQuotaRecordMapper.insertAiQuotaRecord(record);
         } catch (DuplicateKeyException e) {
@@ -644,7 +646,7 @@ public class AiQuotaService {
             return result;
         }
         // 4) 扣积分
-        int spentRows = pointsAccountMapper.decreaseBalance(userId, points);
+        int spentRows = pointsAccountMapper.decreaseBalance(userId, spent);
         if (spentRows == 0) {
             throw new IllegalStateException("积分扣减失败（余额不足或并发）");
         }
@@ -657,18 +659,18 @@ public class AiQuotaService {
         PointsRecord pr = new PointsRecord();
         pr.setUserId(userId);
         pr.setChangeType("SPEND");
-        pr.setPoints(points);
+        pr.setPoints(spent);
         pr.setBalanceAfter(pointsAccount.getBalance() - points);
         pr.setSource("EXCHANGE");
         pr.setRemark("积分兑换AI次数");
         pointsRecordMapper.insertPointsRecord(pr);
-        logOperation("ai_quota", "exchange", "user", String.valueOf(userId), null, userId, "积分兑换AI次数: " + points + "积分=" + quota + "次");
+        logOperation("ai_quota", "exchange", "user", String.valueOf(userId), null, userId, "积分兑换AI次数: " + spent + "积分=" + quota + "次");
         result.put("code", 200);
         result.put("msg", "兑换成功");
-        result.put("pointsSpent", points);
+        result.put("pointsSpent", spent);
         result.put("quotaEarned", quota);
         result.put("rate", rate);
-        result.put("pointsBalance", pointsAccount.getBalance() - points);
+        result.put("pointsBalance", pointsAccount.getBalance() - spent);
         result.put("quotaBalance", account.getAvailableQuota().add(earnAmount).intValue());
         return result;
     }
