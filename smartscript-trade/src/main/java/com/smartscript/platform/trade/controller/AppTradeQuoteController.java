@@ -96,8 +96,8 @@ public class AppTradeQuoteController
         {
             return AppApiResponse.ok(null);
         }
-        // 取最后一条（最新插入的）
-        return AppApiResponse.ok(list.get(list.size() - 1));
+        // 查询按 created_at desc 排序，第一条即最新
+        return AppApiResponse.ok(list.get(0));
     }
 
     /**

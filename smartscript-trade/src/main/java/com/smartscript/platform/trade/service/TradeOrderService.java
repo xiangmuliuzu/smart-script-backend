@@ -26,6 +26,7 @@ public class TradeOrderService
 {
     /** 订单生成后的前置状态（PRD 9.3）：deal 达成即进入 confirmed，其后由 D 接手流转 */
     public static final String ORDER_STATUS_CONFIRMED = "confirmed";
+    public static final String ORDER_STATUS_CANCELLED = "cancelled";
 
     @Autowired
     private SysOrderMapper orderMapper;
@@ -108,5 +109,39 @@ public class TradeOrderService
         logMapper.insertLog(log);
 
         return order;
+    }
+
+    /**
+     * 取消订单。仅 confirmed 状态可取消。
+     */
+    @Transactional
+    public void cancelOrder(Long orderId, String reason, Long operatorId, String operatorName)
+    {
+        SysOrder order = orderMapper.selectOrderById(orderId);
+        if (order == null)
+        {
+            throw new RuntimeException("订单不存在");
+        }
+        if (!ORDER_STATUS_CONFIRMED.equals(order.getStatus()))
+        {
+            throw new RuntimeException("当前订单状态不可取消");
+        }
+
+        order.setStatus(ORDER_STATUS_CANCELLED);
+        order.setRemark(reason);
+        order.setUpdateBy(operatorName);
+        order.setUpdateTime(new Date());
+        orderMapper.updateOrder(order);
+
+        SysOrderStatusLog log = new SysOrderStatusLog();
+        log.setOrderId(orderId);
+        log.setFromStatus(ORDER_STATUS_CONFIRMED);
+        log.setToStatus(ORDER_STATUS_CANCELLED);
+        log.setOperatorId(operatorId);
+        log.setOperatorRole("buyer");
+        log.setRemark(reason != null ? reason : "买方取消订单");
+        log.setCreateBy(operatorName);
+        log.setCreateTime(new Date());
+        logMapper.insertLog(log);
     }
 }
