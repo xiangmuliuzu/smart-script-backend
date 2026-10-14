@@ -81,6 +81,10 @@ public class AppAuthSecurityConfig
                                 "/api/v1/content/works/versions/**",
                                 "/api/v1/content/works/*/review-status",
                                 "/api/v1/content/works/*/versions").authenticated()
+                        // B 模块读者评分态（GET /works/{id}/rating）：需登录（回显「我的评分」），
+                        // 同样必须声明在 /works/** 游客白名单之前，否则会被误放为可匿名访问
+                        .requestMatchers(HttpMethod.GET,
+                                "/api/v1/content/works/*/rating").authenticated()
                         // A6/B 业务模块公开接口：游客可读（无需 App Token）
                         // B 模块书城浏览主链路（第一批）：Banner / 分类 / 标签 / 作品列表 / 作品详情 / 榜单
                         // B 模块试读链路（第二批）：作品章节目录落在 /works/** 内，章节正文单列
