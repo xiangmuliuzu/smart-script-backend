@@ -25,6 +25,9 @@ public class AppWorkQuery
     /** 推荐状态（从 ext_json 解析）：home_hot 首页热门 / category_rec 分类推荐 / none 无推荐 */
     private String recommendStatus;
 
+    /** 展示位（从 ext_json 解析）：bookstore 书城首页 / category_page 分类页 / search 搜索 */
+    private String showScope;
+
     public String getRecommendStatus()
     {
         return recommendStatus;
@@ -33,6 +36,16 @@ public class AppWorkQuery
     public void setRecommendStatus(String recommendStatus)
     {
         this.recommendStatus = recommendStatus;
+    }
+
+    public String getShowScope()
+    {
+        return showScope;
+    }
+
+    public void setShowScope(String showScope)
+    {
+        this.showScope = showScope;
     }
 
     public String getKeyword()

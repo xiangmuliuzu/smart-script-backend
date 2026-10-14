@@ -49,6 +49,8 @@ public class AppWorkController
      * @param sort       排序（可选：latest/view/favorite/sale/rating/price_asc/price_desc，非法值回落 latest）
      * @param recommendStatus 推荐状态（可选：home_hot/category_rec；传入时只回未过期的推荐作品，
      *                        按推荐权重降序，权重同级回落浏览量）
+     * @param showScope  展示位（可选：bookstore/category_page/search；传入时只回该展示位下未过期的推荐作品，
+     *                        按推荐权重降序）
      * @param page       页码（可选，默认 1）
      * @param pageSize   每页条数（可选，默认 10，上限 50）
      */
@@ -59,6 +61,7 @@ public class AppWorkController
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) String sort,
             @RequestParam(required = false) String recommendStatus,
+            @RequestParam(required = false) String showScope,
             @RequestParam(required = false) Integer page,
             @RequestParam(required = false) Integer pageSize)
     {
@@ -68,6 +71,7 @@ public class AppWorkController
         query.setKeyword(keyword);
         query.setSort(sort);
         query.setRecommendStatus(recommendStatus);
+        query.setShowScope(showScope);
         int pageNum = page == null ? 1 : page;
         int size = pageSize == null ? 10 : pageSize;
         return AppApiResponse.ok(bookstoreService.pageWorks(query, pageNum, size));
