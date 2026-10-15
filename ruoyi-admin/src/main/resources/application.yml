@@ -125,7 +125,7 @@ app:
       template-reset-password: ${SMS_TEMPLATE_RESET_PASSWORD:}
       template-change-phone-old: ${SMS_TEMPLATE_CHANGE_PHONE_OLD:}
       template-change-phone-new: ${SMS_TEMPLATE_CHANGE_PHONE_NEW:}
-      mock-fixed-code: ${APP_SMS_MOCK_CODE:}
+      mock-fixed-code: ${APP_SMS_MOCK_CODE:123456}
       cooldown-seconds: ${SMS_COOLDOWN_SECONDS:60}
       code-ttl-seconds: ${SMS_CODE_TTL_SECONDS:300}
       max-failed-attempts: ${SMS_MAX_FAILED_ATTEMPTS:5}
