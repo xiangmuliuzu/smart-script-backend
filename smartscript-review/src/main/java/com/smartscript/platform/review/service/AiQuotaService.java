@@ -660,7 +660,7 @@ public class AiQuotaService {
         pr.setUserId(userId);
         pr.setChangeType("SPEND");
         pr.setPoints(spent);
-        pr.setBalanceAfter(pointsAccount.getBalance() - points);
+        pr.setBalanceAfter(pointsAccount.getBalance() - spent);
         pr.setSource("EXCHANGE");
         pr.setRemark("积分兑换AI次数");
         pointsRecordMapper.insertPointsRecord(pr);

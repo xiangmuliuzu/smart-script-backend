@@ -8,9 +8,11 @@ import com.smartscript.platform.review.mapper.AiRequestMapper;
 import com.smartscript.platform.review.domain.PointsAccount;
 import com.smartscript.platform.review.mapper.PointsAccountMapper;
 import com.smartscript.platform.review.mapper.PointsRecordMapper;
+import com.smartscript.platform.review.domain.PointsRecord;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -204,6 +206,13 @@ class AiQuotaServiceTest {
         assertEquals(51, r.get("quotaBalance"));
         verify(pointsAccountMapper, times(1)).decreaseBalance(106L, 10);
         verify(aiQuotaAccountMapper, times(1)).updateEarn(106L, BigDecimal.valueOf(1), 1L);
+        // 积分流水：points=实际扣款10（非输入15），balanceAfter=100-10，changeType=SPEND
+        ArgumentCaptor<PointsRecord> cap = ArgumentCaptor.forClass(PointsRecord.class);
+        verify(pointsRecordMapper, times(1)).insertPointsRecord(cap.capture());
+        PointsRecord pr = cap.getValue();
+        assertEquals(10, pr.getPoints());
+        assertEquals(90, pr.getBalanceAfter());
+        assertEquals("SPEND", pr.getChangeType());
     }
 
     @Test
