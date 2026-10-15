@@ -335,13 +335,13 @@ public class AiWriteServiceImpl implements IAiWriteService
     private static String outlineToText(Object outline)
     {
         StringBuilder sb = new StringBuilder();
-        appendOutline(sb, outline, 0);
+        appendOutline(sb, outline, 0, null);
         String text = sb.toString().trim();
         return text.isEmpty() ? BLANK : text;
     }
 
-    /** 递归把大纲对象渲染成「字段：值」的多行文本 */
-    private static void appendOutline(StringBuilder sb, Object node, int depth)
+    /** 递归把大纲对象渲染成「字段：值」的多行文本（parentKey 用于区分 name 在不同上下文的含义） */
+    private static void appendOutline(StringBuilder sb, Object node, int depth, String parentKey)
     {
         if (node == null)
         {
@@ -353,7 +353,7 @@ public class AiWriteServiceImpl implements IAiWriteService
             {
                 String key = String.valueOf(entry.getKey());
                 Object value = entry.getValue();
-                String label = outlineLabel(key);
+                String label = outlineLabel(key, parentKey);
                 if (value instanceof List)
                 {
                     List<?> list = (List<?>) value;
@@ -380,13 +380,13 @@ public class AiWriteServiceImpl implements IAiWriteService
                     }
                     else
                     {
-                        appendOutline(sb, list, depth + 1);
+                        appendOutline(sb, list, depth + 1, key);
                     }
                 }
                 else if (value instanceof Map)
                 {
                     appendLine(sb, label, depth);
-                    appendOutline(sb, value, depth + 1);
+                    appendOutline(sb, value, depth + 1, key);
                 }
                 else
                 {
@@ -398,7 +398,7 @@ public class AiWriteServiceImpl implements IAiWriteService
         {
             for (Object item : (List<?>) node)
             {
-                appendOutline(sb, item, depth + 1);
+                appendOutline(sb, item, depth + 1, parentKey);
             }
         }
         else
@@ -415,8 +415,8 @@ public class AiWriteServiceImpl implements IAiWriteService
                 || key.equals("development");
     }
 
-    /** 常见大纲字段 → 中文标签（未知 key 原样保留） */
-    private static String outlineLabel(String key)
+    /** 常见大纲字段 → 中文标签（未知 key 原样保留；name 按父上下文区分含义） */
+    private static String outlineLabel(String key, String parentKey)
     {
         switch (key)
         {
@@ -432,6 +432,16 @@ public class AiWriteServiceImpl implements IAiWriteService
             case "worldview": return "世界观";
             case "ending": return "结局";
             case "theme": return "主题";
+            case "role": return "身份";
+            case "beats": return "关键情节";
+            case "intro": return "简介";
+            case "content": return "内容";
+            case "genre": return "题材";
+            case "style": return "风格";
+            case "name":
+                if ("characters".equals(parentKey)) return "角色名";
+                if ("acts".equals(parentKey)) return "幕名";
+                return "名称";
             default: return key;
         }
     }
