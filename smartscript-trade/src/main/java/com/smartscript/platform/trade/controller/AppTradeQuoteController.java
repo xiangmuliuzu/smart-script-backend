@@ -62,6 +62,8 @@ public class AppTradeQuoteController
         SysQuote query = new SysQuote();
         query.setInquiryId(inquiryId);
         List<SysQuote> list = quoteService.selectQuoteList(query);
+        // 库存元→APP分
+        list.forEach(q -> q.setPrice(yuanToFen(q.getPrice())));
 
         Map<String, Object> result = new HashMap<>();
         result.put("total", list.size());
@@ -80,6 +82,7 @@ public class AppTradeQuoteController
         {
             return AppApiResponse.fail(404, "报价不存在");
         }
+        quote.setPrice(yuanToFen(quote.getPrice()));
         return AppApiResponse.ok(quote);
     }
 
@@ -96,8 +99,10 @@ public class AppTradeQuoteController
         {
             return AppApiResponse.ok(null);
         }
-        // 查询按 created_at desc 排序，第一条即最新
-        return AppApiResponse.ok(list.get(0));
+        // 查询按 created_at desc 排序，第一条即最新；库存元→APP分
+        SysQuote latestQuote = list.get(0);
+        latestQuote.setPrice(yuanToFen(latestQuote.getPrice()));
+        return AppApiResponse.ok(latestQuote);
     }
 
     /**
@@ -125,6 +130,8 @@ public class AppTradeQuoteController
         quote.setSellerId(inquiry.getSellerId());
         quote.setQuoterId(currentUserId);
         quote.setCreateBy(String.valueOf(currentUserId));
+        // APP传分→库存元（sys_quote.price 为元，与 PC 端一致）
+        quote.setPrice(fenToYuan(quote.getPrice()));
 
         SysQuote created = quoteService.createQuote(quote);
 
@@ -163,6 +170,8 @@ public class AppTradeQuoteController
         quote.setSellerId(inquiry.getSellerId());
         quote.setQuoterId(currentUserId);
         quote.setCreateBy(String.valueOf(currentUserId));
+        // APP传分→库存元
+        quote.setPrice(fenToYuan(quote.getPrice()));
 
         SysQuote created = quoteService.counterOffer(quote);
 
@@ -196,6 +205,8 @@ public class AppTradeQuoteController
 
         // 根据报价方角色确定操作者角色
         String operatorRole = quote.getQuoterRole();
+        // APP传分→库存元
+        patch.setPrice(fenToYuan(patch.getPrice()));
         quoteService.modifyQuote(id, patch, operatorRole);
         return AppApiResponse.ok();
     }
@@ -316,11 +327,25 @@ public class AppTradeQuoteController
         throw new RuntimeException("未登录或身份上下文异常");
     }
 
-    /** 分转元格式化（price 字段为 BigDecimal，单位分） */
-    private String formatYuan(BigDecimal fen)
+    /** APP入参分→库存元（sys_quote.price/sys_inquiry.budget 与 PC 端一致以元存储） */
+    private BigDecimal fenToYuan(BigDecimal fen)
     {
-        if (fen == null) return "¥0.00";
-        return "¥" + fen.divide(new BigDecimal("100")).setScale(2, java.math.RoundingMode.HALF_UP).toPlainString();
+        if (fen == null) return null;
+        return fen.divide(new BigDecimal("100"), 2, java.math.RoundingMode.HALF_UP);
+    }
+
+    /** 库存元→APP出参分 */
+    private BigDecimal yuanToFen(BigDecimal yuan)
+    {
+        if (yuan == null) return null;
+        return yuan.multiply(new BigDecimal("100"));
+    }
+
+    /** 元格式化（库存单位为元） */
+    private String formatYuan(BigDecimal yuan)
+    {
+        if (yuan == null) return "¥0.00";
+        return "¥" + yuan.setScale(2, java.math.RoundingMode.HALF_UP).toPlainString();
     }
 
     /** 授权类型中文标签 */

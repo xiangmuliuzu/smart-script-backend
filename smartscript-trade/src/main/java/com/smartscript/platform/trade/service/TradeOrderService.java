@@ -93,7 +93,7 @@ public class TradeOrderService
         order.setSplitRate(BigDecimal.ZERO);
         order.setSellerAmount(total);
         order.setStatus(ORDER_STATUS_CONFIRMED);
-        order.setCreateBy(SecurityUtils.getUsername());
+        order.setCreateBy(safeGetOperatorName());
         order.setCreateTime(new Date());
         orderMapper.insertOrder(order);
 
@@ -101,14 +101,57 @@ public class TradeOrderService
         log.setOrderId(order.getOrderId());
         log.setFromStatus(null);
         log.setToStatus(ORDER_STATUS_CONFIRMED);
-        log.setOperatorId(SecurityUtils.getUserId());
+        log.setOperatorId(safeGetOperatorId());
         log.setOperatorRole("admin");
         log.setRemark(logRemark);
-        log.setCreateBy(SecurityUtils.getUsername());
+        log.setCreateBy(safeGetOperatorName());
         log.setCreateTime(new Date());
         logMapper.insertLog(log);
 
         return order;
+    }
+
+    /**
+     * 双端兼容取操作人 ID：APP 链路 principal 是 AppIdentityContext，
+     * PC 链路才是若依 LoginUser；直接调 SecurityUtils 会抛「获取用户账户异常」。
+     */
+    private Long safeGetOperatorId()
+    {
+        org.springframework.security.core.Authentication auth =
+                org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+        if (auth instanceof com.smartscript.platform.user.security.AppIdentityContext identity)
+        {
+            return identity.getUserId();
+        }
+        try
+        {
+            return SecurityUtils.getUserId();
+        }
+        catch (Exception e)
+        {
+            return null;
+        }
+    }
+
+    /**
+     * 双端兼容取操作人名称：同 {@link #safeGetOperatorId()}。
+     */
+    private String safeGetOperatorName()
+    {
+        org.springframework.security.core.Authentication auth =
+                org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+        if (auth instanceof com.smartscript.platform.user.security.AppIdentityContext identity)
+        {
+            return String.valueOf(identity.getUserId());
+        }
+        try
+        {
+            return SecurityUtils.getUsername();
+        }
+        catch (Exception e)
+        {
+            return "system";
+        }
     }
 
     /**

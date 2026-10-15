@@ -1,8 +1,11 @@
 package com.smartscript.platform.trade.controller;
 
+import java.math.BigDecimal;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import com.github.pagehelper.PageHelper;
+import com.github.pagehelper.PageInfo;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import com.smartscript.platform.user.security.AppIdentityContext;
@@ -73,39 +76,17 @@ public class AppTradeOrderController
             query.setStatus(status);
         }
 
-        List<SysOrder> all = orderService.selectOrderList(query);
+        // PageHelper 分页（Mapper 层 LIMIT/OFFSET，不再全量查再截取）
+        int safePageNum = Math.max(1, pageNum);
+        int safePageSize = Math.max(1, Math.min(100, pageSize));
+        PageHelper.startPage(safePageNum, safePageSize);
+        List<SysOrder> pageData = orderService.selectOrderList(query);
+        PageInfo<SysOrder> pageInfo = new PageInfo<>(pageData);
 
-        // 手动分页
-        int total = all.size();
-        int fromIndex = (pageNum - 1) * pageSize;
-        int toIndex = Math.min(fromIndex + pageSize, total);
-        List<SysOrder> pageData = (fromIndex < total) ? all.subList(fromIndex, toIndex) : List.of();
-
-        // 金额转分（totalAmount 为 BigDecimal 元，APP 端用分）
-        List<Map<String, Object>> rows = pageData.stream().map(o -> {
-            Map<String, Object> m = new HashMap<>();
-            m.put("orderId", o.getOrderId());
-            m.put("orderNo", o.getOrderNo());
-            m.put("inquiryId", o.getInquiryId());
-            m.put("quoteId", o.getQuoteId());
-            m.put("workId", o.getWorkId());
-            m.put("buyerId", o.getBuyerId());
-            m.put("sellerId", o.getSellerId());
-            m.put("amount", o.getTotalAmount() != null
-                    ? o.getTotalAmount().multiply(new java.math.BigDecimal("100")).intValue() : null);
-            m.put("licenseType", o.getLicenseType());
-            m.put("status", o.getStatus());
-            m.put("cancelReason", o.getRemark());
-            m.put("createdAt", o.getCreatedAt());
-            m.put("updatedAt", o.getUpdatedAt());
-            m.put("workTitle", o.getWorkTitle());
-            m.put("buyerName", o.getBuyerName());
-            m.put("sellerName", o.getSellerName());
-            return m;
-        }).toList();
+        List<Map<String, Object>> rows = pageData.stream().map(this::toAppMap).toList();
 
         Map<String, Object> result = new HashMap<>();
-        result.put("total", total);
+        result.put("total", pageInfo.getTotal());
         result.put("rows", rows);
         return AppApiResponse.ok(result);
     }
@@ -127,24 +108,7 @@ public class AppTradeOrderController
             return AppApiResponse.fail(403, "无权查看该订单");
         }
 
-        Map<String, Object> data = new HashMap<>();
-        data.put("orderId", order.getOrderId());
-        data.put("orderNo", order.getOrderNo());
-        data.put("inquiryId", order.getInquiryId());
-        data.put("quoteId", order.getQuoteId());
-        data.put("workId", order.getWorkId());
-        data.put("buyerId", order.getBuyerId());
-        data.put("sellerId", order.getSellerId());
-        data.put("amount", order.getTotalAmount() != null
-                ? order.getTotalAmount().multiply(new java.math.BigDecimal("100")).intValue() : null);
-        data.put("licenseType", order.getLicenseType());
-        data.put("status", order.getStatus());
-        data.put("cancelReason", order.getRemark());
-        data.put("createdAt", order.getCreatedAt());
-        data.put("updatedAt", order.getUpdatedAt());
-        data.put("workTitle", order.getWorkTitle());
-        data.put("buyerName", order.getBuyerName());
-        data.put("sellerName", order.getSellerName());
+        Map<String, Object> data = toAppMap(order);
         return AppApiResponse.ok(data);
     }
 
@@ -168,7 +132,7 @@ public class AppTradeOrderController
         String reason = (body != null) ? body.get("reason") : null;
         try
         {
-            orderService.cancelOrder(orderId, reason, currentUserId, String.valueOf(currentUserId));
+            orderService.cancelOrder(orderId, reason, currentUserId, "买方取消");
             return AppApiResponse.ok(null);
         }
         catch (RuntimeException e)
@@ -185,5 +149,31 @@ public class AppTradeOrderController
             return identity.getUserId();
         }
         throw new RuntimeException("未登录或身份上下文异常");
+    }
+
+    /**
+     * SysOrder → APP 端 Map（金额转分，公共方法避免 list/detail 重复）。
+     */
+    private Map<String, Object> toAppMap(SysOrder o)
+    {
+        Map<String, Object> m = new HashMap<>();
+        m.put("orderId", o.getOrderId());
+        m.put("orderNo", o.getOrderNo());
+        m.put("inquiryId", o.getInquiryId());
+        m.put("quoteId", o.getQuoteId());
+        m.put("workId", o.getWorkId());
+        m.put("buyerId", o.getBuyerId());
+        m.put("sellerId", o.getSellerId());
+        m.put("amount", o.getTotalAmount() != null
+                ? o.getTotalAmount().multiply(new BigDecimal("100")).intValue() : null);
+        m.put("licenseType", o.getLicenseType());
+        m.put("status", o.getStatus());
+        m.put("cancelReason", o.getRemark());
+        m.put("createdAt", o.getCreatedAt());
+        m.put("updatedAt", o.getUpdatedAt());
+        m.put("workTitle", o.getWorkTitle());
+        m.put("buyerName", o.getBuyerName());
+        m.put("sellerName", o.getSellerName());
+        return m;
     }
 }

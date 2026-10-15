@@ -1,5 +1,6 @@
 package com.smartscript.platform.trade.controller;
 
+import java.math.BigDecimal;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -85,6 +86,8 @@ public class AppTradeInquiryController
 
         // 调用 service 查询
         List<SysInquiry> list = inquiryService.selectInquiryList(query);
+        // 库存元→APP分
+        list.forEach(i -> i.setBudget(yuanToFen(i.getBudget())));
 
         // 手动分页
         int total = list.size();
@@ -110,6 +113,8 @@ public class AppTradeInquiryController
         inquiry.setStatus("pending");
         // APP端设置createBy，避免TradeInquiryService调用SecurityUtils.getUsername()
         inquiry.setCreateBy(String.valueOf(currentUserId));
+        // APP传分→库存元（sys_inquiry.budget 与 PC 端一致以元存储）
+        inquiry.setBudget(fenToYuan(inquiry.getBudget()));
 
         // 根据workId查询作品，获取作者ID作为sellerId
         if (inquiry.getWorkId() != null && inquiry.getSellerId() == null)
@@ -122,6 +127,7 @@ public class AppTradeInquiryController
         }
 
         SysInquiry created = inquiryService.createInquiry(inquiry);
+        created.setBudget(yuanToFen(created.getBudget()));
         return AppApiResponse.ok(created);
     }
 
@@ -144,6 +150,7 @@ public class AppTradeInquiryController
             return AppApiResponse.fail(403, "无权查看此询盘");
         }
 
+        inquiry.setBudget(yuanToFen(inquiry.getBudget()));
         return AppApiResponse.ok(inquiry);
     }
 
@@ -277,6 +284,20 @@ public class AppTradeInquiryController
 
         Map<String, Object> result = chatService.createOrGetSession(currentUserId, req);
         return AppApiResponse.ok(result);
+    }
+
+    /** APP入参分→库存元（与 PC 端一致以元存储） */
+    private BigDecimal fenToYuan(BigDecimal fen)
+    {
+        if (fen == null) return null;
+        return fen.divide(new BigDecimal("100"), 2, java.math.RoundingMode.HALF_UP);
+    }
+
+    /** 库存元→APP出参分 */
+    private BigDecimal yuanToFen(BigDecimal yuan)
+    {
+        if (yuan == null) return null;
+        return yuan.multiply(new BigDecimal("100"));
     }
 
     /**
