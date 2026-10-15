@@ -111,6 +111,34 @@ class AiQuotaCheckTest
         verify(writeRecordMapper, org.mockito.Mockito.times(1)).insertWriteRecord(any());
     }
 
+    @Test
+    @DisplayName("AI调用成功后扣减1次并写额度流水（consume）")
+    void write_success_deductsQuota() throws Exception
+    {
+        // checkQuota 与 consumeQuota 的余额查询均返回 5
+        when(jdbcTemplate.queryForObject(anyString(), eq(Integer.class), eq(USER_ID))).thenReturn(5);
+        // 扣减 UPDATE 成功
+        when(jdbcTemplate.update(anyString(), org.mockito.ArgumentMatchers.<Object>any()))
+                .thenReturn(1);
+        ObjectMapper mapper = new ObjectMapper();
+        JsonNode data = mapper.readTree("{\"content\":\"生成的内容\"}");
+        when(aiServiceClient.write("test", null)).thenReturn(data);
+
+        AppAiWriteRequest request = new AppAiWriteRequest();
+        request.setPrompt("test");
+        AppAiWriteResult result = service.write(request);
+        assertEquals("生成的内容", result.getContent());
+
+        // 两次 jdbcTemplate.update：一次 UPDATE 扣减（args=1），一次 INSERT 流水（args=8）
+        org.mockito.ArgumentCaptor<Object[]> captor = org.mockito.ArgumentCaptor.forClass(Object[].class);
+        verify(jdbcTemplate, org.mockito.Mockito.times(2)).update(anyString(), captor.capture());
+        java.util.List<Object[]> allArgs = captor.getAllValues();
+        long updateCount = allArgs.stream().filter(a -> a.length == 1).count();
+        long insertCount = allArgs.stream().filter(a -> a.length == 8).count();
+        assertEquals(1, updateCount, "应执行1次扣减UPDATE");
+        assertEquals(1, insertCount, "应写入1条额度流水");
+    }
+
     private static void setField(Object target, String name, Object value) throws Exception
     {
         Field f = target.getClass().getDeclaredField(name);

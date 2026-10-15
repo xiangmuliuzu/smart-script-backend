@@ -48,7 +48,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
  *    润色固定 'polish'；input_prompt：写作取 prompt，润色取待润色原文；output_content 取 AI 返回。
  * 3. 大纲落 sys_ai_request：capability='outline'、quota_cost=1、provider 取配置、
  *    request_no 由本层唯一生成；status='success'，started_at/finished_at 显式写入。
- * 4. 本批不接额度扣减：quota_cost 仅作记录，不写额度流水，也不校验额度余额（跨模块，见接口说明）。
+ * 4. AI 调用成功即扣减 1 次：写 sys_ai_quota_account 扣减（乐观锁）与
+ *    sys_ai_quota_record 流水（change_type='consume'，幂等键 ai-consume-{capability}-{businessId}）；
+ *    校验与扣减均在本服务内用 JdbcTemplate 直写，不跨模块依赖 review 的 AiQuotaService。
  * 5. 身份不做空值兜底：四接口均未登记 App 凭证域白名单，过滤器已保证非游客，currentUserId() 不会为 null。
  *
  * @author xiangsipeng
@@ -123,6 +125,7 @@ public class AiWriteServiceImpl implements IAiWriteService
         String content = text(data, "content");
         Long recordId = saveRecord(identityProvider.currentUserId(), request.getWorkId(),
                 resolveWriteType(request.getType()), request.getPrompt(), content, resolveModel(data));
+        consumeQuota(identityProvider.currentUserId(), "write", recordId);
         return new AppAiWriteResult(content, recordId);
     }
 
@@ -134,6 +137,7 @@ public class AiWriteServiceImpl implements IAiWriteService
         String content = text(data, "content");
         Long recordId = saveRecord(identityProvider.currentUserId(), null,
                 WRITE_TYPE_POLISH, request.getContent(), content, resolveModel(data));
+        consumeQuota(identityProvider.currentUserId(), "polish", recordId);
         return new AppAiWriteResult(content, recordId);
     }
 
@@ -177,15 +181,16 @@ public class AiWriteServiceImpl implements IAiWriteService
                 sha256(buildOutlinePrompt(request)), startedAt, finishedAt);
         // 同步写一条可回看记录（write_type='outline'）：输入（灵感/类型/风格）与大纲结果
         // 完整落 sys_ai_write_record，供 AI 记录页按写作/润色同款「输入/输出」样式展示。
-        saveRecord(identityProvider.currentUserId(), request.getWorkId(),
+        Long recordId = saveRecord(identityProvider.currentUserId(), request.getWorkId(),
                 CAPABILITY_OUTLINE, buildOutlineInputText(request), outlineToText(outline), resolveModel(data));
+        consumeQuota(identityProvider.currentUserId(), "outline", recordId);
         return new AppAiOutlineResult(outline, requestNo, QUOTA_COST_OUTLINE);
     }
 
     /**
      * 校验用户 AI 可用次数：读取 sys_ai_quota_account.available_quota，
      * 无账户或不足 1 次即抛 {@link AiQuotaInsufficientException}，由控制器转 400。
-     * 本批只校验不扣减（额度增减由 review 模块负责）。
+     * 本方法只校验；实际扣减在 AI 调用成功后由 {@link #consumeQuota} 完成。
      */
     private void checkQuota(Long userId)
     {
@@ -204,6 +209,56 @@ public class AiWriteServiceImpl implements IAiWriteService
         if (balance < 1)
         {
             throw new AiQuotaInsufficientException("AI次数不足，当前可用: " + balance + " 次");
+        }
+    }
+
+    /**
+     * AI 调用成功后扣减 1 次可用额度并写额度流水（App / E 模块）。
+     *
+     * 幂等键 = ai-consume-{capability}-{businessId}（businessId 为该次调用的记录ID，
+     * 每次调用唯一），重复请求因 uk_idempotency_key 唯一约束被忽略，不重复扣减。
+     * 并发兜底：扣减 UPDATE 带 available_quota >= 1 条件，行数为 0 时不写流水直接返回。
+     */
+    private void consumeQuota(Long userId, String capability, Long businessId)
+    {
+        Integer before;
+        try
+        {
+            before = jdbcTemplate.queryForObject(
+                    "SELECT available_quota FROM sys_ai_quota_account WHERE user_id = ?",
+                    Integer.class, userId);
+        }
+        catch (org.springframework.dao.EmptyResultDataAccessException e)
+        {
+            before = null;
+        }
+        if (before == null || before < 1)
+        {
+            return; // checkQuota 已前置拦截，此处兜底
+        }
+        int rows = jdbcTemplate.update(
+                "UPDATE sys_ai_quota_account SET available_quota = available_quota - 1, "
+                        + "total_consumed = total_consumed + 1, version = version + 1 "
+                        + "WHERE user_id = ? AND available_quota >= 1",
+                userId);
+        if (rows == 0)
+        {
+            return; // 并发兜底：余额已被扣光，不落流水
+        }
+        String idemKey = "ai-consume-" + capability + "-" + businessId;
+        try
+        {
+            jdbcTemplate.update(
+                    "INSERT INTO sys_ai_quota_record (record_no, user_id, change_type, change_amount, "
+                            + "before_balance, after_balance, business_type, business_id, "
+                            + "idempotency_key, remark, created_at) "
+                            + "VALUES (?, ?, 'consume', 1, ?, ?, ?, ?, ?, ?, NOW())",
+                    generateRecordNo("QR"), userId, before, before - 1, capability,
+                    businessId, idemKey, "AI调用扣减: " + capability);
+        }
+        catch (org.springframework.dao.DuplicateKeyException e)
+        {
+            // 幂等：同一次调用不重复扣减
         }
     }
 
@@ -412,9 +467,15 @@ public class AiWriteServiceImpl implements IAiWriteService
     /** 生成唯一请求编号：AIR + 时间戳(毫秒) + 6 位随机十六进制，长度远小于 varchar(64) */
     private static String generateRequestNo()
     {
+        return generateRecordNo("AIR");
+    }
+
+    /** 生成唯一流水号：{prefix} + 时间戳(毫秒) + 6 位随机十六进制 */
+    private static String generateRecordNo(String prefix)
+    {
         String timestamp = new SimpleDateFormat("yyyyMMddHHmmssSSS").format(new Date());
         String random = UUID.randomUUID().toString().replace("-", "").substring(0, 6);
-        return "AIR" + timestamp + random.toUpperCase();
+        return prefix + timestamp + random.toUpperCase();
     }
 
     /** sha256 十六进制摘要（sys_ai_request.prompt_hash 为 varchar(128)，64 位十六进制足够） */
