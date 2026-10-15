@@ -6,6 +6,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.TransactionException;
+import org.springframework.transaction.TransactionStatus;
+import org.springframework.transaction.support.SimpleTransactionStatus;
 import com.smartscript.platform.user.config.AppAuthProperties;
 import com.smartscript.platform.user.constant.AppAuthErrorCodes;
 import com.smartscript.platform.user.domain.AppSmsCode;
@@ -19,6 +24,29 @@ import com.smartscript.platform.user.mapper.AppSmsCodeMapper;
  */
 class SmsRateLimitSecurityEventTest
 {
+    /** 本测试只走发码频控路径，REQUIRES_NEW 计数事务用无操作管理器即可。 */
+    private static PlatformTransactionManager noTxManager()
+    {
+        return new PlatformTransactionManager()
+        {
+            @Override
+            public TransactionStatus getTransaction(TransactionDefinition definition) throws TransactionException
+            {
+                return new SimpleTransactionStatus();
+            }
+
+            @Override
+            public void commit(TransactionStatus status) throws TransactionException
+            {
+            }
+
+            @Override
+            public void rollback(TransactionStatus status) throws TransactionException
+            {
+            }
+        };
+    }
+
     private static class LimitMapper implements AppSmsCodeMapper
     {
         @Override
@@ -100,7 +128,7 @@ class SmsRateLimitSecurityEventTest
         CapturingRecorder recorder = new CapturingRecorder();
         SmsCodeService service = new SmsCodeService(
                 new AppAuthProperties(), new LimitMapper(), null, new EmptyRedisCache(),
-                new KeyOnlyRevocation(), recorder);
+                new KeyOnlyRevocation(), recorder, noTxManager());
 
         AppAuthException ex = assertThrows(AppAuthException.class,
                 () -> service.sendCode("13900000002", "LOGIN", "127.0.0.1", "req-1"));

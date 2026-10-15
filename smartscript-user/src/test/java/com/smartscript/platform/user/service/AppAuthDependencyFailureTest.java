@@ -10,6 +10,11 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.TransactionException;
+import org.springframework.transaction.TransactionStatus;
+import org.springframework.transaction.support.SimpleTransactionStatus;
 import com.smartscript.platform.user.config.AppAuthProperties;
 import com.smartscript.platform.user.constant.AppAuthErrorCodes;
 import com.smartscript.platform.user.domain.AppSmsCode;
@@ -36,6 +41,29 @@ import com.smartscript.platform.user.mapper.AppUserCenterMapper;
 class AppAuthDependencyFailureTest
 {
     private static final String REDIS_DOWN = "redis unavailable (test stub)";
+
+    /** REQUIRES_NEW 计数事务的无操作管理器：本测试不触达失败计数路径。 */
+    private static PlatformTransactionManager noTxManager()
+    {
+        return new PlatformTransactionManager()
+        {
+            @Override
+            public TransactionStatus getTransaction(TransactionDefinition definition) throws TransactionException
+            {
+                return new SimpleTransactionStatus();
+            }
+
+            @Override
+            public void commit(TransactionStatus status) throws TransactionException
+            {
+            }
+
+            @Override
+            public void rollback(TransactionStatus status) throws TransactionException
+            {
+            }
+        };
+    }
 
     // ---------------------------------------------------------------- 假实现
 
@@ -214,7 +242,7 @@ class AppAuthDependencyFailureTest
         ZeroCountMapper mapper = new ZeroCountMapper();
         RecordingProvider provider = new RecordingProvider();
         SmsCodeService service = new SmsCodeService(new AppAuthProperties(), mapper, provider,
-                new DownRedisCache(), keyOnlyRevocation(), new AppSecurityEventRecorder(null));
+                new DownRedisCache(), keyOnlyRevocation(), new AppSecurityEventRecorder(null), noTxManager());
 
         RuntimeException ex = assertThrows(RuntimeException.class,
                 () -> service.sendCode("13900000001", "LOGIN", "127.0.0.1", "req-down"));
@@ -258,7 +286,7 @@ class AppAuthDependencyFailureTest
         RecordingProvider provider = new RecordingProvider();
         // setIfAbsent 返回 FALSE 表示键已存在 -> 应被幂等吞掉
         SmsCodeService service = new SmsCodeService(new AppAuthProperties(), mapper, provider,
-                redisCacheWithSetIfAbsent(Boolean.FALSE), keyOnlyRevocation(), new AppSecurityEventRecorder(null));
+                redisCacheWithSetIfAbsent(Boolean.FALSE), keyOnlyRevocation(), new AppSecurityEventRecorder(null), noTxManager());
 
         assertDoesNotThrow(() -> service.sendCode("13900000003", "LOGIN", "127.0.0.1", "req-dup"));
         assertEquals(0, mapper.inserts, "同 requestId 重复请求不得新增发码记录");
@@ -272,7 +300,7 @@ class AppAuthDependencyFailureTest
         RecordingProvider provider = new RecordingProvider();
         // setIfAbsent 返回 TRUE 表示键不存在 -> 放行；这也说明幂等仅依赖 Redis 键存活
         SmsCodeService service = new SmsCodeService(new AppAuthProperties(), mapper, provider,
-                redisCacheWithSetIfAbsent(Boolean.TRUE), keyOnlyRevocation(), new AppSecurityEventRecorder(null));
+                redisCacheWithSetIfAbsent(Boolean.TRUE), keyOnlyRevocation(), new AppSecurityEventRecorder(null), noTxManager());
 
         assertDoesNotThrow(() -> service.sendCode("13900000004", "LOGIN", "127.0.0.1", "req-fresh"));
         assertEquals(1, mapper.inserts, "键缺失时放行并落库（幂等非持久，仅 Redis 存活期内有效）");

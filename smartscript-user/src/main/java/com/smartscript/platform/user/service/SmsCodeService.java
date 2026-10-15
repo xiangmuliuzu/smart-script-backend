@@ -5,6 +5,8 @@ import java.util.Date;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import com.ruoyi.common.core.redis.RedisCache;
 import com.smartscript.platform.user.config.AppAuthProperties;
 import com.smartscript.platform.user.constant.AppAuthErrorCodes;
@@ -28,13 +30,16 @@ public class SmsCodeService
     private final RedisCache redisCache;
     private final AppSessionRevocationService revocationService;
     private final AppSecurityEventRecorder securityEvents;
+    /** REQUIRES_NEW 语义：错误次数增量必须独立于调用方事务提交（AUTH-04 失败锁定）。 */
+    private final TransactionTemplate failedAttemptTx;
 
     public SmsCodeService(AppAuthProperties properties,
             AppSmsCodeMapper mapper,
             SmsProvider smsProvider,
             RedisCache redisCache,
             AppSessionRevocationService revocationService,
-            AppSecurityEventRecorder securityEvents)
+            AppSecurityEventRecorder securityEvents,
+            PlatformTransactionManager transactionManager)
     {
         this.properties = properties;
         this.mapper = mapper;
@@ -42,6 +47,10 @@ public class SmsCodeService
         this.redisCache = redisCache;
         this.revocationService = revocationService;
         this.securityEvents = securityEvents;
+        // consumeOnce 在 register/smsLogin 等外层事务里被调用；失败计数若随外层
+        // 事务回滚，max-failed-attempts 锁定就永远不生效，故增量走独立事务提交。
+        this.failedAttemptTx = new TransactionTemplate(transactionManager);
+        this.failedAttemptTx.setPropagationBehavior(TransactionTemplate.PROPAGATION_REQUIRES_NEW);
     }
 
     /** AUTH-06: frequency-limit decisions must leave a security-audit record. */
@@ -156,7 +165,7 @@ public class SmsCodeService
         String hash = AppHashes.sha256Hex(code);
         if (!hash.equals(latest.getCodeHash()))
         {
-            mapper.incrementFailed(latest.getId());
+            failedAttemptTx.execute(status -> mapper.incrementFailed(latest.getId()));
             throw new AppAuthException(AppAuthErrorCodes.SMS_CODE_INVALID, 400, "sms code invalid");
         }
         int updated = mapper.consumeCode(latest.getId(), now);
