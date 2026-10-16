@@ -11,6 +11,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import com.smartscript.platform.user.security.AppIdentityContext;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -28,6 +29,7 @@ import com.smartscript.platform.trade.service.TradeOrderService;
  *
  * 订单由接受报价自动生成（见 AppTradeQuoteController.accept），
  * 本 Controller 只提供查询和取消。
+ * 新增：付款到托管 / 卖方交割 / 买方确认收货 三个状态流转接口。
  */
 @RestController
 @RequestMapping("/api/v1/trade/order")
@@ -133,6 +135,90 @@ public class AppTradeOrderController
         try
         {
             orderService.cancelOrder(orderId, reason, currentUserId, "买方取消");
+            return AppApiResponse.ok(null);
+        }
+        catch (RuntimeException e)
+        {
+            return AppApiResponse.fail(400, e.getMessage());
+        }
+    }
+
+    /**
+     * 买方付款到托管账户。订单 confirmed → escrow_pending。
+     */
+    @PostMapping("/{orderId}/pay")
+    public AppApiResponse<Void> payToEscrow(
+            @PathVariable Long orderId,
+            @RequestBody(required = false) Map<String, String> body)
+    {
+        Long currentUserId = currentUserId();
+        SysOrder order = orderService.selectOrderById(orderId);
+        if (order == null)
+        {
+            return AppApiResponse.fail(404, "订单不存在");
+        }
+        if (!currentUserId.equals(order.getBuyerId()))
+        {
+            return AppApiResponse.fail(403, "只有买方可以付款");
+        }
+        try
+        {
+            String payChannel = (body != null) ? body.get("payChannel") : null;
+            orderService.payToEscrow(orderId, payChannel);
+            return AppApiResponse.ok(null);
+        }
+        catch (RuntimeException e)
+        {
+            return AppApiResponse.fail(400, e.getMessage());
+        }
+    }
+
+    /**
+     * 卖方确认交割。订单 escrow_pending → delivering。
+     */
+    @PostMapping("/{orderId}/deliver")
+    public AppApiResponse<Void> deliver(@PathVariable Long orderId)
+    {
+        Long currentUserId = currentUserId();
+        SysOrder order = orderService.selectOrderById(orderId);
+        if (order == null)
+        {
+            return AppApiResponse.fail(404, "订单不存在");
+        }
+        if (!currentUserId.equals(order.getSellerId()))
+        {
+            return AppApiResponse.fail(403, "只有卖方可以确认交割");
+        }
+        try
+        {
+            orderService.deliverOrder(orderId, currentUserId);
+            return AppApiResponse.ok(null);
+        }
+        catch (RuntimeException e)
+        {
+            return AppApiResponse.fail(400, e.getMessage());
+        }
+    }
+
+    /**
+     * 买方确认收货。订单 delivering → completed，释放托管资金，写入作者收益。
+     */
+    @PostMapping("/{orderId}/complete")
+    public AppApiResponse<Void> complete(@PathVariable Long orderId)
+    {
+        Long currentUserId = currentUserId();
+        SysOrder order = orderService.selectOrderById(orderId);
+        if (order == null)
+        {
+            return AppApiResponse.fail(404, "订单不存在");
+        }
+        if (!currentUserId.equals(order.getBuyerId()))
+        {
+            return AppApiResponse.fail(403, "只有买方可以确认收货");
+        }
+        try
+        {
+            orderService.completeOrder(orderId, currentUserId);
             return AppApiResponse.ok(null);
         }
         catch (RuntimeException e)

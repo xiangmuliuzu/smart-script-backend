@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.trade.mapper.SysBillRecordMapper">
+
+    <resultMap type="com.smartscript.platform.trade.domain.SysBillRecord" id="SysBillRecordResult">
+        <result property="billId"       column="bill_id" />
+        <result property="billNo"       column="bill_no" />
+        <result property="userId"       column="user_id" />
+        <result property="billType"     column="bill_type" />
+        <result property="amount"       column="amount" />
+        <result property="balanceAfter" column="balance_after" />
+        <result property="relatedType"  column="related_type" />
+        <result property="relatedId"    column="related_id" />
+        <result property="remark"       column="remark" />
+        <result property="createdAt"    column="created_at" />
+        <result property="orderNo"      column="order_no" />
+        <result property="workTitle"    column="work_title" />
+    </resultMap>
+
+    <select id="selectBillRecordList" parameterType="com.smartscript.platform.trade.domain.SysBillRecord" resultMap="SysBillRecordResult">
+        select b.bill_id, b.bill_no, b.user_id, b.bill_type, b.amount, b.balance_after,
+               b.related_type, b.related_id, b.remark, b.created_at,
+               o.order_no,
+               w.title as work_title
+        from sys_bill_record b
+        left join sys_order o on b.related_type = 'order' and b.related_id = o.order_id
+        left join sys_work w on o.work_id = w.work_id
+        <where>
+            <if test="userId != null">AND b.user_id = #{userId}</if>
+            <if test="billType != null and billType != ''">AND b.bill_type = #{billType}</if>
+        </where>
+        order by b.created_at desc
+    </select>
+
+    <insert id="insertBillRecord" parameterType="com.smartscript.platform.trade.domain.SysBillRecord" useGeneratedKeys="true" keyProperty="billId">
+        insert into sys_bill_record (
+            bill_no, user_id, bill_type, amount, balance_after,
+            related_type, related_id, remark, create_by, create_time
+        ) values (
+            #{billNo}, #{userId}, #{billType}, #{amount}, #{balanceAfter},
+            #{relatedType}, #{relatedId}, #{remark}, #{createBy}, #{createTime}
+        )
+    </insert>
+
+</mapper>

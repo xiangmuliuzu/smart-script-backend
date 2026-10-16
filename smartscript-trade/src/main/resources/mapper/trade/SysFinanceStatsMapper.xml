@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.trade.mapper.SysFinanceStatsMapper">
+
+    <select id="selectIncomeAccount" parameterType="Long" resultType="java.util.HashMap">
+        select IFNULL(available_amount, 0) as availableAmount,
+               IFNULL(frozen_amount, 0)    as frozenAmount,
+               IFNULL(settled_amount, 0)   as settledAmount
+        from sys_income_account
+        where user_id = #{userId}
+    </select>
+
+    <select id="selectLatestCreatorStats" parameterType="Long" resultType="java.util.HashMap">
+        select IFNULL(total_income, 0)  as totalIncome,
+               IFNULL(month_income, 0)  as monthIncome,
+               IFNULL(total_orders, 0)  as totalOrders,
+               IFNULL(sold_count, 0)    as soldCount
+        from sys_creator_stats
+        where user_id = #{userId}
+        order by stat_date desc
+        limit 1
+    </select>
+
+    <select id="selectInvoiceableOrders" parameterType="Long" resultType="java.util.HashMap">
+        select o.order_id   as orderId,
+               o.order_no   as orderNo,
+               o.total_amount as amount,
+               w.title      as workTitle,
+               o.status     as status
+        from sys_order o
+        left join sys_work w on o.work_id = w.work_id
+        where o.seller_id = #{userId}
+          and o.status = 'completed'
+          and o.order_id not in (
+              select order_id from sys_invoice where order_id is not null
+          )
+        order by o.complete_time desc
+    </select>
+
+    <insert id="upsertIncomeAccount">
+        insert into sys_income_account (user_id, available_amount, frozen_amount, settled_amount, version, created_at, updated_at)
+        values (#{userId}, #{amount}, 0, #{amount}, 0, now(), now())
+        on duplicate key update
+            available_amount = available_amount + #{amount},
+            settled_amount = settled_amount + #{amount},
+            updated_at = now()
+    </insert>
+
+    <insert id="insertBillRecord">
+        insert into sys_bill_record (bill_no, user_id, bill_type, amount, balance_after, related_type, related_id, remark, create_time)
+        values (#{billNo}, #{userId}, #{billType}, #{amount}, #{balanceAfter}, #{relatedType}, #{relatedId}, #{remark}, now())
+    </insert>
+
+    <insert id="upsertCreatorStats">
+        insert into sys_creator_stats (user_id, total_income, month_income, total_orders, published_count, reviewing_count, sold_count, total_views, total_favorites, avg_rating, stat_date)
+        values (#{userId}, #{amount}, #{amount}, 1, 0, 0, 1, 0, 0, 0.0, CURDATE())
+        on duplicate key update
+            total_income = total_income + #{amount},
+            month_income = month_income + #{amount},
+            total_orders = total_orders + 1,
+            sold_count = sold_count + 1
+    </insert>
+
+</mapper>

@@ -11,8 +11,10 @@ import com.ruoyi.common.utils.uuid.Seq;
 import com.smartscript.platform.trade.domain.SysInquiry;
 import com.smartscript.platform.trade.domain.SysOrder;
 import com.smartscript.platform.trade.domain.SysOrderStatusLog;
+import com.smartscript.platform.trade.domain.SysEscrow;
 import com.smartscript.platform.trade.mapper.SysOrderMapper;
 import com.smartscript.platform.trade.mapper.SysOrderStatusLogMapper;
+import com.smartscript.platform.trade.mapper.SysEscrowMapper;
 
 /**
  * C module: order query + generation service.
@@ -27,12 +29,21 @@ public class TradeOrderService
     /** 订单生成后的前置状态（PRD 9.3）：deal 达成即进入 confirmed，其后由 D 接手流转 */
     public static final String ORDER_STATUS_CONFIRMED = "confirmed";
     public static final String ORDER_STATUS_CANCELLED = "cancelled";
+    public static final String ORDER_STATUS_ESCROW_PENDING = "escrow_pending";
+    public static final String ORDER_STATUS_DELIVERING = "delivering";
+    public static final String ORDER_STATUS_COMPLETED = "completed";
 
     @Autowired
     private SysOrderMapper orderMapper;
 
     @Autowired
     private SysOrderStatusLogMapper logMapper;
+
+    @Autowired
+    private SysEscrowMapper escrowMapper;
+
+    @Autowired
+    private TradeFinanceService financeService;
 
     public List<SysOrder> selectOrderList(SysOrder order)
     {
@@ -184,6 +195,150 @@ public class TradeOrderService
         log.setOperatorRole("buyer");
         log.setRemark(reason != null ? reason : "买方取消订单");
         log.setCreateBy(operatorName);
+        log.setCreateTime(new Date());
+        logMapper.insertLog(log);
+    }
+
+    /**
+     * 买方付款到托管账户。订单 confirmed → escrow_pending，创建托管记录。
+     */
+    @Transactional
+    public SysEscrow payToEscrow(Long orderId, String payChannel)
+    {
+        SysOrder order = orderMapper.selectOrderById(orderId);
+        if (order == null)
+        {
+            throw new RuntimeException("订单不存在");
+        }
+        if (!ORDER_STATUS_CONFIRMED.equals(order.getStatus()))
+        {
+            throw new RuntimeException("当前订单状态不可付款，需为 confirmed");
+        }
+
+        // 创建托管记录
+        SysEscrow escrow = new SysEscrow();
+        escrow.setEscrowNo("ESC" + Seq.getId());
+        escrow.setOrderId(orderId);
+        escrow.setAmount(order.getTotalAmount());
+        escrow.setPaidAt(new Date());
+        escrow.setPayChannel(payChannel != null ? payChannel : "balance");
+        escrow.setStatus("escrowed");
+        escrow.setCreateBy(safeGetOperatorName());
+        escrow.setCreateTime(new Date());
+        escrowMapper.insertEscrow(escrow);
+
+        // 订单状态 → escrow_pending
+        order.setStatus(ORDER_STATUS_ESCROW_PENDING);
+        order.setPayTime(new Date());
+        order.setEscrowId(escrow.getEscrowId());
+        order.setUpdateBy(safeGetOperatorName());
+        order.setUpdateTime(new Date());
+        orderMapper.updateOrder(order);
+
+        // 状态日志
+        SysOrderStatusLog log = new SysOrderStatusLog();
+        log.setOrderId(orderId);
+        log.setFromStatus(ORDER_STATUS_CONFIRMED);
+        log.setToStatus(ORDER_STATUS_ESCROW_PENDING);
+        log.setOperatorId(safeGetOperatorId());
+        log.setOperatorRole("buyer");
+        log.setRemark("买方付款到托管账户，托管单号: " + escrow.getEscrowNo());
+        log.setCreateBy(safeGetOperatorName());
+        log.setCreateTime(new Date());
+        logMapper.insertLog(log);
+
+        return escrow;
+    }
+
+    /**
+     * 卖方确认交割。订单 escrow_pending → delivering。
+     */
+    @Transactional
+    public void deliverOrder(Long orderId, Long operatorId)
+    {
+        SysOrder order = orderMapper.selectOrderById(orderId);
+        if (order == null)
+        {
+            throw new RuntimeException("订单不存在");
+        }
+        if (!ORDER_STATUS_ESCROW_PENDING.equals(order.getStatus()))
+        {
+            throw new RuntimeException("当前订单状态不可交割，需为 escrow_pending");
+        }
+        // 校验操作人是卖方
+        if (!order.getSellerId().equals(operatorId))
+        {
+            throw new RuntimeException("只有卖方可以确认交割");
+        }
+
+        order.setStatus(ORDER_STATUS_DELIVERING);
+        order.setUpdateBy(safeGetOperatorName());
+        order.setUpdateTime(new Date());
+        orderMapper.updateOrder(order);
+
+        SysOrderStatusLog log = new SysOrderStatusLog();
+        log.setOrderId(orderId);
+        log.setFromStatus(ORDER_STATUS_ESCROW_PENDING);
+        log.setToStatus(ORDER_STATUS_DELIVERING);
+        log.setOperatorId(operatorId);
+        log.setOperatorRole("seller");
+        log.setRemark("卖方确认交割，开始交付作品");
+        log.setCreateBy(safeGetOperatorName());
+        log.setCreateTime(new Date());
+        logMapper.insertLog(log);
+    }
+
+    /**
+     * 买方确认收货。订单 delivering → completed，释放托管资金，写入作者收益。
+     */
+    @Transactional
+    public void completeOrder(Long orderId, Long operatorId)
+    {
+        SysOrder order = orderMapper.selectOrderById(orderId);
+        if (order == null)
+        {
+            throw new RuntimeException("订单不存在");
+        }
+        if (!ORDER_STATUS_DELIVERING.equals(order.getStatus()))
+        {
+            throw new RuntimeException("当前订单状态不可确认完成，需为 delivering");
+        }
+        // 校验操作人是买方
+        if (!order.getBuyerId().equals(operatorId))
+        {
+            throw new RuntimeException("只有买方可以确认收货");
+        }
+
+        // 订单状态 → completed
+        order.setStatus(ORDER_STATUS_COMPLETED);
+        order.setCompleteTime(new Date());
+        order.setUpdateBy(safeGetOperatorName());
+        order.setUpdateTime(new Date());
+        orderMapper.updateOrder(order);
+
+        // 释放托管
+        SysEscrow escrow = escrowMapper.selectEscrowByOrderId(orderId);
+        if (escrow != null && "escrowed".equals(escrow.getStatus()))
+        {
+            escrow.setStatus("released");
+            escrow.setReleaseTime(new Date());
+            escrow.setReleaseReason("买方确认收货，资金释放给卖方");
+            escrow.setUpdateBy(safeGetOperatorName());
+            escrow.setUpdateTime(new Date());
+            escrowMapper.updateEscrow(escrow);
+        }
+
+        // 写入作者收益
+        financeService.creditSellerIncome(order.getSellerId(), order.getSellerAmount(), orderId);
+
+        SysOrderStatusLog log = new SysOrderStatusLog();
+        log.setOrderId(orderId);
+        log.setFromStatus(ORDER_STATUS_DELIVERING);
+        log.setToStatus(ORDER_STATUS_COMPLETED);
+        log.setOperatorId(operatorId);
+        log.setOperatorRole("buyer");
+        log.setRemark("买方确认收货，订单完成，资金已释放");
+        log.setCreateBy(safeGetOperatorName());
         log.setCreateTime(new Date());
         logMapper.insertLog(log);
     }
