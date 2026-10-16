@@ -68,6 +68,8 @@ class AdminMapperSqlTest
         assertTrue(configuration.hasStatement(
                 "com.smartscript.platform.user.mapper.AdminNotificationMapper.insertReceivers"));
         assertTrue(configuration.hasStatement(
+                "com.smartscript.platform.user.mapper.AdminNotificationMapper.selectInboxDisabledUserIds"));
+        assertTrue(configuration.hasStatement(
                 "com.smartscript.platform.user.mapper.AdminFeedbackMapper.replyIfAllowed"));
     }
 
@@ -251,6 +253,24 @@ class AdminMapperSqlTest
                 "role with marker 0 must be non-grantable: " + sql);
         assertFalse(sql.contains("1 = 1"),
                 "authorization check must not degrade to unconditional allow: " + sql);
+    }
+
+    /** 投递过滤查询必须锁定「站内信 × type 且显式关闭」这一口径（规格 §8.6）。 */
+    @Test
+    void inboxDisabledFilterIsScopedToInboxChannelAndDisabledOnly() throws Exception
+    {
+        Configuration configuration = parseAllMappers();
+        MappedStatement ms = configuration.getMappedStatement(
+                "com.smartscript.platform.user.mapper.AdminNotificationMapper.selectInboxDisabledUserIds");
+        Map<String, Object> params = new HashMap<>();
+        params.put("userIds", java.util.List.of(1L, 2L));
+        params.put("type", "REVIEW");
+        String sql = normalize(ms.getBoundSql(params).getSql());
+        assertTrue(sql.contains("channel = 'inbox'"), "must scope to INBOX channel: " + sql);
+        assertTrue(sql.contains("enabled = 0"), "must return only explicitly disabled rows: " + sql);
+        assertTrue(sql.contains("p.type = ?"), "type must be bound as parameter: " + sql);
+        assertTrue(ms.getBoundSql(params).getParameterMappings().size() >= 3,
+                "type and userIds must be bound parameters");
     }
 
     private String normalize(String sql)

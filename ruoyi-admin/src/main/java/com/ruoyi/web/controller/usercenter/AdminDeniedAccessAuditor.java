@@ -1,4 +1,4 @@
-package com.ruoyi.web.controller.a4;
+package com.ruoyi.web.controller.usercenter;
 
 import java.util.Date;
 import jakarta.servlet.http.HttpServletRequest;
@@ -24,11 +24,11 @@ import com.ruoyi.system.domain.SysOperLog;
  * 在 {@code sys_oper_log} 中**零行**——原因是 {@code @PreAuthorize} 由方法安全拦截器在
  * {@code LogAspect} 之前短路，框架日志切面根本不会执行；过滤器链层的 401 更是进不到 MVC。
  * 第 10 批核查确认：现有通道（两个 AuthenticationEntryPoint、App 过滤器、
- * GlobalExceptionHandler 的 slf4j ERROR、A4AdminExceptionHandler、sys_logininfor 的登录类事件）
+ * GlobalExceptionHandler 的 slf4j ERROR、AdminApiExceptionHandler、sys_logininfor 的登录类事件）
  * 都不写任何权限拒绝审计行。
  *
  * 位置选择：{@code @PreAuthorize} 拒绝会以 {@code AccessDeniedException} 冒泡到 MVC，
- * 由 {@link A4AdminExceptionHandler#handleAccessDenied} 处理（这正是它返回 403 的原因），
+ * 由 {@link AdminApiExceptionHandler#handleAccessDenied} 处理（这正是它返回 403 的原因），
  * 因此该处理器是 A 模块内唯一能确实拿到「已认证但无权限」拒绝事件的位置。
  *
  * 记录口径（刻意最小化，避免引入新的泄漏面）：
@@ -43,14 +43,14 @@ import com.ruoyi.system.domain.SysOperLog;
  * 其它模块（非 A4）的 403 亦不在本类范围。
  */
 @Component
-public class A4DeniedAccessAuditor
+public class AdminDeniedAccessAuditor
 {
-    private static final Logger log = LoggerFactory.getLogger(A4DeniedAccessAuditor.class);
+    private static final Logger log = LoggerFactory.getLogger(AdminDeniedAccessAuditor.class);
 
     /** 拒绝审计行的模块标题。 */
-    public static final String TITLE = "A4-权限拒绝";
+    public static final String TITLE = "权限拒绝";
 
-    /** 拒绝审计行的安全文案（与 A4AdminExceptionHandler 返回体一致）。 */
+    /** 拒绝审计行的安全文案（与 AdminApiExceptionHandler 返回体一致）。 */
     public static final String DENIED_MESSAGE = "权限不足";
 
     /**

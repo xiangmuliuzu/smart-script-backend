@@ -1,4 +1,4 @@
-package com.ruoyi.web.controller.a4;
+package com.ruoyi.web.controller.usercenter;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -66,7 +66,7 @@ import com.smartscript.platform.user.service.UserNotificationAdminService;
  *
  * 4. 权限拒绝审计行（H9-LOG-04）不得携带请求参数与响应体。
  */
-class A4AdminOperLogContractTest
+class AdminOperLogContractTest
 {
     /** 单个写接口的日志口径期望。excluded 只做「至少包含」断言，避免限制后续增补。 */
     private record Expect(String title, BusinessType businessType, List<String> excluded, boolean saveResponse)
@@ -83,18 +83,18 @@ class A4AdminOperLogContractTest
 
     static
     {
-        EXPECTED.put("changeStatus", new Expect("A4-App用户状态", BusinessType.UPDATE, List.of(AppAdminAuditParams.REASON), true));
-        EXPECTED.put("grantRoles", new Expect("A4-用户角色授权", BusinessType.GRANT, List.of(AppAdminAuditParams.REASON), true));
+        EXPECTED.put("changeStatus", new Expect("App用户状态", BusinessType.UPDATE, List.of(AppAdminAuditParams.REASON), true));
+        EXPECTED.put("grantRoles", new Expect("用户角色授权", BusinessType.GRANT, List.of(AppAdminAuditParams.REASON), true));
         // H9-LOG-01：rejectReason 会随响应体进入 json_result，故该接口不记录响应体
-        EXPECTED.put("decideRealName", new Expect("A4-实名审核", BusinessType.UPDATE, List.of(AppAdminAuditParams.REJECT_REASON), false));
+        EXPECTED.put("decideRealName", new Expect("实名审核", BusinessType.UPDATE, List.of(AppAdminAuditParams.REJECT_REASON), false));
         // 创作者申请审核：与实名审核同口径，rejectReason 随响应体进入 json_result，故不记录响应体
-        EXPECTED.put("decideCreatorApplication", new Expect("A4-创作者申请审核", BusinessType.UPDATE, List.of(AppAdminAuditParams.REJECT_REASON), false));
-        EXPECTED.put("updateAuthorCapability", new Expect("A4-作者能力", BusinessType.UPDATE, List.of(AppAdminAuditParams.REASON), true));
+        EXPECTED.put("decideCreatorApplication", new Expect("创作者申请审核", BusinessType.UPDATE, List.of(AppAdminAuditParams.REJECT_REASON), false));
+        EXPECTED.put("updateAuthorCapability", new Expect("作者能力", BusinessType.UPDATE, List.of(AppAdminAuditParams.REASON), true));
         // H10-REV-02：消息正文 title/content 为自由文本，声明排除（正文存业务表）
-        EXPECTED.put("createNotification", new Expect("A4-用户消息", BusinessType.INSERT,
+        EXPECTED.put("createNotification", new Expect("用户消息", BusinessType.INSERT,
                 List.of(AppAdminAuditParams.TITLE, AppAdminAuditParams.CONTENT), true));
-        EXPECTED.put("handleFeedback", new Expect("A4-用户反馈处理", BusinessType.UPDATE, List.of(AppAdminAuditParams.REPLY), true));
-        EXPECTED.put("redeemMaterialRef", new Expect("A4-敏感材料兑换", BusinessType.OTHER,
+        EXPECTED.put("handleFeedback", new Expect("用户反馈处理", BusinessType.UPDATE, List.of(AppAdminAuditParams.REPLY), true));
+        EXPECTED.put("redeemMaterialRef", new Expect("敏感材料兑换", BusinessType.OTHER,
                 List.of(AppAdminAuditParams.TOKEN, AppAdminAuditParams.BODY), false));
     }
 
@@ -170,10 +170,10 @@ class A4AdminOperLogContractTest
     @Test
     void deniedAccessAuditRowCarriesNoRequestContent()
     {
-        SysOperLog row = new A4DeniedAccessAuditor()
+        SysOperLog row = new AdminDeniedAccessAuditor()
                 .buildDeniedOperLog("PUT", "/api/v1/admin/app-users/100/status", "127.0.0.1", "h8_normal");
 
-        assertEquals("A4-权限拒绝", row.getTitle());
+        assertEquals("权限拒绝", row.getTitle());
         assertEquals(BusinessType.OTHER.ordinal(), row.getBusinessType());
         assertEquals(OperatorType.MANAGE.ordinal(), row.getOperatorType());
         assertEquals(BusinessStatus.FAIL.ordinal(), row.getStatus());
@@ -197,7 +197,7 @@ class A4AdminOperLogContractTest
     void deniedAccessAuditRedactsMaterialTokenInUrl()
     {
         String token = "AbCdEf0123456789AbCdEf0123456789AbCdEf";
-        SysOperLog row = new A4DeniedAccessAuditor().buildDeniedOperLog(
+        SysOperLog row = new AdminDeniedAccessAuditor().buildDeniedOperLog(
                 "GET", "/api/v1/admin/material/content/" + token, "127.0.0.1", "h06_partial");
 
         assertFalse(row.getOperUrl().contains(token), "拒绝审计行不得保留材料令牌（H10-REV-01）");
@@ -242,7 +242,7 @@ class A4AdminOperLogContractTest
         UserNotificationAdminService service = mock(UserNotificationAdminService.class);
         when(service.create(any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(new UserNotificationAdminService.CreateResult(77L, 1, true));
-        A4AdminController controller = new A4AdminController(null, null, null, null, service, null, null, null, null);
+        AdminUserCenterController controller = new AdminUserCenterController(null, null, null, null, service, null, null, null, null);
 
         SysUser sysUser = new SysUser();
         sysUser.setUserName("h8_normal");
@@ -295,7 +295,7 @@ class A4AdminOperLogContractTest
         UserNotificationAdminService service = mock(UserNotificationAdminService.class);
         when(service.create(any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(new UserNotificationAdminService.CreateResult(88L, 1, true));
-        A4AdminController controller = new A4AdminController(null, null, null, null, service, null, null, null, null);
+        AdminUserCenterController controller = new AdminUserCenterController(null, null, null, null, service, null, null, null, null);
 
         authenticate("h8_normal");
         try
@@ -347,7 +347,7 @@ class A4AdminOperLogContractTest
         UserFeedbackAdminService feedbackService = mock(UserFeedbackAdminService.class);
         when(feedbackService.handle(any(), any(), any(), any(), any()))
                 .thenReturn(new UserFeedbackAdminService.HandleResult(5L, "SUBMITTED", true));
-        A4AdminController controller = new A4AdminController(appUserAdminService, realNameReviewService,
+        AdminUserCenterController controller = new AdminUserCenterController(appUserAdminService, realNameReviewService,
                 null, authorCapabilityService, null, feedbackService, null, null, null);
 
         authenticate("h8_normal");
@@ -415,12 +415,12 @@ class A4AdminOperLogContractTest
             // 5) 合法契约枚举值保持可读（受控枚举不得被误指纹化）
             Map<String, Object> legal = new LinkedHashMap<>();
             legal.put(AppAdminAuditParams.STATUS, "1");
-            A4AuditParamProjection.sanitizeStatusChangeLog(legal);
+            AdminAuditParamProjection.sanitizeStatusChangeLog(legal);
             assertEquals("1", legal.get(AppAdminAuditParams.STATUS));
             Map<String, Object> legalFeedback = new LinkedHashMap<>();
             legalFeedback.put(AppAdminAuditParams.ACTION, "ACCEPT");
             legalFeedback.put(AppAdminAuditParams.EXPECTED_STATUS, "SUBMITTED");
-            A4AuditParamProjection.sanitizeFeedbackHandleLog(legalFeedback);
+            AdminAuditParamProjection.sanitizeFeedbackHandleLog(legalFeedback);
             assertEquals("ACCEPT", legalFeedback.get(AppAdminAuditParams.ACTION));
             assertEquals("SUBMITTED", legalFeedback.get(AppAdminAuditParams.EXPECTED_STATUS));
         }
@@ -453,7 +453,7 @@ class A4AdminOperLogContractTest
     /** 按参数形状解析 7 个写接口方法，避免依赖方法重载顺序。 */
     private static Method findWriteMethod(String name) throws NoSuchMethodException
     {
-        Class<?> c = A4AdminController.class;
+        Class<?> c = AdminUserCenterController.class;
         return switch (name)
         {
             case "changeStatus" -> c.getDeclaredMethod(name, Long.class, Map.class);

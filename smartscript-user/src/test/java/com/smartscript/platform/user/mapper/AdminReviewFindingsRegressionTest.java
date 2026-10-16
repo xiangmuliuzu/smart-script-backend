@@ -109,7 +109,7 @@ class AdminReviewFindingsRegressionTest
         assertTrue(service.contains("mapper.decideIfPending(applicationId, expectedStatus"),
                 "conditional update must use the resolved expectedStatus");
 
-        String controller = readController("A4AdminController.java");
+        String controller = readController("AdminUserCenterController.java");
         assertTrue(controller.contains("body.get(\"expectedStatus\")"),
                 "controller must read expectedStatus from the request body");
     }
@@ -147,7 +147,7 @@ class AdminReviewFindingsRegressionTest
     @Test
     void materialRedeemEndpointRequiresDetailPermissionAndIsAudited() throws Exception
     {
-        String controller = readController("A4AdminController.java");
+        String controller = readController("AdminUserCenterController.java");
         assertTrue(controller.contains("/material-refs/redeem"),
                 "a redeem endpoint must exist so tokens can be exchanged");
         assertTrue(controller.contains("redeemMaterialRef"),
@@ -189,8 +189,8 @@ class AdminReviewFindingsRegressionTest
     @Test
     void sensitiveDetailReadsAreAudited() throws Exception
     {
-        String controller = readController("A4AdminController.java");
-        for (String title : List.of("A4-实名材料访问", "A4-反馈附件访问"))
+        String controller = readController("AdminUserCenterController.java");
+        for (String title : List.of("实名材料访问", "反馈附件访问"))
         {
             assertTrue(controller.contains(title),
                     "missing access audit for sensitive read: " + title);
@@ -249,7 +249,7 @@ class AdminReviewFindingsRegressionTest
     @Test
     void allContractEndpointsArePresent() throws Exception
     {
-        String controller = readController("A4AdminController.java");
+        String controller = readController("AdminUserCenterController.java");
         String[] required = {
             "@GetMapping(\"/app-users\")",
             "@GetMapping(\"/app-users/grantable-roles\")",
@@ -282,10 +282,10 @@ class AdminReviewFindingsRegressionTest
 
     private String readController(String name) throws Exception
     {
-        Path p = repoRoot().resolve("ruoyi-admin/src/main/java/com/ruoyi/web/controller/a4").resolve(name);
+        Path p = repoRoot().resolve("ruoyi-admin/src/main/java/com/ruoyi/web/controller/usercenter").resolve(name);
         if (!Files.exists(p))
         {
-            p = Paths.get("../ruoyi-admin/src/main/java/com/ruoyi/web/controller/a4").toAbsolutePath().normalize()
+            p = Paths.get("../ruoyi-admin/src/main/java/com/ruoyi/web/controller/usercenter").toAbsolutePath().normalize()
                     .resolve(name);
         }
         assertTrue(Files.exists(p), "missing controller: " + name);
@@ -299,9 +299,9 @@ class AdminReviewFindingsRegressionTest
     @Test
     void sensitiveEndpointsDisableResponseLogging() throws Exception
     {
-        String controller = readController("A4AdminController.java");
+        String controller = readController("AdminUserCenterController.java");
         // 三个含令牌/材料字段的接口都必须禁止记录响应体
-        for (String title : List.of("A4-敏感材料兑换", "A4-实名材料访问", "A4-反馈附件访问"))
+        for (String title : List.of("敏感材料兑换", "实名材料访问", "反馈附件访问"))
         {
             int idx = controller.indexOf("title = \"" + title + "\"");
             assertTrue(idx > 0, "endpoint not found: " + title);
@@ -315,13 +315,13 @@ class AdminReviewFindingsRegressionTest
     @Test
     void redeemTokenTravelsInBodyNotUrlPath() throws Exception
     {
-        String controller = readController("A4AdminController.java");
+        String controller = readController("AdminUserCenterController.java");
         // 令牌放在 URL 路径会被 oper_url 完整记录，必须用 POST + 请求体
         assertFalse(controller.contains("/material-refs/{token}"),
                 "token must not be a path variable (oper_url would record it)");
         assertTrue(controller.contains("@PostMapping(\"/material-refs/redeem\")"),
                 "redeem must be a POST with the token in the body");
-        int idx = controller.indexOf("A4-敏感材料兑换");
+        int idx = controller.indexOf("敏感材料兑换");
         String annotation = controller.substring(Math.max(0, idx - 300), idx + 200);
         assertTrue(annotation.contains("excludeParamNames"),
                 "redeem must exclude the token parameter from request logging");
@@ -343,7 +343,7 @@ class AdminReviewFindingsRegressionTest
         // 类型与权限必须参与判定，否则持有反馈权限即可兑换实名材料
         assertTrue(service.contains("requiredPerm"),
                 "redeem must check the permission implied by the stored kind");
-        String controller = readController("A4AdminController.java");
+        String controller = readController("AdminUserCenterController.java");
         assertTrue(controller.contains("getPermissions()"),
                 "controller must pass the caller's granted permissions for kind checking");
     }
@@ -379,7 +379,7 @@ class AdminReviewFindingsRegressionTest
     @Test
     void redeemAndContentResponsesNeverCarryRawRef() throws Exception
     {
-        String controller = readController("A4AdminController.java");
+        String controller = readController("AdminUserCenterController.java");
 
         // 兑换响应字段：只允许 kind / accessUrl / expiresInSeconds
         int idx = controller.indexOf("public AjaxResult redeemMaterialRef");

@@ -192,4 +192,22 @@
           AND r.deleted_flag = 0
     </select>
 
+    <!--
+      受「站内信 × type」偏好关闭的用户（规格 §8.6）。
+      稀疏存储：只有显式关闭才落库 enabled=0，未落库的组合默认开启，
+      故此处只回传 enabled=0 的收件人 user_id，由服务层从收件人集合中剔除。
+      渠道固定 INBOX：注册「推送」渠道的开关不拦截站内消息投递。
+    -->
+    <select id="selectInboxDisabledUserIds" resultType="java.lang.Long">
+        SELECT p.user_id
+        FROM user_notification_preference p
+        WHERE p.channel = 'INBOX'
+          AND p.type = #{type}
+          AND p.enabled = 0
+          AND p.user_id IN
+        <foreach collection="userIds" item="userId" open="(" separator="," close=")">
+            #{userId}
+        </foreach>
+    </select>
+
 </mapper>

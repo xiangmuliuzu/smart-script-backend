@@ -163,7 +163,7 @@ class FilterChainAuthFailureAuditorTest
         assertFalse(FilterChainAuthFailureAuditor.claim(req, AuthenticationFailureAuditor.DOMAIN_PC, 401),
                 "同一请求第二次必须拒绝，保证恰好一条审计行");
 
-        // PC 403 不在本通道（A4 @PreAuthorize 403 由 A4DeniedAccessAuditor 处置，避免重复记账）
+        // PC 403 不在本通道（A4 @PreAuthorize 403 由 AdminDeniedAccessAuditor 处置，避免重复记账）
         assertFalse(FilterChainAuthFailureAuditor.claim(request("GET", "/api/v1/admin/app-users"),
                 AuthenticationFailureAuditor.DOMAIN_PC, 403));
         // C 模块路径不记录（401 与 403 均不记录）

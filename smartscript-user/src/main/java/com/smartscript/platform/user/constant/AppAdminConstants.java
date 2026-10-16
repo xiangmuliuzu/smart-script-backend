@@ -62,6 +62,10 @@ public final class AppAdminConstants
     public static final String NOTIFICATION_TRANSACTION = "TRANSACTION";
     public static final String NOTIFICATION_BENEFIT = "BENEFIT";
 
+    // ---- 通知渠道（规格 §8.6，与 user_notification_preference.channel 同源）----
+    /** 站内信渠道：关闭即停止投递站内消息（消息主体仍按幂等键保留）。 */
+    public static final String NOTIFICATION_CHANNEL_INBOX = "INBOX";
+
     // ---- 权限标识（契约 §4 / 实施方案 §8）----
     public static final String PERM_APP_LIST = "user:app:list";
     public static final String PERM_APP_QUERY = "user:app:query";
@@ -83,7 +87,7 @@ public final class AppAdminConstants
     public static final String PERM_FEEDBACK_HANDLE = "user:feedback:handle";
 
     /** 默认权限父菜单：A4 顶级目录（迁移 002 固定 menu_id）。 */
-    public static final long A4_MENU_ROOT_ID = 3000L;
+    public static final long ADMIN_MENU_ROOT_ID = 3000L;
 
     /**
      * 超级管理员角色判定：角色主键与角色编码。

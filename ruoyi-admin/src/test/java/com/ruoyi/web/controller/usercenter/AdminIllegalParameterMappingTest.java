@@ -1,4 +1,4 @@
-package com.ruoyi.web.controller.a4;
+package com.ruoyi.web.controller.usercenter;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -15,11 +15,11 @@ import com.smartscript.platform.user.constant.AppAdminErrorCodes;
  *
  * 背景（第 6 批负向矩阵 H6-NEG-01）：`GET /api/v1/admin/app-users/abc` 曾返回 500/500。
  * 根因是 {@code MethodArgumentTypeMismatchException} 继承 RuntimeException，被
- * {@link A4AdminExceptionHandler#handleRuntime} 收敛。
+ * {@link AdminApiExceptionHandler#handleRuntime} 收敛。
  */
-class A4AdminIllegalParameterMappingTest
+class AdminIllegalParameterMappingTest
 {
-    private final A4AdminExceptionHandler handler = new A4AdminExceptionHandler();
+    private final AdminApiExceptionHandler handler = new AdminApiExceptionHandler();
 
     @Test
     void typeMismatchMapsTo400()

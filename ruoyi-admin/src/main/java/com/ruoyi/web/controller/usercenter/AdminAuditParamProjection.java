@@ -1,4 +1,4 @@
-package com.ruoyi.web.controller.a4;
+package com.ruoyi.web.controller.usercenter;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -47,7 +47,7 @@ import com.smartscript.platform.user.constant.AppAdminConstants;
  *     {@code excludeParamNames} 排除（H9-LOG-01、H10-REV-02 口径），本类不改其判定；
  *     该清单保留为第二道防线。
  */
-public final class A4AuditParamProjection
+public final class AdminAuditParamProjection
 {
     /** 1. `POST /api/v1/admin/material-refs/redeem`（契约 §7 短时授权；A4-G4：令牌走请求体）。 */
     public static final String[] MATERIAL_REDEEM = { AppAdminAuditParams.TOKEN };
@@ -181,7 +181,7 @@ public final class A4AuditParamProjection
     /** 指纹取 SHA-256 十六进制前缀的位数（与既有 MaterialAccessTokenService.fingerprint 同口径）。 */
     private static final int FINGERPRINT_HEX_LENGTH = 12;
 
-    private A4AuditParamProjection()
+    private AdminAuditParamProjection()
     {
     }
 

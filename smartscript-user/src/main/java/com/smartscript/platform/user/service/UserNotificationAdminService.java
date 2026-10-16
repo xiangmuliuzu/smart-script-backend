@@ -9,6 +9,7 @@ import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -137,6 +138,11 @@ public class UserNotificationAdminService
             throw AppAdminException.badRequest("存在不可作为收件人的用户");
         }
 
+        // 投递过滤（规格 §8.6）：剔除已关闭「站内信 × 本消息类型」的用户。
+        // 必须在幂等签名与合法性校验之后：签名按请求收件人集合计算，
+        // 若按过滤后的集合计算，用户在两次等价请求之间改偏好就会被误判为同键不同内容（409）。
+        List<Long> delivered = filterInboxDisabled(distinct, type);
+
         AdminNotification entity = new AdminNotification();
         entity.setRequestId(requestId);
         entity.setType(type);
@@ -158,8 +164,38 @@ public class UserNotificationAdminService
             return resolveConcurrentWinnerInNewTransaction(requestId, signature);
         }
 
-        mapper.insertReceivers(entity.getNotificationId(), distinct);
-        return new CreateResult(entity.getNotificationId(), distinct.size(), true);
+        // 全部收件人都已关闭该类型的站内信：消息主体按幂等键保留，
+        // 只是不落收件记录（不产生站内消息，也不推高角标）。
+        if (!delivered.isEmpty())
+        {
+            mapper.insertReceivers(entity.getNotificationId(), delivered);
+        }
+        return new CreateResult(entity.getNotificationId(), delivered.size(), true);
+    }
+
+    /**
+     * 按「站内信 × type」偏好剔除已关闭该类型的收件人（规格 §8.6）。
+     *
+     * 只过滤 INBOX 渠道：偏好里的 PUSH 渠道开关约束的是推送提醒，
+     * 不拦截站内消息投递（规格 §8.6 末句）。
+     */
+    private List<Long> filterInboxDisabled(List<Long> distinct, String type)
+    {
+        List<Long> disabled = mapper.selectInboxDisabledUserIds(distinct, type);
+        if (disabled == null || disabled.isEmpty())
+        {
+            return distinct;
+        }
+        Set<Long> disabledSet = new LinkedHashSet<>(disabled);
+        List<Long> delivered = new ArrayList<>(distinct.size());
+        for (Long userId : distinct)
+        {
+            if (!disabledSet.contains(userId))
+            {
+                delivered.add(userId);
+            }
+        }
+        return delivered;
     }
 
     /**

@@ -1,4 +1,4 @@
-package com.ruoyi.web.controller.c;
+package com.ruoyi.web.controller.trade;
 
 import java.util.List;
 import org.springframework.beans.factory.annotation.Autowired;
