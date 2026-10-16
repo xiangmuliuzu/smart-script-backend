@@ -9,12 +9,14 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import com.smartscript.platform.api.AppApiResponse;
 import com.smartscript.platform.content.dto.AppAiOutlineRequest;
+import com.smartscript.platform.content.dto.AppAiOutlineRecordItem;
 import com.smartscript.platform.content.dto.AppAiOutlineResult;
 import com.smartscript.platform.content.dto.AppAiPolishRequest;
 import com.smartscript.platform.content.dto.AppAiWriteRecordItem;
 import com.smartscript.platform.content.dto.AppAiWriteRequest;
 import com.smartscript.platform.content.dto.AppAiWriteResult;
 import com.smartscript.platform.content.dto.AppPageResult;
+import com.smartscript.platform.content.exception.AiQuotaInsufficientException;
 import com.smartscript.platform.content.exception.AiServiceUnavailableException;
 import com.smartscript.platform.content.service.IAiWriteService;
 
@@ -80,6 +82,10 @@ public class AppAiController
         {
             return AppApiResponse.ok(aiWriteService.write(request));
         }
+        catch (AiQuotaInsufficientException e)
+        {
+            return AppApiResponse.fail(CODE_BAD_REQUEST, e.getMessage());
+        }
         catch (AiServiceUnavailableException e)
         {
             return AppApiResponse.fail(CODE_SERVICE_UNAVAILABLE, e.getMessage());
@@ -107,6 +113,10 @@ public class AppAiController
         {
             return AppApiResponse.ok(aiWriteService.polish(request));
         }
+        catch (AiQuotaInsufficientException e)
+        {
+            return AppApiResponse.fail(CODE_BAD_REQUEST, e.getMessage());
+        }
         catch (AiServiceUnavailableException e)
         {
             return AppApiResponse.fail(CODE_SERVICE_UNAVAILABLE, e.getMessage());
@@ -131,6 +141,23 @@ public class AppAiController
     }
 
     /**
+     * AI 大纲请求记录（分页）
+     *
+     * @param page     页码（可选，默认 1）
+     * @param pageSize 每页条数（可选，默认 20，上限 50）
+     * @return data = {total, list}；仅当前登录身份的大纲请求记录
+     */
+    @GetMapping("/outline-records")
+    public AppApiResponse<AppPageResult<AppAiOutlineRecordItem>> outlineRecords(
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer pageSize)
+    {
+        int pageNum = page == null ? 1 : page;
+        int size = pageSize == null ? 20 : pageSize;
+        return AppApiResponse.ok(aiWriteService.pageOutlineRecords(pageNum, size));
+    }
+
+    /**
      * AI 大纲生成（2.9.13）
      *
      * @param body 请求体 {inspiration, genre, style, work_id} 均可选
@@ -147,6 +174,10 @@ public class AppAiController
         try
         {
             return AppApiResponse.ok(aiWriteService.outline(request));
+        }
+        catch (AiQuotaInsufficientException e)
+        {
+            return AppApiResponse.fail(CODE_BAD_REQUEST, e.getMessage());
         }
         catch (AiServiceUnavailableException e)
         {

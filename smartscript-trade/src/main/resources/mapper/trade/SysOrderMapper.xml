@@ -52,6 +52,8 @@
             <if test="status != null and status != ''">AND o.status = #{status}</if>
             <if test="licenseType != null and licenseType != ''">AND o.license_type = #{licenseType}</if>
             <if test="workTitle != null and workTitle != ''">AND w.title like concat('%', #{workTitle}, '%')</if>
+            <if test="buyerId != null">AND o.buyer_id = #{buyerId}</if>
+            <if test="sellerId != null">AND o.seller_id = #{sellerId}</if>
         </where>
         order by o.created_at desc
     </select>

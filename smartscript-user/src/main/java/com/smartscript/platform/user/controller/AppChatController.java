@@ -46,9 +46,17 @@ public class AppChatController
     /** 我的会话列表 */
     @GetMapping("/sessions")
     public AppApiResponse<PageResult<Map<String, Object>>> listSessions(
-            @RequestParam(required = false) Integer status)
+            @RequestParam(required = false) Integer status,
+            @RequestParam(required = false) String sessionType)
     {
-        return AppApiResponse.ok(chatService.mySessions(currentUserId(), status));
+        return AppApiResponse.ok(chatService.mySessions(currentUserId(), status, sessionType));
+    }
+
+    /** 单个会话详情 */
+    @GetMapping("/sessions/{sessionId}")
+    public AppApiResponse<Map<String, Object>> sessionDetail(@PathVariable Long sessionId)
+    {
+        return AppApiResponse.ok(chatService.sessionDetail(sessionId, currentUserId()));
     }
 
     /** 会话内历史消息 */

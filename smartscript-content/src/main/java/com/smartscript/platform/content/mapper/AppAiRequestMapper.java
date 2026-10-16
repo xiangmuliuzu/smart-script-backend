@@ -1,7 +1,9 @@
 package com.smartscript.platform.content.mapper;
 
 import java.util.Date;
+import java.util.List;
 import org.apache.ibatis.annotations.Param;
+import com.smartscript.platform.content.dto.AppAiOutlineRecordItem;
 
 /**
  * AI 请求 数据层（App 2.9.13 AI 大纲生成）。
@@ -46,4 +48,12 @@ public interface AppAiRequestMapper
                                @Param("promptHash") String promptHash,
                                @Param("startedAt") Date startedAt,
                                @Param("finishedAt") Date finishedAt);
+
+    /**
+     * 查询某用户的 AI 大纲请求记录（按创建时间倒序；分页由 PageHelper 驱动）
+     *
+     * @param userId 用户ID
+     * @return 大纲请求记录集合
+     */
+    public List<AppAiOutlineRecordItem> selectOutlineRecordsByUser(@Param("userId") Long userId);
 }

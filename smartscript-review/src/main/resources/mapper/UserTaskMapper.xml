@@ -49,4 +49,13 @@
              #{createBy}, #{createTime}, #{updateBy}, #{updateTime}, #{remark})
     </insert>
 
+    <select id="selectByUserAndTask" resultMap="UserTaskResult">
+        SELECT *
+        FROM sys_user_task
+        WHERE user_id = #{userId}
+          AND task_id = #{taskId}
+        ORDER BY id DESC
+        LIMIT 1
+    </select>
+
 </mapper>

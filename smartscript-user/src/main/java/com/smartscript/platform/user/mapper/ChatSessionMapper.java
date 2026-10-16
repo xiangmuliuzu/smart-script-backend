@@ -20,6 +20,9 @@ public interface ChatSessionMapper
                                  @Param("businessType") String businessType,
                                  @Param("businessId") Long businessId);
 
+    /** 按询盘ID查找 TRADE 类型会话（幂等） */
+    ChatSession selectByInquiryId(@Param("inquiryId") Long inquiryId);
+
     /** 按 session_id 查询（不校验归属，管理端用） */
     ChatSession selectById(@Param("sessionId") Long sessionId);
 
@@ -30,9 +33,10 @@ public interface ChatSessionMapper
 
     int refreshAdminUnread(@Param("sessionId") Long sessionId, @Param("userId") Long userId);
 
-    /** 用户端：我的会话列表（user1_id 或 user2_id 命中） */
+    /** 用户端：我的会话列表（user1_id 或 user2_id 命中），支持 sessionType 筛选 */
     List<ChatSession> selectMySessions(@Param("userId") Long userId,
-                                       @Param("status") Integer status);
+                                       @Param("status") Integer status,
+                                       @Param("sessionType") String sessionType);
 
     /** 管理端：全部会话列表（分页 + 筛选） */
     List<ChatSession> selectAdminSessions(@Param("status") Integer status,

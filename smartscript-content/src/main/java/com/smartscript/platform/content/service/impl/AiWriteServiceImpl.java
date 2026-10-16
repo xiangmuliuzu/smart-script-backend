@@ -6,14 +6,18 @@ import java.security.NoSuchAlgorithmException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.pagehelper.PageHelper;
 import com.github.pagehelper.PageInfo;
 import com.smartscript.platform.content.dto.AppAiOutlineRequest;
+import com.smartscript.platform.content.dto.AppAiOutlineRecordItem;
 import com.smartscript.platform.content.dto.AppAiOutlineResult;
 import com.smartscript.platform.content.dto.AppAiPolishRequest;
 import com.smartscript.platform.content.dto.AppAiWriteRecordInsert;
@@ -23,9 +27,11 @@ import com.smartscript.platform.content.dto.AppAiWriteResult;
 import com.smartscript.platform.content.dto.AppPageResult;
 import com.smartscript.platform.content.mapper.AppAiRequestMapper;
 import com.smartscript.platform.content.mapper.AppAiWriteRecordMapper;
+import com.smartscript.platform.content.exception.AiQuotaInsufficientException;
 import com.smartscript.platform.content.service.AiServiceClient;
 import com.smartscript.platform.content.service.IAiWriteService;
 import com.smartscript.platform.identity.IdentityProvider;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 /**
  * AI 辅助创作 服务实现（App 2.9.10 ~ 2.9.13）。
@@ -42,7 +48,9 @@ import com.smartscript.platform.identity.IdentityProvider;
  *    润色固定 'polish'；input_prompt：写作取 prompt，润色取待润色原文；output_content 取 AI 返回。
  * 3. 大纲落 sys_ai_request：capability='outline'、quota_cost=1、provider 取配置、
  *    request_no 由本层唯一生成；status='success'，started_at/finished_at 显式写入。
- * 4. 本批不接额度扣减：quota_cost 仅作记录，不写额度流水，也不校验额度余额（跨模块，见接口说明）。
+ * 4. AI 调用成功即扣减 1 次：写 sys_ai_quota_account 扣减（乐观锁）与
+ *    sys_ai_quota_record 流水（change_type='consume'，幂等键 ai-consume-{capability}-{businessId}）；
+ *    校验与扣减均在本服务内用 JdbcTemplate 直写，不跨模块依赖 review 的 AiQuotaService。
  * 5. 身份不做空值兜底：四接口均未登记 App 凭证域白名单，过滤器已保证非游客，currentUserId() 不会为 null。
  *
  * @author xiangsipeng
@@ -83,6 +91,9 @@ public class AiWriteServiceImpl implements IAiWriteService
     /** 模型名兜底值 */
     private static final String DEFAULT_MODEL = "smartscript-ai";
 
+    /** 把大纲 JsonNode 转成普通 Map/List（项目响应 ObjectMapper 无法序列化 JsonNode） */
+    private static final ObjectMapper OUTLINE_MAPPER = new ObjectMapper();
+
     @Autowired
     private AppAiWriteRecordMapper writeRecordMapper;
 
@@ -95,6 +106,9 @@ public class AiWriteServiceImpl implements IAiWriteService
     @Autowired
     private IdentityProvider identityProvider;
 
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
     /** AI 模型名（AI 未返回时使用） */
     @Value("${AI_SERVICE_MODEL:smartscript-ai}")
     private String aiModel;
@@ -106,20 +120,24 @@ public class AiWriteServiceImpl implements IAiWriteService
     @Override
     public AppAiWriteResult write(AppAiWriteRequest request)
     {
+        checkQuota(identityProvider.currentUserId());
         JsonNode data = aiServiceClient.write(request.getPrompt(), request.getType());
         String content = text(data, "content");
         Long recordId = saveRecord(identityProvider.currentUserId(), request.getWorkId(),
                 resolveWriteType(request.getType()), request.getPrompt(), content, resolveModel(data));
+        consumeQuota(identityProvider.currentUserId(), "write", recordId);
         return new AppAiWriteResult(content, recordId);
     }
 
     @Override
     public AppAiWriteResult polish(AppAiPolishRequest request)
     {
+        checkQuota(identityProvider.currentUserId());
         JsonNode data = aiServiceClient.polish(request.getContent(), request.getStyle());
         String content = text(data, "content");
         Long recordId = saveRecord(identityProvider.currentUserId(), null,
                 WRITE_TYPE_POLISH, request.getContent(), content, resolveModel(data));
+        consumeQuota(identityProvider.currentUserId(), "polish", recordId);
         return new AppAiWriteResult(content, recordId);
     }
 
@@ -136,18 +154,112 @@ public class AiWriteServiceImpl implements IAiWriteService
     }
 
     @Override
+    public AppPageResult<AppAiOutlineRecordItem> pageOutlineRecords(int pageNum, int pageSize)
+    {
+        int safePageNum = pageNum < 1 ? DEFAULT_PAGE_NUM : pageNum;
+        int safePageSize = pageSize < 1 ? DEFAULT_PAGE_SIZE : Math.min(pageSize, PAGE_SIZE_MAX);
+        Long userId = identityProvider.currentUserId();
+        PageHelper.startPage(safePageNum, safePageSize);
+        List<AppAiOutlineRecordItem> rows = aiRequestMapper.selectOutlineRecordsByUser(userId);
+        long total = new PageInfo<>(rows).getTotal();
+        return AppPageResult.of(total, rows);
+    }
+
+    @Override
     public AppAiOutlineResult outline(AppAiOutlineRequest request)
     {
+        checkQuota(identityProvider.currentUserId());
         Date startedAt = new Date();
         JsonNode data = aiServiceClient.outline(request.getInspiration(), request.getGenre(), request.getStyle());
         Date finishedAt = new Date();
         JsonNode outlineNode = data.path("outline");
-        Object outline = outlineNode.isMissingNode() || outlineNode.isNull() ? null : outlineNode;
+        Object outline = outlineNode.isMissingNode() || outlineNode.isNull()
+                ? null : OUTLINE_MAPPER.convertValue(outlineNode, Object.class);
         String requestNo = generateRequestNo();
         aiRequestMapper.insertAiRequest(requestNo, identityProvider.currentUserId(), request.getWorkId(),
                 CAPABILITY_OUTLINE, QUOTA_COST_OUTLINE, STATUS_SUCCESS, resolveProvider(),
                 sha256(buildOutlinePrompt(request)), startedAt, finishedAt);
+        // 同步写一条可回看记录（write_type='outline'）：输入（灵感/类型/风格）与大纲结果
+        // 完整落 sys_ai_write_record，供 AI 记录页按写作/润色同款「输入/输出」样式展示。
+        Long recordId = saveRecord(identityProvider.currentUserId(), request.getWorkId(),
+                CAPABILITY_OUTLINE, buildOutlineInputText(request), outlineToText(outline), resolveModel(data));
+        consumeQuota(identityProvider.currentUserId(), "outline", recordId);
         return new AppAiOutlineResult(outline, requestNo, QUOTA_COST_OUTLINE);
+    }
+
+    /**
+     * 校验用户 AI 可用次数：读取 sys_ai_quota_account.available_quota，
+     * 无账户或不足 1 次即抛 {@link AiQuotaInsufficientException}，由控制器转 400。
+     * 本方法只校验；实际扣减在 AI 调用成功后由 {@link #consumeQuota} 完成。
+     */
+    private void checkQuota(Long userId)
+    {
+        Integer available;
+        try
+        {
+            available = jdbcTemplate.queryForObject(
+                    "SELECT available_quota FROM sys_ai_quota_account WHERE user_id = ?",
+                    Integer.class, userId);
+        }
+        catch (org.springframework.dao.EmptyResultDataAccessException e)
+        {
+            available = null;
+        }
+        int balance = available == null ? 0 : available;
+        if (balance < 1)
+        {
+            throw new AiQuotaInsufficientException("AI次数不足，当前可用: " + balance + " 次");
+        }
+    }
+
+    /**
+     * AI 调用成功后扣减 1 次可用额度并写额度流水（App / E 模块）。
+     *
+     * 幂等键 = ai-consume-{capability}-{businessId}（businessId 为该次调用的记录ID，
+     * 每次调用唯一），重复请求因 uk_idempotency_key 唯一约束被忽略，不重复扣减。
+     * 并发兜底：扣减 UPDATE 带 available_quota >= 1 条件，行数为 0 时不写流水直接返回。
+     */
+    private void consumeQuota(Long userId, String capability, Long businessId)
+    {
+        Integer before;
+        try
+        {
+            before = jdbcTemplate.queryForObject(
+                    "SELECT available_quota FROM sys_ai_quota_account WHERE user_id = ?",
+                    Integer.class, userId);
+        }
+        catch (org.springframework.dao.EmptyResultDataAccessException e)
+        {
+            before = null;
+        }
+        if (before == null || before < 1)
+        {
+            return; // checkQuota 已前置拦截，此处兜底
+        }
+        int rows = jdbcTemplate.update(
+                "UPDATE sys_ai_quota_account SET available_quota = available_quota - 1, "
+                        + "total_consumed = total_consumed + 1, version = version + 1 "
+                        + "WHERE user_id = ? AND available_quota >= 1",
+                userId);
+        if (rows == 0)
+        {
+            return; // 并发兜底：余额已被扣光，不落流水
+        }
+        String idemKey = "ai-consume-" + capability + "-" + businessId;
+        try
+        {
+            jdbcTemplate.update(
+                    "INSERT INTO sys_ai_quota_record (record_no, user_id, change_type, change_amount, "
+                            + "before_balance, after_balance, business_type, business_id, "
+                            + "idempotency_key, remark, created_at) "
+                            + "VALUES (?, ?, 'consume', 1, ?, ?, ?, ?, ?, ?, NOW())",
+                    generateRecordNo("QR"), userId, before, before - 1, capability,
+                    businessId, idemKey, "AI调用扣减: " + capability);
+        }
+        catch (org.springframework.dao.DuplicateKeyException e)
+        {
+            // 幂等：同一次调用不重复扣减
+        }
     }
 
     /**
@@ -211,6 +323,142 @@ public class AiWriteServiceImpl implements IAiWriteService
                 + ";style=" + safe(request.getStyle());
     }
 
+    /** 大纲输入的展示文本（落 sys_ai_write_record.input_prompt，用户可见） */
+    private static String buildOutlineInputText(AppAiOutlineRequest request)
+    {
+        return "灵感：" + safe(request.getInspiration())
+                + "\n类型：" + safe(request.getGenre())
+                + "\n风格：" + safe(request.getStyle());
+    }
+
+    /** 大纲结果转可读文本（落 output_content，用户可见，非 JSON） */
+    private static String outlineToText(Object outline)
+    {
+        StringBuilder sb = new StringBuilder();
+        appendOutline(sb, outline, 0, null);
+        String text = sb.toString().trim();
+        return text.isEmpty() ? BLANK : text;
+    }
+
+    /** 递归把大纲对象渲染成「字段：值」的多行文本（parentKey 用于区分 name 在不同上下文的含义） */
+    private static void appendOutline(StringBuilder sb, Object node, int depth, String parentKey)
+    {
+        if (node == null)
+        {
+            return;
+        }
+        if (node instanceof Map)
+        {
+            for (Map.Entry<?, ?> entry : ((Map<?, ?>) node).entrySet())
+            {
+                String key = String.valueOf(entry.getKey());
+                Object value = entry.getValue();
+                String label = outlineLabel(key, parentKey);
+                if (value instanceof List)
+                {
+                    List<?> list = (List<?>) value;
+                    boolean scalar = list.stream()
+                            .allMatch(x -> !(x instanceof Map) && !(x instanceof List));
+                    appendLine(sb, label, depth);
+                    if (list.isEmpty())
+                    {
+                        continue;
+                    }
+                    if (scalar && isStorySequence(key))
+                    {
+                        // 剧情/章节/步骤类：每项一行
+                        for (Object item : list)
+                        {
+                            appendLine(sb, "  " + item, depth);
+                        }
+                    }
+                    else if (scalar)
+                    {
+                        // 角色/标签类：顿号连接
+                        sb.append(list.stream().map(String::valueOf)
+                                .collect(Collectors.joining("、")));
+                    }
+                    else
+                    {
+                        appendOutline(sb, list, depth + 1, key);
+                    }
+                }
+                else if (value instanceof Map)
+                {
+                    appendLine(sb, label, depth);
+                    appendOutline(sb, value, depth + 1, key);
+                }
+                else
+                {
+                    appendLine(sb, label + "：" + value, depth);
+                }
+            }
+        }
+        else if (node instanceof List)
+        {
+            for (Object item : (List<?>) node)
+            {
+                appendOutline(sb, item, depth + 1, parentKey);
+            }
+        }
+        else
+        {
+            appendLine(sb, String.valueOf(node), depth);
+        }
+    }
+
+    /** 剧情/章节/步骤类 key：数组每项单独一行 */
+    private static boolean isStorySequence(String key)
+    {
+        return key.equals("acts") || key.equals("plot") || key.equals("chapters")
+                || key.equals("scenes") || key.equals("steps") || key.equals("outline")
+                || key.equals("development");
+    }
+
+    /** 常见大纲字段 → 中文标签（未知 key 原样保留；name 按父上下文区分含义） */
+    private static String outlineLabel(String key, String parentKey)
+    {
+        switch (key)
+        {
+            case "title": return "书名";
+            case "logline": return "一句话简介";
+            case "summary": return "简介";
+            case "characters": return "角色";
+            case "roles": return "角色";
+            case "acts": return "剧情";
+            case "plot": return "剧情";
+            case "chapters": return "章节";
+            case "setting": return "背景设定";
+            case "worldview": return "世界观";
+            case "ending": return "结局";
+            case "theme": return "主题";
+            case "role": return "身份";
+            case "beats": return "关键情节";
+            case "intro": return "简介";
+            case "content": return "内容";
+            case "genre": return "题材";
+            case "style": return "风格";
+            case "name":
+                if ("characters".equals(parentKey)) return "角色名";
+                if ("acts".equals(parentKey)) return "幕名";
+                return "名称";
+            default: return key;
+        }
+    }
+
+    private static void appendLine(StringBuilder sb, String text, int depth)
+    {
+        if (sb.length() > 0)
+        {
+            sb.append('\n');
+        }
+        for (int i = 0; i < depth; i++)
+        {
+            sb.append("  ");
+        }
+        sb.append(text);
+    }
+
     private static String safe(String value)
     {
         return value == null ? BLANK : value;
@@ -229,9 +477,15 @@ public class AiWriteServiceImpl implements IAiWriteService
     /** 生成唯一请求编号：AIR + 时间戳(毫秒) + 6 位随机十六进制，长度远小于 varchar(64) */
     private static String generateRequestNo()
     {
+        return generateRecordNo("AIR");
+    }
+
+    /** 生成唯一流水号：{prefix} + 时间戳(毫秒) + 6 位随机十六进制 */
+    private static String generateRecordNo(String prefix)
+    {
         String timestamp = new SimpleDateFormat("yyyyMMddHHmmssSSS").format(new Date());
         String random = UUID.randomUUID().toString().replace("-", "").substring(0, 6);
-        return "AIR" + timestamp + random.toUpperCase();
+        return prefix + timestamp + random.toUpperCase();
     }
 
     /** sha256 十六进制摘要（sys_ai_request.prompt_hash 为 varchar(128)，64 位十六进制足够） */

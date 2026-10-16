@@ -21,6 +21,20 @@ public class WelfareTaskController {
     private TaskConfigService taskConfigService;
 
     /**
+     * 统一信封：{code, msg, data:{...}}，App 端按标准若依信封解析。
+     */
+    private Map<String, Object> wrap(Map<String, Object> result) {
+        Map<String, Object> data = new HashMap<>(result);
+        data.remove("code");
+        data.remove("msg");
+        Map<String, Object> env = new HashMap<>();
+        env.put("code", result.getOrDefault("code", 200));
+        env.put("msg", result.getOrDefault("msg", "success"));
+        env.put("data", data);
+        return env;
+    }
+
+    /**
      * 用户领取任务奖励
      * 请求体：{"taskCode": "DAILY_LOGIN", "userId": 106}
      */
@@ -30,11 +44,11 @@ public class WelfareTaskController {
         try {
             String taskCode = params.get("taskCode") != null ? params.get("taskCode").toString() : null;
             Long userId = params.get("userId") != null ? Long.valueOf(params.get("userId").toString()) : null;
-            return taskConfigService.claimTask(taskCode, userId);
+            return wrap(taskConfigService.claimTask(taskCode, userId));
         } catch (Exception e) {
             result.put("code", 500);
             result.put("msg", "领取失败: " + e.getMessage());
-            return result;
+            return wrap(result);
         }
     }
 }

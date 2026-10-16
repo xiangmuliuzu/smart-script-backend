@@ -26,4 +26,10 @@ public interface UserTaskMapper {
                         @Param("taskId") Long taskId);
 
     int insertUserTask(UserTask userTask);
+
+    /**
+     * 查询某用户对某任务的最新完成记录（App 任务列表进度展示用）
+     */
+    UserTask selectByUserAndTask(@Param("userId") Long userId,
+                                 @Param("taskId") Long taskId);
 }

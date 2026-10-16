@@ -310,9 +310,15 @@ public class AppBookstoreServiceImpl implements IAppBookstoreService
         {
             return dto;
         }
-        // hasContact/displayScope 由档案决定；workId 以作品为准，避免 Mapper 入参外泄
-        dto.setHasContact(Boolean.TRUE.equals(contact.getHasContact()));
+        // hasContact: 档案有密文或 sys_user 有手机号即视为已登记
+        boolean hasPhone = contact.getPhone() != null && !contact.getPhone().isEmpty();
+        boolean hasEmail = contact.getEmail() != null && !contact.getEmail().isEmpty();
+        boolean hasWechat = contact.getWechat() != null && !contact.getWechat().isEmpty();
+        dto.setHasContact(hasPhone || hasEmail || hasWechat || Boolean.TRUE.equals(contact.getHasContact()));
         dto.setDisplayScope(contact.getDisplayScope());
+        dto.setPhone(contact.getPhone());
+        dto.setEmail(contact.getEmail());
+        dto.setWechat(contact.getWechat());
         return dto;
     }
 

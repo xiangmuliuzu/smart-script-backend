@@ -18,6 +18,10 @@ public class ChatSessionCreateRequest
     private Long   targetAdminId;
     /** 目标 App 用户 user_id（管理端主动联系用户时传） */
     private Long   targetUserId;
+    /** 会话类型：ADMIN=管理员沟通（默认）/ TRADE=交易沟通（买卖双方） */
+    private String sessionType;
+    /** 关联询盘 ID（TRADE 类型时必填） */
+    private Long   inquiryId;
 
     public String getBusinessType()             { return businessType; }
     public void setBusinessType(String t)       { this.businessType = t; }
@@ -33,4 +37,10 @@ public class ChatSessionCreateRequest
 
     public Long getTargetUserId()               { return targetUserId; }
     public void setTargetUserId(Long id)        { this.targetUserId = id; }
+
+    public String getSessionType()              { return sessionType; }
+    public void setSessionType(String t)        { this.sessionType = t; }
+
+    public Long getInquiryId()                  { return inquiryId; }
+    public void setInquiryId(Long id)           { this.inquiryId = id; }
 }

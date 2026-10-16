@@ -4,6 +4,11 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import org.junit.jupiter.api.Test;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.TransactionException;
+import org.springframework.transaction.TransactionStatus;
+import org.springframework.transaction.support.SimpleTransactionStatus;
 import com.smartscript.platform.user.config.AppAuthProperties;
 import com.smartscript.platform.user.constant.AppAuthErrorCodes;
 import com.smartscript.platform.user.domain.AppSmsCode;
@@ -68,9 +73,30 @@ class SmsCodeConsumeTest
         }
     }
 
+    /** No-op manager: the stub already applies increments, so no real tx is needed. */
+    private static class NoopTransactionManager implements PlatformTransactionManager
+    {
+        @Override
+        public TransactionStatus getTransaction(TransactionDefinition definition) throws TransactionException
+        {
+            return new SimpleTransactionStatus();
+        }
+
+        @Override
+        public void commit(TransactionStatus status) throws TransactionException
+        {
+        }
+
+        @Override
+        public void rollback(TransactionStatus status) throws TransactionException
+        {
+        }
+    }
+
     private static SmsCodeService service(StubMapper mapper)
     {
-        return new SmsCodeService(new AppAuthProperties(), mapper, null, null, null, null);
+        return new SmsCodeService(new AppAuthProperties(), mapper, null, null, null, null,
+                new NoopTransactionManager());
     }
 
     private static AppSmsCode row(String code, java.util.Date usedAt, java.util.Date expiresAt)
@@ -159,5 +185,27 @@ class SmsCodeConsumeTest
 
         assertDoesNotThrow(() -> service(mapper).consumeOnce("13900000001", "LOGIN", CODE));
         assertEquals(1, mapper.consumeCalls);
+    }
+
+    @Test
+    void lockedAfterMaxFailedAttemptsEvenWithCorrectCode()
+    {
+        StubMapper mapper = new StubMapper();
+        mapper.newest = row(CODE, null, future());
+        SmsCodeService service = service(mapper);
+
+        // max-failed-attempts defaults to 5: five wrong tries must arm the lock,
+        // so the brute-force window on one code is bounded.
+        for (int i = 0; i < 5; i++)
+        {
+            assertThrows(AppAuthException.class,
+                    () -> service.consumeOnce("13900000001", "LOGIN", "000000"));
+        }
+        assertEquals(5, mapper.newest.getFailedAttempts());
+
+        AppAuthException ex = assertThrows(AppAuthException.class,
+                () -> service.consumeOnce("13900000001", "LOGIN", CODE));
+        assertEquals(AppAuthErrorCodes.SMS_CODE_INVALID, ex.getCode());
+        assertEquals(0, mapper.consumeCalls, "locked code must not be consumed");
     }
 }

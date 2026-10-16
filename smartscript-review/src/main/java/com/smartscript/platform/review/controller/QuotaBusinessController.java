@@ -25,6 +25,20 @@ public class QuotaBusinessController {
     private AiQuotaService aiQuotaService;
 
     /**
+     * 统一信封：{code, msg, data:{...}}，App 端按标准若依信封解析。
+     */
+    private Map<String, Object> wrap(Map<String, Object> result) {
+        Map<String, Object> data = new HashMap<>(result);
+        data.remove("code");
+        data.remove("msg");
+        Map<String, Object> env = new HashMap<>();
+        env.put("code", result.getOrDefault("code", 200));
+        env.put("msg", result.getOrDefault("msg", "success"));
+        env.put("data", data);
+        return env;
+    }
+
+    /**
      * AI次数消耗（预扣，幂等防重复扣减）
      */
     @PostMapping("/consume")
@@ -35,17 +49,17 @@ public class QuotaBusinessController {
             Integer quotaCost = params.get("quotaCost") != null ? Integer.valueOf(params.get("quotaCost").toString()) : null;
             Long workId = params.get("workId") != null ? Long.valueOf(params.get("workId").toString()) : null;
             String idempotencyKey = params.get("idempotencyKey") != null ? params.get("idempotencyKey").toString() : null;
-            return aiQuotaService.consume(userId, capability, quotaCost, workId, idempotencyKey);
+            return wrap(aiQuotaService.consume(userId, capability, quotaCost, workId, idempotencyKey));
         } catch (IllegalStateException e) {
             Map<String, Object> r = new HashMap<>();
             r.put("code", 400);
             r.put("msg", e.getMessage());
-            return r;
+            return wrap(r);
         } catch (Exception e) {
             Map<String, Object> r = new HashMap<>();
             r.put("code", 500);
             r.put("msg", "AI次数扣减失败: " + e.getMessage());
-            return r;
+            return wrap(r);
         }
     }
 
@@ -59,17 +73,17 @@ public class QuotaBusinessController {
             Integer amount = params.get("amount") != null ? Integer.valueOf(params.get("amount").toString()) : null;
             Long workId = params.get("workId") != null ? Long.valueOf(params.get("workId").toString()) : null;
             String idempotencyKey = params.get("idempotencyKey") != null ? params.get("idempotencyKey").toString() : null;
-            return aiQuotaService.refund(userId, amount, workId, idempotencyKey);
+            return wrap(aiQuotaService.refund(userId, amount, workId, idempotencyKey));
         } catch (IllegalStateException e) {
             Map<String, Object> r = new HashMap<>();
             r.put("code", 400);
             r.put("msg", e.getMessage());
-            return r;
+            return wrap(r);
         } catch (Exception e) {
             Map<String, Object> r = new HashMap<>();
             r.put("code", 500);
             r.put("msg", "AI次数补偿失败: " + e.getMessage());
-            return r;
+            return wrap(r);
         }
     }
 
@@ -78,7 +92,7 @@ public class QuotaBusinessController {
      */
     @GetMapping("/balance")
     public Map<String, Object> balance(@RequestParam("userId") Long userId) {
-        return aiQuotaService.balance(userId);
+        return wrap(aiQuotaService.balance(userId));
     }
 
     /**
@@ -91,18 +105,29 @@ public class QuotaBusinessController {
             Long userId = params.get("userId") != null ? Long.valueOf(params.get("userId").toString()) : null;
             Integer points = params.get("points") != null ? Integer.valueOf(params.get("points").toString()) : null;
             String idempotencyKey = params.get("idempotencyKey") != null ? params.get("idempotencyKey").toString() : null;
-            return aiQuotaService.exchange(userId, points, idempotencyKey);
+            return wrap(aiQuotaService.exchange(userId, points, idempotencyKey));
         } catch (IllegalStateException e) {
             Map<String, Object> r = new HashMap<>();
             r.put("code", 400);
             r.put("msg", e.getMessage());
-            return r;
+            return wrap(r);
         } catch (Exception e) {
             Map<String, Object> r = new HashMap<>();
             r.put("code", 500);
             r.put("msg", "积分兑换失败: " + e.getMessage());
-            return r;
+            return wrap(r);
         }
+    }
+
+    /**
+     * 查询当前兑换比例（App 端实时展示；管理员改后立即生效）
+     */
+    @GetMapping("/exchange-rate")
+    public Map<String, Object> exchangeRate() {
+        Map<String, Object> r = new HashMap<>();
+        r.put("code", 200);
+        r.put("rate", aiQuotaService.getExchangeRate());
+        return wrap(r);
     }
 
     /**
@@ -117,17 +142,17 @@ public class QuotaBusinessController {
             Integer quotaCost = params.get("quotaCost") != null ? Integer.valueOf(params.get("quotaCost").toString()) : null;
             Long workId = params.get("workId") != null ? Long.valueOf(params.get("workId").toString()) : null;
             String idempotencyKey = params.get("idempotencyKey") != null ? params.get("idempotencyKey").toString() : null;
-            return aiQuotaService.reserve(userId, capability, quotaCost, workId, idempotencyKey);
+            return wrap(aiQuotaService.reserve(userId, capability, quotaCost, workId, idempotencyKey));
         } catch (IllegalStateException e) {
             Map<String, Object> r = new HashMap<>();
             r.put("code", 400);
             r.put("msg", e.getMessage());
-            return r;
+            return wrap(r);
         } catch (Exception e) {
             Map<String, Object> r = new HashMap<>();
             r.put("code", 500);
             r.put("msg", "AI次数预留失败: " + e.getMessage());
-            return r;
+            return wrap(r);
         }
     }
 
@@ -142,17 +167,17 @@ public class QuotaBusinessController {
             Integer amount = params.get("amount") != null ? Integer.valueOf(params.get("amount").toString()) : null;
             Long workId = params.get("workId") != null ? Long.valueOf(params.get("workId").toString()) : null;
             String idempotencyKey = params.get("idempotencyKey") != null ? params.get("idempotencyKey").toString() : null;
-            return aiQuotaService.confirm(userId, amount, workId, idempotencyKey);
+            return wrap(aiQuotaService.confirm(userId, amount, workId, idempotencyKey));
         } catch (IllegalStateException e) {
             Map<String, Object> r = new HashMap<>();
             r.put("code", 400);
             r.put("msg", e.getMessage());
-            return r;
+            return wrap(r);
         } catch (Exception e) {
             Map<String, Object> r = new HashMap<>();
             r.put("code", 500);
             r.put("msg", "AI次数确认失败: " + e.getMessage());
-            return r;
+            return wrap(r);
         }
     }
 
@@ -167,17 +192,17 @@ public class QuotaBusinessController {
             Integer amount = params.get("amount") != null ? Integer.valueOf(params.get("amount").toString()) : null;
             Long workId = params.get("workId") != null ? Long.valueOf(params.get("workId").toString()) : null;
             String idempotencyKey = params.get("idempotencyKey") != null ? params.get("idempotencyKey").toString() : null;
-            return aiQuotaService.release(userId, amount, workId, idempotencyKey);
+            return wrap(aiQuotaService.release(userId, amount, workId, idempotencyKey));
         } catch (IllegalStateException e) {
             Map<String, Object> r = new HashMap<>();
             r.put("code", 400);
             r.put("msg", e.getMessage());
-            return r;
+            return wrap(r);
         } catch (Exception e) {
             Map<String, Object> r = new HashMap<>();
             r.put("code", 500);
             r.put("msg", "AI次数释放失败: " + e.getMessage());
-            return r;
+            return wrap(r);
         }
     }
 }

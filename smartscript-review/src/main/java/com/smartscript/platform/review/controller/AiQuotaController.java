@@ -105,6 +105,45 @@ public class AiQuotaController {
     }
 
     /**
+     * 查询积分兑换AI次数比例（sys_config）
+     */
+    @GetMapping("/exchange-rate")
+    public Map<String, Object> exchangeRate() {
+        Map<String, Object> result = new HashMap<>();
+        result.put("code", 200);
+        result.put("msg", "操作成功");
+        result.put("data", aiQuotaService.getExchangeRate());
+        return result;
+    }
+
+    /**
+     * 更新积分兑换AI次数比例
+     * PUT /api/v1/admin/ai/quota/exchange-rate {"rate":5}
+     */
+    @PutMapping("/exchange-rate")
+    public Map<String, Object> updateExchangeRate(@RequestBody Map<String, Object> body) {
+        Map<String, Object> result = new HashMap<>();
+        Object r = body.get("rate");
+        if (r == null) {
+            result.put("code", 400);
+            result.put("msg", "rate 必填");
+            return result;
+        }
+        try {
+            int rate = Integer.parseInt(String.valueOf(r).trim());
+            Map<String, Object> r2 = aiQuotaService.updateExchangeRate(rate);
+            result.put("code", r2.get("code"));
+            result.put("msg", r2.get("msg"));
+            result.put("data", r2.get("rate"));
+            return result;
+        } catch (NumberFormatException e) {
+            result.put("code", 400);
+            result.put("msg", "rate 必须为整数");
+            return result;
+        }
+    }
+
+    /**
      * 查询AI配额记录列表
      */
     @GetMapping("/record/list")
