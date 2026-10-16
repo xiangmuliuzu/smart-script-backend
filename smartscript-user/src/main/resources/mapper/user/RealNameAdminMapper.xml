@@ -115,6 +115,13 @@
         LIMIT 1
     </select>
 
+    <select id="selectApplicationUserId" resultType="java.lang.Long">
+        SELECT rna.user_id
+        FROM user_real_name_auth rna
+        WHERE rna.id = #{applicationId}
+        LIMIT 1
+    </select>
+
     <!--
       条件审核：status = expectedStatus 参与 WHERE。
       并发审核时只有一个事务能命中，另一个影响 0 行 -> 服务层转 409。

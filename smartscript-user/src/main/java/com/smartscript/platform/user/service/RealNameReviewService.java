@@ -5,8 +5,12 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import com.smartscript.platform.user.constant.AppAdminConstants;
 import com.smartscript.platform.user.constant.AppAdminErrorCodes;
 import com.smartscript.platform.user.domain.admin.RealNameApplication;
@@ -29,7 +33,13 @@ import com.smartscript.platform.user.mapper.RealNameAdminMapper;
 @Service
 public class RealNameReviewService
 {
+    private static final Logger log = LoggerFactory.getLogger(RealNameReviewService.class);
+
+    /** 实名审核结果站内通知的幂等键前缀：同一申请只投递一次（并发/重试不重复）。 */
+    private static final String REAL_NAME_NOTICE_ID_PREFIX = "realname-review-";
+
     private final RealNameAdminMapper mapper;
+    private final UserNotificationAdminService notifications;
     private final MaterialAccessTokenService materialTokenService;
 
     private static final Map<String, String> ORDER_WHITELIST;
@@ -44,9 +54,11 @@ public class RealNameReviewService
         ORDER_WHITELIST = Collections.unmodifiableMap(m);
     }
 
-    public RealNameReviewService(RealNameAdminMapper mapper, MaterialAccessTokenService materialTokenService)
+    public RealNameReviewService(RealNameAdminMapper mapper, UserNotificationAdminService notifications,
+            MaterialAccessTokenService materialTokenService)
     {
         this.mapper = mapper;
+        this.notifications = notifications;
         this.materialTokenService = materialTokenService;
     }
 
@@ -153,7 +165,70 @@ public class RealNameReviewService
         updated.setApplicationId(applicationId);
         updated.setStatus(target);
         updated.setRejectReason(reject ? trimmedReason : null);
+        notifyApplicantOfDecision(applicationId, reject, trimmedReason);
         return updated;
+    }
+
+    /**
+     * 审核决定后向申请人投递站内通知（REVIEW 类型）。
+     *
+     * 在事务提交后投递：审核决定一旦回滚则不产生通知；投递失败只记日志，
+     * 不影响审核本身已生效的结果。requestId 以申请号构造，配合唯一索引
+     * 保证同一申请只投递一次。
+     */
+    private void notifyApplicantOfDecision(Long applicationId, boolean reject, String trimmedReason)
+    {
+        if (notifications == null)
+        {
+            return;
+        }
+        Runnable deliver = () -> deliverDecisionNotice(applicationId, reject, trimmedReason);
+        if (TransactionSynchronizationManager.isSynchronizationActive())
+        {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization()
+            {
+                @Override
+                public void afterCommit()
+                {
+                    deliver.run();
+                }
+            });
+        }
+        else
+        {
+            deliver.run();
+        }
+    }
+
+    private void deliverDecisionNotice(Long applicationId, boolean reject, String trimmedReason)
+    {
+        try
+        {
+            Long userId = mapper.selectApplicationUserId(applicationId);
+            if (userId == null)
+            {
+                return;
+            }
+            String title = reject ? "实名认证未通过" : "实名认证已通过";
+            String content = reject
+                    ? "很抱歉，您的实名认证未通过。原因：" + (trimmedReason == null ? "" : trimmedReason)
+                            + "。您可在「实名认证」中修改后重新提交。"
+                    : "恭喜，您的实名认证已通过审核，现在可以使用需要实名的功能。";
+            notifications.create(
+                    REAL_NAME_NOTICE_ID_PREFIX + applicationId,
+                    AppAdminConstants.NOTIFICATION_REVIEW,
+                    title,
+                    content,
+                    "REAL_NAME",
+                    String.valueOf(applicationId),
+                    List.of(userId),
+                    "system");
+        }
+        catch (Exception e)
+        {
+            // 审核已生效，通知只是附带动作：失败仅记录，不回滚、不抛出
+            log.warn("real-name decision notice skipped: {}", e.getClass().getSimpleName());
+        }
     }
 
     /**
