@@ -9,6 +9,7 @@ import com.smartscript.platform.user.domain.UserMessage;
 import com.smartscript.platform.user.domain.UserNotificationPreference;
 import com.smartscript.platform.user.domain.UserPhoneChangeLog;
 import com.smartscript.platform.user.domain.UserCreatorProfile;
+import com.smartscript.platform.user.domain.UserCreatorApplication;
 import com.smartscript.platform.user.domain.UserRealNameAuth;
 
 /**
@@ -73,6 +74,19 @@ public interface AppUserCenterMapper
 
     /** 写入新的实名申请（驳回后重提也走新增，保留完整审计链）。 */
     int insertRealName(UserRealNameAuth record);
+
+    // ------------------------------------------------------------------
+    // 创作者申请
+    // ------------------------------------------------------------------
+
+    /** 最新一条创作者申请；无记录返回 null。 */
+    UserCreatorApplication selectLatestCreatorApplication(@Param("userId") Long userId);
+
+    /** 最新创作者申请状态；无记录返回 null。 */
+    String selectLatestCreatorApplicationStatus(@Param("userId") Long userId);
+
+    /** 写入新的创作者申请（驳回后重提也走新增，保留完整审计链）。 */
+    int insertCreatorApplication(UserCreatorApplication record);
 
     // ------------------------------------------------------------------
     // 消息收件箱

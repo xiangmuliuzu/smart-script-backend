@@ -74,6 +74,10 @@ public final class A4AuditParamProjection
     public static final String[] FEEDBACK_HANDLE = { AppAdminAuditParams.ACTION, AppAdminAuditParams.REPLY,
             AppAdminAuditParams.EXPECTED_STATUS };
 
+    /** 8. `PUT /api/v1/admin/creator-applications/{applicationId}/decision`（契约 §5.6）。 */
+    public static final String[] CREATOR_APPLY_DECISION = { AppAdminAuditParams.DECISION,
+            AppAdminAuditParams.REJECT_REASON, AppAdminAuditParams.EXPECTED_STATUS };
+
     /**
      * 消息创建接口中**客户端可控的自由字符串**字段（契约 §5.4）：日志中只记录不可逆指纹。
      *
@@ -387,6 +391,29 @@ public final class A4AuditParamProjection
         for (String key : FEEDBACK_EXPECTED_LOG_ENUM)
         {
             fingerprintNonContractEnum(body, key, FEEDBACK_STATUSES);
+        }
+    }
+
+    /**
+     * 创作者申请审核接口日志投影的**值级默认拒绝**（契约 §5.6）。
+     *
+     * <p>与实名审核同口径：{@code decision} 仅保留 {@code APPROVE/REJECT}、
+     * {@code expectedStatus} 仅保留固定的 {@code PENDING}；其余取值一律指纹化。
+     * {@code rejectReason} 仍由接口 {@code excludeParamNames} 排除。必须在业务读取之后调用。</p>
+     */
+    public static void sanitizeCreatorApplyDecisionLog(Map<String, Object> body)
+    {
+        if (body == null || body.isEmpty())
+        {
+            return;
+        }
+        for (String key : DECISION_LOG_ENUM)
+        {
+            fingerprintNonContractEnum(body, key, REAL_NAME_DECISIONS);
+        }
+        for (String key : REAL_NAME_EXPECTED_LOG_ENUM)
+        {
+            fingerprintNonContractEnum(body, key, REAL_NAME_EXPECTED);
         }
     }
 

@@ -44,11 +44,17 @@ public final class AppUserErrorCodes
     /** 409 用户名称已被其他 App 用户使用。 */
     public static final int NICKNAME_TAKEN = 40907;
 
+    /** 409 创作者申请状态冲突：审核中或已通过（已是创作者）时重复提交。 */
+    public static final int CREATOR_APPLY_CONFLICT = 40908;
+
     /** 404 通用文案：与「不属于我」同文案，避免泄露资源是否存在。 */
     public static final String RESOURCE_NOT_FOUND_TEXT = "资源不存在";
 
     /** 409 实名状态冲突文案。 */
     public static final String REAL_NAME_CONFLICT_TEXT = "当前实名状态不允许该操作";
+
+    /** 409 创作者申请状态冲突文案。 */
+    public static final String CREATOR_APPLY_CONFLICT_TEXT = "当前创作者申请状态不允许该操作";
 
     /** 409 重复提交文案。 */
     public static final String DUPLICATE_SUBMIT_TEXT = "请勿重复提交";

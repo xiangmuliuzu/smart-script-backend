@@ -25,7 +25,7 @@ class A4PaginationCleanupTest
     {
         var service = mock(AppUserAdminService.class);
         when(service.page(anyMap())).thenThrow(AppAdminException.badRequest("invalid filter"));
-        var controller = new A4AdminController(service, null, null, null, null, null, null, null);
+        var controller = new A4AdminController(service, null, null, null, null, null, null, null, null);
         assertThrows(AppAdminException.class, () -> controller.listAppUsers(Map.of(
                 "pageNum", "1", "pageSize", "10", "authorCapability", "invalid")));
         assertNull(PageHelper.getLocalPage(), "Rejected filters must not leak pagination across servlet requests");

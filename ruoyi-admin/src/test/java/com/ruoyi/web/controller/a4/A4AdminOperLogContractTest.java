@@ -87,6 +87,8 @@ class A4AdminOperLogContractTest
         EXPECTED.put("grantRoles", new Expect("A4-用户角色授权", BusinessType.GRANT, List.of(AppAdminAuditParams.REASON), true));
         // H9-LOG-01：rejectReason 会随响应体进入 json_result，故该接口不记录响应体
         EXPECTED.put("decideRealName", new Expect("A4-实名审核", BusinessType.UPDATE, List.of(AppAdminAuditParams.REJECT_REASON), false));
+        // 创作者申请审核：与实名审核同口径，rejectReason 随响应体进入 json_result，故不记录响应体
+        EXPECTED.put("decideCreatorApplication", new Expect("A4-创作者申请审核", BusinessType.UPDATE, List.of(AppAdminAuditParams.REJECT_REASON), false));
         EXPECTED.put("updateAuthorCapability", new Expect("A4-作者能力", BusinessType.UPDATE, List.of(AppAdminAuditParams.REASON), true));
         // H10-REV-02：消息正文 title/content 为自由文本，声明排除（正文存业务表）
         EXPECTED.put("createNotification", new Expect("A4-用户消息", BusinessType.INSERT,
@@ -99,7 +101,7 @@ class A4AdminOperLogContractTest
     @Test
     void everyWriteEndpointDeclaresExpectedLogFields() throws Exception
     {
-        assertEquals(7, EXPECTED.size(), "A4 写接口数量固定为 7；变更需同步本契约与第 9 批矩阵");
+        assertEquals(8, EXPECTED.size(), "A4 写接口数量固定为 8；变更需同步本契约与第 9 批矩阵");
 
         for (Map.Entry<String, Expect> e : EXPECTED.entrySet())
         {
@@ -143,7 +145,7 @@ class A4AdminOperLogContractTest
         when(mapper.selectApplicationStatus(9101L)).thenReturn("PENDING");
         when(mapper.decideIfPending(9101L, "PENDING", "REJECTED", 9L, "材料不清晰"))
                 .thenReturn(1);
-        RealNameReviewService service = new RealNameReviewService(mapper, null);
+        RealNameReviewService service = new RealNameReviewService(mapper, null, null);
 
         RealNameApplication response = service.decide(9101L, "REJECT", "材料不清晰", 9L, "PENDING");
 
@@ -240,7 +242,7 @@ class A4AdminOperLogContractTest
         UserNotificationAdminService service = mock(UserNotificationAdminService.class);
         when(service.create(any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(new UserNotificationAdminService.CreateResult(77L, 1, true));
-        A4AdminController controller = new A4AdminController(null, null, null, service, null, null, null, null);
+        A4AdminController controller = new A4AdminController(null, null, null, null, service, null, null, null, null);
 
         SysUser sysUser = new SysUser();
         sysUser.setUserName("h8_normal");
@@ -293,7 +295,7 @@ class A4AdminOperLogContractTest
         UserNotificationAdminService service = mock(UserNotificationAdminService.class);
         when(service.create(any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(new UserNotificationAdminService.CreateResult(88L, 1, true));
-        A4AdminController controller = new A4AdminController(null, null, null, service, null, null, null, null);
+        A4AdminController controller = new A4AdminController(null, null, null, null, service, null, null, null, null);
 
         authenticate("h8_normal");
         try
@@ -346,7 +348,7 @@ class A4AdminOperLogContractTest
         when(feedbackService.handle(any(), any(), any(), any(), any()))
                 .thenReturn(new UserFeedbackAdminService.HandleResult(5L, "SUBMITTED", true));
         A4AdminController controller = new A4AdminController(appUserAdminService, realNameReviewService,
-                authorCapabilityService, null, feedbackService, null, null, null);
+                null, authorCapabilityService, null, feedbackService, null, null, null);
 
         authenticate("h8_normal");
         try
@@ -457,6 +459,7 @@ class A4AdminOperLogContractTest
             case "changeStatus" -> c.getDeclaredMethod(name, Long.class, Map.class);
             case "grantRoles" -> c.getDeclaredMethod(name, Long.class, Map.class);
             case "decideRealName" -> c.getDeclaredMethod(name, Long.class, Map.class);
+            case "decideCreatorApplication" -> c.getDeclaredMethod(name, Long.class, Map.class);
             case "updateAuthorCapability" -> c.getDeclaredMethod(name, Long.class, Map.class);
             case "createNotification" -> c.getDeclaredMethod(name, Map.class);
             case "handleFeedback" -> c.getDeclaredMethod(name, Long.class, Map.class);

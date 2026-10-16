@@ -153,6 +153,58 @@
              'app-user-center', NOW())
     </insert>
 
+    <!-- ================= 创作者申请 ================= -->
+
+    <resultMap id="UserCreatorApplicationMap" type="com.smartscript.platform.user.domain.UserCreatorApplication">
+        <id property="applicationId" column="application_id"/>
+        <result property="userId" column="user_id"/>
+        <result property="penName" column="pen_name"/>
+        <result property="direction" column="direction"/>
+        <result property="portfolio" column="portfolio"/>
+        <result property="intro" column="intro"/>
+        <result property="contact" column="contact"/>
+        <result property="status" column="status"/>
+        <result property="rejectReason" column="reject_reason"/>
+        <result property="submittedAt" column="submitted_at"/>
+        <result property="reviewedAt" column="reviewed_at"/>
+    </resultMap>
+
+    <select id="selectLatestCreatorApplication" resultMap="UserCreatorApplicationMap">
+        SELECT
+            uca.id AS application_id,
+            uca.user_id,
+            uca.pen_name,
+            uca.direction,
+            uca.portfolio,
+            uca.intro,
+            uca.contact,
+            uca.status,
+            uca.reject_reason,
+            uca.create_time AS submitted_at,
+            uca.audited_at AS reviewed_at
+        FROM user_creator_application uca
+        WHERE uca.user_id = #{userId}
+        ORDER BY uca.id DESC
+        LIMIT 1
+    </select>
+
+    <select id="selectLatestCreatorApplicationStatus" resultType="java.lang.String">
+        SELECT uca.status
+        FROM user_creator_application uca
+        WHERE uca.user_id = #{userId}
+        ORDER BY uca.id DESC
+        LIMIT 1
+    </select>
+
+    <insert id="insertCreatorApplication" parameterType="com.smartscript.platform.user.domain.UserCreatorApplication"
+            useGeneratedKeys="true" keyProperty="applicationId">
+        INSERT INTO user_creator_application
+            (user_id, pen_name, direction, portfolio, intro, contact, status, create_by, create_time)
+        VALUES
+            (#{userId}, #{penName}, #{direction}, #{portfolio}, #{intro}, #{contact}, #{status},
+             'app-user-center', NOW())
+    </insert>
+
     <!-- ================= 消息收件箱 ================= -->
 
     <resultMap id="UserMessageMap" type="com.smartscript.platform.user.domain.UserMessage">

@@ -32,11 +32,13 @@ import com.smartscript.platform.user.domain.admin.AdminNotification;
 import com.smartscript.platform.user.domain.admin.AppUserDetail;
 import com.smartscript.platform.user.domain.admin.AppUserSummary;
 import com.smartscript.platform.user.domain.admin.AuthorCapability;
+import com.smartscript.platform.user.domain.admin.CreatorApplication;
 import com.smartscript.platform.user.domain.admin.GrantableRole;
 import com.smartscript.platform.user.domain.admin.RealNameApplication;
 import com.smartscript.platform.user.exception.AppAdminException;
 import com.smartscript.platform.user.service.AppUserAdminService;
 import com.smartscript.platform.user.service.AuthorCapabilityService;
+import com.smartscript.platform.user.service.CreatorApplicationReviewService;
 import com.smartscript.platform.user.service.MaterialAccessLinkService;
 import com.smartscript.platform.user.service.MaterialAccessTokenService;
 import com.smartscript.platform.user.service.MaterialGateway;
@@ -90,6 +92,7 @@ public class A4AdminController extends BaseController
 {
     private final AppUserAdminService appUserAdminService;
     private final RealNameReviewService realNameReviewService;
+    private final CreatorApplicationReviewService creatorApplicationReviewService;
     private final AuthorCapabilityService authorCapabilityService;
     private final UserNotificationAdminService notificationService;
     private final UserFeedbackAdminService feedbackService;
@@ -99,6 +102,7 @@ public class A4AdminController extends BaseController
 
     public A4AdminController(AppUserAdminService appUserAdminService,
             RealNameReviewService realNameReviewService,
+            CreatorApplicationReviewService creatorApplicationReviewService,
             AuthorCapabilityService authorCapabilityService,
             UserNotificationAdminService notificationService,
             UserFeedbackAdminService feedbackService,
@@ -108,6 +112,7 @@ public class A4AdminController extends BaseController
     {
         this.appUserAdminService = appUserAdminService;
         this.realNameReviewService = realNameReviewService;
+        this.creatorApplicationReviewService = creatorApplicationReviewService;
         this.authorCapabilityService = authorCapabilityService;
         this.notificationService = notificationService;
         this.feedbackService = feedbackService;
@@ -347,6 +352,52 @@ public class A4AdminController extends BaseController
         A4AuditParamProjection.sanitizeRealNameDecisionLog(body);
         RealNameApplication updated = realNameReviewService.decide(applicationId, decision, rejectReason,
                 SecurityUtils.getUserId(), expectedStatus);
+        return AjaxResult.success(updated);
+    }
+
+    // ------------------------------------------------------------------
+    // 创作者申请审核
+    // ------------------------------------------------------------------
+
+    @PreAuthorize("@ss.hasPermi('" + AppAdminConstants.PERM_CREATOR_APP_LIST + "')")
+    @GetMapping("/creator-applications")
+    public TableDataInfo listCreatorApplications(@RequestParam Map<String, Object> params)
+    {
+        startPage(params);
+        List<CreatorApplication> rows = creatorApplicationReviewService.page(params);
+        return getDataTable(rows);
+    }
+
+    /**
+     * 创作者申请详情，需要独立的详情权限（契约 §4）。
+     * 响应体含申请人填写的自由文本（申请说明/联系方式），因此禁止记录响应数据。
+     */
+    @PreAuthorize("@ss.hasPermi('" + AppAdminConstants.PERM_CREATOR_APP_QUERY + "')")
+    @Log(title = "A4-创作者申请访问", businessType = BusinessType.OTHER, isSaveResponseData = false)
+    @GetMapping("/creator-applications/{applicationId}")
+    public AjaxResult creatorApplicationDetail(@PathVariable Long applicationId)
+    {
+        CreatorApplication detail = creatorApplicationReviewService.detail(applicationId);
+        return AjaxResult.success(detail);
+    }
+
+    @PreAuthorize("@ss.hasPermi('" + AppAdminConstants.PERM_CREATOR_APP_AUDIT + "')")
+    // 审核响应体会回带 rejectReason，与实名审核同口径禁止记录响应体（H9-LOG-01）。
+    @Log(title = "A4-创作者申请审核", businessType = BusinessType.UPDATE, isSaveResponseData = false,
+         excludeParamNames = { AppAdminAuditParams.REJECT_REASON, AppAdminAuditParams.TOKEN, AppAdminAuditParams.ACCESS_TOKEN,
+             AppAdminAuditParams.REFRESH_TOKEN, AppAdminAuditParams.CODE, AppAdminAuditParams.SMS_CODE,
+             AppAdminAuditParams.CAPTCHA, AppAdminAuditParams.PHONE, AppAdminAuditParams.ID_NUMBER })
+    @PutMapping("/creator-applications/{applicationId}/decision")
+    public AjaxResult decideCreatorApplication(@PathVariable Long applicationId, @RequestBody Map<String, Object> body)
+    {
+        A4AuditParamProjection.retain(body, A4AuditParamProjection.CREATOR_APPLY_DECISION);
+        String decision = str(body.get("decision"));
+        String rejectReason = str(body.get("rejectReason"));
+        String expectedStatus = str(body.get("expectedStatus"));
+        // 业务读取后值级默认拒绝：decision/expectedStatus 仅保留契约枚举值，其余取值指纹化。
+        A4AuditParamProjection.sanitizeCreatorApplyDecisionLog(body);
+        CreatorApplication updated = creatorApplicationReviewService.decide(applicationId, decision, rejectReason,
+                SecurityUtils.getUserId(), SecurityUtils.getUsername(), expectedStatus);
         return AjaxResult.success(updated);
     }
 

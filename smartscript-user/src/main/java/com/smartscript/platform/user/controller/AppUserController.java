@@ -22,6 +22,8 @@ import com.smartscript.platform.user.dto.PhoneChangeVerifyRequest;
 import com.smartscript.platform.user.dto.PhoneStepUpResult;
 import com.smartscript.platform.user.dto.RealNameStatusDto;
 import com.smartscript.platform.user.dto.RealNameSubmitRequest;
+import com.smartscript.platform.user.dto.CreatorApplyStatusDto;
+import com.smartscript.platform.user.dto.CreatorApplySubmitRequest;
 import com.smartscript.platform.user.dto.UserProfileDto;
 import com.smartscript.platform.user.dto.UserProfileUpdateRequest;
 import com.smartscript.platform.user.exception.AppAuthException;
@@ -29,6 +31,7 @@ import com.smartscript.platform.user.security.AppIdentityContext;
 import com.smartscript.platform.user.service.AppFileUploadService;
 import com.smartscript.platform.user.service.AppPhoneChangeService;
 import com.smartscript.platform.user.service.AppRealNameService;
+import com.smartscript.platform.user.service.CreatorApplyService;
 import com.smartscript.platform.user.service.AppUserProfileService;
 import com.smartscript.platform.user.service.UserMessageService;
 import com.smartscript.platform.user.util.AppClientIp;
@@ -53,18 +56,21 @@ public class AppUserController
     private final AppPhoneChangeService phoneChangeService;
     private final UserMessageService messageService;
     private final AppFileUploadService uploadService;
+    private final CreatorApplyService creatorApplyService;
 
     public AppUserController(AppUserProfileService profileService,
             AppRealNameService realNameService,
             AppPhoneChangeService phoneChangeService,
             UserMessageService messageService,
-            AppFileUploadService uploadService)
+            AppFileUploadService uploadService,
+            CreatorApplyService creatorApplyService)
     {
         this.profileService = profileService;
         this.realNameService = realNameService;
         this.phoneChangeService = phoneChangeService;
         this.messageService = messageService;
         this.uploadService = uploadService;
+        this.creatorApplyService = creatorApplyService;
     }
 
     // ------------------------------------------------------------------
@@ -116,6 +122,23 @@ public class AppUserController
     public AppApiResponse<RealNameStatusDto> resubmitRealName(@Valid @RequestBody RealNameSubmitRequest request)
     {
         return AppApiResponse.ok(realNameService.resubmit(currentUserId(), request));
+    }
+
+    // ------------------------------------------------------------------
+    // 创作者申请（§1.6）
+    // ------------------------------------------------------------------
+
+    @GetMapping("/me/creator-application")
+    public AppApiResponse<CreatorApplyStatusDto> creatorApplication()
+    {
+        return AppApiResponse.ok(creatorApplyService.getStatus(currentUserId()));
+    }
+
+    @PostMapping("/me/creator-application")
+    public AppApiResponse<CreatorApplyStatusDto> submitCreatorApplication(
+            @Valid @RequestBody CreatorApplySubmitRequest request)
+    {
+        return AppApiResponse.ok(creatorApplyService.submit(currentUserId(), request));
     }
 
     // ------------------------------------------------------------------

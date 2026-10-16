@@ -1,0 +1,136 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.user.mapper.CreatorApplicationAdminMapper">
+
+    <!--
+      A4 创作者申请查询与审核（契约 §3.3 / §5.6）。
+
+      安全约束：
+        1. 审核使用条件更新 status = expectedStatus，并发下只有一个成功。
+        2. 列名映射与实名审核一致：create_time -> submittedAt、audited_at -> reviewedAt、
+           auditor_id 关联 sys_user 取 reviewerName。不改动 user_creator_application 的列名。
+        3. 手机号同样只以掩码形式出库。
+    -->
+
+    <sql id="phoneMaskExpr">
+        CASE
+          WHEN u.phonenumber IS NULL OR TRIM(u.phonenumber) = '' THEN NULL
+          WHEN CHAR_LENGTH(u.phonenumber) &gt;= 7
+            THEN CONCAT(LEFT(u.phonenumber, 3), '****', RIGHT(u.phonenumber, 4))
+          ELSE '***'
+        END
+    </sql>
+
+    <resultMap id="CreatorApplicationMap" type="com.smartscript.platform.user.domain.admin.CreatorApplication">
+        <id property="applicationId" column="application_id"/>
+        <result property="userId" column="user_id"/>
+        <result property="nickname" column="nickname"/>
+        <result property="phoneMasked" column="phone_masked"/>
+        <result property="penName" column="pen_name"/>
+        <result property="direction" column="direction"/>
+        <result property="portfolio" column="portfolio"/>
+        <result property="intro" column="intro"/>
+        <result property="contact" column="contact"/>
+        <result property="status" column="status"/>
+        <result property="rejectReason" column="reject_reason"/>
+        <result property="reviewerName" column="reviewer_name"/>
+        <result property="submittedAt" column="submitted_at"/>
+        <result property="reviewedAt" column="reviewed_at"/>
+    </resultMap>
+
+    <select id="selectApplicationPage" parameterType="map" resultMap="CreatorApplicationMap">
+        SELECT
+            uca.id AS application_id,
+            uca.user_id,
+            u.nick_name AS nickname,
+            <include refid="phoneMaskExpr"/> AS phone_masked,
+            uca.pen_name,
+            uca.direction,
+            uca.portfolio,
+            uca.intro,
+            uca.contact,
+            uca.status,
+            uca.reject_reason,
+            au.nick_name AS reviewer_name,
+            uca.create_time AS submitted_at,
+            uca.audited_at AS reviewed_at
+        FROM user_creator_application uca
+        JOIN sys_user u ON u.user_id = uca.user_id
+        LEFT JOIN sys_user au ON au.user_id = uca.auditor_id
+        WHERE 1 = 1
+        <if test="status != null and status != ''">
+            AND uca.status = #{status}
+        </if>
+        <if test="keyword != null and keyword != ''">
+            AND (
+                 u.nick_name LIKE CONCAT('%', #{keyword}, '%')
+              OR u.user_name LIKE CONCAT('%', #{keyword}, '%')
+              OR uca.pen_name LIKE CONCAT('%', #{keyword}, '%')
+              OR u.phonenumber LIKE CONCAT('%', #{keyword}, '%')
+            )
+        </if>
+        <if test="beginTime != null and beginTime != ''">
+            AND uca.create_time &gt;= #{beginTime}
+        </if>
+        <if test="endTime != null and endTime != ''">
+            AND uca.create_time &lt;= #{endTime}
+        </if>
+        <if test="orderByColumn != null and orderByColumn != ''">
+            ORDER BY ${orderByColumn} ${isAsc}
+        </if>
+    </select>
+
+    <select id="selectApplicationDetail" resultMap="CreatorApplicationMap">
+        SELECT
+            uca.id AS application_id,
+            uca.user_id,
+            u.nick_name AS nickname,
+            <include refid="phoneMaskExpr"/> AS phone_masked,
+            uca.pen_name,
+            uca.direction,
+            uca.portfolio,
+            uca.intro,
+            uca.contact,
+            uca.status,
+            uca.reject_reason,
+            au.nick_name AS reviewer_name,
+            uca.create_time AS submitted_at,
+            uca.audited_at AS reviewed_at
+        FROM user_creator_application uca
+        JOIN sys_user u ON u.user_id = uca.user_id
+        LEFT JOIN sys_user au ON au.user_id = uca.auditor_id
+        WHERE uca.id = #{applicationId}
+        LIMIT 1
+    </select>
+
+    <select id="selectApplicationStatus" resultType="java.lang.String">
+        SELECT uca.status
+        FROM user_creator_application uca
+        WHERE uca.id = #{applicationId}
+        LIMIT 1
+    </select>
+
+    <select id="selectApplicationUserId" resultType="java.lang.Long">
+        SELECT uca.user_id
+        FROM user_creator_application uca
+        WHERE uca.id = #{applicationId}
+        LIMIT 1
+    </select>
+
+    <!--
+      条件审核：status = expectedStatus 参与 WHERE。
+      并发审核时只有一个事务能命中，另一个影响 0 行 -> 服务层转 409。
+    -->
+    <update id="decideIfPending">
+        UPDATE user_creator_application uca
+        SET uca.status = #{status},
+            uca.auditor_id = #{auditorId},
+            uca.audited_at = NOW(),
+            uca.reject_reason = #{rejectReason},
+            uca.update_time = NOW()
+        WHERE uca.id = #{applicationId}
+          AND uca.status = #{expectedStatus}
+    </update>
+
+</mapper>
