@@ -268,8 +268,6 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 			     OR JSON_UNQUOTE(JSON_EXTRACT(w.ext_json, '$.recommendExpireAt')) = ''
 			     OR JSON_UNQUOTE(JSON_EXTRACT(w.ext_json, '$.recommendExpireAt')) > NOW())
 		</if>
-		<choose>
-			<when test='recommendStatus != null and recommendStatus != ""'>order by JSON_EXTRACT(w.ext_json, '$.recommendWeight') desc, w.view_count desc, w.work_id desc</when>
 		<if test="showScope != null and showScope != ''">
 			AND JSON_CONTAINS(w.ext_json, concat('"', #{showScope}, '"'), '$.showScope')
 			AND (JSON_UNQUOTE(JSON_EXTRACT(w.ext_json, '$.recommendExpireAt')) IS NULL
@@ -277,6 +275,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 			     OR JSON_UNQUOTE(JSON_EXTRACT(w.ext_json, '$.recommendExpireAt')) > NOW())
 		</if>
 		<choose>
+			<when test='recommendStatus != null and recommendStatus != ""'>order by JSON_EXTRACT(w.ext_json, '$.recommendWeight') desc, w.view_count desc, w.work_id desc</when>
 			<when test='showScope != null and showScope != ""'>order by JSON_EXTRACT(w.ext_json, '$.recommendWeight') desc, w.view_count desc, w.work_id desc</when>
 			<when test='sort != null and sort == "view"'>order by w.view_count desc, w.work_id desc</when>
 			<when test='sort != null and sort == "favorite"'>order by w.favorite_count desc, w.work_id desc</when>
