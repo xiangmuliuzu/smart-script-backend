@@ -57,8 +57,11 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		<result property="remark"           column="remark"            />
 		<result property="authorName"       column="author_name"       />
 		<result property="genreName"        column="genre_name"        />
-		<result property="recommendStatus"  column="recommend_status"  />
-		<result property="showScope"        column="show_scope"        />
+		<result property="recommendStatus"     column="recommend_status"   />
+		<result property="showScope"           column="show_scope"         />
+		<result property="recommendWeight"    column="recommend_weight"    />
+		<result property="searchWeight"       column="search_weight"       />
+		<result property="recommendExpireAt"  column="recommend_expire_at" />
 	</resultMap>
 
 	<!-- 作品管理列表：含 authorName/genreName，全字段 -->
@@ -73,7 +76,9 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		       w.ext_json, w.is_deleted,
 		       w.create_by, w.create_time, w.update_by, w.update_time, w.remark,
 		       u.nick_name as author_name,
-		       c.category_name as genre_name
+		       c.category_name as genre_name,
+		       JSON_UNQUOTE(JSON_EXTRACT(w.ext_json, '$.recommendStatus')) as recommend_status,
+		       JSON_EXTRACT(w.ext_json, '$.showScope') as show_scope
 		from sys_work w
 		left join sys_user u on u.user_id = w.author_id
 		left join sys_category c on c.category_id = w.genre_id
@@ -123,7 +128,10 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		       w.create_by, w.create_time, w.update_by, w.update_time, w.remark,
 		       u.nick_name as author_name,
 		       JSON_UNQUOTE(JSON_EXTRACT(w.ext_json, '$.recommendStatus')) as recommend_status,
-		       JSON_EXTRACT(w.ext_json, '$.showScope') as show_scope
+		       JSON_EXTRACT(w.ext_json, '$.showScope') as show_scope,
+		       CAST(JSON_EXTRACT(w.ext_json, '$.recommendWeight') AS UNSIGNED) as recommend_weight,
+		       CAST(JSON_EXTRACT(w.ext_json, '$.searchWeight') AS UNSIGNED) as search_weight,
+		       JSON_UNQUOTE(JSON_EXTRACT(w.ext_json, '$.recommendExpireAt')) as recommend_expire_at
 		from sys_work w
 		left join sys_user u on u.user_id = w.author_id
 		where w.is_deleted = 0
@@ -135,7 +143,17 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 			AND w.title like concat('%', #{title}, '%')
 		</if>
 		<if test="recommendStatus != null and recommendStatus != ''">
-			AND JSON_UNQUOTE(JSON_EXTRACT(w.ext_json, '$.recommendStatus')) = #{recommendStatus}
+			<choose>
+				<when test="recommendStatus == 'home_hot'">
+					AND JSON_CONTAINS(w.ext_json, '"bookstore"', '$.showScope')
+				</when>
+				<when test="recommendStatus == 'search'">
+					AND JSON_CONTAINS(w.ext_json, '"search"', '$.showScope')
+				</when>
+				<otherwise>
+					AND JSON_UNQUOTE(JSON_EXTRACT(w.ext_json, '$.recommendStatus')) = #{recommendStatus}
+				</otherwise>
+			</choose>
 		</if>
 		<if test="status != null and status != ''">
 			AND w.status = #{status}
@@ -143,7 +161,19 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		<if test="tradeEnabled != null and tradeEnabled != ''">
 			AND w.trade_enabled = #{tradeEnabled}
 		</if>
-		order by w.create_time desc
+		<if test="hasRecommend != null and hasRecommend == true">
+			AND JSON_UNQUOTE(JSON_EXTRACT(w.ext_json, '$.recommendStatus')) IS NOT NULL
+			AND JSON_UNQUOTE(JSON_EXTRACT(w.ext_json, '$.recommendStatus')) != ''
+			AND JSON_UNQUOTE(JSON_EXTRACT(w.ext_json, '$.recommendStatus')) != 'none'
+		</if>
+		<choose>
+			<when test="recommendStatus == 'search'">
+				order by CASE WHEN JSON_EXTRACT(w.ext_json, '$.searchWeight') IS NULL THEN 1 ELSE 0 END, CAST(JSON_EXTRACT(w.ext_json, '$.searchWeight') AS UNSIGNED) asc, w.create_time desc
+			</when>
+			<otherwise>
+				order by CASE WHEN JSON_EXTRACT(w.ext_json, '$.recommendWeight') IS NULL THEN 1 ELSE 0 END, CAST(JSON_EXTRACT(w.ext_json, '$.recommendWeight') AS UNSIGNED) asc, w.create_time desc
+			</otherwise>
+		</choose>
 	</select>
 
 	<select id="selectBookstoreById" parameterType="Long" resultMap="SysWorkResult">
@@ -278,8 +308,9 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 			     OR JSON_UNQUOTE(JSON_EXTRACT(w.ext_json, '$.recommendExpireAt')) > NOW())
 		</if>
 		<choose>
-			<when test='recommendStatus != null and recommendStatus != ""'>order by JSON_EXTRACT(w.ext_json, '$.recommendWeight') desc, w.view_count desc, w.work_id desc</when>
-			<when test='showScope != null and showScope != ""'>order by JSON_EXTRACT(w.ext_json, '$.recommendWeight') desc, w.view_count desc, w.work_id desc</when>
+			<when test='recommendStatus != null and recommendStatus != ""'>order by CASE WHEN JSON_EXTRACT(w.ext_json, '$.recommendWeight') IS NULL THEN 1 ELSE 0 END, CAST(JSON_EXTRACT(w.ext_json, '$.recommendWeight') AS UNSIGNED) asc, w.view_count desc, w.work_id desc</when>
+			<when test='showScope == "search"'>order by CASE WHEN JSON_EXTRACT(w.ext_json, '$.searchWeight') IS NULL THEN 1 ELSE 0 END, CAST(JSON_EXTRACT(w.ext_json, '$.searchWeight') AS UNSIGNED) asc, w.view_count desc, w.work_id desc</when>
+			<when test='showScope != null and showScope != ""'>order by CASE WHEN JSON_EXTRACT(w.ext_json, '$.recommendWeight') IS NULL THEN 1 ELSE 0 END, CAST(JSON_EXTRACT(w.ext_json, '$.recommendWeight') AS UNSIGNED) asc, w.view_count desc, w.work_id desc</when>
 			<when test='sort != null and sort == "view"'>order by w.view_count desc, w.work_id desc</when>
 			<when test='sort != null and sort == "favorite"'>order by w.favorite_count desc, w.work_id desc</when>
 			<when test='sort != null and sort == "sale"'>order by w.sale_count desc, w.work_id desc</when>
