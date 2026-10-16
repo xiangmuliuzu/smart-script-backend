@@ -37,7 +37,7 @@ import com.smartscript.platform.user.mapper.AppUserCenterMapper;
 public class UserMessageService
 {
     /** 通知渠道：站内信。 */
-    public static final String CHANNEL_INBOX = "INBOX";
+    public static final String CHANNEL_INBOX = AppAdminConstants.NOTIFICATION_CHANNEL_INBOX;
     /** 通知渠道：推送。 */
     public static final String CHANNEL_PUSH = "PUSH";
 

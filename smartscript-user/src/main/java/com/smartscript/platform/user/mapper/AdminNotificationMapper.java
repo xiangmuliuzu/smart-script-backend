@@ -53,6 +53,16 @@ public interface AdminNotificationMapper
      */
     int countInvalidReceivers(@Param("userIds") List<Long> userIds);
 
+    /**
+     * 在给定收件人中，找出已通过通知偏好关闭「站内信 × type」的用户。
+     *
+     * 投递过滤口径（规格 §8.6）：偏好采用稀疏存储，只有显式关闭才会落库一行
+     * enabled=0，未落库的组合默认开启；因此只返回 enabled=0 的行，
+     * 不存在即视为收件。调用方据此把这些人从收件人集合中剔除。
+     */
+    List<Long> selectInboxDisabledUserIds(@Param("userIds") List<Long> userIds,
+                                          @Param("type") String type);
+
     /** 收件人数，用于人数上限与批处理阈值判定。 */
     int countReceivers(@Param("notificationId") Long notificationId);
 }
