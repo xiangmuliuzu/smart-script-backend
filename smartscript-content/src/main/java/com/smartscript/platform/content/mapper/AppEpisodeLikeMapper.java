@@ -60,4 +60,12 @@ public interface AppEpisodeLikeMapper
      * @return like_count；剧集不存在返回 null
      */
     public Integer selectEpisodeLikeCount(@Param("episodeId") Long episodeId);
+
+    /**
+     * 作者累计获赞数：其所有作品下剧集的 like_count 之和（个人主页「获赞」）。
+     *
+     * @param authorId 作者用户ID
+     * @return 累计获赞数；无作品/无点赞返回 0
+     */
+    public int selectAuthorLikeCount(@Param("authorId") Long authorId);
 }

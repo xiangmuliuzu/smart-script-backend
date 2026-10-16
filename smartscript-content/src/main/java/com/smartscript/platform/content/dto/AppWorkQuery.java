@@ -28,6 +28,19 @@ public class AppWorkQuery
     /** 展示位（从 ext_json 解析）：bookstore 书城首页 / category_page 分类页 / search 搜索 */
     private String showScope;
 
+    /** 作者用户ID（个人主页「TA 的作品」按作者过滤上架作品） */
+    private Long authorId;
+
+    public Long getAuthorId()
+    {
+        return authorId;
+    }
+
+    public void setAuthorId(Long authorId)
+    {
+        this.authorId = authorId;
+    }
+
     public String getRecommendStatus()
     {
         return recommendStatus;

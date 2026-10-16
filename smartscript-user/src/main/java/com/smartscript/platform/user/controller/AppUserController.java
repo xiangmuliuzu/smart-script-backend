@@ -7,6 +7,8 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -26,12 +28,15 @@ import com.smartscript.platform.user.dto.CreatorApplyStatusDto;
 import com.smartscript.platform.user.dto.CreatorApplySubmitRequest;
 import com.smartscript.platform.user.dto.UserProfileDto;
 import com.smartscript.platform.user.dto.UserProfileUpdateRequest;
+import com.smartscript.platform.user.dto.UserPublicProfileDto;
+import com.smartscript.platform.user.dto.UserSummaryDto;
 import com.smartscript.platform.user.exception.AppAuthException;
 import com.smartscript.platform.user.security.AppIdentityContext;
 import com.smartscript.platform.user.service.AppFileUploadService;
 import com.smartscript.platform.user.service.AppPhoneChangeService;
 import com.smartscript.platform.user.service.AppRealNameService;
 import com.smartscript.platform.user.service.CreatorApplyService;
+import com.smartscript.platform.user.service.UserSocialService;
 import com.smartscript.platform.user.service.AppUserProfileService;
 import com.smartscript.platform.user.service.UserMessageService;
 import com.smartscript.platform.user.util.AppClientIp;
@@ -57,13 +62,15 @@ public class AppUserController
     private final UserMessageService messageService;
     private final AppFileUploadService uploadService;
     private final CreatorApplyService creatorApplyService;
+    private final UserSocialService socialService;
 
     public AppUserController(AppUserProfileService profileService,
             AppRealNameService realNameService,
             AppPhoneChangeService phoneChangeService,
             UserMessageService messageService,
             AppFileUploadService uploadService,
-            CreatorApplyService creatorApplyService)
+            CreatorApplyService creatorApplyService,
+            UserSocialService socialService)
     {
         this.profileService = profileService;
         this.realNameService = realNameService;
@@ -71,6 +78,7 @@ public class AppUserController
         this.messageService = messageService;
         this.uploadService = uploadService;
         this.creatorApplyService = creatorApplyService;
+        this.socialService = socialService;
     }
 
     // ------------------------------------------------------------------
@@ -139,6 +147,49 @@ public class AppUserController
             @Valid @RequestBody CreatorApplySubmitRequest request)
     {
         return AppApiResponse.ok(creatorApplyService.submit(currentUserId(), request));
+    }
+
+    // ------------------------------------------------------------------
+    // 个人主页与关注（§1.7）
+    // ------------------------------------------------------------------
+
+    /** 查看指定用户的公开资料（自己或他人主页，统一入口）。 */
+    @GetMapping("/{userId}/public-profile")
+    public AppApiResponse<UserPublicProfileDto> publicProfile(@PathVariable Long userId)
+    {
+        return AppApiResponse.ok(socialService.publicProfile(currentUserId(), userId));
+    }
+
+    @GetMapping("/{userId}/following")
+    public AppApiResponse<Map<String, Object>> following(@PathVariable Long userId)
+    {
+        return AppApiResponse.ok(Map.of("list", socialService.following(userId, currentUserId())));
+    }
+
+    @GetMapping("/{userId}/followers")
+    public AppApiResponse<Map<String, Object>> followers(@PathVariable Long userId)
+    {
+        return AppApiResponse.ok(Map.of("list", socialService.followers(userId, currentUserId())));
+    }
+
+    /** 关注该用户（幂等）。 */
+    @PostMapping("/{userId}/follow")
+    public AppApiResponse<Map<String, Object>> follow(@PathVariable Long userId)
+    {
+        boolean changed = socialService.follow(currentUserId(), userId);
+        UserPublicProfileDto profile = socialService.publicProfile(currentUserId(), userId);
+        return AppApiResponse.ok(Map.of("following", true, "changed", changed,
+                "followerCount", profile.getFollowerCount()));
+    }
+
+    /** 取消关注该用户（幂等）。 */
+    @DeleteMapping("/{userId}/follow")
+    public AppApiResponse<Map<String, Object>> unfollow(@PathVariable Long userId)
+    {
+        boolean changed = socialService.unfollow(currentUserId(), userId);
+        UserPublicProfileDto profile = socialService.publicProfile(currentUserId(), userId);
+        return AppApiResponse.ok(Map.of("following", false, "changed", changed,
+                "followerCount", profile.getFollowerCount()));
     }
 
     // ------------------------------------------------------------------

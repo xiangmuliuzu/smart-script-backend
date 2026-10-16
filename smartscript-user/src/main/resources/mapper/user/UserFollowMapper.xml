@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.user.mapper.UserFollowMapper">
+
+    <!--
+      A5 用户社交：关注/粉丝关系与公开用户查询。
+
+      安全约束：
+        1. 关注关系唯一键 (follower_id, followee_id) 由数据库强制；重复关注用 INSERT IGNORE 幂等。
+        2. 关注自己由服务层拒绝（此处不额外设限，避免与 404 语义混淆）。
+        3. 列表只返回公开字段（昵称/头像/简介/账号类型），不含手机号等私密信息。
+        4. isFollowing 由 SQL 关联当前登录用户的关注记录计算，避免应用层 N+1。
+    -->
+
+    <resultMap id="AppUserResult" type="com.smartscript.platform.user.domain.AppUserRecord">
+        <id property="userId" column="user_id"/>
+        <result property="userName" column="user_name"/>
+        <result property="nickName" column="nick_name"/>
+        <result property="avatar" column="avatar"/>
+        <result property="userType" column="user_type"/>
+        <result property="status" column="status"/>
+        <result property="delFlag" column="del_flag"/>
+        <result property="bio" column="bio"/>
+        <result property="createTime" column="create_time"/>
+    </resultMap>
+
+    <resultMap id="UserSummaryMap" type="com.smartscript.platform.user.dto.UserSummaryDto">
+        <id property="userId" column="user_id"/>
+        <result property="nickname" column="nick_name"/>
+        <result property="avatar" column="avatar"/>
+        <result property="bio" column="bio"/>
+        <result property="userType" column="user_type"/>
+        <result property="isFollowing" column="is_following"/>
+    </resultMap>
+
+    <insert id="insertFollow">
+        INSERT IGNORE INTO sys_user_follow (follower_id, followee_id, created_at, create_by, create_time)
+        VALUES (#{followerId}, #{followeeId}, NOW(), 'app-user-center', NOW())
+    </insert>
+
+    <delete id="deleteFollow">
+        DELETE FROM sys_user_follow
+        WHERE follower_id = #{followerId} AND followee_id = #{followeeId}
+    </delete>
+
+    <select id="countFollowing" resultType="int">
+        SELECT COUNT(*) FROM sys_user_follow WHERE follower_id = #{userId}
+    </select>
+
+    <select id="countFollowers" resultType="int">
+        SELECT COUNT(*) FROM sys_user_follow WHERE followee_id = #{userId}
+    </select>
+
+    <select id="countFollowRelation" resultType="int">
+        SELECT COUNT(*) FROM sys_user_follow
+        WHERE follower_id = #{followerId} AND followee_id = #{followeeId}
+    </select>
+
+    <select id="selectPublicUser" resultMap="AppUserResult">
+        SELECT user_id, user_name, nick_name, avatar, user_type, status, del_flag, bio, create_time
+        FROM sys_user
+        WHERE user_id = #{userId}
+          AND del_flag = '0'
+          AND user_type IN ('01', '02', '03')
+        LIMIT 1
+    </select>
+
+    <!-- 我关注的人：以 followee 为主，is_following 恒为 1（自己当然关注了列表里的人） -->
+    <select id="selectFollowing" resultMap="UserSummaryMap">
+        SELECT u.user_id, u.nick_name, u.avatar, u.bio, u.user_type,
+               1 AS is_following
+        FROM sys_user_follow f
+        JOIN sys_user u ON u.user_id = f.followee_id
+        WHERE f.follower_id = #{userId}
+          AND u.del_flag = '0'
+          AND u.status = '0'
+          AND u.user_type IN ('01', '02', '03')
+        ORDER BY f.created_at DESC, f.id DESC
+    </select>
+
+    <!-- 粉丝列表：以 follower 为主，is_following 按 viewer 是否回关对方计算 -->
+    <select id="selectFollowers" resultMap="UserSummaryMap">
+        SELECT u.user_id, u.nick_name, u.avatar, u.bio, u.user_type,
+               (SELECT COUNT(*) FROM sys_user_follow v
+                 WHERE v.follower_id = #{viewerId} AND v.followee_id = u.user_id) AS is_following
+        FROM sys_user_follow f
+        JOIN sys_user u ON u.user_id = f.follower_id
+        WHERE f.followee_id = #{userId}
+          AND u.del_flag = '0'
+          AND u.status = '0'
+          AND u.user_type IN ('01', '02', '03')
+        ORDER BY f.created_at DESC, f.id DESC
+    </select>
+
+</mapper>

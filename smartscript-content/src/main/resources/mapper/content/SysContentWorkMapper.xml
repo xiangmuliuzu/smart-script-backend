@@ -256,6 +256,9 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		<if test="keyword != null and keyword != ''">
 			AND w.title like concat('%', #{keyword}, '%')
 		</if>
+		<if test="authorId != null">
+			AND w.author_id = #{authorId}
+		</if>
 		<if test="categoryId != null">
 			AND w.genre_id = #{categoryId}
 		</if>

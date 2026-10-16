@@ -362,8 +362,9 @@ public class AppUserProfileService
     /**
      * 创作者资料投影：无作者能力返回 null；有能力时读 user_creator_profile，
      * 无资料行也返回对象本身（字段 null / 空列表，由前端显示「未填写」）。
+     * 公开给个人主页复用（他人查看创作者主页时同样展示笔名/擅长）。
      */
-    private CreatorProfileDto creatorProfile(Long userId)
+    public CreatorProfileDto creatorProfile(Long userId)
     {
         Boolean enabled = capabilityMapper.selectEnabledByUserId(userId);
         if (enabled == null || !enabled)

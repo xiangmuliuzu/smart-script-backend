@@ -41,4 +41,16 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		where episode_id = #{episodeId}
 	</select>
 
+	<!--
+	  作者累计获赞：其所有作品下剧集的 like_count 之和（个人主页「获赞」）。
+	  统计口径 = 该用户发布作品（未删除）下所有剧集的点赞累计，而非用户自己点赞的数量。
+	-->
+	<select id="selectAuthorLikeCount" resultType="int">
+		select coalesce(sum(e.like_count), 0)
+		from sys_episode e
+		join sys_work w on w.work_id = e.work_id
+		where w.author_id = #{authorId}
+		  and w.is_deleted = 0
+	</select>
+
 </mapper>
