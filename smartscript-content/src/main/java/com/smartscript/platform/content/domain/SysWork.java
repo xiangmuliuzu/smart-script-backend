@@ -159,6 +159,18 @@ public class SysWork extends BaseEntity
     /** 展示范围（从 ext_json 解析，JSON 数组原文本） */
     private String showScope;
 
+    /** 推荐位次（从 ext_json 解析，数字越小越靠前） */
+    private Integer recommendWeight;
+
+    /** 推荐失效时间（从 ext_json 解析，yyyy-MM-dd HH:mm:ss） */
+    private String recommendExpireAt;
+
+    /** 搜索页推荐位次（从 ext_json 解析，数字越小越靠前；与首页热门位次独立，最多 6） */
+    private Integer searchWeight;
+
+    /** 查询用：是否只返回有推荐位的作品（不映射数据库列） */
+    private Boolean hasRecommend;
+
     public SysWork()
     {
     }
@@ -543,6 +555,16 @@ public class SysWork extends BaseEntity
         this.recommendStatus = recommendStatus;
     }
 
+    public Boolean getHasRecommend()
+    {
+        return hasRecommend;
+    }
+
+    public void setHasRecommend(Boolean hasRecommend)
+    {
+        this.hasRecommend = hasRecommend;
+    }
+
     public String getShowScope()
     {
         return showScope;
@@ -551,6 +573,36 @@ public class SysWork extends BaseEntity
     public void setShowScope(String showScope)
     {
         this.showScope = showScope;
+    }
+
+    public Integer getRecommendWeight()
+    {
+        return recommendWeight;
+    }
+
+    public void setRecommendWeight(Integer recommendWeight)
+    {
+        this.recommendWeight = recommendWeight;
+    }
+
+    public String getRecommendExpireAt()
+    {
+        return recommendExpireAt;
+    }
+
+    public void setRecommendExpireAt(String recommendExpireAt)
+    {
+        this.recommendExpireAt = recommendExpireAt;
+    }
+
+    public Integer getSearchWeight()
+    {
+        return searchWeight;
+    }
+
+    public void setSearchWeight(Integer searchWeight)
+    {
+        this.searchWeight = searchWeight;
     }
 
     @Override

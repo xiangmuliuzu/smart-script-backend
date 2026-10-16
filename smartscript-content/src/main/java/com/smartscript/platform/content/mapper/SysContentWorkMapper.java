@@ -232,4 +232,53 @@ public interface SysContentWorkMapper
      * @return 影响行数
      */
     public int refreshWorkAggregates(@Param("workId") Long workId);
+
+    // ==================== 书城推荐校验（位次唯一 / 数量上限） ====================
+
+    /**
+     * 统计当前勾选了「首页热门」展示位的作品数量（首页热门上限 30 本）。
+     */
+    @org.apache.ibatis.annotations.Select(
+        "SELECT COUNT(*) FROM sys_work WHERE is_deleted = 0 "
+        + "AND JSON_CONTAINS(ext_json, '\"bookstore\"', '$.showScope')")
+    public int countBookstoreWorks();
+
+    /**
+     * 把首页热门位次区间内的作品整体平移 delta 位（插入/移动重排用）。
+     * 仅影响勾选了 bookstore 展示位的作品。
+     *
+     * @param start 区间起始位次（含）
+     * @param end   区间结束位次（含）
+     * @param delta 平移量（+1 后移 / -1 前移）
+     * @return 受影响行数
+     */
+    @org.apache.ibatis.annotations.Update(
+        "UPDATE sys_work SET ext_json = JSON_SET(ext_json, '$.recommendWeight', "
+        + "CAST(JSON_UNQUOTE(JSON_EXTRACT(ext_json, '$.recommendWeight')) AS UNSIGNED) + #{delta}) "
+        + "WHERE is_deleted = 0 "
+        + "AND JSON_CONTAINS(ext_json, '\"bookstore\"', '$.showScope') "
+        + "AND CAST(JSON_EXTRACT(ext_json, '$.recommendWeight') AS UNSIGNED) BETWEEN #{start} AND #{end}")
+    public int shiftRecommendWeight(@Param("start") int start, @Param("end") int end, @Param("delta") int delta);
+
+    // ==================== 搜索页推荐（独立位次 searchWeight，最多 6 本） ====================
+
+    /**
+     * 统计当前勾选了「搜索页」展示位的作品数量（搜索页推荐上限 6 本）。
+     */
+    @org.apache.ibatis.annotations.Select(
+        "SELECT COUNT(*) FROM sys_work WHERE is_deleted = 0 "
+        + "AND JSON_CONTAINS(ext_json, '\"search\"', '$.showScope')")
+    public int countSearchWorks();
+
+    /**
+     * 把搜索页推荐位次区间内的作品整体平移 delta 位（搜索位次插入/移动重排用）。
+     * 仅影响勾选了 search 展示位的作品。
+     */
+    @org.apache.ibatis.annotations.Update(
+        "UPDATE sys_work SET ext_json = JSON_SET(ext_json, '$.searchWeight', "
+        + "CAST(JSON_UNQUOTE(JSON_EXTRACT(ext_json, '$.searchWeight')) AS UNSIGNED) + #{delta}) "
+        + "WHERE is_deleted = 0 "
+        + "AND JSON_CONTAINS(ext_json, '\"search\"', '$.showScope') "
+        + "AND CAST(JSON_EXTRACT(ext_json, '$.searchWeight') AS UNSIGNED) BETWEEN #{start} AND #{end}")
+    public int shiftSearchWeight(@Param("start") int start, @Param("end") int end, @Param("delta") int delta);
 }
