@@ -54,8 +54,8 @@ CREATE TABLE IF NOT EXISTS user_creator_application
 -- ---------------------------------------------------------------------
 INSERT INTO sys_menu (menu_id, menu_name, parent_id, order_num, path, component, query, route_name, is_frame, is_cache, menu_type, visible, status, perms, icon, create_by, remark) VALUES
 (3016, '创作者审核',       3000, 3, 'creator-apply', 'user/creator-apply/index', '', 'A4CreatorApply', 1, 0, 'C', '0', '0', 'user:creatorapp:list',  'star', 'a4_migration', 'A4-创作者申请审核'),
-(3017, 'A4-创作者申请查询', 3016, 1, '#', NULL, '', NULL, 1, 0, 'F', '0', '0', 'user:creatorapp:query', '#',    'a4_migration', 'A4-创作者申请查询'),
-(3018, 'A4-创作者申请审核', 3016, 2, '#', NULL, '', NULL, 1, 0, 'F', '0', '0', 'user:creatorapp:audit', '#',    'a4_migration', 'A4-创作者申请审核决定')
+(3017, '创作者申请查询', 3016, 1, '#', NULL, '', NULL, 1, 0, 'F', '0', '0', 'user:creatorapp:query', '#',    'a4_migration', 'A4-创作者申请查询'),
+(3018, '创作者申请审核', 3016, 2, '#', NULL, '', NULL, 1, 0, 'F', '0', '0', 'user:creatorapp:audit', '#',    'a4_migration', 'A4-创作者申请审核决定')
 ON DUPLICATE KEY UPDATE
   menu_name=VALUES(menu_name), parent_id=VALUES(parent_id), order_num=VALUES(order_num),
   path=VALUES(path), component=VALUES(component), route_name=VALUES(route_name),

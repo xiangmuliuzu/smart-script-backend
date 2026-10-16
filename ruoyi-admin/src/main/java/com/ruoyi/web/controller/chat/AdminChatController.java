@@ -1,4 +1,4 @@
-package com.ruoyi.web.controller.a3;
+package com.ruoyi.web.controller.chat;
 
 import java.util.Map;
 import org.springframework.security.access.prepost.PreAuthorize;

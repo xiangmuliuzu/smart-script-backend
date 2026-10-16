@@ -1,4 +1,4 @@
-package com.ruoyi.web.controller.a4;
+package com.ruoyi.web.controller.usercenter;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -22,7 +22,7 @@ import com.smartscript.platform.user.constant.AppAdminAuditParams;
  * H9-LOG-02（第 12 批）：A4 七写接口请求体的**白名单审计投影**防回退契约。
  *
  * 背景：第 10 批用 {@code excludeParamNames}（已知敏感名清单）收敛，残余是无法穷举任意未知键名与
- * 嵌套结构。本批改为默认拒绝：控制器在业务读取前调用 {@link A4AuditParamProjection#retain}，
+ * 嵌套结构。本批改为默认拒绝：控制器在业务读取前调用 {@link AdminAuditParamProjection#retain}，
  * 请求体只剩契约字段，且值只保留标量/标量数组。
  *
  * 本测试断言四类事实，与黑盒矩阵 {@code h-a-operlog-field-matrix.mjs} 的 W9 段一致：
@@ -33,7 +33,7 @@ import com.smartscript.platform.user.constant.AppAdminAuditParams;
  * 3. 白名单数组字段内的嵌套结构被逐元素过滤（业务读取到的也只剩标量元素）；
  * 4. 合法契约字段仍出现在 {@code oper_param}（自由文本由既有 excludeParamNames 排除）。
  */
-class A4AuditParamProjectionTest
+class AdminAuditParamProjectionTest
 {
     /** 合成标记（非真实凭据），与黑盒矩阵注入值同口径。 */
     private static final String M_TOKEN = "SYNTHETIC_XTOKEN_MARKER";
@@ -47,22 +47,22 @@ class A4AuditParamProjectionTest
     }
 
     private static final List<Endpoint> ENDPOINTS = List.of(
-            new Endpoint("redeemMaterialRef", A4AuditParamProjection.MATERIAL_REDEEM,
+            new Endpoint("redeemMaterialRef", AdminAuditParamProjection.MATERIAL_REDEEM,
                     List.of(AppAdminAuditParams.TOKEN)),
-            new Endpoint("changeStatus", A4AuditParamProjection.APP_USER_STATUS,
+            new Endpoint("changeStatus", AdminAuditParamProjection.APP_USER_STATUS,
                     List.of(AppAdminAuditParams.STATUS, AppAdminAuditParams.REASON)),
-            new Endpoint("grantRoles", A4AuditParamProjection.APP_USER_ROLES,
+            new Endpoint("grantRoles", AdminAuditParamProjection.APP_USER_ROLES,
                     List.of(AppAdminAuditParams.ROLE_IDS, AppAdminAuditParams.REASON)),
-            new Endpoint("decideRealName", A4AuditParamProjection.REAL_NAME_DECISION,
+            new Endpoint("decideRealName", AdminAuditParamProjection.REAL_NAME_DECISION,
                     List.of(AppAdminAuditParams.DECISION, AppAdminAuditParams.REJECT_REASON,
                             AppAdminAuditParams.EXPECTED_STATUS)),
-            new Endpoint("updateAuthorCapability", A4AuditParamProjection.AUTHOR_CAPABILITY,
+            new Endpoint("updateAuthorCapability", AdminAuditParamProjection.AUTHOR_CAPABILITY,
                     List.of(AppAdminAuditParams.ENABLED, AppAdminAuditParams.REASON)),
-            new Endpoint("createNotification", A4AuditParamProjection.NOTIFICATION_CREATE,
+            new Endpoint("createNotification", AdminAuditParamProjection.NOTIFICATION_CREATE,
                     List.of(AppAdminAuditParams.REQUEST_ID, AppAdminAuditParams.TYPE, AppAdminAuditParams.TITLE,
                             AppAdminAuditParams.CONTENT, AppAdminAuditParams.BUSINESS_TYPE,
                             AppAdminAuditParams.BUSINESS_ID, AppAdminAuditParams.USER_IDS)),
-            new Endpoint("handleFeedback", A4AuditParamProjection.FEEDBACK_HANDLE,
+            new Endpoint("handleFeedback", AdminAuditParamProjection.FEEDBACK_HANDLE,
                     List.of(AppAdminAuditParams.ACTION, AppAdminAuditParams.REPLY,
                             AppAdminAuditParams.EXPECTED_STATUS)));
 
@@ -85,7 +85,7 @@ class A4AuditParamProjectionTest
             Map<String, Object> body = contractBody(e.javaName());
             body.putAll(injectUnknownAndNested());
 
-            A4AuditParamProjection.retain(body, e.whitelist());
+            AdminAuditParamProjection.retain(body, e.whitelist());
             String operParam = auditParam(e.javaName(), body);
 
             for (String injectedKey : List.of("xToken", "legacySecret", "credential", "nested", "deep"))
@@ -108,13 +108,13 @@ class A4AuditParamProjectionTest
         Map<String, Object> roles = new LinkedHashMap<>();
         roles.put(AppAdminAuditParams.ROLE_IDS, List.of(7, Map.of("xToken", M_TOKEN), "8", Map.of("nested", M_ID)));
         roles.put(AppAdminAuditParams.REASON, "授权");
-        A4AuditParamProjection.retain(roles, A4AuditParamProjection.APP_USER_ROLES);
+        AdminAuditParamProjection.retain(roles, AdminAuditParamProjection.APP_USER_ROLES);
         assertEquals(List.of(7, "8"), roles.get(AppAdminAuditParams.ROLE_IDS),
                 "数组内的嵌套结构必须被逐元素过滤，只留标量");
 
         Map<String, Object> notif = new LinkedHashMap<>();
         notif.put(AppAdminAuditParams.USER_IDS, List.of(5, Map.of("token", M_TOKEN)));
-        A4AuditParamProjection.retain(notif, A4AuditParamProjection.NOTIFICATION_CREATE);
+        AdminAuditParamProjection.retain(notif, AdminAuditParamProjection.NOTIFICATION_CREATE);
         assertEquals(List.of(5), notif.get(AppAdminAuditParams.USER_IDS));
     }
 
@@ -137,7 +137,7 @@ class A4AuditParamProjectionTest
         for (Endpoint e : ENDPOINTS)
         {
             Map<String, Object> body = contractBody(e.javaName());
-            A4AuditParamProjection.retain(body, e.whitelist());
+            AdminAuditParamProjection.retain(body, e.whitelist());
 
             Map<String, Object> visible = JSON.parseObject(auditParam(e.javaName(), body));
             assertEquals(expectedVisible.get(e.javaName()), visible,
@@ -148,12 +148,12 @@ class A4AuditParamProjectionTest
     @Test
     void projectionIsNullSafeAndDefaultDeny()
     {
-        A4AuditParamProjection.retain(null, A4AuditParamProjection.APP_USER_STATUS);
-        A4AuditParamProjection.retain(new LinkedHashMap<>(), A4AuditParamProjection.APP_USER_STATUS);
+        AdminAuditParamProjection.retain(null, AdminAuditParamProjection.APP_USER_STATUS);
+        AdminAuditParamProjection.retain(new LinkedHashMap<>(), AdminAuditParamProjection.APP_USER_STATUS);
 
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("anything", "value");
-        A4AuditParamProjection.retain(body);
+        AdminAuditParamProjection.retain(body);
         assertTrue(body.isEmpty(), "空白名单必须默认拒绝一切键");
     }
 
@@ -172,9 +172,9 @@ class A4AuditParamProjectionTest
         body.put(AppAdminAuditParams.BUSINESS_ID, otherToken);
         body.put(AppAdminAuditParams.USER_IDS, List.of(5));
 
-        A4AuditParamProjection.fingerprintForLog(body, A4AuditParamProjection.NOTIFICATION_LOG_FINGERPRINT);
+        AdminAuditParamProjection.fingerprintForLog(body, AdminAuditParamProjection.NOTIFICATION_LOG_FINGERPRINT);
 
-        for (String key : A4AuditParamProjection.NOTIFICATION_LOG_FINGERPRINT)
+        for (String key : AdminAuditParamProjection.NOTIFICATION_LOG_FINGERPRINT)
         {
             String value = String.valueOf(body.get(key));
             assertTrue(value.matches("^fp:[0-9a-f]{12}$"), key + " 必须为不可逆指纹，实际 " + value);
@@ -187,13 +187,13 @@ class A4AuditParamProjectionTest
         // 一律指纹化，不看形态：全大写 / 纯数字令牌同样被指纹
         Map<String, Object> edges = new LinkedHashMap<>();
         edges.put(AppAdminAuditParams.REQUEST_ID, "UJFHXJWSLARFYQXUTJZTMSCPFNDHBWYV");
-        A4AuditParamProjection.fingerprintForLog(edges, AppAdminAuditParams.REQUEST_ID);
+        AdminAuditParamProjection.fingerprintForLog(edges, AppAdminAuditParams.REQUEST_ID);
         assertTrue(String.valueOf(edges.get(AppAdminAuditParams.REQUEST_ID)).matches("^fp:[0-9a-f]{12}$"));
 
         // 确定性：同值同指纹，审计可凭候选值重算核对
         Map<String, Object> again = new LinkedHashMap<>();
         again.put(AppAdminAuditParams.REQUEST_ID, token);
-        A4AuditParamProjection.fingerprintForLog(again, AppAdminAuditParams.REQUEST_ID);
+        AdminAuditParamProjection.fingerprintForLog(again, AppAdminAuditParams.REQUEST_ID);
         assertEquals(body.get(AppAdminAuditParams.REQUEST_ID), again.get(AppAdminAuditParams.REQUEST_ID),
                 "相同取值必须得到相同指纹");
     }
@@ -201,13 +201,13 @@ class A4AuditParamProjectionTest
     @Test
     void fingerprintForLogIsNullSafeAndLeavesAbsentKeysUntouched()
     {
-        A4AuditParamProjection.fingerprintForLog(null, A4AuditParamProjection.NOTIFICATION_LOG_FINGERPRINT);
-        A4AuditParamProjection.fingerprintForLog(new LinkedHashMap<>(), AppAdminAuditParams.REQUEST_ID);
+        AdminAuditParamProjection.fingerprintForLog(null, AdminAuditParamProjection.NOTIFICATION_LOG_FINGERPRINT);
+        AdminAuditParamProjection.fingerprintForLog(new LinkedHashMap<>(), AppAdminAuditParams.REQUEST_ID);
 
         Map<String, Object> body = new LinkedHashMap<>();
         body.put(AppAdminAuditParams.TYPE, "SYSTEM");
         body.put(AppAdminAuditParams.BUSINESS_ID, null);
-        A4AuditParamProjection.fingerprintForLog(body, A4AuditParamProjection.NOTIFICATION_LOG_FINGERPRINT);
+        AdminAuditParamProjection.fingerprintForLog(body, AdminAuditParamProjection.NOTIFICATION_LOG_FINGERPRINT);
         assertEquals("SYSTEM", body.get(AppAdminAuditParams.TYPE), "未列入指纹的键不得改动");
         assertNull(body.get(AppAdminAuditParams.BUSINESS_ID), "空值不产生指纹");
     }
@@ -218,10 +218,10 @@ class A4AuditParamProjectionTest
     {
         assertEquals(List.of(AppAdminAuditParams.REQUEST_ID, AppAdminAuditParams.BUSINESS_TYPE,
                         AppAdminAuditParams.BUSINESS_ID),
-                List.of(A4AuditParamProjection.NOTIFICATION_LOG_FINGERPRINT),
+                List.of(AdminAuditParamProjection.NOTIFICATION_LOG_FINGERPRINT),
                 "契约 §5.4 的客户端可控自由字符串为 requestId/businessType/businessId；变更需同步本测试");
         // type 是受控枚举、userIds 是数字数组，不能被指纹化（否则丢失可读定位）
-        List<String> fingerprintKeys = List.of(A4AuditParamProjection.NOTIFICATION_LOG_FINGERPRINT);
+        List<String> fingerprintKeys = List.of(AdminAuditParamProjection.NOTIFICATION_LOG_FINGERPRINT);
         assertFalse(fingerprintKeys.contains(AppAdminAuditParams.TYPE));
         assertFalse(fingerprintKeys.contains(AppAdminAuditParams.USER_IDS));
     }
@@ -241,7 +241,7 @@ class A4AuditParamProjectionTest
         body.put(AppAdminAuditParams.BUSINESS_ID, token);
         body.put(AppAdminAuditParams.USER_IDS, List.of(7, token, 8));
 
-        A4AuditParamProjection.sanitizeNotificationLog(body);
+        AdminAuditParamProjection.sanitizeNotificationLog(body);
 
         for (String key : List.of(AppAdminAuditParams.REQUEST_ID, AppAdminAuditParams.TYPE,
                 AppAdminAuditParams.BUSINESS_TYPE, AppAdminAuditParams.BUSINESS_ID))
@@ -267,7 +267,7 @@ class A4AuditParamProjectionTest
             Map<String, Object> body = new LinkedHashMap<>();
             body.put(AppAdminAuditParams.TYPE, knownType);
             body.put(AppAdminAuditParams.USER_IDS, List.of(5, 6));
-            A4AuditParamProjection.sanitizeNotificationLog(body);
+            AdminAuditParamProjection.sanitizeNotificationLog(body);
             assertEquals(knownType, body.get(AppAdminAuditParams.TYPE), "契约枚举值应保持可读");
             List<?> ids = (List<?>) body.get(AppAdminAuditParams.USER_IDS);
             for (Object id : ids)
@@ -279,18 +279,18 @@ class A4AuditParamProjectionTest
         // 非法枚举（非契约常量）指纹
         Map<String, Object> badType = new LinkedHashMap<>();
         badType.put(AppAdminAuditParams.TYPE, "NOT_A_TYPE");
-        A4AuditParamProjection.sanitizeNotificationLog(badType);
+        AdminAuditParamProjection.sanitizeNotificationLog(badType);
         assertTrue(String.valueOf(badType.get(AppAdminAuditParams.TYPE)).matches("^fp:[0-9a-f]{12}$"),
                 "非法枚举必须指纹化");
         // 非数组 userIds（非契约类型）整体指纹
         Map<String, Object> scalarIds = new LinkedHashMap<>();
         scalarIds.put(AppAdminAuditParams.USER_IDS, "AbCdEf0123456789");
-        A4AuditParamProjection.sanitizeNotificationLog(scalarIds);
+        AdminAuditParamProjection.sanitizeNotificationLog(scalarIds);
         assertTrue(String.valueOf(scalarIds.get(AppAdminAuditParams.USER_IDS)).matches("^fp:[0-9a-f]{12}$"),
                 "非数组 userIds 必须整体指纹化");
         // 空值安全
-        A4AuditParamProjection.sanitizeNotificationLog(null);
-        A4AuditParamProjection.sanitizeNotificationLog(new LinkedHashMap<>());
+        AdminAuditParamProjection.sanitizeNotificationLog(null);
+        AdminAuditParamProjection.sanitizeNotificationLog(new LinkedHashMap<>());
     }
 
     /**
@@ -304,7 +304,7 @@ class A4AuditParamProjectionTest
         Map<String, Object> body = new LinkedHashMap<>();
         body.put(AppAdminAuditParams.USER_IDS, List.of(72076, numericToken));
 
-        A4AuditParamProjection.sanitizeNotificationLog(body);
+        AdminAuditParamProjection.sanitizeNotificationLog(body);
 
         List<?> ids = (List<?>) body.get(AppAdminAuditParams.USER_IDS);
         assertEquals(2, ids.size());
@@ -323,7 +323,7 @@ class A4AuditParamProjectionTest
         Map<String, Object> body = new LinkedHashMap<>();
         body.put(AppAdminAuditParams.ROLE_IDS, List.of(2, numericToken));
 
-        A4AuditParamProjection.sanitizeRoleGrantLog(body);
+        AdminAuditParamProjection.sanitizeRoleGrantLog(body);
 
         List<?> ids = (List<?>) body.get(AppAdminAuditParams.ROLE_IDS);
         assertEquals(2, ids.size());
@@ -332,8 +332,8 @@ class A4AuditParamProjectionTest
         {
             assertTrue(String.valueOf(id).matches("^fp:[0-9a-f]{12}$"), "roleIds 元素必须指纹化，实际 " + id);
         }
-        A4AuditParamProjection.sanitizeRoleGrantLog(null);
-        A4AuditParamProjection.sanitizeRoleGrantLog(new LinkedHashMap<>());
+        AdminAuditParamProjection.sanitizeRoleGrantLog(null);
+        AdminAuditParamProjection.sanitizeRoleGrantLog(new LinkedHashMap<>());
     }
 
     /**
@@ -347,33 +347,33 @@ class A4AuditParamProjectionTest
         {
             Map<String, Object> body = new LinkedHashMap<>();
             body.put(AppAdminAuditParams.STATUS, legal);
-            A4AuditParamProjection.sanitizeStatusChangeLog(body);
+            AdminAuditParamProjection.sanitizeStatusChangeLog(body);
             assertEquals(legal, body.get(AppAdminAuditParams.STATUS), "契约枚举值应保持可读");
         }
         // 非法自由字符串（令牌形态）指纹
         Map<String, Object> token = new LinkedHashMap<>();
         token.put(AppAdminAuditParams.STATUS, "AbCdEf0123456789AbCdEf0123456789");
-        A4AuditParamProjection.sanitizeStatusChangeLog(token);
+        AdminAuditParamProjection.sanitizeStatusChangeLog(token);
         assertTrue(String.valueOf(token.get(AppAdminAuditParams.STATUS)).matches("^fp:[0-9a-f]{12}$"),
                 "非法枚举字符串必须指纹化");
         // 非法自由字符串（合成手机号形态）指纹
         Map<String, Object> phone = new LinkedHashMap<>();
         phone.put(AppAdminAuditParams.STATUS, "13900002222");
-        A4AuditParamProjection.sanitizeStatusChangeLog(phone);
+        AdminAuditParamProjection.sanitizeStatusChangeLog(phone);
         assertTrue(String.valueOf(phone.get(AppAdminAuditParams.STATUS)).matches("^fp:[0-9a-f]{12}$"),
                 "手机号形态字符串必须指纹化");
         // 数字与数组等非契约类型同样指纹（不原样保留）
         Map<String, Object> numeric = new LinkedHashMap<>();
         numeric.put(AppAdminAuditParams.STATUS, 9);
-        A4AuditParamProjection.sanitizeStatusChangeLog(numeric);
+        AdminAuditParamProjection.sanitizeStatusChangeLog(numeric);
         assertTrue(String.valueOf(numeric.get(AppAdminAuditParams.STATUS)).matches("^fp:[0-9a-f]{12}$"),
                 "数字取值必须指纹化");
         // 空值安全
-        A4AuditParamProjection.sanitizeStatusChangeLog(null);
-        A4AuditParamProjection.sanitizeStatusChangeLog(new LinkedHashMap<>());
+        AdminAuditParamProjection.sanitizeStatusChangeLog(null);
+        AdminAuditParamProjection.sanitizeStatusChangeLog(new LinkedHashMap<>());
         Map<String, Object> absent = new LinkedHashMap<>();
         absent.put("other", "x");
-        A4AuditParamProjection.sanitizeStatusChangeLog(absent);
+        AdminAuditParamProjection.sanitizeStatusChangeLog(absent);
         assertEquals("x", absent.get("other"), "未列入策略的键不得改动");
     }
 
@@ -389,14 +389,14 @@ class A4AuditParamProjectionTest
             Map<String, Object> body = new LinkedHashMap<>();
             body.put(AppAdminAuditParams.DECISION, legalDecision);
             body.put(AppAdminAuditParams.EXPECTED_STATUS, "PENDING");
-            A4AuditParamProjection.sanitizeRealNameDecisionLog(body);
+            AdminAuditParamProjection.sanitizeRealNameDecisionLog(body);
             assertEquals(legalDecision, body.get(AppAdminAuditParams.DECISION), "契约枚举值应保持可读");
             assertEquals("PENDING", body.get(AppAdminAuditParams.EXPECTED_STATUS), "固定期望状态应保持可读");
         }
         Map<String, Object> bad = new LinkedHashMap<>();
         bad.put(AppAdminAuditParams.DECISION, "MAYBE");
         bad.put(AppAdminAuditParams.EXPECTED_STATUS, "APPROVED");
-        A4AuditParamProjection.sanitizeRealNameDecisionLog(bad);
+        AdminAuditParamProjection.sanitizeRealNameDecisionLog(bad);
         assertTrue(String.valueOf(bad.get(AppAdminAuditParams.DECISION)).matches("^fp:[0-9a-f]{12}$"),
                 "非法 decision 必须指纹化");
         assertTrue(String.valueOf(bad.get(AppAdminAuditParams.EXPECTED_STATUS)).matches("^fp:[0-9a-f]{12}$"),
@@ -404,11 +404,11 @@ class A4AuditParamProjectionTest
         // 数字取值同样指纹
         Map<String, Object> numeric = new LinkedHashMap<>();
         numeric.put(AppAdminAuditParams.DECISION, 1);
-        A4AuditParamProjection.sanitizeRealNameDecisionLog(numeric);
+        AdminAuditParamProjection.sanitizeRealNameDecisionLog(numeric);
         assertTrue(String.valueOf(numeric.get(AppAdminAuditParams.DECISION)).matches("^fp:[0-9a-f]{12}$"),
                 "数字取值必须指纹化");
-        A4AuditParamProjection.sanitizeRealNameDecisionLog(null);
-        A4AuditParamProjection.sanitizeRealNameDecisionLog(new LinkedHashMap<>());
+        AdminAuditParamProjection.sanitizeRealNameDecisionLog(null);
+        AdminAuditParamProjection.sanitizeRealNameDecisionLog(new LinkedHashMap<>());
     }
 
     /**
@@ -421,7 +421,7 @@ class A4AuditParamProjectionTest
     {
         Map<String, Object> legal = new LinkedHashMap<>();
         legal.put(AppAdminAuditParams.ENABLED, true);
-        A4AuditParamProjection.sanitizeAuthorCapabilityLog(legal);
+        AdminAuditParamProjection.sanitizeAuthorCapabilityLog(legal);
         assertEquals(true, legal.get(AppAdminAuditParams.ENABLED), "布尔取值应保持可读");
 
         for (Object rejected : List.of("true", "TRUE", "False", "false", "AbCdEf0123456789AbCdEf0123456789",
@@ -429,12 +429,12 @@ class A4AuditParamProjectionTest
         {
             Map<String, Object> body = new LinkedHashMap<>();
             body.put(AppAdminAuditParams.ENABLED, rejected);
-            A4AuditParamProjection.sanitizeAuthorCapabilityLog(body);
+            AdminAuditParamProjection.sanitizeAuthorCapabilityLog(body);
             assertTrue(String.valueOf(body.get(AppAdminAuditParams.ENABLED)).matches("^fp:[0-9a-f]{12}$"),
                     "非布尔取值必须指纹化（业务侧亦 400 拒绝）：" + rejected);
         }
-        A4AuditParamProjection.sanitizeAuthorCapabilityLog(null);
-        A4AuditParamProjection.sanitizeAuthorCapabilityLog(new LinkedHashMap<>());
+        AdminAuditParamProjection.sanitizeAuthorCapabilityLog(null);
+        AdminAuditParamProjection.sanitizeAuthorCapabilityLog(new LinkedHashMap<>());
     }
 
     /**
@@ -451,7 +451,7 @@ class A4AuditParamProjectionTest
                 Map<String, Object> body = new LinkedHashMap<>();
                 body.put(AppAdminAuditParams.ACTION, legalAction);
                 body.put(AppAdminAuditParams.EXPECTED_STATUS, legalExpected);
-                A4AuditParamProjection.sanitizeFeedbackHandleLog(body);
+                AdminAuditParamProjection.sanitizeFeedbackHandleLog(body);
                 assertEquals(legalAction, body.get(AppAdminAuditParams.ACTION), "契约枚举值应保持可读");
                 assertEquals(legalExpected, body.get(AppAdminAuditParams.EXPECTED_STATUS), "状态机期望值应保持可读");
             }
@@ -459,27 +459,27 @@ class A4AuditParamProjectionTest
         Map<String, Object> bad = new LinkedHashMap<>();
         bad.put(AppAdminAuditParams.ACTION, "NOPE");
         bad.put(AppAdminAuditParams.EXPECTED_STATUS, "AbCdEf0123456789AbCdEf0123456789");
-        A4AuditParamProjection.sanitizeFeedbackHandleLog(bad);
+        AdminAuditParamProjection.sanitizeFeedbackHandleLog(bad);
         assertTrue(String.valueOf(bad.get(AppAdminAuditParams.ACTION)).matches("^fp:[0-9a-f]{12}$"),
                 "非法 action 必须指纹化");
         assertTrue(String.valueOf(bad.get(AppAdminAuditParams.EXPECTED_STATUS)).matches("^fp:[0-9a-f]{12}$"),
                 "非状态机取值的 expectedStatus 必须指纹化");
-        A4AuditParamProjection.sanitizeFeedbackHandleLog(null);
-        A4AuditParamProjection.sanitizeFeedbackHandleLog(new LinkedHashMap<>());
+        AdminAuditParamProjection.sanitizeFeedbackHandleLog(null);
+        AdminAuditParamProjection.sanitizeFeedbackHandleLog(new LinkedHashMap<>());
     }
 
     /** 第 14 批：四个新值级策略的字段集必须与契约字段一致（防漂移）。 */
     @Test
     void valueLevelStrategyFieldSetsMatchContract()
     {
-        assertEquals(List.of(AppAdminAuditParams.STATUS), List.of(A4AuditParamProjection.STATUS_LOG_ENUM));
-        assertEquals(List.of(AppAdminAuditParams.DECISION), List.of(A4AuditParamProjection.DECISION_LOG_ENUM));
+        assertEquals(List.of(AppAdminAuditParams.STATUS), List.of(AdminAuditParamProjection.STATUS_LOG_ENUM));
+        assertEquals(List.of(AppAdminAuditParams.DECISION), List.of(AdminAuditParamProjection.DECISION_LOG_ENUM));
         assertEquals(List.of(AppAdminAuditParams.EXPECTED_STATUS),
-                List.of(A4AuditParamProjection.REAL_NAME_EXPECTED_LOG_ENUM));
-        assertEquals(List.of(AppAdminAuditParams.ACTION), List.of(A4AuditParamProjection.FEEDBACK_ACTION_LOG_ENUM));
+                List.of(AdminAuditParamProjection.REAL_NAME_EXPECTED_LOG_ENUM));
+        assertEquals(List.of(AppAdminAuditParams.ACTION), List.of(AdminAuditParamProjection.FEEDBACK_ACTION_LOG_ENUM));
         assertEquals(List.of(AppAdminAuditParams.EXPECTED_STATUS),
-                List.of(A4AuditParamProjection.FEEDBACK_EXPECTED_LOG_ENUM));
-        assertEquals(List.of(AppAdminAuditParams.ENABLED), List.of(A4AuditParamProjection.AUTHOR_CAPABILITY_LOG_BOOL));
+                List.of(AdminAuditParamProjection.FEEDBACK_EXPECTED_LOG_ENUM));
+        assertEquals(List.of(AppAdminAuditParams.ENABLED), List.of(AdminAuditParamProjection.AUTHOR_CAPABILITY_LOG_BOOL));
     }
 
     /** 与黑盒矩阵一致：未知名的敏感键 + 嵌套对象 + 深层嵌套。 */
@@ -555,7 +555,7 @@ class A4AuditParamProjectionTest
     private static Method findWriteMethod(String name) throws NoSuchMethodException
     {
         return "createNotification".equals(name) || "redeemMaterialRef".equals(name)
-                ? A4AdminController.class.getDeclaredMethod(name, Map.class)
-                : A4AdminController.class.getDeclaredMethod(name, Long.class, Map.class);
+                ? AdminUserCenterController.class.getDeclaredMethod(name, Map.class)
+                : AdminUserCenterController.class.getDeclaredMethod(name, Long.class, Map.class);
     }
 }

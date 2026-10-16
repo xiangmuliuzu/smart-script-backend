@@ -23,7 +23,7 @@ import com.ruoyi.framework.aspectj.OperLogSanitizer;
  * （《A4-管理接口契约》§5），查询参数不是契约输入，却可被原样写入 {@code oper_param}
  * （如 {@code POST /notifications?requestId=<令牌>}），绕过请求体的值级指纹。</p>
  *
- * <p>修复：只对 **A4 PC 管理域**（见 {@link #A4_PREFIXES}）的**非 GET** 请求，把查询参数从请求中
+ * <p>修复：只对 **PC 管理域**（见 {@link OperLogSanitizer#ADMIN_PREFIXES}）的**非 GET** 请求，把查询参数从请求中
  * 屏蔽（不改变请求体绑定、不改变任何响应与业务结果）。于是操作日志回落到「序列化已经指纹化的
  * 请求体」这条路径，查询参数（无论键名是否为契约字段）都不可能进入日志。GET 列表接口仍使用
  * 查询参数，不受影响。</p>
@@ -34,14 +34,14 @@ import com.ruoyi.framework.aspectj.OperLogSanitizer;
  */
 @Component
 @Order(Ordered.LOWEST_PRECEDENCE - 200)
-public class A4WriteQueryParamFilter extends OncePerRequestFilter
+public class AdminWriteQueryParamFilter extends OncePerRequestFilter
 {
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request)
     {
         // A4 路径白名单与 OperLogSanitizer 共用，避免两处列表漂移；
         // C 模块 /api/v1/admin/trade/** 不在白名单内，不受影响。
-        if (!OperLogSanitizer.isA4AdminPath(request.getRequestURI()))
+        if (!OperLogSanitizer.isAdminPath(request.getRequestURI()))
         {
             return true;
         }

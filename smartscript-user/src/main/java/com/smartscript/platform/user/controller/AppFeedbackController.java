@@ -26,7 +26,7 @@ import jakarta.validation.Valid;
  * 用户只访问自己的反馈：归属校验在服务层 SQL 完成，
  * 他人反馈与不存在的反馈返回同样的 404，不区分原因。
  *
- * PC 管理端的反馈处理接口在 A4AdminController，两者互不影响。
+ * PC 管理端的反馈处理接口在 AdminUserCenterController，两者互不影响。
  */
 @RestController
 @RequestMapping("/api/v1/feedback")

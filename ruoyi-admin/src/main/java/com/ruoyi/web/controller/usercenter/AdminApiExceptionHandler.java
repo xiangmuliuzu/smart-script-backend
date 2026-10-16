@@ -1,4 +1,4 @@
-package com.ruoyi.web.controller.a4;
+package com.ruoyi.web.controller.usercenter;
 
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,7 +21,7 @@ import com.smartscript.platform.user.exception.AppAdminException;
 /**
  * A4 PC 管理接口错误语义（契约 §6）。
  *
- * 只作用于 A4AdminController，不改变若依原生控制器的异常行为。
+ * 只作用于 AdminUserCenterController，不改变若依原生控制器的异常行为。
  *
  * 关于 HTTP 状态：本控制器为 A4 自定义域，显式返回与 code 同值的真实 HTTP 状态，
  * 便于联调矩阵按 HTTP 断言。若依原生接口仍沿用其「HTTP 200 + body.code」约定，
@@ -30,17 +30,17 @@ import com.smartscript.platform.user.exception.AppAdminException;
  * 安全要求：错误响应不得暴露 SQL、内部类名、堆栈、文件路径、材料地址
  * 或目标账号是否存在的敏感细节，故对外只返回安全文案。
  */
-@RestControllerAdvice(assignableTypes = { A4AdminController.class })
+@RestControllerAdvice(assignableTypes = { AdminUserCenterController.class })
 @Order(Ordered.HIGHEST_PRECEDENCE)
-public class A4AdminExceptionHandler
+public class AdminApiExceptionHandler
 {
     /**
      * 权限拒绝审计（H9-LOG-04）。字段注入且 required=false：
-     * 该处理器在单测中以 {@code new} 直接构造（见 A4AdminIllegalParameterMappingTest），
+     * 该处理器在单测中以 {@code new} 直接构造（见 AdminIllegalParameterMappingTest），
      * 此时审计器为 null，拒绝响应仍必须正常返回。
      */
     @Autowired(required = false)
-    private A4DeniedAccessAuditor deniedAccessAuditor;
+    private AdminDeniedAccessAuditor deniedAccessAuditor;
 
     @ExceptionHandler(AppAdminException.class)
     public ResponseEntity<AjaxResult> handleAdmin(AppAdminException e)

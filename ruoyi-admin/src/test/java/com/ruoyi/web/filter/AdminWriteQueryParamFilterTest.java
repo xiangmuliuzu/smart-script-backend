@@ -9,7 +9,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import java.lang.reflect.Method;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
-import com.ruoyi.web.filter.A4WriteQueryParamFilter.QueryParamHiddenRequest;
+import com.ruoyi.web.filter.AdminWriteQueryParamFilter.QueryParamHiddenRequest;
 
 /**
  * H13-REV-02（第 13 批复核补修）：A4 写接口查询参数隔离。
@@ -17,7 +17,7 @@ import com.ruoyi.web.filter.A4WriteQueryParamFilter.QueryParamHiddenRequest;
  * 若依 `LogAspect` 在 POST/PUT 带查询参数时改记查询参数、绕过请求体指纹，
  * 故对 A4 管理域非 GET 请求屏蔽查询参数。测试覆盖包装行为与过滤范围。
  */
-class A4WriteQueryParamFilterTest
+class AdminWriteQueryParamFilterTest
 {
     @Test
     void hidesQueryParamsForWrappedRequest()
@@ -38,9 +38,9 @@ class A4WriteQueryParamFilterTest
     }
 
     @Test
-    void filterScopeIsLimitedToA4AdminWriteRequests() throws Exception
+    void filterScopeIsLimitedToAdminWriteRequests() throws Exception
     {
-        A4WriteQueryParamFilter filter = new A4WriteQueryParamFilter();
+        AdminWriteQueryParamFilter filter = new AdminWriteQueryParamFilter();
 
         assertTrue(shouldNotFilter(filter, "GET", "/api/v1/admin/notifications", "pageNum=1"),
                 "GET 列表接口必须保留查询参数");
@@ -63,7 +63,7 @@ class A4WriteQueryParamFilterTest
                 "A4 反馈处理带查询参数必须包装");
     }
 
-    private static boolean shouldNotFilter(A4WriteQueryParamFilter filter, String method, String uri, String query)
+    private static boolean shouldNotFilter(AdminWriteQueryParamFilter filter, String method, String uri, String query)
             throws Exception
     {
         MockHttpServletRequest request = new MockHttpServletRequest(method, uri);
@@ -71,7 +71,7 @@ class A4WriteQueryParamFilterTest
         {
             request.setQueryString(query);
         }
-        Method m = A4WriteQueryParamFilter.class.getDeclaredMethod("shouldNotFilter", HttpServletRequest.class);
+        Method m = AdminWriteQueryParamFilter.class.getDeclaredMethod("shouldNotFilter", HttpServletRequest.class);
         m.setAccessible(true);
         return (boolean) m.invoke(filter, request);
     }
