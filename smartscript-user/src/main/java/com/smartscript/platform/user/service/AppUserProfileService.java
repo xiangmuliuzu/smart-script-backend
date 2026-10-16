@@ -8,9 +8,15 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import com.ruoyi.common.config.RuoYiConfig;
+import com.ruoyi.common.utils.file.FileUtils;
 import com.smartscript.platform.user.constant.AppAuthErrorCodes;
 import com.smartscript.platform.user.constant.AppUserErrorCodes;
 import com.smartscript.platform.user.constant.CreatorSpecialtyDictionary;
@@ -39,6 +45,8 @@ import com.smartscript.platform.user.util.AppHashes;
 @Service
 public class AppUserProfileService
 {
+    private static final Logger log = LoggerFactory.getLogger(AppUserProfileService.class);
+
     /** 用户名称最多 15 个 Unicode 字符；数据库保留原列宽以兼容历史资料。 */
     private static final int NICKNAME_MAX = 15;
 
@@ -101,8 +109,15 @@ public class AppUserProfileService
         if (request.getAvatar() != null)
         {
             String avatar = normalizeAvatar(request.getAvatar());
+            // 通过上传端点得到的头像每次都是新文件名（短 UUID），换头像会留下被替换的旧文件。
+            // 记下换之前的地址，提交成功后回收，避免上传目录随时间无限增长。
+            String previousAvatar = user.getAvatar();
             centerMapper.updateAvatar(userId, avatar);
             user.setAvatar(avatar);
+            if (!avatar.equals(previousAvatar))
+            {
+                deleteReplacedAvatarAfterCommit(userId, previousAvatar);
+            }
         }
         if (request.getBio() != null)
         {
@@ -186,6 +201,108 @@ public class AppUserProfileService
         }
         return Arrays.stream(value.substring(1).split("/", -1))
                 .noneMatch(part -> part.isEmpty() || part.equals(".") || part.equals(".."));
+    }
+
+    /**
+     * 换头像后回收被替换的旧头像文件：事务提交后再删，回滚则保留
+     * （与 {@link AppAuthenticationService} 的 afterCommit 审计同一约定）。
+     * 仅删除平台自管的上传路径，且删除前确认已无任何用户引用该路径。
+     */
+    private void deleteReplacedAvatarAfterCommit(Long userId, String previousAvatar)
+    {
+        if (previousAvatar == null || previousAvatar.isBlank())
+        {
+            return;
+        }
+        if (TransactionSynchronizationManager.isSynchronizationActive())
+        {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization()
+            {
+                @Override
+                public void afterCommit()
+                {
+                    deleteManagedAvatarFile(userId, previousAvatar);
+                }
+            });
+        }
+        else
+        {
+            // 无事务上下文（单测/非事务路径）直接清理
+            deleteManagedAvatarFile(userId, previousAvatar);
+        }
+    }
+
+    /**
+     * 删除受管的头像源文件。只处理 /profile/** 且能映射为上传根下文件的路径；
+     * 仍被引用或非本平台路径时跳过，只留一行可追踪日志（不落原始地址）。
+     */
+    private void deleteManagedAvatarFile(Long userId, String avatar)
+    {
+        try
+        {
+            if (centerMapper.countAvatarReferences(avatar) > 0)
+            {
+                return;
+            }
+            java.io.File file = toManagedAvatarDiskPath(avatar);
+            if (file != null && FileUtils.deleteFile(file.getPath()))
+            {
+                log.info("a5-avatar replaced file removed userId={}", userId);
+            }
+        }
+        catch (Exception e)
+        {
+            log.warn("a5-avatar cleanup skipped: {}", e.getClass().getSimpleName());
+        }
+    }
+
+    /**
+     * 把 /profile/upload/... 或 /profile/avatar/... 资源路径映射为上传根下的磁盘文件。
+     * 非本平台路径（如外部 http(s) 图片）返回 null，交由调用方跳过；normalizeAvatar
+     * 已保证路径不含反斜杠/控制字符，此处再按段校验，杜绝路径穿越（../）。
+     */
+    private static java.io.File toManagedAvatarDiskPath(String avatar)
+    {
+        if (avatar == null)
+        {
+            return null;
+        }
+        String value = avatar.trim();
+        int cut = value.indexOf('?');
+        if (cut >= 0)
+        {
+            value = value.substring(0, cut);
+        }
+        cut = value.indexOf('#');
+        if (cut >= 0)
+        {
+            value = value.substring(0, cut);
+        }
+        String relative;
+        if (value.startsWith("/profile/upload/"))
+        {
+            relative = value.substring("/profile/upload/".length());
+        }
+        else if (value.startsWith("/profile/avatar/"))
+        {
+            relative = value.substring("/profile/avatar/".length());
+        }
+        else
+        {
+            return null;
+        }
+        if (relative.isEmpty() || relative.indexOf('\\') >= 0)
+        {
+            return null;
+        }
+        for (String part : relative.split("/", -1))
+        {
+            if (part.isEmpty() || part.equals(".") || part.equals(".."))
+            {
+                return null;
+            }
+        }
+        return new java.io.File(RuoYiConfig.getProfile(), "upload" + java.io.File.separator + relative.replace('/', java.io.File.separatorChar));
     }
 
     /**

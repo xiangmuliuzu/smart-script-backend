@@ -37,6 +37,9 @@ public interface AppUserCenterMapper
     /** 头像变更；返回影响行数。 */
     int updateAvatar(@Param("userId") Long userId, @Param("avatar") String avatar);
 
+    /** 指定头像路径仍被多少未删除用户引用；换头像后清理旧文件的删除前兜底。 */
+    int countAvatarReferences(@Param("avatar") String avatar);
+
     /** 个人简介变更（空串表示清空）；返回影响行数。 */
     int updateBio(@Param("userId") Long userId, @Param("bio") String bio);
 

@@ -59,6 +59,17 @@
           AND del_flag = '0'
     </update>
 
+    <!--
+      头像文件是否仍被任一未删除用户引用：换头像后清理被替换的旧文件前做兜底，
+      避免删除仍被他人（如复制过同一路径）使用的文件。
+    -->
+    <select id="countAvatarReferences" resultType="int">
+        SELECT COUNT(*)
+        FROM sys_user
+        WHERE del_flag = '0'
+          AND avatar = #{avatar}
+    </select>
+
     <update id="updateBio">
         UPDATE sys_user
         SET bio = #{bio}, update_by = 'app-user-center', update_time = NOW()
