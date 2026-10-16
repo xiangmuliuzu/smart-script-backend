@@ -50,8 +50,8 @@ class UserSocialServiceTest
         assertEquals(200L, dto.getUserId());
         assertEquals(3, dto.getFollowingCount());
         assertEquals(5, dto.getFollowerCount());
-        assertTrue(dto.isFollowing(), "100 已关注 200");
-        assertFalse(dto.isSelf());
+        assertTrue(dto.getIsFollowing(), "100 已关注 200");
+        assertFalse(dto.getIsSelf());
     }
 
     @Test
@@ -59,8 +59,8 @@ class UserSocialServiceTest
     {
         when(followMapper.selectPublicUser(100L)).thenReturn(user(100L));
         UserPublicProfileDto dto = service.publicProfile(100L, 100L);
-        assertTrue(dto.isSelf());
-        assertFalse(dto.isFollowing());
+        assertTrue(dto.getIsSelf());
+        assertFalse(dto.getIsFollowing());
         verify(followMapper, never()).countFollowRelation(any(), any());
     }
 

@@ -110,7 +110,7 @@ public class UserPublicProfileDto
         this.followingCount = followingCount;
     }
 
-    public boolean isFollowing()
+    public boolean getIsFollowing()
     {
         return isFollowing;
     }
@@ -120,7 +120,7 @@ public class UserPublicProfileDto
         isFollowing = following;
     }
 
-    public boolean isSelf()
+    public boolean getIsSelf()
     {
         return isSelf;
     }

@@ -67,7 +67,7 @@ public class UserSummaryDto
         this.userType = userType;
     }
 
-    public boolean isFollowing()
+    public boolean getIsFollowing()
     {
         return isFollowing;
     }
