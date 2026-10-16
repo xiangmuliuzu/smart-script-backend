@@ -18,6 +18,7 @@ import com.smartscript.platform.content.dto.AppWorkCreateRequest;
 import com.smartscript.platform.content.dto.AppWorkUpdateRequest;
 import com.smartscript.platform.content.dto.AppWorkVersionDto;
 import com.smartscript.platform.content.mapper.SysContentWorkMapper;
+import com.smartscript.platform.content.mapper.SysTagMapper;
 import com.smartscript.platform.content.mapper.SysWorkFileMapper;
 import com.smartscript.platform.content.mapper.SysWorkVersionMapper;
 import com.smartscript.platform.content.service.IAppWorkManageService;
@@ -90,6 +91,9 @@ public class AppWorkManageServiceImpl implements IAppWorkManageService
 
     @Autowired
     private SysContentWorkMapper workMapper;
+
+    @Autowired
+    private SysTagMapper tagMapper;
 
     @Autowired
     private SysWorkFileMapper workFileMapper;
@@ -199,6 +203,7 @@ public class AppWorkManageServiceImpl implements IAppWorkManageService
     }
 
     @Override
+    @Transactional
     public boolean deleteWork(Long workId)
     {
         Long userId = identityProvider.currentUserId();
@@ -209,7 +214,13 @@ public class AppWorkManageServiceImpl implements IAppWorkManageService
         SysWork update = new SysWork();
         update.setWorkId(workId);
         update.setUpdateBy(String.valueOf(userId));
-        return workMapper.softDeleteWork(update) > 0;
+        boolean ok = workMapper.softDeleteWork(update) > 0;
+        // 作品逻辑删除后其标签引用不再计入：全量刷新标签使用数量，避免计数虚高
+        if (ok)
+        {
+            tagMapper.syncTagUseCount();
+        }
+        return ok;
     }
 
     @Override

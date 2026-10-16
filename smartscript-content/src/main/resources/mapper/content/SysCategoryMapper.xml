@@ -88,4 +88,68 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		where category_id = #{categoryId}
 	</update>
 
+	<!-- 物理删除分类 -->
+	<delete id="deleteCategoryByIds" parameterType="Long">
+		delete from sys_category where category_id in
+		<foreach collection="array" item="categoryId" open="(" separator="," close=")">
+			#{categoryId}
+		</foreach>
+	</delete>
+
+	<!--
+	  统计引用该分类的作品数（删除前校验）。
+	  仅统计未删除作品（is_deleted = 0），与标签 use_count 的口径一致；
+	  否则只被逻辑删除作品引用的分类将永远无法删除。
+	-->
+	<select id="countWorkByCategoryId" parameterType="Long" resultType="int">
+		select count(1) from sys_work where genre_id = #{categoryId} and is_deleted = 0
+	</select>
+
+	<!-- 统计以该分类为父级的子分类数（删除前校验：有子分类不允许删除，避免 parent_id 悬空） -->
+	<select id="countChildrenByParentId" resultType="int">
+		select count(1) from sys_category where parent_id = #{categoryId}
+	</select>
+
+	<!-- 前移：当前分类从 oldSort 移到 newSort（newSort < oldSort），中间分类整体后移一位 -->
+	<update id="shiftSortForward">
+		update sys_category set sort = sort + 1
+		where sort >= #{newSort} and sort &lt; #{oldSort}
+		<if test="excludeId != null">and category_id != #{excludeId}</if>
+	</update>
+
+	<!-- 后移：当前分类从 oldSort 移到 newSort（newSort > oldSort），中间分类整体前移一位 -->
+	<update id="shiftSortBackward">
+		update sys_category set sort = sort - 1
+		where sort > #{oldSort} and sort &lt;= #{newSort}
+		<if test="excludeId != null">and category_id != #{excludeId}</if>
+	</update>
+
+	<!-- 当前最大位次（新增时以「最大位次 + 1」作为默认位次，追加到末尾） -->
+	<select id="selectMaxSort" resultType="java.lang.Integer">
+		select max(sort) from sys_category
+	</select>
+
+	<!-- 统计占用指定位次的其它分类数（位次唯一性强校验：结果 > 0 即重复，需回滚） -->
+	<select id="countBySort" resultType="int">
+		select count(1) from sys_category
+		where sort = #{sort}
+		<if test="excludeId != null">and category_id != #{excludeId}</if>
+	</select>
+
+	<!-- 删除后紧缩：把 sort 大于被删位次的其它分类整体前移一位，消除删除留下的位次空洞 -->
+	<update id="shiftSortAfterDelete">
+		update sys_category set sort = sort - 1
+		where sort > #{deletedSort}
+	</update>
+
+	<!--
+	  锁定位次写入作用域：对整表行加排他锁，串行化并发的位次维护事务。
+	  位次是整表共享的槽位序列，并发下「判占用 → 腾位 → 写入」的中间结果彼此不可见，
+	  两个事务都可能通过写入后唯一校验而落库重复位次；加锁后同一时刻只有一个位次事务在跑。
+	  仅取锁语义，调用方忽略返回的 ID 列表。
+	-->
+	<select id="lockSortScope" resultType="java.lang.Long">
+		select category_id from sys_category order by category_id for update
+	</select>
+
 </mapper>

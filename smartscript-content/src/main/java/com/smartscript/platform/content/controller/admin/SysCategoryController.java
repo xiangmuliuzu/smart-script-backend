@@ -4,6 +4,7 @@ import java.util.List;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -23,7 +24,7 @@ import com.smartscript.platform.content.service.ISysCategoryService;
  * 剧本分类管理（PC 后台）
  *
  * 依据：云端 script_platform_dev 库 sys_category 表 + PC 功能清单（分类管理页：
- * 新增、编辑、启用、停用、排序；清单未列删除，故不提供删除接口）。
+ * 新增、编辑、启用、停用、排序；删除为补充能力，删除前校验子分类与作品引用）。
  * 路由前缀 /api/v1/admin/content/category（附件6.1 统一版本前缀 /api/v1 + 后台 /admin）。
  * 鉴权：若依 RBAC，@PreAuthorize + Bearer Token。
  * 返回：列表 TableDataInfo，其余 AjaxResult。
@@ -115,5 +116,16 @@ public class SysCategoryController extends BaseController
     {
         category.setUpdateBy(getUsername());
         return toAjax(categoryService.updateCategorySort(category));
+    }
+
+    /**
+     * 删除剧本分类（单个/批量；被作品引用时拒绝删除）
+     */
+    @PreAuthorize("@ss.hasPermi('content:category:remove')")
+    @Log(title = "剧本分类", businessType = BusinessType.DELETE)
+    @DeleteMapping("/{categoryIds}")
+    public AjaxResult remove(@PathVariable Long[] categoryIds)
+    {
+        return toAjax(categoryService.deleteCategoryByIds(categoryIds));
     }
 }

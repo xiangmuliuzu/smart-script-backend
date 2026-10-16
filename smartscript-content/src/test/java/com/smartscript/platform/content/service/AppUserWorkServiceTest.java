@@ -211,6 +211,8 @@ class AppUserWorkServiceTest
         // 3 重复出现两次，去重后只写 2 条，避免撞 uk_work_tag(work_id, tag_id)
         verify(tagMapper).batchInsertWorkTag(anyLong(),
                 argThat(ids -> ids.size() == 2 && ids.containsAll(List.of(1, 3))), anyString());
+        // 标签引用已变化：必须刷新使用数量，保证 use_count 与实际引用接轨
+        verify(tagMapper).syncTagUseCount();
     }
 
     @Test
@@ -224,6 +226,8 @@ class AppUserWorkServiceTest
 
         verify(tagMapper).deleteWorkTagByWorkId(WORK_ID);
         verify(tagMapper, never()).batchInsertWorkTag(anyLong(), any(), anyString());
+        // 清空后引用数归零：同样要刷新使用数量
+        verify(tagMapper).syncTagUseCount();
     }
 
     @Test
@@ -236,6 +240,8 @@ class AppUserWorkServiceTest
         service.updateWorkBase(OWNER, WORK_ID, "新标题", "新简介", 5, null, null);
 
         verify(tagMapper, never()).deleteWorkTagByWorkId(anyLong());
+        // 标签未变动，不应触发使用数量刷新
+        verify(tagMapper, never()).syncTagUseCount();
     }
 
     @Test

@@ -127,6 +127,8 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
         {
             tagMapper.batchInsertWorkTag(workId, uniqueTagIds, String.valueOf(userId));
         }
+        // 标签引用已变化：全量刷新使用数量，保证 use_count 与作品实际引用接轨（不再恒为 0）
+        tagMapper.syncTagUseCount();
     }
 
     @Override
