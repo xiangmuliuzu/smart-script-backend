@@ -68,6 +68,11 @@ public class AppAuthSecurityConfig
                                 "/api/v1/auth/password/reset",
                                 "/api/v1/auth/register",
                                 "/api/v1/pc-auth/login").permitAll()
+                        // 运维端忘记密码（A 模块）：匿名可达，只处理 user_type='00' 账号，
+                        // 验证码复用 App 域 SmsCodeService（scene=RESET_PASSWORD）。
+                        .requestMatchers(HttpMethod.POST,
+                                "/api/v1/pc-auth/admin/sms/send",
+                                "/api/v1/pc-auth/admin/password/reset").permitAll()
                         .requestMatchers(HttpMethod.GET,
                                 "/api/v1/auth/captchaImage",
                                 "/api/v1/auth/agreements").permitAll()
