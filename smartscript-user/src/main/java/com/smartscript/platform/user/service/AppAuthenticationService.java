@@ -29,6 +29,8 @@ import com.smartscript.platform.user.util.AppHashes;
 @Service
 public class AppAuthenticationService
 {
+    private static final int CREATE_USER_MAX_ATTEMPTS = 10;
+
     private final AppUserMapper userMapper;
     private final SmsCodeService smsCodeService;
     private final AgreementService agreementService;
@@ -305,31 +307,32 @@ public class AppAuthenticationService
     private AppUserRecord createAppUser(String phone, String encodedPassword)
     {
         AppUserRecord user = new AppUserRecord();
-        user.setUserName(randomAppUserName());
-        user.setNickName(AppHashes.maskPhone(phone));
         user.setPhonenumber(phone);
         user.setPassword(encodedPassword == null ? "" : encodedPassword);
         user.setUserType("01");
         user.setAvatar("");
         user.setStatus("0");
         user.setDelFlag("0");
-        try
+        for (int attempt = 0; attempt < CREATE_USER_MAX_ATTEMPTS; attempt++)
         {
-            userMapper.insertAppUser(user);
-        }
-        catch (DuplicateKeyException e)
-        {
-            AppUserRecord existing = userMapper.selectByPhone(phone);
-            if (existing != null)
+            user.setUserName(randomAppUserName());
+            user.setNickName(randomAppNickname());
+            try
             {
-                return existing;
+                // 由现有名称唯一索引兜底并发；冲突后重新生成，绝不返回重复名称。
+                userMapper.insertAppUser(user);
+                return user;
             }
-            // 不同手机号的掩码可能相同；名称唯一索引冲突时用随机默认名称，避免阻断注册。
-            user.setNickName("用户" + randomAppUserName().substring(4, 17));
-            userMapper.insertAppUser(user);
-            return user;
+            catch (DuplicateKeyException e)
+            {
+                AppUserRecord existing = userMapper.selectByPhone(phone);
+                if (existing != null)
+                {
+                    return existing;
+                }
+            }
         }
-        return user;
+        throw new AppAuthException(AppAuthErrorCodes.SYSTEM_ERROR, 503, "注册暂不可用，请稍后重试");
     }
 
     private AuthSessionDto issueSession(AppUserRecord user, String deviceId, String deviceName, String ip)
@@ -425,6 +428,18 @@ public class AppAuthenticationService
         {
             throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "password must contain letter and digit");
         }
+    }
+
+    /** 与可编辑用户名称的 15 字上限一致，随机后缀同时包含字母和数字。 */
+    private static String randomAppNickname()
+    {
+        String suffix;
+        do
+        {
+            suffix = randomAppUserName().substring(4, 17);
+        }
+        while (!suffix.matches(".*[a-z].*") || !suffix.matches(".*[0-9].*"));
+        return "用户" + suffix;
     }
 
     private static String randomAppUserName()
