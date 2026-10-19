@@ -103,6 +103,10 @@ token:
 # 直接映射为公开静态资源（/profile/**），放进去等于把敏感材料公开。
 # 启动时会校验并在冲突时直接失败。
 app:
+  real-name:
+    aliyun:
+      enabled: ${ALIYUN_REAL_NAME_ENABLED:false}
+      app-code: ${ALIYUN_REAL_NAME_APPCODE:}
   # A4 材料网关与 A3 凭证域同属 app 命名空间，必须在同一个 app: 块内，
   # 否则重复的根键会让后者覆盖前者，材料目录配置会被静默丢弃。
   admin:

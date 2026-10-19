@@ -1172,13 +1172,12 @@ ON DUPLICATE KEY UPDATE
 INSERT INTO sys_menu (menu_id, menu_name, parent_id, order_num, path, component, query, route_name, is_frame, is_cache, menu_type, visible, status, perms, icon, create_by, remark) VALUES
 (3000, '用户中心',           0,    9, 'appuser',  NULL,                  '', NULL,        1, 0, 'M', '0', '0', NULL,                'peoples', 'a4_migration', 'A4 PC 管理能力权限（A4_20260922_002）'),
 (3001, 'App用户与创作者',    3000, 1, 'users',    'user/UserManage',     '', 'A4AppUser',  1, 0, 'C', '0', '0', 'user:app:list',     'user',    'a4_migration', 'A4 PC 管理能力权限（A4_20260922_002）'),
-(3005, '实名审核',           3000, 2, 'realname', 'user/realname/index', '', 'A4RealName', 1, 0, 'C', '0', '0', 'user:realname:list','form',    'a4_migration', 'A4 PC 管理能力权限（A4_20260922_002）'),
+(3005, '实名认证记录',           3000, 2, 'realname', 'user/realname/index', '', 'A4RealName', 1, 0, 'C', '0', '0', 'user:realname:list','form',    'a4_migration', 'A4 PC 管理能力权限（A4_20260922_002）'),
 (3013, '用户反馈',           3000, 5, 'feedback', 'user/feedback/index', '', 'A4Feedback', 1, 0, 'C', '0', '0', 'user:feedback:list','edit',    'a4_migration', 'A4 PC 管理能力权限（A4_20260922_002）'),
 (3002, 'App用户查询',     3001, 1, '#', NULL, '', NULL, 1, 0, 'F', '0', '0', 'user:app:query',      '#', 'a4_migration', 'A4 PC 管理能力权限（A4_20260922_002）'),
 (3003, 'App用户状态',     3001, 2, '#', NULL, '', NULL, 1, 0, 'F', '0', '0', 'user:app:status',     '#', 'a4_migration', 'A4 PC 管理能力权限（A4_20260922_002）'),
 (3004, '用户角色授权',    3001, 3, '#', NULL, '', NULL, 1, 0, 'F', '0', '0', 'user:app:grant',      '#', 'a4_migration', 'A4 PC 管理能力权限（A4_20260922_002）'),
-(3006, '实名申请查询',    3005, 1, '#', NULL, '', NULL, 1, 0, 'F', '0', '0', 'user:realname:query', '#', 'a4_migration', 'A4 PC 管理能力权限（A4_20260922_002）'),
-(3007, '实名审核决定',    3005, 2, '#', NULL, '', NULL, 1, 0, 'F', '0', '0', 'user:realname:audit', '#', 'a4_migration', 'A4 PC 管理能力权限（A4_20260922_002）'),
+(3006, '实名认证记录详情',    3005, 1, '#', NULL, '', NULL, 1, 0, 'F', '0', '0', 'user:realname:query', '#', 'a4_migration', 'A4 PC 管理能力权限（A4_20260922_002）'),
 (3009, '作者能力变更',    3001, 4, '#', NULL, '', NULL, 1, 0, 'F', '0', '0', 'user:creator:update', '#', 'a4_migration', 'A4 PC 管理能力权限（A4_20260922_002）'),
 (3014, '反馈详情',        3013, 1, '#', NULL, '', NULL, 1, 0, 'F', '0', '0', 'user:feedback:query', '#', 'a4_migration', 'A4 PC 管理能力权限（A4_20260922_002）'),
 (3015, '反馈处理',        3013, 2, '#', NULL, '', NULL, 1, 0, 'F', '0', '0', 'user:feedback:handle','#', 'a4_migration', 'A4 PC 管理能力权限（A4_20260922_002）')
@@ -1255,7 +1254,7 @@ SELECT r.role_id, m.menu_id
 FROM sys_role r
 CROSS JOIN (
   SELECT 3000 AS menu_id UNION ALL SELECT 3001 UNION ALL SELECT 3002 UNION ALL SELECT 3003
-  UNION ALL SELECT 3004 UNION ALL SELECT 3005 UNION ALL SELECT 3006 UNION ALL SELECT 3007
+  UNION ALL SELECT 3004 UNION ALL SELECT 3005 UNION ALL SELECT 3006
   UNION ALL SELECT 3009
   UNION ALL SELECT 3013 UNION ALL SELECT 3014 UNION ALL SELECT 3015
   UNION ALL SELECT 2000 UNION ALL SELECT 2010 UNION ALL SELECT 2011 UNION ALL SELECT 2012
@@ -2008,6 +2007,12 @@ DELETE FROM sys_role_menu WHERE menu_id IN (
 );
 DELETE FROM sys_menu WHERE menu_id IN (107,108) OR parent_id IN (107,108);
 DELETE FROM sys_role_menu WHERE role_id = 2 AND (menu_id IN (107,108) OR menu_id BETWEEN 1035 AND 1038);
+
+-- 实名认证结果由接口自动判定：移除旧人工审核按钮及角色授权，保留认证记录。
+DELETE rm FROM sys_role_menu rm
+JOIN sys_menu m ON m.menu_id = rm.menu_id
+WHERE m.perms = 'user:realname:audit';
+DELETE FROM sys_menu WHERE perms = 'user:realname:audit';
 
 -- 4) 删除 A1 种子遗留的 5001 内容与作品树（幂等）
 --    第 4 部分只把 5001 那行改写为 2000，对从 A1 基线升级上来的库不会移除旧行，

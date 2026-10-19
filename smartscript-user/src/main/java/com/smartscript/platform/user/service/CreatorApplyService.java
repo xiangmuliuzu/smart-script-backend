@@ -17,8 +17,8 @@ import com.smartscript.platform.user.mapper.AppUserCenterMapper;
  *   PENDING -> REJECTED -> PENDING（驳回后重新提交）
  *
  * 强制边界：
- *   - 审核中（PENDING）不可重复提交，审核通过（APPROVED，已是创作者）不可再申请，两者返回 409。
- *   - 只有 NOT_SUBMITTED 或 REJECTED 允许提交；重提走新增行，保留完整审计链。
+ *   - 审核中或已开通能力时不可重复提交；历史已通过且能力被显式关闭时恢复申请入口。
+ *   - 重提走新增行，保留完整审计链，不改写历史审核结果。
  *   - 通过后是否真正开通「作者能力」由 A4 审核端在决定时调用 AuthorCapabilityService 完成，
  *     本服务只写申请记录、不触碰 user_author_capability 与 sys_user。
  */
@@ -57,7 +57,8 @@ public class CreatorApplyService
             dto.setStatus(STATUS_NOT_SUBMITTED);
             return dto;
         }
-        dto.setStatus(latest.getStatus());
+        // 保留历史审核记录；能力被显式关闭后，当前申请入口恢复为可申请状态。
+        dto.setStatus(effectiveStatus(latest.getStatus(), centerMapper.selectCreatorCapabilityEnabled(userId)));
         dto.setPenName(latest.getPenName());
         dto.setDirection(latest.getDirection());
         dto.setPortfolio(latest.getPortfolio());
@@ -84,7 +85,13 @@ public class CreatorApplyService
         String portfolio = optional(request.getPortfolio(), PORTFOLIO_MAX, "portfolio");
 
         String current = centerMapper.selectLatestCreatorApplicationStatus(userId);
-        requireSubmittable(current);
+        Boolean enabled = centerMapper.selectCreatorCapabilityEnabled(userId);
+        if (Boolean.TRUE.equals(enabled))
+        {
+            throw new AppAuthException(AppUserErrorCodes.CREATOR_APPLY_CONFLICT, 409,
+                    AppUserErrorCodes.CREATOR_APPLY_CONFLICT_TEXT);
+        }
+        requireSubmittable(effectiveStatus(current, enabled));
 
         UserCreatorApplication record = new UserCreatorApplication();
         record.setUserId(userId);
@@ -98,10 +105,14 @@ public class CreatorApplyService
         return getStatus(userId);
     }
 
-    /**
-     * 状态机准入：PENDING 与 APPROVED 均拒绝，NOT_SUBMITTED 与 REJECTED 允许。
-     * 两者文案相同：对用户而言都是「当前状态不允许再提交」，无需暴露历史审核细节。
-     */
+    /** 显式关闭能力后恢复申请入口，历史审核结果仍保留在原记录中。 */
+    private static String effectiveStatus(String status, Boolean enabled)
+    {
+        return STATUS_APPROVED.equals(status) && Boolean.FALSE.equals(enabled)
+                ? STATUS_NOT_SUBMITTED : status;
+    }
+
+    /** 当前有效状态只有未申请或已驳回时允许提交。 */
     static void requireSubmittable(String currentStatus)
     {
         if (STATUS_PENDING.equals(currentStatus) || STATUS_APPROVED.equals(currentStatus))
