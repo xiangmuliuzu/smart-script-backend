@@ -107,6 +107,8 @@ app:
     aliyun:
       enabled: ${ALIYUN_REAL_NAME_ENABLED:false}
       app-code: ${ALIYUN_REAL_NAME_APPCODE:}
+      # 留空即用云市场正式地址；联调时可指向本地 stub，避免消耗试用额度
+      endpoint: ${ALIYUN_REAL_NAME_ENDPOINT:}
   # A4 材料网关与 A3 凭证域同属 app 命名空间，必须在同一个 app: 块内，
   # 否则重复的根键会让后者覆盖前者，材料目录配置会被静默丢弃。
   admin:

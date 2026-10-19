@@ -79,12 +79,30 @@ class AliyunRealNameVerifierTest
                 .andRespond(withStatus(HttpStatus.FORBIDDEN).body("private credentials and identity"));
         var error = assertThrows(AppAuthException.class, () -> verifier.verify("测试用户", "000000200001010000"));
         assertEquals(503, error.getHttpStatus());
+        // 403/401 是额度用尽或 APPCODE 失效，必须给出可操作的提示而不是笼统的「暂不可用」
+        assertTrue(error.getMessage().contains("额度"));
         assertFalse(error.getMessage().contains("private"));
         server.verify();
         server.reset();
         server.expect(requestTo(AliyunRealNameVerifier.ENDPOINT)).andRespond(withException(new IOException("private")));
-        assertThrows(AppAuthException.class, () -> verifier.verify("测试用户", "000000200001010000"));
+        var networkError = assertThrows(AppAuthException.class, () -> verifier.verify("测试用户", "000000200001010000"));
+        assertEquals("实名认证服务暂不可用，请稍后再试", networkError.getMessage());
         server.verify();
+    }
+
+    @Test
+    void endpointOverrideKeepsRequestShapeAndLeavesProductionUrlUntouched()
+    {
+        var client = new RestTemplate();
+        var localServer = MockRestServiceServer.bindTo(client).build();
+        var localVerifier = new AliyunRealNameVerifier(true, "offline-test-code",
+                "http://127.0.0.1:18080/idenAuthentication", client);
+        localServer.expect(requestTo("http://127.0.0.1:18080/idenAuthentication"))
+                .andExpect(header("Authorization", "APPCODE offline-test-code"))
+                .andRespond(withSuccess("{\"respCode\":\"0008\"}", MediaType.APPLICATION_JSON));
+        assertNotNull(localVerifier.verify("测试用户", "000000200001010000"));
+        localServer.verify();
+        assertEquals("https://idenauthen.market.alicloudapi.com/idenAuthentication", AliyunRealNameVerifier.ENDPOINT);
     }
 
     @Test
