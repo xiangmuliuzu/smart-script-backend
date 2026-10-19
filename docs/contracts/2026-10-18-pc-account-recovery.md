@@ -12,6 +12,8 @@
 | `POST /api/v1/auth/password/reset` | body `{phone, code, newPassword}`；成功后吊销该账号已有 App 会话。 |
 
 - 登录沿用 `POST /api/v1/auth/login`；注册接口成功即返回 `{code:200,msg,token,user}`，可直接当作登录结果。
+- 新账号默认用户名称为“用户”加 13 位随机小写字母与数字，后缀两类字符均包含，总长度 15 字；显式注册与首次短信登录自动注册共用该规则。已有账号登录不重新生成名称。
+- 名称唯一性沿用 `uk_sys_user_app_display_name` 数据库唯一索引，并发或重名冲突时重新生成后重试，最多 10 次；持续冲突则拒绝注册并返回可重试错误，不创建重复名称。
 - 密码策略（注册与重置一致，`AppAuthenticationService.validatePasswordPolicy`）：8–64 字符、UTF-8 ≤ 72 字节、至少一个字母和一个数字。
 - Web 端 `deviceId` 固定 `pc-web`，`deviceName` 固定 `PC Web`；服务端只把它用于设备记录，不做 PC 专属校验。
 - 用户端注册出来的账号是 `user_type='01'`、没有创作者能力，创作者中心登录会被 `authorCapability` 校验拒绝。注册成功后**不落令牌**，提示用户去 App 用同一手机号提交创作者认证；企业端不校验创作者能力，注册成功可直接写 `portal.tokenKey` 并进入 `/dashboard`。
