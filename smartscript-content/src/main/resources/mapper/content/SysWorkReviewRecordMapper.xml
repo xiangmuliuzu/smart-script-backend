@@ -78,7 +78,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		where review_no like concat(#{prefix}, '%')
 	</select>
 
-	<insert id="insertRecord" parameterType="com.smartscript.platform.content.domain.SysWorkReviewRecord">
+	<insert id="insertRecord" parameterType="com.smartscript.platform.content.domain.SysWorkReviewRecord" useGeneratedKeys="true" keyProperty="reviewId">
 		insert into sys_review_record
 		<trim prefix="(" suffix=")" suffixOverrides=",">
 			<if test="reviewNo != null">review_no,</if>

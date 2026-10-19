@@ -258,6 +258,7 @@ public class AppTradeOrderController
         m.put("createdAt", o.getCreatedAt());
         m.put("updatedAt", o.getUpdatedAt());
         m.put("workTitle", o.getWorkTitle());
+        m.put("workCover", o.getWorkCover());
         m.put("buyerName", o.getBuyerName());
         m.put("sellerName", o.getSellerName());
         return m;
