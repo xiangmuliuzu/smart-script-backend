@@ -100,4 +100,59 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             (#{sealId}, #{operationType}, #{fromStatus}, #{toStatus}, #{reason},
              #{operatorId}, #{operatorName}, #{createTime})
     </insert>
+
+    <!-- ========== App 端用户印章接口 ========== -->
+
+    <select id="selectSealsByUserId" resultMap="SysCopyrightSealResult">
+        select seal_id, user_id, seal_name, seal_image_url, material_urls,
+               review_status, seal_status, reject_reason, review_time, create_time
+        from sys_copyright_seal
+        where user_id = #{userId} and is_deleted = 0
+        order by create_time desc
+    </select>
+
+    <insert id="insertSeal" parameterType="com.smartscript.platform.content.domain.SysCopyrightSeal"
+            useGeneratedKeys="true" keyProperty="sealId">
+        insert into sys_copyright_seal (user_id, seal_name, seal_image_url, material_urls,
+                                        review_status, seal_status, create_time, is_deleted)
+        values (#{userId}, #{sealName}, #{sealImageUrl}, #{materialUrls},
+                #{reviewStatus}, #{sealStatus}, #{createTime}, 0)
+    </insert>
+
+    <update id="updateMaterials">
+        update sys_copyright_seal
+        set material_urls = #{materialUrls}
+        where seal_id = #{sealId} and is_deleted = 0
+    </update>
+
+    <update id="updateResubmit" parameterType="com.smartscript.platform.content.domain.SysCopyrightSeal">
+        update sys_copyright_seal
+        <set>
+            <if test="sealName != null">seal_name = #{sealName},</if>
+            <if test="sealImageUrl != null">seal_image_url = #{sealImageUrl},</if>
+            <if test="materialUrls != null">material_urls = #{materialUrls},</if>
+            <if test="reviewStatus != null">review_status = #{reviewStatus},</if>
+            <if test="rejectReason != null">reject_reason = #{rejectReason},</if>
+            <if test="reviewerId != null">reviewer_id = #{reviewerId},</if>
+            <if test="reviewTime != null">review_time = #{reviewTime},</if>
+            update_time = sysdate()
+        </set>
+        where seal_id = #{sealId} and is_deleted = 0
+    </update>
+
+    <update id="updateSealStatusByUser">
+        update sys_copyright_seal
+        set seal_status = #{sealStatus},
+            update_by = #{updateBy},
+            update_time = sysdate()
+        where seal_id = #{sealId} and is_deleted = 0 
+              and review_status = 'approved' and seal_status = 'enabled'
+    </update>
+
+    <update id="deleteSealById">
+        update sys_copyright_seal
+        set is_deleted = 1,
+            update_time = sysdate()
+        where seal_id = #{sealId} and is_deleted = 0
+    </update>
 </mapper>
