@@ -123,6 +123,11 @@ public class AppTradeInquiryController
             if (work != null)
             {
                 inquiry.setSellerId(work.getAuthorId());
+                // 校验：不能对自己的作品发起询盘
+                if (currentUserId.equals(work.getAuthorId()))
+                {
+                    return AppApiResponse.fail(400, "不能对自己的作品发起询盘");
+                }
             }
         }
 

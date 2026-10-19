@@ -208,6 +208,19 @@ public class AppTradeQuoteController
         // APP传分→库存元
         patch.setPrice(fenToYuan(patch.getPrice()));
         quoteService.modifyQuote(id, patch, operatorRole);
+
+        // 向关联的 TRADE 会话发送系统消息（修改报价通知）
+        SysQuote updated = quoteService.selectQuoteById(id);
+        if (updated != null)
+        {
+            String amountYuan = formatYuan(updated.getPrice());
+            String licenseLabel = licenseLabel(updated.getLicenseType());
+            String tag = "seller".equals(operatorRole) ? "报价" : "议价";
+            String roleLabel = "seller".equals(operatorRole) ? "卖方" : "买方";
+            String notice = "[" + tag + "] " + roleLabel + "修改" + tag + " " + amountYuan + " | " + licenseLabel;
+            chatService.sendNoticeByInquiryId(updated.getInquiryId(), notice);
+        }
+
         return AppApiResponse.ok();
     }
 
