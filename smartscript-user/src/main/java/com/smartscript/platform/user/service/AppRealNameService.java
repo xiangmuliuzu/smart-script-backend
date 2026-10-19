@@ -8,6 +8,7 @@ import com.smartscript.platform.user.domain.UserRealNameAuth;
 import com.smartscript.platform.user.dto.RealNameStatusDto;
 import com.smartscript.platform.user.dto.RealNameSubmitRequest;
 import com.smartscript.platform.user.exception.AppAuthException;
+import com.smartscript.platform.user.integration.AliyunRealNameVerifier;
 import com.smartscript.platform.user.mapper.AppUserCenterMapper;
 import com.smartscript.platform.user.util.AppMasks;
 
@@ -17,6 +18,7 @@ import com.smartscript.platform.user.util.AppMasks;
  * 状态机（与《A用户与认证开发规格》一致，与 A4 常量同集合）：
  *   NOT_SUBMITTED -> PENDING -> APPROVED
  *   PENDING -> REJECTED -> PENDING（驳回后重新提交）
+ *   提交内通过阿里云二要素接口完成 PENDING -> APPROVED/REJECTED；通道未启用时拒绝提交。
  *
  * 强制边界：
  *   - 审核中（PENDING）不可重复提交，已通过（APPROVED）不可由用户自行覆盖，两者返回 409。
@@ -49,11 +51,16 @@ public class AppRealNameService
 
     private final AppUserCenterMapper centerMapper;
     private final AppRealNameMaterialService materialService;
+    private final AliyunRealNameVerifier verifier;
+    private final RealNameReviewService reviewService;
 
-    public AppRealNameService(AppUserCenterMapper centerMapper, AppRealNameMaterialService materialService)
+    public AppRealNameService(AppUserCenterMapper centerMapper, AppRealNameMaterialService materialService,
+            AliyunRealNameVerifier verifier, RealNameReviewService reviewService)
     {
         this.centerMapper = centerMapper;
         this.materialService = materialService;
+        this.verifier = verifier;
+        this.reviewService = reviewService;
     }
 
     /** 查询实名状态；从未提交过时返回 NOT_SUBMITTED 占位而不是 404。 */
@@ -99,9 +106,14 @@ public class AppRealNameService
         String idNumber = normalizeIdNumber(request.getIdNumber());
         String materialRef = normalizeMaterialRefs(request.getMaterialRefs());
 
+        // 串行处理该用户的并发提交，避免同时多次调用计费接口。
+        centerMapper.lockRealNameApplicant(userId);
         String current = centerMapper.selectLatestRealNameStatus(userId);
         requireSubmittable(current);
         materialService.requireOwnedMaterial(userId, materialRef);
+
+        // 本地校验全部通过后才调用；网络异常中止申请，不伪造核验结果。
+        String rejectReason = verifier.verify(realName, idNumber);
 
         UserRealNameAuth record = new UserRealNameAuth();
         record.setUserId(userId);
@@ -111,6 +123,9 @@ public class AppRealNameService
         record.setMaterialRef(materialRef);
         record.setStatus(STATUS_PENDING);
         centerMapper.insertRealName(record);
+        // 复用状态流转与提交后通知；运维端不再提供人工审核入口。
+        reviewService.decide(record.getApplicationId(), rejectReason == null ? "APPROVE" : "REJECT",
+                rejectReason, null, STATUS_PENDING);
         return getStatus(userId);
     }
 

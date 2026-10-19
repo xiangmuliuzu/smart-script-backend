@@ -67,7 +67,7 @@ import com.smartscript.platform.user.service.UserNotificationAdminService;
  *   - 全部写接口在业务读取前先把请求体收敛为契约字段白名单（{@link AdminAuditParamProjection}）：
  *     白名单外的键（含未知敏感键）与嵌套结构一律丢弃，因此它们结构上不可能进入日志——
  *     这是 H9-LOG-02 的系统性收敛，excludeParamNames 保留为第二道防线。
- *   - 实名审核响应体会回带 rejectReason，故该接口 isSaveResponseData = false，
+ *   - 创作者审核响应体会回带 rejectReason，故该接口 isSaveResponseData = false，
  *     避免已从 oper_param 排除的驳回原因经 json_result 回流进同一日志行（H9-LOG-01）。
  *   - 消息创建的 title/content 是自由文本正文，同样声明排除（H10-REV-02）：
  *     正文已存业务表，日志保留 requestId/type/userIds 足以还原操作，无需重复正文。
@@ -77,7 +77,7 @@ import com.smartscript.platform.user.service.UserNotificationAdminService;
  *     `type` 仅保留契约枚举值、整数数组 `userIds` 仅保留数字元素，其余取值也一律指纹。
  *     日志只记 fp:… ，服务层仍取原值，故幂等与业务结果不变、审计仍可凭指纹关联。
  *   - 其余写接口的非枚举字段同口径收敛（第 14 批，H-07 值级残余）：用户状态 `status`、
- *     实名审核 `decision`/`expectedStatus`、反馈处理 `action`/`expectedStatus`、作者能力
+ *     创作者审核 `decision`/`expectedStatus`、反馈处理 `action`/`expectedStatus`、作者能力
  *     `enabled` 在业务读取后按值级默认拒绝重写日志投影（见
  *     {@link AdminAuditParamProjection#sanitizeStatusChangeLog} 等四个方法）——
  *     契约枚举/布尔保持可读，其余取值一律不可逆指纹，服务层仍取原值。
@@ -306,7 +306,7 @@ public class AdminUserCenterController extends BaseController
     }
 
     // ------------------------------------------------------------------
-    // 实名审核
+    // 实名认证记录（只读，核验决定仅由 App 提交后的真实接口结果触发）
     // ------------------------------------------------------------------
 
     @PreAuthorize("@ss.hasPermi('" + AppAdminConstants.PERM_REALNAME_LIST + "')")
@@ -329,30 +329,6 @@ public class AdminUserCenterController extends BaseController
     {
         RealNameApplication detail = realNameReviewService.detail(applicationId, true);
         return AjaxResult.success(detail);
-    }
-
-    @PreAuthorize("@ss.hasPermi('" + AppAdminConstants.PERM_REALNAME_AUDIT + "')")
-    // H9-LOG-01：审核响应体会回带 rejectReason，LogAspect 用 fastjson2 原样序列化响应（不识别 Jackson 注解），
-    // 会把已从 oper_param 排除的驳回原因重新写进 json_result。故本接口不记录响应体，
-    // 与 realNameDetail / feedbackDetail / readMaterialContent 对含敏感内容响应的处理一致。
-    @Log(title = "实名审核", businessType = BusinessType.UPDATE, isSaveResponseData = false,
-         excludeParamNames = { AppAdminAuditParams.REJECT_REASON, AppAdminAuditParams.TOKEN, AppAdminAuditParams.ACCESS_TOKEN,
-             AppAdminAuditParams.REFRESH_TOKEN, AppAdminAuditParams.CODE, AppAdminAuditParams.SMS_CODE,
-             AppAdminAuditParams.CAPTCHA, AppAdminAuditParams.PHONE, AppAdminAuditParams.ID_NUMBER })
-    @PutMapping("/real-name-applications/{applicationId}/decision")
-    public AjaxResult decideRealName(@PathVariable Long applicationId, @RequestBody Map<String, Object> body)
-    {
-        AdminAuditParamProjection.retain(body, AdminAuditParamProjection.REAL_NAME_DECISION);
-        String decision = str(body.get("decision"));
-        String rejectReason = str(body.get("rejectReason"));
-        // 客户端 expectedStatus 必须传入并被校验：错误值返回 409，不静默按 PENDING 放行
-        String expectedStatus = str(body.get("expectedStatus"));
-        // 业务读取后值级默认拒绝（第 14 批）：decision/expectedStatus 仅保留契约枚举值，
-        // 其余取值在日志投影中指纹化，服务层仍取原值做枚举与状态机校验。
-        AdminAuditParamProjection.sanitizeRealNameDecisionLog(body);
-        RealNameApplication updated = realNameReviewService.decide(applicationId, decision, rejectReason,
-                SecurityUtils.getUserId(), expectedStatus);
-        return AjaxResult.success(updated);
     }
 
     // ------------------------------------------------------------------

@@ -35,7 +35,7 @@ import com.smartscript.platform.user.constant.AppAdminConstants;
  * {@code decision}/{@code expectedStatus}、反馈处理 {@code action}/{@code expectedStatus}、
  * 作者能力 {@code enabled}——同样不判定值敏感性（实测合成令牌原样进入 {@code oper_param}，
  * 见第 14 批记录 §2）。控制器在业务读取之后调用 {@link #sanitizeStatusChangeLog} /
- * {@link #sanitizeRealNameDecisionLog} / {@link #sanitizeAuthorCapabilityLog} /
+ * {@link #sanitizeCreatorApplyDecisionLog} / {@link #sanitizeAuthorCapabilityLog} /
  * {@link #sanitizeFeedbackHandleLog}：受控枚举/布尔仅保留契约值与业务可解析值，
  * 其余取值一律不可逆指纹。
  *
@@ -57,10 +57,6 @@ public final class AdminAuditParamProjection
 
     /** 3. `PUT /api/v1/admin/app-users/{userId}/roles`（契约 §5.1）。 */
     public static final String[] APP_USER_ROLES = { AppAdminAuditParams.ROLE_IDS, AppAdminAuditParams.REASON };
-
-    /** 4. `PUT /api/v1/admin/real-name-applications/{applicationId}/decision`（契约 §5.2）。 */
-    public static final String[] REAL_NAME_DECISION = { AppAdminAuditParams.DECISION,
-            AppAdminAuditParams.REJECT_REASON, AppAdminAuditParams.EXPECTED_STATUS };
 
     /** 5. `PUT /api/v1/admin/author-capabilities/{userId}`（契约 §5.3）。 */
     public static final String[] AUTHOR_CAPABILITY = { AppAdminAuditParams.ENABLED, AppAdminAuditParams.REASON };
@@ -325,29 +321,6 @@ public final class AdminAuditParamProjection
         for (String key : STATUS_LOG_ENUM)
         {
             fingerprintNonContractEnum(body, key, APP_USER_STATUSES);
-        }
-    }
-
-    /**
-     * 实名审核接口日志投影的**值级默认拒绝**（第 14 批）。
-     *
-     * <p>契约 §5.2 的 {@code decision} 仅保留 {@code APPROVE/REJECT}、{@code expectedStatus}
-     * 仅保留固定的 {@code PENDING}；其余取值一律指纹化。{@code rejectReason} 仍由接口
-     * {@code excludeParamNames} 排除（H9-LOG-01 口径不变）。必须在业务读取之后调用。</p>
-     */
-    public static void sanitizeRealNameDecisionLog(Map<String, Object> body)
-    {
-        if (body == null || body.isEmpty())
-        {
-            return;
-        }
-        for (String key : DECISION_LOG_ENUM)
-        {
-            fingerprintNonContractEnum(body, key, REAL_NAME_DECISIONS);
-        }
-        for (String key : REAL_NAME_EXPECTED_LOG_ENUM)
-        {
-            fingerprintNonContractEnum(body, key, REAL_NAME_EXPECTED);
         }
     }
 

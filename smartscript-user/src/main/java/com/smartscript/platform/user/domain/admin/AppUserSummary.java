@@ -18,6 +18,7 @@ public class AppUserSummary
     private String phoneMasked;
     private String status;
     private String realNameStatus;
+    private String creatorApplicationStatus;
     private Boolean authorCapability;
     /** 最近一次作者能力变更记录，与用户列表一起返回。 */
     private String reason;
@@ -28,6 +29,16 @@ public class AppUserSummary
 
     /** 该用户已授予的角色编码，由批量查询装配。 */
     private List<String> roleCodes = new ArrayList<>();
+
+    public String getCreatorApplicationStatus()
+    {
+        return creatorApplicationStatus;
+    }
+
+    public void setCreatorApplicationStatus(String status)
+    {
+        this.creatorApplicationStatus = status;
+    }
 
     public Long getUserId()
     {

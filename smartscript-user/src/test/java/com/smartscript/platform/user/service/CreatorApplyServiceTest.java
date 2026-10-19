@@ -58,8 +58,17 @@ class CreatorApplyServiceTest
     void approvedSubmitRejectedWith409()
     {
         when(centerMapper.selectLatestCreatorApplicationStatus(3L)).thenReturn("APPROVED");
+        when(centerMapper.selectCreatorCapabilityEnabled(3L)).thenReturn(true);
         assertThrows(AppAuthException.class, () -> service.submit(3L, request()));
         verify(centerMapper, never()).insertCreatorApplication(Mockito.any());
+    }
+
+    @Test
+    void approvedWithoutExplicitCapabilityClosureCannotReapply()
+    {
+        when(centerMapper.selectLatestCreatorApplicationStatus(3L)).thenReturn("APPROVED");
+        when(centerMapper.selectCreatorCapabilityEnabled(3L)).thenReturn(null);
+        assertThrows(AppAuthException.class, () -> service.submit(3L, request()));
     }
 
     @Test
@@ -74,6 +83,39 @@ class CreatorApplyServiceTest
         verify(centerMapper).insertCreatorApplication(captor.capture());
         assertEquals("PENDING", captor.getValue().getStatus());
         assertEquals("青山", captor.getValue().getPenName());
+    }
+
+    @Test
+    void disabledCreatorCanApplyAgainWithoutRewritingApprovedHistory()
+    {
+        UserCreatorApplication previous = new UserCreatorApplication();
+        previous.setStatus("APPROVED");
+        previous.setPenName("原笔名");
+        when(centerMapper.selectLatestCreatorApplication(8L)).thenReturn(previous);
+        when(centerMapper.selectLatestCreatorApplicationStatus(8L)).thenReturn("APPROVED");
+        when(centerMapper.selectCreatorCapabilityEnabled(8L)).thenReturn(false);
+
+        assertEquals("NOT_SUBMITTED", service.getStatus(8L).getStatus());
+        assertEquals("APPROVED", previous.getStatus());
+        service.submit(8L, request());
+        verify(centerMapper).insertCreatorApplication(Mockito.argThat(row -> "PENDING".equals(row.getStatus())));
+    }
+
+    @Test
+    void enabledCreatorCannotReapplyEvenWithoutApplicationHistory()
+    {
+        when(centerMapper.selectCreatorCapabilityEnabled(9L)).thenReturn(true);
+        assertThrows(AppAuthException.class, () -> service.submit(9L, request()));
+        verify(centerMapper, never()).insertCreatorApplication(Mockito.any());
+    }
+
+    @Test
+    void closingCapabilityDoesNotAllowDuplicatePendingApplication()
+    {
+        when(centerMapper.selectCreatorCapabilityEnabled(10L)).thenReturn(false);
+        when(centerMapper.selectLatestCreatorApplicationStatus(10L)).thenReturn("PENDING");
+        assertThrows(AppAuthException.class, () -> service.submit(10L, request()));
+        verify(centerMapper, never()).insertCreatorApplication(Mockito.any());
     }
 
     @Test

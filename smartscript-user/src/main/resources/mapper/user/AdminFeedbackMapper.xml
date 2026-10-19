@@ -73,6 +73,9 @@
         <if test="category != null and category != ''">
             AND f.category = #{category}
         </if>
+        <if test="nickname != null and nickname != ''">
+            AND u.nick_name = #{nickname}
+        </if>
         <if test="keyword != null and keyword != ''">
             AND (
                  f.content LIKE CONCAT('%', #{keyword}, '%')

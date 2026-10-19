@@ -2,6 +2,7 @@ package com.smartscript.platform.content.controller.app;
 
 import java.util.HashMap;
 import java.util.Map;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -34,6 +35,7 @@ import com.smartscript.platform.content.service.IAppChapterAuthorService;
  * @author xiangsipeng
  */
 @RestController
+@PreAuthorize("@contentAuthorAccess.allowed()")
 @RequestMapping("/api/v1/content")
 public class AppChapterWriteController
 {
