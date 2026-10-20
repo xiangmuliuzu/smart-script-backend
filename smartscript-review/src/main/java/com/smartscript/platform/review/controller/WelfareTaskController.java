@@ -51,4 +51,23 @@ public class WelfareTaskController {
             return wrap(result);
         }
     }
+
+    /**
+     * 用户上报任务行为进度（App 完成真实行为后调用，如阅读/上传/登录）
+     * 请求体：{"taskCode": "READ_CHAPTER", "userId": 106, "increment": 1}
+     */
+    @PostMapping("/progress")
+    public Map<String, Object> progress(@RequestBody Map<String, Object> params) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            String taskCode = params.get("taskCode") != null ? params.get("taskCode").toString() : null;
+            Long userId = params.get("userId") != null ? Long.valueOf(params.get("userId").toString()) : null;
+            int increment = params.get("increment") != null ? Integer.parseInt(params.get("increment").toString()) : 1;
+            return wrap(taskConfigService.reportProgress(taskCode, userId, increment));
+        } catch (Exception e) {
+            result.put("code", 500);
+            result.put("msg", "上报进度失败: " + e.getMessage());
+            return wrap(result);
+        }
+    }
 }

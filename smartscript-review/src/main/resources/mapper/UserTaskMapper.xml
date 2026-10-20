@@ -58,4 +58,13 @@
         LIMIT 1
     </select>
 
+    <update id="updateUserTaskProgress" parameterType="com.smartscript.platform.review.domain.UserTask">
+        UPDATE sys_user_task
+        SET progress      = #{progress},
+            is_completed  = #{isCompleted},
+            complete_time = #{completeTime},
+            updated_at    = NOW()
+        WHERE id = #{id}
+    </update>
+
 </mapper>

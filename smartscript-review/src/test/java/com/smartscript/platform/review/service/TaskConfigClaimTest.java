@@ -1,6 +1,7 @@
 package com.smartscript.platform.review.service;
 
 import com.smartscript.platform.review.domain.TaskConfig;
+import com.smartscript.platform.review.domain.UserTask;
 import com.smartscript.platform.review.mapper.TaskConfigMapper;
 import com.smartscript.platform.review.mapper.UserTaskMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -10,6 +11,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Map;
 
@@ -37,6 +39,23 @@ class TaskConfigClaimTest {
     private TaskConfigService taskConfigService;
 
     private TaskConfig dailyTask;
+
+    /** 构造一个当天周期已完成的 UserTask（DAILY 类型 claim 的前置条件） */
+    private UserTask finishedToday(String taskType) {
+        UserTask ut = new UserTask();
+        ut.setId(1L);
+        ut.setUserId(106L);
+        ut.setTaskId(1L);
+        ut.setProgress(1);
+        ut.setIsCompleted(1);
+        ut.setIsClaimed(0);
+        try {
+            ut.setPeriodDate(new SimpleDateFormat("yyyy-MM-dd").parse(
+                    new SimpleDateFormat("yyyy-MM-dd").format(new Date())));
+        } catch (Exception ignored) {
+        }
+        return ut;
+    }
 
     @BeforeEach
     void setUp() {
@@ -75,8 +94,48 @@ class TaskConfigClaimTest {
     }
 
     @Test
+    void claim_任务未完成_返回400不发积分() {
+        when(taskConfigMapper.selectTaskConfigByCode("DAILY_LOGIN")).thenReturn(dailyTask);
+        // 无进度记录 = 未完成
+        when(userTaskMapper.selectByUserAndTask(106L, 1L)).thenReturn(null);
+        Map<String, Object> r = taskConfigService.claimTask("DAILY_LOGIN", 106L);
+        assertEquals(400, r.get("code"));
+        assertEquals("任务未完成，请先完成对应行为", r.get("msg"));
+        verify(pointsService, never()).grantPoints(anyLong(), anyInt(), anyString(), anyLong(), anyString());
+    }
+
+    @Test
+    void claim_进度不足_返回400不发积分() {
+        when(taskConfigMapper.selectTaskConfigByCode("DAILY_LOGIN")).thenReturn(dailyTask);
+        UserTask ut = finishedToday("DAILY");
+        ut.setProgress(0);
+        ut.setIsCompleted(0);
+        when(userTaskMapper.selectByUserAndTask(106L, 1L)).thenReturn(ut);
+        Map<String, Object> r = taskConfigService.claimTask("DAILY_LOGIN", 106L);
+        assertEquals(400, r.get("code"));
+        assertEquals("任务未完成，请先完成对应行为", r.get("msg"));
+        verify(pointsService, never()).grantPoints(anyLong(), anyInt(), anyString(), anyLong(), anyString());
+    }
+
+    @Test
+    void claim_每日任务非当天周期完成_返回400() {
+        when(taskConfigMapper.selectTaskConfigByCode("DAILY_LOGIN")).thenReturn(dailyTask);
+        UserTask ut = finishedToday("DAILY");
+        try {
+            ut.setPeriodDate(new SimpleDateFormat("yyyy-MM-dd").parse("2020-01-01"));
+        } catch (Exception ignored) {
+        }
+        when(userTaskMapper.selectByUserAndTask(106L, 1L)).thenReturn(ut);
+        Map<String, Object> r = taskConfigService.claimTask("DAILY_LOGIN", 106L);
+        assertEquals(400, r.get("code"));
+        assertEquals("请先完成今日任务", r.get("msg"));
+        verify(pointsService, never()).grantPoints(anyLong(), anyInt(), anyString(), anyLong(), anyString());
+    }
+
+    @Test
     void claim_每日任务今日已领_返回400且不发积分() {
         when(taskConfigMapper.selectTaskConfigByCode("DAILY_LOGIN")).thenReturn(dailyTask);
+        when(userTaskMapper.selectByUserAndTask(106L, 1L)).thenReturn(finishedToday("DAILY"));
         when(userTaskMapper.countClaimed(eq(106L), eq(1L), anyString())).thenReturn(1);
         Map<String, Object> r = taskConfigService.claimTask("DAILY_LOGIN", 106L);
         assertEquals(400, r.get("code"));
@@ -88,6 +147,7 @@ class TaskConfigClaimTest {
     void claim_终身任务已领过_返回400() {
         dailyTask.setTaskType("新手任务");
         when(taskConfigMapper.selectTaskConfigByCode("DAILY_LOGIN")).thenReturn(dailyTask);
+        when(userTaskMapper.selectByUserAndTask(106L, 1L)).thenReturn(finishedToday("其他"));
         when(userTaskMapper.countClaimedAll(106L, 1L)).thenReturn(1);
         Map<String, Object> r = taskConfigService.claimTask("DAILY_LOGIN", 106L);
         assertEquals(400, r.get("code"));
@@ -98,6 +158,7 @@ class TaskConfigClaimTest {
     @Test
     void claim_首次领取_发积分写记录返回余额() {
         when(taskConfigMapper.selectTaskConfigByCode("DAILY_LOGIN")).thenReturn(dailyTask);
+        when(userTaskMapper.selectByUserAndTask(106L, 1L)).thenReturn(finishedToday("DAILY"));
         when(userTaskMapper.countClaimed(eq(106L), eq(1L), anyString())).thenReturn(0);
         when(pointsService.grantPoints(106L, 5, "TASK", 1L, "每日登录任务")).thenReturn(15);
         when(userTaskMapper.insertUserTask(any())).thenReturn(1);
@@ -134,6 +195,7 @@ class TaskConfigClaimTest {
     void claim_每日上限已达_返回400() {
         dailyTask.setDailyLimit(2);
         when(taskConfigMapper.selectTaskConfigByCode("DAILY_LOGIN")).thenReturn(dailyTask);
+        when(userTaskMapper.selectByUserAndTask(106L, 1L)).thenReturn(finishedToday("DAILY"));
         when(userTaskMapper.countClaimed(eq(106L), eq(1L), anyString())).thenReturn(2);
         Map<String, Object> r = taskConfigService.claimTask("DAILY_LOGIN", 106L);
         assertEquals(400, r.get("code"));
@@ -145,11 +207,32 @@ class TaskConfigClaimTest {
     void claim_每日上限未达_可继续领取() {
         dailyTask.setDailyLimit(2);
         when(taskConfigMapper.selectTaskConfigByCode("DAILY_LOGIN")).thenReturn(dailyTask);
+        when(userTaskMapper.selectByUserAndTask(106L, 1L)).thenReturn(finishedToday("DAILY"));
         when(userTaskMapper.countClaimed(eq(106L), eq(1L), anyString())).thenReturn(1);
         when(pointsService.grantPoints(106L, 5, "TASK", 1L, "每日登录任务")).thenReturn(20);
         when(userTaskMapper.insertUserTask(any())).thenReturn(1);
         Map<String, Object> r = taskConfigService.claimTask("DAILY_LOGIN", 106L);
         assertEquals(200, r.get("code"));
         assertEquals(20, r.get("balance"));
+    }
+
+    @Test
+    void claim_非每日任务完成_可领取() {
+        dailyTask.setTaskType("READING");
+        dailyTask.setTaskCode("READ_CHAPTER");
+        when(taskConfigMapper.selectTaskConfigByCode("READ_CHAPTER")).thenReturn(dailyTask);
+        // 终身任务：周期日期非当天也可领取，只要已完成
+        UserTask ut = finishedToday("READING");
+        try {
+            ut.setPeriodDate(new SimpleDateFormat("yyyy-MM-dd").parse("2020-01-01"));
+        } catch (Exception ignored) {
+        }
+        when(userTaskMapper.selectByUserAndTask(106L, 1L)).thenReturn(ut);
+        when(userTaskMapper.countClaimedAll(106L, 1L)).thenReturn(0);
+        when(pointsService.grantPoints(106L, 5, "TASK", 1L, "每日登录任务")).thenReturn(30);
+        when(userTaskMapper.insertUserTask(any())).thenReturn(1);
+        Map<String, Object> r = taskConfigService.claimTask("READ_CHAPTER", 106L);
+        assertEquals(200, r.get("code"));
+        assertEquals(30, r.get("balance"));
     }
 }
