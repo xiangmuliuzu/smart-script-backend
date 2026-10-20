@@ -28,6 +28,7 @@ public interface AppUserAdminMapper
      *
      * 支持的参数键：keyword、status、userType、roleCode、realNameStatus、
      * authorCapability、beginTime、endTime、orderByColumn、isAsc。
+     * keyword 仅按手机号模糊匹配。
      */
     List<AppUserSummary> selectAppUserPage(Map<String, Object> params);
 
