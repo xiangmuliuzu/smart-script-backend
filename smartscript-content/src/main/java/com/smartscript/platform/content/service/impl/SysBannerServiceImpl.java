@@ -13,8 +13,8 @@ import com.smartscript.platform.content.service.ISysBannerService;
 /**
  * Banner 服务层处理
  *
- * 位次规则与分类/标签同构：1..N 稠密唯一，新增默认追加末尾，修改不跳跃留空洞，
- * 删除后自动紧缩；无删除前校验（Banner 无子分类/被引用概念）。
+ * 位次规则：按展示位置（home_top/home_middle）分组，每组内 1..N 稠密唯一。
+ * 新增默认追加末尾，修改不跳跃留空洞，删除后自动紧缩；无删除前校验。
  *
  * @author xiangsipeng
  */
@@ -43,7 +43,8 @@ public class SysBannerServiceImpl implements ISysBannerService
     @Transactional
     public int insertBanner(SysBanner banner)
     {
-        bannerMapper.lockSortScope();
+        String position = banner.getPosition();
+        bannerMapper.lockSortScope(position);
 
         if (StringUtils.isNull(banner.getStatus()) || StringUtils.isEmpty(banner.getStatus()))
         {
@@ -51,7 +52,7 @@ public class SysBannerServiceImpl implements ISysBannerService
         }
 
         // 位次：未指定则追加到末尾；指定则占用该位次（已被占用时原 k..N 依次后移一位）
-        int tail = nextTailSort();
+        int tail = nextTailSort(position);
         if (banner.getSortOrder() == null)
         {
             banner.setSortOrder(tail);
@@ -61,11 +62,11 @@ public class SysBannerServiceImpl implements ISysBannerService
             requirePositiveSort(banner.getSortOrder());
             int target = clampToTail(banner.getSortOrder(), tail);
             banner.setSortOrder(target);
-            makeRoomForSort(target, tail, null);
+            makeRoomForSort(target, tail, null, position);
         }
 
         int rows = bannerMapper.insertBanner(banner);
-        assertSortUnique(banner.getSortOrder(), banner.getBannerId());
+        assertSortUnique(banner.getSortOrder(), banner.getBannerId(), position);
         return rows;
     }
 
@@ -75,24 +76,27 @@ public class SysBannerServiceImpl implements ISysBannerService
     {
         if (banner.getSortOrder() != null)
         {
-            bannerMapper.lockSortScope();
-            requirePositiveSort(banner.getSortOrder());
             SysBanner old = bannerMapper.selectBannerById(banner.getBannerId());
             if (old == null)
             {
                 throw new ServiceException("Banner不存在，无法修改位次");
             }
+            String position = old.getPosition();
+            bannerMapper.lockSortScope(position);
+            requirePositiveSort(banner.getSortOrder());
             int oldSort = old.getSortOrder() == null ? 0 : old.getSortOrder();
-            int target = clampToMax(banner.getSortOrder());
+            int target = clampToMax(banner.getSortOrder(), position);
             banner.setSortOrder(target);
-            makeRoomForSort(target, oldSort, banner.getBannerId());
+            makeRoomForSort(target, oldSort, banner.getBannerId(), position);
         }
 
         int rows = bannerMapper.updateBanner(banner);
 
         if (banner.getSortOrder() != null)
         {
-            assertSortUnique(banner.getSortOrder(), banner.getBannerId());
+            SysBanner old = bannerMapper.selectBannerById(banner.getBannerId());
+            String position = old != null ? old.getPosition() : null;
+            assertSortUnique(banner.getSortOrder(), banner.getBannerId(), position);
         }
         return rows;
     }
@@ -116,20 +120,21 @@ public class SysBannerServiceImpl implements ISysBannerService
         update.setSortOrder(banner.getSortOrder());
         update.setUpdateBy(banner.getUpdateBy());
 
-        bannerMapper.lockSortScope();
-        requirePositiveSort(update.getSortOrder());
         SysBanner old = bannerMapper.selectBannerById(update.getBannerId());
         if (old == null)
         {
             throw new ServiceException("Banner不存在，无法修改位次");
         }
+        String position = old.getPosition();
+        bannerMapper.lockSortScope(position);
+        requirePositiveSort(update.getSortOrder());
         int oldSort = old.getSortOrder() == null ? 0 : old.getSortOrder();
-        int target = clampToMax(update.getSortOrder());
+        int target = clampToMax(update.getSortOrder(), position);
         update.setSortOrder(target);
-        makeRoomForSort(target, oldSort, update.getBannerId());
+        makeRoomForSort(target, oldSort, update.getBannerId(), position);
 
         int rows = bannerMapper.updateBanner(update);
-        assertSortUnique(update.getSortOrder(), update.getBannerId());
+        assertSortUnique(update.getSortOrder(), update.getBannerId(), position);
         return rows;
     }
 
@@ -137,29 +142,33 @@ public class SysBannerServiceImpl implements ISysBannerService
     @Transactional
     public int deleteBannerById(Long bannerId)
     {
-        bannerMapper.lockSortScope();
+        SysBanner db = bannerMapper.selectBannerById(bannerId);
+        String position = db != null ? db.getPosition() : null;
+        if (position != null)
+        {
+            bannerMapper.lockSortScope(position);
+        }
 
         // 记录被删位次
-        SysBanner db = bannerMapper.selectBannerById(bannerId);
         Integer deletedSort = (db != null) ? db.getSortOrder() : null;
 
         int rows = bannerMapper.deleteBannerById(bannerId);
 
         // 删除后紧缩
-        if (deletedSort != null)
+        if (deletedSort != null && position != null)
         {
-            bannerMapper.shiftSortAfterDelete(deletedSort);
+            bannerMapper.shiftSortAfterDelete(deletedSort, position);
         }
         return rows;
     }
 
     // ------------------------------------------------------------------
-    // 位次辅助方法（与分类/标签同构）
+    // 位次辅助方法（按 position 分组）
     // ------------------------------------------------------------------
 
-    private int nextTailSort()
+    private int nextTailSort(String position)
     {
-        Integer maxSort = bannerMapper.selectMaxSort();
+        Integer maxSort = bannerMapper.selectMaxSort(position);
         return (maxSort == null ? 0 : maxSort) + 1;
     }
 
@@ -176,31 +185,31 @@ public class SysBannerServiceImpl implements ISysBannerService
         return Math.min(newSort, tail);
     }
 
-    private int clampToMax(int newSort)
+    private int clampToMax(int newSort, String position)
     {
-        Integer maxSort = bannerMapper.selectMaxSort();
+        Integer maxSort = bannerMapper.selectMaxSort(position);
         return Math.min(newSort, Math.max(maxSort == null ? 0 : maxSort, 1));
     }
 
-    private void makeRoomForSort(int newSort, int oldSort, Long excludeId)
+    private void makeRoomForSort(int newSort, int oldSort, Long excludeId, String position)
     {
-        if (bannerMapper.countBySort(newSort, excludeId) == 0)
+        if (bannerMapper.countBySort(newSort, excludeId, position) == 0)
         {
             return;
         }
         if (newSort < oldSort)
         {
-            bannerMapper.shiftSortForward(newSort, oldSort, excludeId);
+            bannerMapper.shiftSortForward(newSort, oldSort, excludeId, position);
         }
         else if (newSort > oldSort)
         {
-            bannerMapper.shiftSortBackward(newSort, oldSort, excludeId);
+            bannerMapper.shiftSortBackward(newSort, oldSort, excludeId, position);
         }
     }
 
-    private void assertSortUnique(Integer sort, Long bannerId)
+    private void assertSortUnique(Integer sort, Long bannerId, String position)
     {
-        if (bannerMapper.countBySort(sort, bannerId) > 0)
+        if (position != null && bannerMapper.countBySort(sort, bannerId, position) > 0)
         {
             throw new ServiceException("显示位次 " + sort + " 已被占用，位次必须唯一");
         }

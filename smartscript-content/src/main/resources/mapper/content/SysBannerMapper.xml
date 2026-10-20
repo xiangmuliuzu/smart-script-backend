@@ -50,7 +50,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 				AND status = #{status}
 			</if>
 		</where>
-		order by sort_order, banner_id
+		order by position, sort_order, banner_id
 	</select>
 
 	<select id="selectBannerById" parameterType="Long" resultMap="SysBannerResult">
@@ -118,18 +118,18 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		delete from sys_banner where banner_id = #{bannerId}
 	</delete>
 
-	<!-- 位次管理：串行化写入，SELECT ... FOR UPDATE -->
+	<!-- 位次管理：串行化写入，SELECT ... FOR UPDATE（按位置分组） -->
 	<select id="lockSortScope" resultType="java.lang.Long">
-		select banner_id from sys_banner order by banner_id for update
+		select banner_id from sys_banner where position = #{position} order by banner_id for update
 	</select>
 
 	<select id="selectMaxSort" resultType="java.lang.Integer">
-		select max(sort_order) from sys_banner
+		select max(sort_order) from sys_banner where position = #{position}
 	</select>
 
 	<select id="countBySort" resultType="int">
 		select count(*) from sys_banner
-		where sort_order = #{sortOrder}
+		where sort_order = #{sortOrder} and position = #{position}
 		<if test="excludeId != null">
 			and banner_id != #{excludeId}
 		</if>
@@ -138,7 +138,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 	<update id="shiftSortForward">
 		update sys_banner
 		set sort_order = sort_order + 1
-		where sort_order >= #{newSort} and sort_order &lt; #{oldSort}
+		where sort_order >= #{newSort} and sort_order &lt; #{oldSort} and position = #{position}
 		<if test="excludeId != null">
 			and banner_id != #{excludeId}
 		</if>
@@ -147,7 +147,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 	<update id="shiftSortBackward">
 		update sys_banner
 		set sort_order = sort_order - 1
-		where sort_order &gt; #{oldSort} and sort_order &lt;= #{newSort}
+		where sort_order &gt; #{oldSort} and sort_order &lt;= #{newSort} and position = #{position}
 		<if test="excludeId != null">
 			and banner_id != #{excludeId}
 		</if>
@@ -156,7 +156,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 	<update id="shiftSortAfterDelete">
 		update sys_banner
 		set sort_order = sort_order - 1
-		where sort_order &gt; #{deletedSort}
+		where sort_order &gt; #{deletedSort} and position = #{position}
 	</update>
 
 	<!--
@@ -174,7 +174,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 				AND position = #{position}
 			</if>
 		</where>
-		order by sort_order, banner_id
+		order by position, sort_order, banner_id
 	</select>
 
 </mapper>

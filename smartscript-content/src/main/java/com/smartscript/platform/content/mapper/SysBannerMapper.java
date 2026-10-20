@@ -84,31 +84,37 @@ public interface SysBannerMapper
 
     /**
      * 串行化位次写入：SELECT ... FOR UPDATE 锁定位次区间，防止并发下位次重复
+     * @param position 展示位置（按位置分组排序）
      */
-    public List<Long> lockSortScope();
+    public List<Long> lockSortScope(String position);
 
     /**
      * 当前最大位次（空表返回 null）
+     * @param position 展示位置
      */
-    public Integer selectMaxSort();
+    public Integer selectMaxSort(String position);
 
     /**
      * 统计某位次被多少条记录占用（排除自身）
+     * @param position 展示位置
      */
-    public int countBySort(Integer sortOrder, Long excludeId);
+    public int countBySort(Integer sortOrder, Long excludeId, String position);
 
     /**
      * 向前腾位：[newSort, oldSort) 区间的记录 sort_order +1（插入时用）
+     * @param position 展示位置
      */
-    public void shiftSortForward(int newSort, int oldSort, Long excludeId);
+    public void shiftSortForward(int newSort, int oldSort, Long excludeId, String position);
 
     /**
      * 向后腾位：(oldSort, newSort] 区间的记录 sort_order -1（移动时用）
+     * @param position 展示位置
      */
-    public void shiftSortBackward(int newSort, int oldSort, Long excludeId);
+    public void shiftSortBackward(int newSort, int oldSort, Long excludeId, String position);
 
     /**
      * 删除后紧缩：sort_order > deletedSort 的记录全部 -1
+     * @param position 展示位置
      */
-    public void shiftSortAfterDelete(int deletedSort);
+    public void shiftSortAfterDelete(int deletedSort, String position);
 }
