@@ -62,9 +62,6 @@
         <if test="status != null and status != ''">
             AND uca.status = #{status}
         </if>
-        <if test="nickname != null and nickname != ''">
-            AND u.nick_name = #{nickname}
-        </if>
         <if test="keyword != null and keyword != ''">
             AND (
                  u.nick_name LIKE CONCAT('%', #{keyword}, '%')

@@ -90,15 +90,8 @@
         LEFT JOIN sys_user op ON op.user_id = uac.operator_id
         WHERE <include refid="managedUserTypeFilter"/>
           AND u.del_flag = '0'
-        <if test="nickname != null and nickname != ''">
-            AND u.nick_name = #{nickname}
-        </if>
         <if test="keyword != null and keyword != ''">
-            AND (
-                 u.nick_name LIKE CONCAT('%', #{keyword}, '%')
-              OR u.user_name LIKE CONCAT('%', #{keyword}, '%')
-              OR u.phonenumber LIKE CONCAT('%', #{keyword}, '%')
-            )
+            AND u.phonenumber LIKE CONCAT('%', #{keyword}, '%')
         </if>
         <if test="status != null and status != ''">
             AND u.status = #{status}
