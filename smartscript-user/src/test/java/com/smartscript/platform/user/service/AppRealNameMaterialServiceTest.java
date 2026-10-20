@@ -81,6 +81,31 @@ class AppRealNameMaterialServiceTest
     }
 
     @Test
+    void submitAndResubmitVerifyNameAndIdWithoutMaterials()
+    {
+        var materials = mock(AppRealNameMaterialService.class);
+        var verifier = mock(AliyunRealNameVerifier.class);
+        var reviews = mock(RealNameReviewService.class);
+        var realName = new AppRealNameService(mapper, materials, verifier, reviews);
+        var request = new RealNameSubmitRequest();
+        request.setRealName("测试用户");
+        request.setIdNumber("11010119900101123X");
+        doAnswer(call -> {
+            ((UserRealNameAuth) call.getArgument(0)).setApplicationId(77L);
+            return 1;
+        }).when(mapper).insertRealName(any());
+        realName.submit(12L, request);
+        when(mapper.selectLatestRealNameStatus(12L)).thenReturn("REJECTED");
+        request.setMaterialRefs(List.of());
+        realName.resubmit(12L, request);
+        verifyNoInteractions(materials);
+        verify(verifier, times(2)).verify("测试用户", "11010119900101123X");
+        verify(mapper, times(2)).insertRealName(argThat(row -> row.getMaterialRef() == null
+                && row.getUserId().equals(12L) && "PENDING".equals(row.getStatus())));
+        verify(reviews, times(2)).decide(77L, "APPROVE", null, null, "PENDING");
+    }
+
+    @Test
     void submittedApplicationRetainsPrivateReferenceForRecordDetail() throws Exception
     {
         String reference = upload(12L, image());

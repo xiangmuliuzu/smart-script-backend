@@ -46,8 +46,8 @@ public class AppRealNameService
     private static final int MATERIAL_REFS_MAX = 3;
     private static final int MATERIAL_REF_MAX_LENGTH = 255;
 
-    /** 身份证号形态：15 位旧证 / 18 位新证（末位可为 X/x）。 */
-    private static final String ID_NUMBER_PATTERN = "^\\d{15}|\\d{17}[0-9Xx]$";
+    /** 身份证号形态：18 位，前 17 位为数字，末位可为 X/x。 */
+    private static final String ID_NUMBER_PATTERN = "^[0-9]{17}[0-9Xx]$";
 
     private final AppUserCenterMapper centerMapper;
     private final AppRealNameMaterialService materialService;
@@ -110,7 +110,10 @@ public class AppRealNameService
         centerMapper.lockRealNameApplicant(userId);
         String current = centerMapper.selectLatestRealNameStatus(userId);
         requireSubmittable(current);
-        materialService.requireOwnedMaterial(userId, materialRef);
+        if (materialRef != null)
+        {
+            materialService.requireOwnedMaterial(userId, materialRef);
+        }
 
         // 本地校验全部通过后才调用；网络异常中止申请，不伪造核验结果。
         String rejectReason = verifier.verify(realName, idNumber);
@@ -165,7 +168,7 @@ public class AppRealNameService
     }
 
     /**
-     * 材料引用规范化：1–3 项，去空、去重、限长。
+     * 材料可不提供；兼容旧客户端提交的 1–3 项引用，去空、限长。
      * 单值列 user_real_name_auth.material_ref 与 A4 一致按「零或单元素」语义存储，
      * 因此多项时取首项（不解析分隔符拼接，避免 A4 侧按分隔符误拆）。
      */
@@ -173,7 +176,7 @@ public class AppRealNameService
     {
         if (refs == null || refs.isEmpty())
         {
-            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "material required");
+            return null;
         }
         String first = null;
         int count = 0;
