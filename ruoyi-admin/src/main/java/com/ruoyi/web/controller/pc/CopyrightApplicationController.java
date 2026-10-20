@@ -17,6 +17,7 @@ import com.ruoyi.common.core.controller.BaseController;
 import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.common.enums.BusinessType;
 import com.smartscript.platform.content.domain.SysCopyrightApplication;
+import com.smartscript.platform.content.dto.copyright.AdminCopyrightApplicationDetailDto;
 import com.smartscript.platform.content.service.ISysCopyrightApplicationService;
 import com.ruoyi.common.utils.poi.ExcelUtil;
 import com.ruoyi.common.core.page.TableDataInfo;
@@ -60,13 +61,17 @@ public class CopyrightApplicationController extends BaseController
     }
 
     /**
-     * 获取版权申请详细信息
+     * 获取版权申请详细信息（Admin端完整详情，包含作品和材料信息）
      */
     @PreAuthorize("@ss.hasPermi('content:copyright:application:query')")
     @GetMapping(value = "/{applyId}")
     public AjaxResult getInfo(@PathVariable("applyId") Long applyId)
     {
-        return success(copyrightApplicationService.selectCopyrightApplicationByApplyId(applyId));
+        AdminCopyrightApplicationDetailDto detail = copyrightApplicationService.getAdminApplicationDetail(applyId);
+        if (detail == null) {
+            return error("申请不存在");
+        }
+        return success(detail);
     }
 
     /**

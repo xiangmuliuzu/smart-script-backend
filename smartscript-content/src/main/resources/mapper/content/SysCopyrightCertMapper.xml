@@ -39,6 +39,26 @@
         ORDER BY c.create_time DESC
     </select>
 
+    <select id="selectCertListByUserId" resultMap="SysCopyrightCertResult">
+        SELECT 
+            c.cert_id, c.work_id, c.user_id, c.cert_no, c.blockchain_hash,
+            c.cert_url, c.status, c.apply_time, c.cert_time,
+            c.create_time, c.update_time, c.remark,
+            w.title AS work_name,
+            u.nick_name AS user_name
+        FROM sys_copyright_cert c
+        LEFT JOIN sys_work w ON c.work_id = w.work_id
+        LEFT JOIN sys_user u ON c.user_id = u.user_id
+        WHERE c.user_id = #{userId}
+        <if test="status != null and status != ''">
+            AND c.status = #{status}
+        </if>
+        <if test="keyword != null and keyword != ''">
+            AND (c.cert_no LIKE CONCAT('%', #{keyword}, '%') OR w.title LIKE CONCAT('%', #{keyword}, '%'))
+        </if>
+        ORDER BY c.create_time DESC
+    </select>
+
     <select id="selectCertById" resultMap="SysCopyrightCertResult">
         SELECT 
             c.cert_id, c.work_id, c.user_id, c.cert_no, c.blockchain_hash,

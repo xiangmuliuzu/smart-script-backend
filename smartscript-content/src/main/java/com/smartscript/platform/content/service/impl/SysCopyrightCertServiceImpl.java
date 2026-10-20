@@ -38,6 +38,12 @@ public class SysCopyrightCertServiceImpl implements ISysCopyrightCertService
     }
 
     @Override
+    public List<SysCopyrightCert> selectCertListByUserId(Long userId, String status, String keyword)
+    {
+        return certMapper.selectCertListByUserId(userId, status, keyword);
+    }
+
+    @Override
     public SysCopyrightCert selectCertById(Long certId)
     {
         return certMapper.selectCertById(certId);

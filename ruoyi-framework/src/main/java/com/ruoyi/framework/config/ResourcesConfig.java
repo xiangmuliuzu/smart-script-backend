@@ -29,9 +29,12 @@ public class ResourcesConfig implements WebMvcConfigurer
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry)
     {
-        /** 本地文件上传路径 */
-        registry.addResourceHandler(Constants.RESOURCE_PREFIX + "/**")
-                .addResourceLocations("file:" + RuoYiConfig.getProfile() + "/");
+        /** 
+         * 注释掉静态资源映射，改用 ProfileFileController 处理 /profile/** 请求
+         * 这样可以为文本文件设置正确的 UTF-8 编码，避免中文乱码
+         */
+        // registry.addResourceHandler(Constants.RESOURCE_PREFIX + "/**")
+        //         .addResourceLocations("file:" + RuoYiConfig.getProfile() + "/");
 
         /** swagger配置 */
         registry.addResourceHandler("/swagger-ui/**")

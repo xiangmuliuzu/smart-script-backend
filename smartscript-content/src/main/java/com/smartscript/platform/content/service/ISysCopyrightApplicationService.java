@@ -2,6 +2,7 @@ package com.smartscript.platform.content.service;
 
 import java.util.List;
 import com.smartscript.platform.content.domain.SysCopyrightApplication;
+import com.smartscript.platform.content.dto.copyright.AdminCopyrightApplicationDetailDto;
 
 /**
  * 版权申请Service接口
@@ -18,6 +19,14 @@ public interface ISysCopyrightApplicationService
      * @return 版权申请
      */
     public SysCopyrightApplication selectCopyrightApplicationByApplyId(Long applyId);
+
+    /**
+     * 查询版权申请详情（Admin端，包含完整作品和材料信息）
+     * 
+     * @param applyId 版权申请主键
+     * @return 详细申请信息
+     */
+    public AdminCopyrightApplicationDetailDto getAdminApplicationDetail(Long applyId);
 
     /**
      * 查询版权申请列表
