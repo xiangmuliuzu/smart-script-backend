@@ -121,6 +121,16 @@
         WHERE review_id = #{reviewId}
     </update>
 
+    <!-- 审核通过后把作品置为已上架（lifecycle=approved 的可见性副产物；is_deleted=1 的行不处理） -->
+    <update id="markWorkOnShelf">
+        UPDATE sys_work
+        SET status = 'on_shelf',
+            review_time = sysdate(),
+            update_by = #{updateBy},
+            update_time = sysdate()
+        WHERE work_id = #{workId} AND is_deleted = 0
+    </update>
+
     <delete id="deleteReviewRecordById" parameterType="Long">
         DELETE FROM sys_review_record WHERE review_id = #{reviewId}
     </delete>

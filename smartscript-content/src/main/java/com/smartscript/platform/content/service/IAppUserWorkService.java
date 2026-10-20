@@ -128,4 +128,18 @@ public interface IAppUserWorkService
      * @return {workTotal, draftCount, reviewingCount, revisionCount, publishedCount}
      */
     Map<String, Object> workStatistics(Long userId);
+
+    /**
+     * 作者申请下架 / 重新上架作品
+     *
+     * - 下架（on_shelf → off_shelf）：只降低可见性，无前置条件，且不修改审核记录，
+     *   因此作者可自助重新上架、免重审；
+     * - 重新上架（off_shelf → on_shelf）：要求最新审核记录为 approved，
+     *   且 reject_reason 为空（有值表示平台强制下架，须改完重新提交审核）。
+     *
+     * @param userId 当前用户ID
+     * @param workId 作品ID
+     * @param status 目标状态：on_shelf / off_shelf
+     */
+    void changeShelfStatus(Long userId, Long workId, String status);
 }

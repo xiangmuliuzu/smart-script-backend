@@ -131,8 +131,9 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 					join sys_work w on w.work_id = wt.work_id
 					where wt.tag_id = sys_tag.tag_id
 					  and w.genre_id = #{categoryId}
-					  and w.is_deleted = 0
-					  and w.status = 'on_shelf'
+					<include refid="com.smartscript.platform.content.mapper.SysContentWorkMapper.readerVisibleWork">
+						<property name="alias" value="w"/>
+					</include>
 				)
 			</if>
 		</where>

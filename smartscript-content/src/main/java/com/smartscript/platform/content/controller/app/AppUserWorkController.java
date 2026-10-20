@@ -307,6 +307,31 @@ public class AppUserWorkController
         }
     }
 
+    /**
+     * 作者申请下架 / 重新上架作品
+     * 下架无前置条件；重新上架要求最新审核为 approved 且 reject_reason 为空
+     */
+    @PutMapping("/{workId}/shelf")
+    public AppApiResponse<Void> changeShelfStatus(
+            @PathVariable Long workId,
+            @RequestParam String status)
+    {
+        Long userId = requireLogin();
+        try
+        {
+            userWorkService.changeShelfStatus(userId, workId, status);
+            return AppApiResponse.ok();
+        }
+        catch (IllegalArgumentException e)
+        {
+            return AppApiResponse.fail(CODE_BAD_REQUEST, e.getMessage());
+        }
+        catch (SecurityException e)
+        {
+            return AppApiResponse.fail(CODE_NOT_FOUND, e.getMessage());
+        }
+    }
+
     // ------------------------------------------------------------------
     // 私有辅助
     // ------------------------------------------------------------------

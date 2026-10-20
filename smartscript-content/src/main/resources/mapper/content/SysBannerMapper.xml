@@ -118,6 +118,47 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		delete from sys_banner where banner_id = #{bannerId}
 	</delete>
 
+	<!-- 位次管理：串行化写入，SELECT ... FOR UPDATE -->
+	<select id="lockSortScope" resultType="java.lang.Long">
+		select banner_id from sys_banner order by banner_id for update
+	</select>
+
+	<select id="selectMaxSort" resultType="java.lang.Integer">
+		select max(sort_order) from sys_banner
+	</select>
+
+	<select id="countBySort" resultType="int">
+		select count(*) from sys_banner
+		where sort_order = #{sortOrder}
+		<if test="excludeId != null">
+			and banner_id != #{excludeId}
+		</if>
+	</select>
+
+	<update id="shiftSortForward">
+		update sys_banner
+		set sort_order = sort_order + 1
+		where sort_order >= #{newSort} and sort_order &lt; #{oldSort}
+		<if test="excludeId != null">
+			and banner_id != #{excludeId}
+		</if>
+	</update>
+
+	<update id="shiftSortBackward">
+		update sys_banner
+		set sort_order = sort_order - 1
+		where sort_order &gt; #{oldSort} and sort_order &lt;= #{newSort}
+		<if test="excludeId != null">
+			and banner_id != #{excludeId}
+		</if>
+	</update>
+
+	<update id="shiftSortAfterDelete">
+		update sys_banner
+		set sort_order = sort_order - 1
+		where sort_order &gt; #{deletedSort}
+	</update>
+
 	<!--
 	  App 首页 Banner 轮播（只读，接口文档 2.7.13 表 2-93）。
 	  固定条件：status = 'on' 且在展示时间窗内（start_time/end_time 为 NULL 视为不限制）；

@@ -7,6 +7,7 @@ import com.smartscript.platform.review.mapper.ReviewRecordMapper;
 import com.smartscript.platform.review.mapper.OperationLogMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 
 /**
@@ -81,6 +82,7 @@ public class ReviewService {
     /**
      * 审核操作（通过/驳回/发回修改），带状态机校验，非法流转直接拒绝。
      */
+    @Transactional(rollbackFor = Exception.class)
     public java.util.Map<String, Object> operateReview(Long reviewId, String status, String reviewOpinion, Long reviewerId, String operatorName) {
         java.util.Map<String, Object> result = new java.util.HashMap<>();
         ReviewRecord before = reviewRecordMapper.selectReviewRecordById(reviewId);
@@ -103,6 +105,12 @@ public class ReviewService {
         reviewRecord.setReviewOpinion(reviewOpinion);
         reviewRecord.setReviewerId(reviewerId);
         int cnt = reviewRecordMapper.updateReviewRecord(reviewRecord);
+        // 审核通过 → 内容侧作品自动上架（两个业务模块无编译期依赖，故在共享库的 Mapper 层落地）
+        if (cnt > 0 && "approved".equals(status) && "work".equals(before.getTargetType()) && before.getTargetId() != null)
+        {
+            reviewRecordMapper.markWorkOnShelf(before.getTargetId(),
+                    reviewerId == null ? null : String.valueOf(reviewerId));
+        }
         // 写审核操作日志（真实落库）
         ReviewLog log = new ReviewLog();
         log.setReviewId(reviewId);

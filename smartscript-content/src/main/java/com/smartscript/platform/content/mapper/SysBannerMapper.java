@@ -77,4 +77,38 @@ public interface SysBannerMapper
      * @return 影响行数
      */
     public int deleteBannerById(Long bannerId);
+
+    // ------------------------------------------------------------------
+    // 位次管理（与分类/标签同构）
+    // ------------------------------------------------------------------
+
+    /**
+     * 串行化位次写入：SELECT ... FOR UPDATE 锁定位次区间，防止并发下位次重复
+     */
+    public List<Long> lockSortScope();
+
+    /**
+     * 当前最大位次（空表返回 null）
+     */
+    public Integer selectMaxSort();
+
+    /**
+     * 统计某位次被多少条记录占用（排除自身）
+     */
+    public int countBySort(Integer sortOrder, Long excludeId);
+
+    /**
+     * 向前腾位：[newSort, oldSort) 区间的记录 sort_order +1（插入时用）
+     */
+    public void shiftSortForward(int newSort, int oldSort, Long excludeId);
+
+    /**
+     * 向后腾位：(oldSort, newSort] 区间的记录 sort_order -1（移动时用）
+     */
+    public void shiftSortBackward(int newSort, int oldSort, Long excludeId);
+
+    /**
+     * 删除后紧缩：sort_order > deletedSort 的记录全部 -1
+     */
+    public void shiftSortAfterDelete(int deletedSort);
 }

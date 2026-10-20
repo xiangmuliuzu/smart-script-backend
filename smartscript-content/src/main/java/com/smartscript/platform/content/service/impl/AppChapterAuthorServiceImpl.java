@@ -15,6 +15,7 @@ import com.smartscript.platform.content.dto.AppChapterUpdateRequest;
 import com.smartscript.platform.content.mapper.SysContentWorkMapper;
 import com.smartscript.platform.content.mapper.SysWorkChapterMapper;
 import com.smartscript.platform.content.service.IAppChapterAuthorService;
+import com.smartscript.platform.content.util.WorkStatusDeriver;
 import com.smartscript.platform.identity.IdentityProvider;
 
 /**
@@ -27,7 +28,8 @@ import com.smartscript.platform.identity.IdentityProvider;
  *    作品不存在/已删除按 404，他人作品按 403（本批章节编辑的既定约定）。
  * 2. word_count 由后端按 content 字符长度计算，不接收入参；content 为空时记 0。
  * 3. chapter_no 作品内唯一：前置 countChapterNo 校验（重复 400），并发竞态由唯一键兜底。
- * 4. is_free/status 为 tinyint，按模块约定以字符串 "0"/"1" 落库；新增默认 is_free="0"、status="0"。
+ * 4. is_free/status 为 tinyint，按模块约定以字符串 "0"/"1" 落库；新增默认 is_free="0"、
+ *    status=WorkStatusDeriver.CHAPTER_DRAFT("1"，草稿，仅作者可见)。
  * 5. 新增/更新均落若依审计列 create_by/update_by = 当前用户ID 字符串。
  * 6. 章节增删改后回写作品聚合列 word_count/episode_count（冗余统计列，
  *    全项目无其它写入方，不回写则作品恒显示 0 字 / 0 章）。
@@ -40,8 +42,8 @@ public class AppChapterAuthorServiceImpl implements IAppChapterAuthorService
     /** 是否免费默认值（不免费） */
     private static final String DEFAULT_IS_FREE = "0";
 
-    /** 章节状态默认值（0=正常） */
-    private static final String DEFAULT_STATUS = "0";
+    /** 章节状态默认值（1=草稿，仅作者可见，发布由 PUT 传 status="0" 触发） */
+    private static final String DEFAULT_STATUS = WorkStatusDeriver.CHAPTER_DRAFT;
 
     @Autowired
     private SysWorkChapterMapper chapterMapper;

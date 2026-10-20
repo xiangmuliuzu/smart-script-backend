@@ -15,20 +15,22 @@ import com.smartscript.platform.content.mapper.SysTagMapper;
 import com.smartscript.platform.content.mapper.SysWorkChapterMapper;
 import com.smartscript.platform.content.mapper.SysWorkReviewRecordMapper;
 import com.smartscript.platform.content.service.IAppUserWorkService;
+import com.smartscript.platform.content.util.WorkStatusDeriver;
 
 /**
  * PC 用户端「作品详情与审核流程」服务实现（A2）
  *
  * 依据：五人分工 A2 + 云端 script_platform_dev 库。
- * 云端模型：sys_work.status 只表示上架状态（on_shelf/off_shelf），
- * 作品审核状态由 sys_review_record（target_type='work'）最新一条的 status 推导：
- *   无记录      -> draft（未提交）
- *   pending / ai_reviewing -> reviewing（审核中，只读）
- *   revision    -> revision（待修改，可编辑）
- *   rejected    -> rejected（已驳回，可编辑）
- *   approved    -> published（已发布，可编辑；改动后需重新提交审核）
+ * 两个正交维度（口径唯一定义处：{@link WorkStatusDeriver}）：
+ *   1. sys_work.status 只表示可见性开关（on_shelf/off_shelf），不承载生命周期；
+ *   2. 生命周期由 sys_review_record（target_type='work'）最新一条的 status 派生：
+ *      无记录 -> draft；pending/ai_reviewing -> reviewing；approved -> published；
+ *      revision / rejected 原样返回。
  * 编辑闸门：仅 reviewing（审核中）锁定，其余状态均允许编辑。
- * 提交审核只写 sys_review_record，不修改 sys_work.status。
+ * 提交审核只写 sys_review_record，不修改 sys_work.status；审核通过时由审核侧自动置 on_shelf。
+ * 上下架语义：作者「下架」只降低可见性、无前置；「重新上架」要求最新审核为 approved
+ * 且 reject_reason 为空（平台强制下架的作品禁止作者自助上架）。
+ * 章节两态：新增章节默认 status='1'（草稿，仅作者可见），发布由 PUT /chapters/{id} 传 status='0' 触发。
  *
  * 鉴权：userId 由控制器从 IdentityProvider 取得后传入，本服务不做请求体信任。
  *
@@ -37,9 +39,6 @@ import com.smartscript.platform.content.service.IAppUserWorkService;
 @Service
 public class AppUserWorkServiceImpl implements IAppUserWorkService
 {
-    /** 审核中状态：待审核 / AI审核中（不可编辑、不可重复提交） */
-    private static final java.util.Set<String> REVIEWING_STATUS = java.util.Set.of("pending", "ai_reviewing");
-
     /** 作品标签数量上限（接口文档 2.3.3：tagIds 最多 8 个） */
     private static final int MAX_WORK_TAGS = 8;
 
@@ -153,7 +152,8 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
         chapter.setContent(content == null ? "" : content);
         chapter.setWordCount(countWords(chapter.getContent()));
         chapter.setIsFree("0");
-        chapter.setStatus("0");
+        // 章节两态：新增即草稿（仅作者可见），作者写完再发布（PUT 传 status='0'）
+        chapter.setStatus(WorkStatusDeriver.CHAPTER_DRAFT);
         chapter.setCreateBy(String.valueOf(userId));
         chapter.setCreateTime(new Date());
         chapterMapper.insertChapter(chapter);
@@ -412,31 +412,16 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
         {
             return;
         }
-        String latest = records.get(0).getStatus();
-        if (REVIEWING_STATUS.contains(latest))
+        if (WorkStatusDeriver.isReviewing(records.get(0).getStatus()))
         {
             throw new IllegalStateException("作品正在审核中，不允许编辑");
         }
     }
 
-    /** 由最新审核记录推导作品状态（云端模型） */
+    /** 由最新审核记录推导作品生命周期状态（口径见 {@link WorkStatusDeriver}） */
     private String deriveStatus(SysWorkReviewRecord latest)
     {
-        if (latest == null || latest.getStatus() == null)
-        {
-            return "draft";
-        }
-        String status = latest.getStatus();
-        if (REVIEWING_STATUS.contains(status))
-        {
-            return "reviewing";
-        }
-        if ("approved".equals(status))
-        {
-            return "published";
-        }
-        // revision / rejected 原样返回
-        return status;
+        return WorkStatusDeriver.derive(latest == null ? null : latest.getStatus());
     }
 
     /** 统计字数（按非空白字符数近似） */
@@ -456,5 +441,41 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
         String prefix = "RV" + new SimpleDateFormat("yyyyMMdd").format(new Date());
         int today = reviewRecordMapper.countTodayByPrefix(prefix);
         return prefix + String.format("%03d", today + 1);
+    }
+
+    @Override
+    @Transactional
+    public void changeShelfStatus(Long userId, Long workId, String status)
+    {
+        SysWork work = requireOwnWork(userId, workId);
+
+        if (!WorkStatusDeriver.ON_SHELF.equals(status) && !WorkStatusDeriver.OFF_SHELF.equals(status))
+        {
+            throw new IllegalArgumentException("非法的上下架状态");
+        }
+
+        // 重新上架：平台强制下架的作品（reject_reason 有值）禁止作者自助上架；
+        // 同时必须已通过审核，避免绕过审核流程直接把未过审作品上架
+        if (WorkStatusDeriver.ON_SHELF.equals(status))
+        {
+            if (work.getRejectReason() != null && !work.getRejectReason().isBlank())
+            {
+                throw new IllegalStateException("作品因违规被平台下架，请修改后重新提交审核");
+            }
+            List<SysWorkReviewRecord> records = reviewRecordMapper.selectByWorkId(workId);
+            String latest = records.isEmpty() ? null : records.get(0).getStatus();
+            if (!WorkStatusDeriver.APPROVED.equals(latest))
+            {
+                throw new IllegalStateException("作品尚未通过审核，不能上架");
+            }
+        }
+
+        // 下架只降低可见性（作者申请下架），无前置条件，也不改审核记录 → 可自助重新上架、免重审
+        SysWork update = new SysWork();
+        update.setWorkId(workId);
+        update.setStatus(status);
+        update.setUpdateBy(String.valueOf(userId));
+        update.setUpdateTime(new Date());
+        workMapper.updateWorkStatus(update);
     }
 }

@@ -65,3 +65,5 @@ public class SysWorkServiceImpl implements ISysWorkService
         return workMapper.updateCopyrightAssetStatus(workId, status, updateBy);
     }
 }
+
+

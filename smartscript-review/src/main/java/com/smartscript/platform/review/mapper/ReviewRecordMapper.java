@@ -39,6 +39,11 @@ public interface ReviewRecordMapper {
     int deleteReviewRecordById(@Param("reviewId") Long reviewId);
 
     /**
+     * 审核通过后把作品置为已上架（lifecycle=approved 的可见性副产物；is_deleted=1 的行不处理）。
+     */
+    int markWorkOnShelf(@Param("workId") Long workId, @Param("updateBy") String updateBy);
+
+    /**
      * 按状态统计审核记录数
      */
     java.util.List<java.util.Map<String, Object>> selectStatusGroup();

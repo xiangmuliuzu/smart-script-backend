@@ -82,9 +82,13 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 	<!-- 所有未删作品的榜单指标（一次取全量，排序指标由榜单类型在服务层确定：
 	     view→view_count、favorite→favorite_count、sale→sale_count、rating→rating） -->
 	<select id="selectWorkMetricStats" resultType="java.util.Map">
-		select work_id, view_count, favorite_count, sale_count, rating
-		from sys_work
-		where is_deleted = 0
+		select w.work_id, w.view_count, w.favorite_count, w.sale_count, w.rating
+		from sys_work w
+		<where>
+			<include refid="com.smartscript.platform.content.mapper.SysContentWorkMapper.readerVisibleWork">
+				<property name="alias" value="w"/>
+			</include>
+		</where>
 	</select>
 
 	<!-- 删除同榜单同周期旧快照（重算=整体替换，避免撞唯一键 uk_ranking_work_period） -->

@@ -87,11 +87,10 @@ public class TradeWorkService
     /**
      * 上架作品到交易大厅（分工条目：2.26 POST /trade/works）。
      *
-     * 审核前置口径（2026-09-29 修正）：内容侧作品状态实测为 on_shelf（已上架）/ off_shelf（已下架），
-     * 附件5.1 触发器设计的 approved/rejected/returned 因审核回写链路（T01 触发器）未落地而不会出现，
-     * 原实现硬要求 status='approved' 会导致上架 100% 失败（TRADE_WORK_001）。
-     * 现放宽为白名单 {approved, on_shelf}：只要作品在内容侧处于已上架（或历史 approved）即可发布交易；
-     * off_shelf 提示先回内容侧上架，其余状态提示审核未通过。
+     * 审核前置口径（2026-10-20 修正）：内容侧审核通过即自动上架，作品状态统一为
+     * on_shelf（已上架）/ off_shelf（已下架），因此 status 只需判 on_shelf，
+     * 不再兼容历史 approved——内容侧已无该取值。
+     * off_shelf 提示先回内容侧上架，其余状态提示仅已上架作品可发布交易。
      */
     public int enableTrade(SysWork work)
     {
@@ -105,14 +104,14 @@ public class TradeWorkService
             throw new RuntimeException("作品不存在: " + work.getWorkId());
         }
         String status = existing.getStatus();
-        boolean listable = "approved".equals(status) || "on_shelf".equals(status);
+        boolean listable = "on_shelf".equals(status);
         if (!listable)
         {
             if ("off_shelf".equals(status))
             {
                 throw new RuntimeException("作品已在内容侧下架，请先上架后再发布到交易");
             }
-            throw new RuntimeException("仅审核通过（已上架）的作品可发布到交易，当前状态: " + status);
+            throw new RuntimeException("仅已上架的作品可发布到交易，当前状态: " + status);
         }
         work.setTradeEnabled(1);
         return updateTradeSettings(work);

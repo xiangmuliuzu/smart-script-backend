@@ -65,6 +65,14 @@ class AppUserWorkServiceTest
         return work;
     }
 
+    /** 带 rejectReason 的作品（平台强制下架场景） */
+    private SysWork workOf(String rejectReason)
+    {
+        SysWork work = workOf();
+        work.setRejectReason(rejectReason);
+        return work;
+    }
+
     private SysWorkReviewRecord recordOf(String status)
     {
         SysWorkReviewRecord rec = new SysWorkReviewRecord();
@@ -432,5 +440,78 @@ class AppUserWorkServiceTest
 
         when(workMapper.selectWorkListByAuthor(OWNER)).thenReturn(List.of());
         assertEquals(0, service.listWorks(OWNER, "all", null, null).size());
+    }
+
+    // ------------------------------------------------------------------
+    // 上下架与章节两态（作品生命周期重构）
+    // ------------------------------------------------------------------
+
+    @Test
+    @DisplayName("下架：作者申请下架无前置条件，写入 off_shelf")
+    void changeShelfStatusOffShelfSuccess()
+    {
+        when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
+        when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of(recordOf("approved")));
+
+        service.changeShelfStatus(OWNER, WORK_ID, "off_shelf");
+
+        verify(workMapper).updateWorkStatus(argThat(w -> "off_shelf".equals(w.getStatus())));
+    }
+
+    @Test
+    @DisplayName("重新上架：最新审核 approved 且无违规原因，写入 on_shelf")
+    void changeShelfStatusOnShelfSuccess()
+    {
+        when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
+        when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of(recordOf("approved")));
+
+        service.changeShelfStatus(OWNER, WORK_ID, "on_shelf");
+
+        verify(workMapper).updateWorkStatus(argThat(w -> "on_shelf".equals(w.getStatus())));
+    }
+
+    @Test
+    @DisplayName("重新上架：平台强制下架（reject_reason 非空）→ IllegalStateException 且不写库")
+    void changeShelfStatusOnShelfBlockedByRejectReason()
+    {
+        when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf("违规内容"));
+
+        assertThrows(IllegalStateException.class, () -> service.changeShelfStatus(OWNER, WORK_ID, "on_shelf"));
+        verify(workMapper, never()).updateWorkStatus(any());
+    }
+
+    @Test
+    @DisplayName("重新上架：最新审核非 approved → IllegalStateException 且不写库")
+    void changeShelfStatusOnShelfBlockedWhenNotApproved()
+    {
+        when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
+        when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of(recordOf("pending")));
+
+        assertThrows(IllegalStateException.class, () -> service.changeShelfStatus(OWNER, WORK_ID, "on_shelf"));
+        verify(workMapper, never()).updateWorkStatus(any());
+    }
+
+    @Test
+    @DisplayName("上下架：非法 status 参数 → IllegalArgumentException 且不写库")
+    void changeShelfStatusRejectsIllegalStatus()
+    {
+        when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
+
+        assertThrows(IllegalArgumentException.class, () -> service.changeShelfStatus(OWNER, WORK_ID, "draft"));
+        verify(workMapper, never()).updateWorkStatus(any());
+    }
+
+    @Test
+    @DisplayName("新增章节：默认 status='1'（草稿，仅作者可见）")
+    void addChapterDefaultsToDraftStatus()
+    {
+        when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
+        when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of());
+        when(chapterMapper.selectMaxChapterNo(WORK_ID)).thenReturn(0);
+        when(chapterMapper.insertChapter(any(SysWorkChapter.class))).thenReturn(1);
+
+        service.addChapter(OWNER, WORK_ID, "第一章", "内容");
+
+        verify(chapterMapper).insertChapter(argThat(c -> "1".equals(c.getStatus())));
     }
 }
