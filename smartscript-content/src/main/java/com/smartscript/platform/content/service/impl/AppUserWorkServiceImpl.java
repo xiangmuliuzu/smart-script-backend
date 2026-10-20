@@ -16,6 +16,11 @@ import com.smartscript.platform.content.mapper.SysWorkChapterMapper;
 import com.smartscript.platform.content.mapper.SysWorkReviewRecordMapper;
 import com.smartscript.platform.content.service.IAppUserWorkService;
 import com.smartscript.platform.content.util.WorkStatusDeriver;
+import com.smartscript.platform.review.service.AiReviewService;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+
+import java.util.concurrent.CompletableFuture;
 
 /**
  * PC 用户端「作品详情与审核流程」服务实现（A2）
@@ -46,16 +51,21 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
     private final SysWorkChapterMapper chapterMapper;
     private final SysWorkReviewRecordMapper reviewRecordMapper;
     private final SysTagMapper tagMapper;
+    private final AiReviewService aiReviewService;
+
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(AppUserWorkServiceImpl.class);
 
     public AppUserWorkServiceImpl(SysContentWorkMapper workMapper,
             SysWorkChapterMapper chapterMapper,
             SysWorkReviewRecordMapper reviewRecordMapper,
-            SysTagMapper tagMapper)
+            SysTagMapper tagMapper,
+            AiReviewService aiReviewService)
     {
         this.workMapper = workMapper;
         this.chapterMapper = chapterMapper;
         this.reviewRecordMapper = reviewRecordMapper;
         this.tagMapper = tagMapper;
+        this.aiReviewService = aiReviewService;
     }
 
     @Override
@@ -196,24 +206,84 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
     @Transactional
     public void submitReview(Long userId, Long workId)
     {
-        requireOwnWork(userId, workId);
+        SysWork work = requireOwnWork(userId, workId);
 
-        // 审核中不允许重复提交
+        // 审核中不允许重复提交（pending / ai_reviewing 都算）
         if (reviewRecordMapper.countPendingByWorkId(workId) > 0)
         {
             throw new IllegalStateException("作品正在审核中，请勿重复提交");
         }
 
-        // 云端模型：只写审核记录，不修改 sys_work.status
-        // 已发布（approved）作品允许再次提交：作品改动后需重新走审核流程
+        // 云端模型：先落审核记录，状态置为 ai_reviewing，异步触发 AI 初审
         SysWorkReviewRecord record = new SysWorkReviewRecord();
         record.setReviewNo(generateReviewNo());
         record.setTargetType("work");
         record.setTargetId(workId);
         record.setSubmitterId(userId);
-        record.setReviewResult("pending");
-        record.setStatus("pending");
+        record.setReviewResult("ai_reviewing");
+        record.setStatus("ai_reviewing");
         reviewRecordMapper.insertRecord(record);
+
+        // 拼待审核内容：作品标题+简介 + 前若干章正文（每章截断，避免 token 过长）
+        String content = buildAiReviewContent(work);
+        final Long reviewId = record.getReviewId();
+        log.info("作品提交审核，reviewId={}, workId={}，异步触发AI初审", reviewId, workId);
+
+        // 事务提交后再异步调 AI；无事务同步时（如单测）直接异步执行
+        if (TransactionSynchronizationManager.isSynchronizationActive())
+        {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization()
+            {
+                @Override
+                public void afterCommit()
+                {
+                    runAiReviewAsync(reviewId, content);
+                }
+            });
+        }
+        else
+        {
+            runAiReviewAsync(reviewId, content);
+        }
+    }
+
+    private void runAiReviewAsync(Long reviewId, String content)
+    {
+        CompletableFuture.runAsync(() -> {
+            try
+            {
+                aiReviewService.score(reviewId, content);
+            }
+            catch (Exception e)
+            {
+                log.warn("AI初审异步执行失败 reviewId={}: {}", reviewId, e.getMessage());
+            }
+        });
+    }
+
+    /** 拼接 AI 初审待审内容：标题 + 简介 + 前5章正文（每章最多800字） */
+    private String buildAiReviewContent(SysWork work)
+    {
+        StringBuilder sb = new StringBuilder();
+        sb.append("标题：").append(work.getTitle() == null ? "" : work.getTitle()).append("\n");
+        if (work.getSummary() != null && !work.getSummary().isBlank())
+        {
+            sb.append("简介：").append(work.getSummary()).append("\n");
+        }
+        List<SysWorkChapter> chapters = chapterMapper.selectChapterListWithContentByWorkId(work.getWorkId());
+        int limit = Math.min(chapters == null ? 0 : chapters.size(), 5);
+        for (int i = 0; i < limit; i++)
+        {
+            SysWorkChapter ch = chapters.get(i);
+            sb.append("\n【第").append(ch.getChapterNo() == null ? (i + 1) : ch.getChapterNo())
+              .append("章 ").append(ch.getChapterTitle() == null ? "" : ch.getChapterTitle()).append("】\n");
+            String body = ch.getContent();
+            if (body != null)
+            {
+                sb.append(body.length() > 800 ? body.substring(0, 800) : body);
+            }
+        }
+        return sb.length() > 6000 ? sb.substring(0, 6000) : sb.toString();
     }
 
     @Override

@@ -53,9 +53,6 @@ class AdminAuditParamProjectionTest
                     List.of(AppAdminAuditParams.STATUS, AppAdminAuditParams.REASON)),
             new Endpoint("grantRoles", AdminAuditParamProjection.APP_USER_ROLES,
                     List.of(AppAdminAuditParams.ROLE_IDS, AppAdminAuditParams.REASON)),
-            new Endpoint("decideRealName", AdminAuditParamProjection.REAL_NAME_DECISION,
-                    List.of(AppAdminAuditParams.DECISION, AppAdminAuditParams.REJECT_REASON,
-                            AppAdminAuditParams.EXPECTED_STATUS)),
             new Endpoint("updateAuthorCapability", AdminAuditParamProjection.AUTHOR_CAPABILITY,
                     List.of(AppAdminAuditParams.ENABLED, AppAdminAuditParams.REASON)),
             new Endpoint("createNotification", AdminAuditParamProjection.NOTIFICATION_CREATE,
@@ -69,7 +66,7 @@ class AdminAuditParamProjectionTest
     @Test
     void whitelistsMatchContractFieldsExactly()
     {
-        assertEquals(7, ENDPOINTS.size(), "A4 写接口数量固定为 7；变更需同步契约与第 9/12 批矩阵");
+        assertEquals(6, ENDPOINTS.size(), "人工实名审核已移除，剩余白名单接口数量为 6");
         for (Endpoint e : ENDPOINTS)
         {
             assertEquals(e.contractFields(), List.of(e.whitelist()),
@@ -124,8 +121,6 @@ class AdminAuditParamProjectionTest
         Map<String, Map<String, Object>> expectedVisible = new LinkedHashMap<>();
         expectedVisible.put("changeStatus", Map.of(AppAdminAuditParams.STATUS, "1"));
         expectedVisible.put("grantRoles", Map.of(AppAdminAuditParams.ROLE_IDS, List.of(7)));
-        expectedVisible.put("decideRealName", Map.of(AppAdminAuditParams.DECISION, "APPROVE",
-                AppAdminAuditParams.EXPECTED_STATUS, "PENDING"));
         expectedVisible.put("updateAuthorCapability", Map.of(AppAdminAuditParams.ENABLED, true));
         expectedVisible.put("createNotification", Map.of(AppAdminAuditParams.REQUEST_ID, "req-1",
                 AppAdminAuditParams.TYPE, "SYSTEM", AppAdminAuditParams.USER_IDS, List.of(5)));
@@ -378,40 +373,6 @@ class AdminAuditParamProjectionTest
     }
 
     /**
-     * 第 14 批：实名审核接口 `decision`/`expectedStatus` 的值级默认拒绝。
-     * 仅保留 APPROVE/REJECT 与固定的 PENDING；其余取值（含令牌、数字）一律指纹。
-     */
-    @Test
-    void sanitizeRealNameDecisionLogKeepsOnlyContractEnums()
-    {
-        for (String legalDecision : List.of("APPROVE", "REJECT"))
-        {
-            Map<String, Object> body = new LinkedHashMap<>();
-            body.put(AppAdminAuditParams.DECISION, legalDecision);
-            body.put(AppAdminAuditParams.EXPECTED_STATUS, "PENDING");
-            AdminAuditParamProjection.sanitizeRealNameDecisionLog(body);
-            assertEquals(legalDecision, body.get(AppAdminAuditParams.DECISION), "契约枚举值应保持可读");
-            assertEquals("PENDING", body.get(AppAdminAuditParams.EXPECTED_STATUS), "固定期望状态应保持可读");
-        }
-        Map<String, Object> bad = new LinkedHashMap<>();
-        bad.put(AppAdminAuditParams.DECISION, "MAYBE");
-        bad.put(AppAdminAuditParams.EXPECTED_STATUS, "APPROVED");
-        AdminAuditParamProjection.sanitizeRealNameDecisionLog(bad);
-        assertTrue(String.valueOf(bad.get(AppAdminAuditParams.DECISION)).matches("^fp:[0-9a-f]{12}$"),
-                "非法 decision 必须指纹化");
-        assertTrue(String.valueOf(bad.get(AppAdminAuditParams.EXPECTED_STATUS)).matches("^fp:[0-9a-f]{12}$"),
-                "非固定取值的 expectedStatus 必须指纹化");
-        // 数字取值同样指纹
-        Map<String, Object> numeric = new LinkedHashMap<>();
-        numeric.put(AppAdminAuditParams.DECISION, 1);
-        AdminAuditParamProjection.sanitizeRealNameDecisionLog(numeric);
-        assertTrue(String.valueOf(numeric.get(AppAdminAuditParams.DECISION)).matches("^fp:[0-9a-f]{12}$"),
-                "数字取值必须指纹化");
-        AdminAuditParamProjection.sanitizeRealNameDecisionLog(null);
-        AdminAuditParamProjection.sanitizeRealNameDecisionLog(new LinkedHashMap<>());
-    }
-
-    /**
      * 第 14 批：作者能力接口 `enabled` 的值级默认拒绝。
      * H14-REV-02 复核收紧：**仅布尔**保持可读（与契约可接受集一致）；
      * 令牌字符串、"true"/"false" 字符串、数字一律指纹（这些取值在业务侧同样被 400 拒绝）。
@@ -510,12 +471,6 @@ class AdminAuditParamProjectionTest
             {
                 body.put(AppAdminAuditParams.ROLE_IDS, List.of(7));
                 body.put(AppAdminAuditParams.REASON, "授权");
-            }
-            case "decideRealName" ->
-            {
-                body.put(AppAdminAuditParams.DECISION, "APPROVE");
-                body.put(AppAdminAuditParams.REJECT_REASON, "材料模糊");
-                body.put(AppAdminAuditParams.EXPECTED_STATUS, "PENDING");
             }
             case "updateAuthorCapability" ->
             {

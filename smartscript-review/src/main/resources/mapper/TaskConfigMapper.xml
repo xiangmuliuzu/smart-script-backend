@@ -11,6 +11,9 @@
         <result property="targetCount"  column="target_count"  />
         <result property="rewardPoints" column="reward_points" />
         <result property="icon"         column="icon"          />
+        <result property="startTime"    column="start_time"    />
+        <result property="endTime"      column="end_time"      />
+        <result property="dailyLimit"   column="daily_limit"   />
         <result property="sort"         column="sort"          />
         <result property="status"       column="status"        />
         <result property="createBy"     column="create_by"     />
@@ -22,7 +25,8 @@
 
     <sql id="selectTaskConfigVo">
         SELECT task_id, task_name, task_type, task_code, description, target_count,
-               reward_points, icon, sort, status, create_by, created_at, update_by, update_time, remark
+               reward_points, icon, start_time, end_time, daily_limit, sort, status,
+               create_by, created_at, update_by, update_time, remark
         FROM sys_task
     </sql>
 
@@ -62,6 +66,9 @@
             <if test="targetCount != null">target_count,</if>
             <if test="rewardPoints != null">reward_points,</if>
             <if test="icon != null">icon,</if>
+            <if test="startTime != null">start_time,</if>
+            <if test="endTime != null">end_time,</if>
+            <if test="dailyLimit != null">daily_limit,</if>
             <if test="sort != null">sort,</if>
             <if test="status != null">status,</if>
             <if test="createBy != null">create_by,</if>
@@ -76,6 +83,9 @@
             <if test="targetCount != null">#{targetCount},</if>
             <if test="rewardPoints != null">#{rewardPoints},</if>
             <if test="icon != null">#{icon},</if>
+            <if test="startTime != null">#{startTime},</if>
+            <if test="endTime != null">#{endTime},</if>
+            <if test="dailyLimit != null">#{dailyLimit},</if>
             <if test="sort != null">#{sort},</if>
             <if test="status != null">#{status},</if>
             <if test="createBy != null">#{createBy},</if>
@@ -94,6 +104,9 @@
             <if test="targetCount != null">target_count = #{targetCount},</if>
             <if test="rewardPoints != null">reward_points = #{rewardPoints},</if>
             <if test="icon != null">icon = #{icon},</if>
+            <if test="startTime != null">start_time = #{startTime},</if>
+            <if test="endTime != null">end_time = #{endTime},</if>
+            <if test="dailyLimit != null">daily_limit = #{dailyLimit},</if>
             <if test="sort != null">sort = #{sort},</if>
             <if test="status != null">status = #{status},</if>
             <if test="updateBy != null">update_by = #{updateBy},</if>

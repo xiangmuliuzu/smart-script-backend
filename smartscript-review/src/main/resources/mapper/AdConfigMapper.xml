@@ -4,6 +4,7 @@
 
     <resultMap id="AdConfigResult" type="com.smartscript.platform.review.domain.AdConfig">
         <id     property="adId"           column="ad_id"           />
+        <result property="category"       column="category"        />
         <result property="adName"         column="ad_name"         />
         <result property="adPosition"     column="ad_position"     />
         <result property="adType"         column="ad_type"         />
@@ -26,7 +27,7 @@
     </resultMap>
 
     <sql id="selectAdConfigVo">
-        SELECT ad_id, ad_name, ad_position, ad_type, ad_source, ad_unit_id, is_enabled,
+        SELECT ad_id, category, ad_name, ad_position, ad_type, ad_source, ad_unit_id, is_enabled,
                frequency_limit, daily_cap, target_audience, watch_limit, reward_points, sort,
                start_date, end_date, create_by, created_at, update_by, update_time, remark
         FROM sys_ad_config
@@ -35,11 +36,17 @@
     <select id="selectAdConfigList" parameterType="com.smartscript.platform.review.domain.AdConfig" resultMap="AdConfigResult">
         <include refid="selectAdConfigVo"/>
         <where>
+            <if test="category != null and category != ''">
+                AND category = #{category}
+            </if>
             <if test="adName != null and adName != ''">
                 AND ad_name LIKE CONCAT('%', #{adName}, '%')
             </if>
             <if test="adPosition != null and adPosition != ''">
                 AND ad_position = #{adPosition}
+            </if>
+            <if test="adType != null and adType != ''">
+                AND ad_type = #{adType}
             </if>
             <if test="adSource != null and adSource != ''">
                 AND ad_source LIKE CONCAT('%', #{adSource}, '%')
@@ -59,6 +66,7 @@
     <insert id="insertAdConfig" parameterType="com.smartscript.platform.review.domain.AdConfig" useGeneratedKeys="true" keyProperty="adId">
         INSERT INTO sys_ad_config
         <trim prefix="(" suffix=")" suffixOverrides=",">
+            <if test="category != null and category != ''">category,</if>
             <if test="adName != null and adName != ''">ad_name,</if>
             <if test="adPosition != null and adPosition != ''">ad_position,</if>
             <if test="adType != null and adType != ''">ad_type,</if>
@@ -78,6 +86,7 @@
             <if test="remark != null">remark,</if>
         </trim>
         <trim prefix="values (" suffix=")" suffixOverrides=",">
+            <if test="category != null and category != ''">#{category},</if>
             <if test="adName != null and adName != ''">#{adName},</if>
             <if test="adPosition != null and adPosition != ''">#{adPosition},</if>
             <if test="adType != null and adType != ''">#{adType},</if>
@@ -101,6 +110,7 @@
     <update id="updateAdConfig" parameterType="com.smartscript.platform.review.domain.AdConfig">
         UPDATE sys_ad_config
         <trim prefix="SET" suffixOverrides=",">
+            <if test="category != null and category != ''">category = #{category},</if>
             <if test="adName != null and adName != ''">ad_name = #{adName},</if>
             <if test="adPosition != null and adPosition != ''">ad_position = #{adPosition},</if>
             <if test="adType != null and adType != ''">ad_type = #{adType},</if>

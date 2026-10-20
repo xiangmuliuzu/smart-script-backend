@@ -85,8 +85,6 @@ class AdminOperLogContractTest
     {
         EXPECTED.put("changeStatus", new Expect("App用户状态", BusinessType.UPDATE, List.of(AppAdminAuditParams.REASON), true));
         EXPECTED.put("grantRoles", new Expect("用户角色授权", BusinessType.GRANT, List.of(AppAdminAuditParams.REASON), true));
-        // H9-LOG-01：rejectReason 会随响应体进入 json_result，故该接口不记录响应体
-        EXPECTED.put("decideRealName", new Expect("实名审核", BusinessType.UPDATE, List.of(AppAdminAuditParams.REJECT_REASON), false));
         // 创作者申请审核：与实名审核同口径，rejectReason 随响应体进入 json_result，故不记录响应体
         EXPECTED.put("decideCreatorApplication", new Expect("创作者申请审核", BusinessType.UPDATE, List.of(AppAdminAuditParams.REJECT_REASON), false));
         EXPECTED.put("updateAuthorCapability", new Expect("作者能力", BusinessType.UPDATE, List.of(AppAdminAuditParams.REASON), true));
@@ -99,9 +97,16 @@ class AdminOperLogContractTest
     }
 
     @Test
+    void realNameRecordsDoNotExposeManualDecision()
+    {
+        assertTrue(java.util.Arrays.stream(AdminUserCenterController.class.getDeclaredMethods())
+                .noneMatch(method -> method.getName().equals("decideRealName")));
+    }
+
+    @Test
     void everyWriteEndpointDeclaresExpectedLogFields() throws Exception
     {
-        assertEquals(8, EXPECTED.size(), "A4 写接口数量固定为 8；变更需同步本契约与第 9 批矩阵");
+        assertEquals(7, EXPECTED.size(), "人工实名审核已移除，剩余 A4 写接口数量为 7");
 
         for (Map.Entry<String, Expect> e : EXPECTED.entrySet())
         {
@@ -340,8 +345,6 @@ class AdminOperLogContractTest
         AppUserAdminService appUserAdminService = mock(AppUserAdminService.class);
         when(appUserAdminService.changeStatus(any(), any(), any(), any())).thenReturn(true);
         RealNameReviewService realNameReviewService = mock(RealNameReviewService.class);
-        when(realNameReviewService.decide(any(), any(), any(), any(), any()))
-                .thenReturn(new RealNameApplication());
         AuthorCapabilityService authorCapabilityService = mock(AuthorCapabilityService.class);
         when(authorCapabilityService.setEnabled(any(), anyBoolean(), any(), any(), any())).thenReturn(true);
         UserFeedbackAdminService feedbackService = mock(UserFeedbackAdminService.class);
@@ -360,15 +363,6 @@ class AdminOperLogContractTest
             controller.changeStatus(9L, statusBody);
             verify(appUserAdminService).changeStatus(eq(9L), eq(token), eq("状态原因"), eq("h8_normal"));
             assertFingerprinted(statusBody, "changeStatus", AppAdminAuditParams.STATUS, token);
-
-            // 2) 实名审核：decision/expectedStatus 非法取值指纹化，服务层仍收到原值
-            Map<String, Object> decisionBody = new LinkedHashMap<>();
-            decisionBody.put(AppAdminAuditParams.DECISION, token);
-            decisionBody.put(AppAdminAuditParams.EXPECTED_STATUS, "NOT_PENDING");
-            controller.decideRealName(9L, decisionBody);
-            verify(realNameReviewService).decide(eq(9L), eq(token), isNull(), any(), eq("NOT_PENDING"));
-            assertFingerprinted(decisionBody, "decideRealName", AppAdminAuditParams.DECISION, token);
-            assertFingerprinted(decisionBody, "decideRealName", AppAdminAuditParams.EXPECTED_STATUS, "NOT_PENDING");
 
             // 3) 作者能力：enabled 非布尔取值按契约拒绝（H14-REV-02），服务层不被调用；
             //    日志投影仍先把该值指纹化（失败请求同样经 @AfterThrowing 序列化请求体）
@@ -458,7 +452,6 @@ class AdminOperLogContractTest
         {
             case "changeStatus" -> c.getDeclaredMethod(name, Long.class, Map.class);
             case "grantRoles" -> c.getDeclaredMethod(name, Long.class, Map.class);
-            case "decideRealName" -> c.getDeclaredMethod(name, Long.class, Map.class);
             case "decideCreatorApplication" -> c.getDeclaredMethod(name, Long.class, Map.class);
             case "updateAuthorCapability" -> c.getDeclaredMethod(name, Long.class, Map.class);
             case "createNotification" -> c.getDeclaredMethod(name, Map.class);

@@ -43,6 +43,7 @@ class AppUserWorkServiceTest
     private SysWorkChapterMapper chapterMapper;
     private SysWorkReviewRecordMapper reviewRecordMapper;
     private SysTagMapper tagMapper;
+    private com.smartscript.platform.review.service.AiReviewService aiReviewService;
     private AppUserWorkServiceImpl service;
 
     @BeforeEach
@@ -52,7 +53,8 @@ class AppUserWorkServiceTest
         chapterMapper = mock(SysWorkChapterMapper.class);
         reviewRecordMapper = mock(SysWorkReviewRecordMapper.class);
         tagMapper = mock(SysTagMapper.class);
-        service = new AppUserWorkServiceImpl(workMapper, chapterMapper, reviewRecordMapper, tagMapper);
+        aiReviewService = mock(com.smartscript.platform.review.service.AiReviewService.class);
+        service = new AppUserWorkServiceImpl(workMapper, chapterMapper, reviewRecordMapper, tagMapper, aiReviewService);
     }
 
     private SysWork workOf()
@@ -304,17 +306,22 @@ class AppUserWorkServiceTest
     }
 
     @Test
-    @DisplayName("提交审核：无记录可提交，写入 pending 审核记录，不改 sys_work.status")
+    @DisplayName("提交审核：写入 ai_reviewing 审核记录，触发异步AI初审")
     void submitReviewWritesRecordOnly()
     {
         when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
         when(reviewRecordMapper.countPendingByWorkId(WORK_ID)).thenReturn(0);
         when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of());
         when(reviewRecordMapper.countTodayByPrefix(anyString())).thenReturn(2);
+        when(chapterMapper.selectChapterListWithContentByWorkId(WORK_ID)).thenReturn(List.of());
 
         service.submitReview(OWNER, WORK_ID);
 
-        verify(reviewRecordMapper).insertRecord(any(SysWorkReviewRecord.class));
+        org.mockito.ArgumentCaptor<SysWorkReviewRecord> captor =
+                org.mockito.ArgumentCaptor.forClass(SysWorkReviewRecord.class);
+        verify(reviewRecordMapper).insertRecord(captor.capture());
+        assertEquals("ai_reviewing", captor.getValue().getStatus());
+        assertEquals("ai_reviewing", captor.getValue().getReviewResult());
     }
 
     @Test
@@ -360,7 +367,7 @@ class AppUserWorkServiceTest
         when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
         when(reviewRecordMapper.countPendingByWorkId(WORK_ID)).thenReturn(0);
         service.submitReview(OWNER, WORK_ID);
-        verify(reviewRecordMapper).insertRecord(argThat(record -> "pending".equals(record.getStatus())));
+        verify(reviewRecordMapper).insertRecord(argThat(record -> "ai_reviewing".equals(record.getStatus())));
     }
 
     @Test

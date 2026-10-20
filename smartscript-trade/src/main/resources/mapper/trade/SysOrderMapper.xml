@@ -30,6 +30,7 @@
         <result property="updateTime"    column="update_time" />
         <result property="remark"        column="remark" />
         <result property="workTitle"     column="work_title" />
+        <result property="workCover"     column="work_cover" />
         <result property="buyerName"     column="buyer_name" />
         <result property="sellerName"    column="seller_name" />
     </resultMap>
@@ -41,6 +42,7 @@
                o.status, o.pay_time, o.complete_time,
                o.created_at, o.updated_at, o.create_by, o.create_time, o.remark,
                w.title as work_title,
+               w.cover as work_cover,
                ub.nick_name as buyer_name,
                us.nick_name as seller_name
         from sys_order o
@@ -59,7 +61,7 @@
     </select>
 
     <select id="selectOrderById" parameterType="Long" resultMap="SysOrderResult">
-        select o.*, w.title as work_title,
+        select o.*, w.title as work_title, w.cover as work_cover,
                ub.nick_name as buyer_name,
                us.nick_name as seller_name
         from sys_order o

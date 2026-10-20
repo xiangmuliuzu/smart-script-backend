@@ -91,6 +91,10 @@ public class AuthorCapabilityService
             throw AppAdminException.badRequest("作者能力变更原因超出长度上限");
         }
 
+        if (enabled && "REJECTED".equals(mapper.selectLatestCreatorApplicationStatus(userId)))
+        {
+            throw AppAdminException.conflict("创作者申请已被驳回，请用户重新提交申请后再开通");
+        }
         Boolean current = mapper.selectEnabledByUserId(userId);
         if (current != null && current == enabled)
         {

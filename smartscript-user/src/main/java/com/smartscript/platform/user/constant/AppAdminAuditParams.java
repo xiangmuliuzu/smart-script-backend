@@ -57,7 +57,7 @@ public final class AppAdminAuditParams
     public static final String STATUS = "status";
     /** §5.1 `PUT /app-users/{id}/roles`。 */
     public static final String ROLE_IDS = "roleIds";
-    /** §5.2 `PUT /real-name-applications/{id}/decision`。 */
+    /** 创作者申请审核的决定。 */
     public static final String DECISION = "decision";
     /** §5.2 / §5.5 乐观并发期望状态。 */
     public static final String EXPECTED_STATUS = "expectedStatus";

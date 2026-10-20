@@ -28,6 +28,9 @@ import com.smartscript.platform.user.domain.UserRealNameAuth;
  */
 public interface AppUserCenterMapper
 {
+    /** 显式关闭为 false；从未设置能力时为 null。 */
+    Boolean selectCreatorCapabilityEnabled(@Param("userId") Long userId);
+
     // ------------------------------------------------------------------
     // 个人资料
     // ------------------------------------------------------------------
@@ -65,6 +68,9 @@ public interface AppUserCenterMapper
     // ------------------------------------------------------------------
     // 实名认证
     // ------------------------------------------------------------------
+
+    /** 提交时锁定用户行，避免并发请求重复消耗外部实名认证额度。 */
+    Long lockRealNameApplicant(@Param("userId") Long userId);
 
     /** 最新一条实名申请（含材料引用）；无记录返回 null。 */
     UserRealNameAuth selectLatestRealName(@Param("userId") Long userId);

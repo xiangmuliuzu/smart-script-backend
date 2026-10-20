@@ -148,7 +148,10 @@ public class AppWelfareController {
     @GetMapping("/ad/list")
     public Map<String, Object> adList(@RequestParam("userId") Long userId) {
         if (userId == null) return fail(400, "userId 必填");
-        List<AdConfig> all = adConfigMapper.selectAdConfigList(new AdConfig());
+        // 只返回广告福利任务（category=WELFARE），广告位（开屏/插屏）不展示在福利页
+        AdConfig q = new AdConfig();
+        q.setCategory("WELFARE");
+        List<AdConfig> all = adConfigMapper.selectAdConfigList(q);
         String today = new SimpleDateFormat("yyyy-MM-dd").format(new Date());
         List<Map<String, Object>> list = new ArrayList<>();
         for (AdConfig ad : all) {

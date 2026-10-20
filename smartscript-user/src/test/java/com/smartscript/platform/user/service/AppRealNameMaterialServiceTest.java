@@ -15,6 +15,7 @@ import org.springframework.mock.web.MockMultipartFile;
 import com.smartscript.platform.user.domain.UserRealNameAuth;
 import com.smartscript.platform.user.dto.RealNameSubmitRequest;
 import com.smartscript.platform.user.exception.AppAuthException;
+import com.smartscript.platform.user.integration.AliyunRealNameVerifier;
 import com.smartscript.platform.user.mapper.AppUserCenterMapper;
 
 class AppRealNameMaterialServiceTest
@@ -80,15 +81,42 @@ class AppRealNameMaterialServiceTest
     }
 
     @Test
-    void submittedApplicationRetainsPrivateReferenceForAdminReview() throws Exception
+    void submitAndResubmitVerifyNameAndIdWithoutMaterials()
+    {
+        var materials = mock(AppRealNameMaterialService.class);
+        var verifier = mock(AliyunRealNameVerifier.class);
+        var reviews = mock(RealNameReviewService.class);
+        var realName = new AppRealNameService(mapper, materials, verifier, reviews);
+        var request = new RealNameSubmitRequest();
+        request.setRealName("测试用户");
+        request.setIdNumber("11010119900101123X");
+        doAnswer(call -> {
+            ((UserRealNameAuth) call.getArgument(0)).setApplicationId(77L);
+            return 1;
+        }).when(mapper).insertRealName(any());
+        realName.submit(12L, request);
+        when(mapper.selectLatestRealNameStatus(12L)).thenReturn("REJECTED");
+        request.setMaterialRefs(List.of());
+        realName.resubmit(12L, request);
+        verifyNoInteractions(materials);
+        verify(verifier, times(2)).verify("测试用户", "11010119900101123X");
+        verify(mapper, times(2)).insertRealName(argThat(row -> row.getMaterialRef() == null
+                && row.getUserId().equals(12L) && "PENDING".equals(row.getStatus())));
+        verify(reviews, times(2)).decide(77L, "APPROVE", null, null, "PENDING");
+    }
+
+    @Test
+    void submittedApplicationRetainsPrivateReferenceForRecordDetail() throws Exception
     {
         String reference = upload(12L, image());
-        var realName = new AppRealNameService(mapper, service);
+        var realName = new AppRealNameService(mapper, service,
+                mock(AliyunRealNameVerifier.class),
+                mock(RealNameReviewService.class));
         var request = request(reference);
         var record = new UserRealNameAuth();
-        record.setStatus("PENDING");
+        record.setStatus("APPROVED");
         when(mapper.selectLatestRealName(12L)).thenReturn(record);
-        assertEquals("PENDING", realName.submit(12L, request).getStatus());
+        assertEquals("APPROVED", realName.submit(12L, request).getStatus());
         verify(mapper).insertRealName(argThat(row -> reference.equals(row.getMaterialRef())
                 && row.getUserId().equals(12L) && "PENDING".equals(row.getStatus())));
     }
@@ -96,12 +124,52 @@ class AppRealNameMaterialServiceTest
     @Test
     void crossAccountAndNonexistentMaterialsCannotCreateApplications() throws Exception
     {
-        var realName = new AppRealNameService(mapper, service);
+        var realName = new AppRealNameService(mapper, service,
+                mock(AliyunRealNameVerifier.class),
+                mock(RealNameReviewService.class));
         String reference = upload(13L, image());
         assertThrows(AppAuthException.class, () -> realName.submit(12L, request(reference)));
         assertThrows(AppAuthException.class,
                 () -> realName.submit(12L, request("realname/12/" + "a".repeat(32) + ".png")));
         verify(mapper, never()).insertRealName(any());
+    }
+
+    @Test
+    void enabledVerificationUsesExistingReviewFlow() throws Exception
+    {
+        String reference = upload(12L, image());
+        var verifier = mock(AliyunRealNameVerifier.class);
+        var reviews = mock(RealNameReviewService.class);
+        var realName = new AppRealNameService(mapper, service, verifier, reviews);
+        doAnswer(call -> {
+            ((UserRealNameAuth) call.getArgument(0)).setApplicationId(77L);
+            return 1;
+        }).when(mapper).insertRealName(any());
+        realName.submit(12L, request(reference));
+        verify(reviews).decide(77L, "APPROVE", null, null, "PENDING");
+        when(verifier.verify(anyString(), anyString())).thenReturn("姓名与身份证号码不匹配");
+        realName.resubmit(12L, request(reference));
+        verify(reviews).decide(77L, "REJECT", "姓名与身份证号码不匹配", null, "PENDING");
+    }
+
+    @Test
+    void invalidMaterialsConflictsAndUnavailableServiceNeverApprove() throws Exception
+    {
+        String reference = upload(12L, image());
+        var verifier = mock(AliyunRealNameVerifier.class);
+        var reviews = mock(RealNameReviewService.class);
+        var realName = new AppRealNameService(mapper, service, verifier, reviews);
+        when(mapper.selectLatestRealNameStatus(12L)).thenReturn("APPROVED");
+        assertThrows(AppAuthException.class, () -> realName.submit(12L, request(reference)));
+        when(mapper.selectLatestRealNameStatus(12L)).thenReturn(null);
+        assertThrows(AppAuthException.class,
+                () -> realName.submit(12L, request("realname/12/" + "a".repeat(32) + ".png")));
+        verify(verifier, never()).verify(anyString(), anyString());
+        when(verifier.verify(anyString(), anyString()))
+                .thenThrow(new AppAuthException(50000, 503, "实名认证服务暂不可用"));
+        assertThrows(AppAuthException.class, () -> realName.submit(12L, request(reference)));
+        verify(mapper, never()).insertRealName(any());
+        verifyNoInteractions(reviews);
     }
 
     private String upload(Long userId, byte[] image)

@@ -52,6 +52,8 @@ public class AppAuthAuthenticationFilter extends OncePerRequestFilter
             "/auth/oauth/wechat/login",
             "/auth/oauth/qq/login",
             "/pc-auth/login",
+            // 运维端忘记密码：两个 POST 匿名可达，前缀匹配同时覆盖 sms/send 与 password/reset。
+            "/pc-auth/admin",
     };
 
     /**

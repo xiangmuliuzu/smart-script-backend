@@ -53,6 +53,7 @@ public class AppWorkController
      *                        按推荐权重降序）
      * @param page       页码（可选，默认 1）
      * @param pageSize   每页条数（可选，默认 10，上限 50）
+     * @param authorId   作者用户ID（可选，个人主页「TA 的作品」按作者过滤）
      */
     @GetMapping
     public AppApiResponse<AppPageResult<AppWorkDto>> list(
@@ -63,7 +64,8 @@ public class AppWorkController
             @RequestParam(required = false) String recommendStatus,
             @RequestParam(required = false) String showScope,
             @RequestParam(required = false) Integer page,
-            @RequestParam(required = false) Integer pageSize)
+            @RequestParam(required = false) Integer pageSize,
+            @RequestParam(required = false) Long authorId)
     {
         AppWorkQuery query = new AppWorkQuery();
         query.setCategoryId(categoryId);
@@ -72,6 +74,7 @@ public class AppWorkController
         query.setSort(sort);
         query.setRecommendStatus(recommendStatus);
         query.setShowScope(showScope);
+        query.setAuthorId(authorId);
         int pageNum = page == null ? 1 : page;
         int size = pageSize == null ? 10 : pageSize;
         return AppApiResponse.ok(bookstoreService.pageWorks(query, pageNum, size));

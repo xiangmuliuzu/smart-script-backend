@@ -85,17 +85,38 @@ public class TaskConfigService {
             result.put("msg", "任务未启用");
             return result;
         }
-        String today = new SimpleDateFormat("yyyy-MM-dd").format(new Date());
-        // 每日防重：DAILY 类任务按 周期(当天) 查重（唯一索引 uk_user_task_period 兜底）；其余任务按全量查重
-        boolean dailyTask = "DAILY".equalsIgnoreCase(task.getTaskType());
-        if (dailyTask) {
-            if (userTaskMapper.countClaimed(userId, task.getTaskId().longValue(), today) > 0) {
+        // 生效期校验
+        Date now = new Date();
+        if (task.getStartTime() != null && now.before(task.getStartTime())) {
+            result.put("code", 400);
+            result.put("msg", "任务尚未开始");
+            return result;
+        }
+        if (task.getEndTime() != null && now.after(task.getEndTime())) {
+            result.put("code", 400);
+            result.put("msg", "任务已结束");
+            return result;
+        }
+        String today = new SimpleDateFormat("yyyy-MM-dd").format(now);
+        long taskIdVal = task.getTaskId().longValue();
+        Integer dailyLimit = task.getDailyLimit();
+        if (dailyLimit != null && dailyLimit > 0) {
+            // 显式每日上限：当天已领次数须 < dailyLimit
+            if (userTaskMapper.countClaimed(userId, taskIdVal, today) >= dailyLimit) {
+                result.put("code", 400);
+                result.put("msg", "今日领取次数已达上限");
+                return result;
+            }
+        } else if ("DAILY".equalsIgnoreCase(task.getTaskType())) {
+            // 每日任务未设上限时默认每日 1 次
+            if (userTaskMapper.countClaimed(userId, taskIdVal, today) > 0) {
                 result.put("code", 400);
                 result.put("msg", "今日已领取该任务奖励");
                 return result;
             }
         } else {
-            if (userTaskMapper.countClaimedAll(userId, task.getTaskId().longValue()) > 0) {
+            // 其他任务全周期限领 1 次
+            if (userTaskMapper.countClaimedAll(userId, taskIdVal) > 0) {
                 result.put("code", 400);
                 result.put("msg", "该任务奖励已领取");
                 return result;
@@ -111,11 +132,10 @@ public class TaskConfigService {
         ut.setProgress(task.getTargetCount() == null ? 1 : task.getTargetCount());
         ut.setIsCompleted(1);
         ut.setIsClaimed(1);
-        Date now = new Date();
         ut.setCompleteTime(now);
         ut.setClaimTime(now);
         try {
-            ut.setPeriodDate(new SimpleDateFormat("yyyy-MM-dd").parse(dailyTask ? today : today));
+            ut.setPeriodDate(new SimpleDateFormat("yyyy-MM-dd").parse(today));
         } catch (Exception ignored) {
         }
         userTaskMapper.insertUserTask(ut);

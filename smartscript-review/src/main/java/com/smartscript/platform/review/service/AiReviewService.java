@@ -7,8 +7,11 @@ import com.smartscript.platform.review.mapper.AiReviewRuleMapper;
 import com.smartscript.platform.review.mapper.ReviewRecordMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
+import org.springframework.web.client.RestTemplate;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 
 import java.util.ArrayList;
 import java.util.Date;
@@ -18,12 +21,14 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * AI审核规则服务：作品提交后触发，读取启用规则 → 拼提示词 → 调用AI（外部API配置化，无Key走Mock）→ 打分 → 落库
+ * AI审核规则服务：作品提交后触发，读取启用规则 → 拼提示词 → 调用AI（DeepSeek）→ 打分 → 落库
  *
  * @author smartscript
  */
 @Service
 public class AiReviewService {
+
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(AiReviewService.class);
 
     @Autowired
     private AiReviewRuleMapper aiReviewRuleMapper;
@@ -31,15 +36,27 @@ public class AiReviewService {
     @Autowired
     private ReviewRecordMapper reviewRecordMapper;
 
-    /** 外部AI审核API地址（application.yml 配置 ai.review.base-url，为空则走Mock打分） */
-    @Value("${ai.review.base-url:}")
+    /** 复用内容创作同一套 DeepSeek 配置；未配置 api-key 时走 Mock 兜底 */
+    @Value("${AI_BASE_URL:https://api.deepseek.com}")
     private String aiBaseUrl;
 
-    /** 外部AI审核API Key */
-    @Value("${ai.review.api-key:}")
+    @Value("${AI_API_KEY:}")
     private String aiApiKey;
 
+    @Value("${AI_SERVICE_MODEL:deepseek-chat}")
+    private String aiModel;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    private RestTemplate restTemplate;
+
+    @jakarta.annotation.PostConstruct
+    void initRestTemplate() {
+        SimpleClientHttpRequestFactory f = new SimpleClientHttpRequestFactory();
+        f.setConnectTimeout(5000);
+        f.setReadTimeout(90000);
+        this.restTemplate = new RestTemplate(f);
+    }
 
     /**
      * AI初筛打分：规则读取 → 提示词生成 → AI判定 → 落库 ai_result/ai_risk_level/ai_sensitive_words
@@ -64,9 +81,19 @@ public class AiReviewService {
         List<AiReviewRule> rules = aiReviewRuleMapper.selectActiveAiReviewRules();
         // 2) 根据规则拼提示词（规则即审核标准）
         String prompt = buildPrompt(rules);
-        // 3) 调用AI：配置了外部API则真调，否则走确定性Mock
-        boolean usingMock = !StringUtils.hasText(aiBaseUrl) || !StringUtils.hasText(aiApiKey);
-        Map<String, Object> aiResp = usingMock ? mockScore(content, rules) : callExternalAi(prompt, content);
+        // 3) 调用AI：配置了 api-key 则真调 DeepSeek，否则走确定性 Mock
+        boolean usingMock = !StringUtils.hasText(aiApiKey);
+        Map<String, Object> aiResp;
+        if (usingMock) {
+            aiResp = mockScore(content, rules);
+        } else {
+            try {
+                aiResp = callExternalAi(prompt, content);
+            } catch (Exception e) {
+                log.warn("AI审核调用失败，回退Mock: {}", e.getMessage());
+                aiResp = mockScore(content, rules);
+            }
+        }
         int score = ((Number) aiResp.get("score")).intValue();
         String riskLevel = (String) aiResp.get("level");
         List<String> keywords = (List<String>) aiResp.get("keywords");
@@ -90,6 +117,23 @@ public class AiReviewService {
         upd.setAiSensitiveWords(sensitiveWords.isEmpty() ? null : sensitiveWords);
         upd.setAiStartTime(record.getAiStartTime() != null ? record.getAiStartTime() : now);
         upd.setAiEndTime(now);
+
+        // 5) 自动流转状态：仅当当前仍为 ai_reviewing 时按 AI 结果推进
+        //    low/medium -> pending（进人工复审）；high -> rejected（自动驳回）
+        String nextStatus;
+        if ("ai_reviewing".equals(record.getStatus())) {
+            if ("high".equals(riskLevel)) {
+                nextStatus = "rejected";
+            } else {
+                nextStatus = "pending";
+            }
+            upd.setStatus(nextStatus);
+            log.info("AI初审自动流转: reviewId={}, {} -> {}, score={}, level={}",
+                    reviewId, record.getStatus(), nextStatus, score, riskLevel);
+        } else {
+            nextStatus = record.getStatus();
+            log.info("AI初审完成但状态已非ai_reviewing({})，不自动流转 reviewId={}", record.getStatus(), reviewId);
+        }
         reviewRecordMapper.updateReviewRecord(upd);
 
         result.put("code", 200);
@@ -98,6 +142,7 @@ public class AiReviewService {
         result.put("riskLevel", riskLevel);
         result.put("keywords", keywords);
         result.put("usingMock", usingMock);
+        result.put("nextStatus", nextStatus);
         result.put("prompt", prompt);
         return result;
     }
@@ -183,11 +228,100 @@ public class AiReviewService {
     }
 
     /**
-     * 外部AI调用（配置了 ai.review.base-url / api-key 时启用；当前预留，接入后无需改业务代码）
+     * 真调 DeepSeek Chat Completions 做内容安全打分。
+     * 要求模型严格输出 JSON：{"score":0-100,"level":"low|medium|high","keywords":["违规词"]}
+     * 解析失败抛异常，由调用方回退 Mock。
      */
+    @SuppressWarnings("unchecked")
     private Map<String, Object> callExternalAi(String prompt, String content) {
-        // 预留：使用 aiBaseUrl / aiApiKey 发起 HTTP 调用，解析 {"score":..,"level":..,"keywords":[...]}
-        // 未实现前回退到 Mock，保证接口可用
-        return mockScore(content, aiReviewRuleMapper.selectActiveAiReviewRules());
+        String system = "你是一名严格的内容安全审核员。请根据用户给出的审核规则，对待审核作品内容逐项判定。"
+                + "只输出一个JSON对象，不要任何解释、不要markdown代码块包裹，格式严格为："
+                + "{\"score\":0到100的整数,\"level\":\"low或medium或high\",\"keywords\":[\"命中的违规词或问题点\"]}。"
+                + "score越高越安全合规：>=85为low（低风险），60-84为medium（中风险），<60为high（高风险）。"
+                + "若内容没有问题，keywords为空数组[]，score=100，level=low。";
+        String user = prompt + "\n\n【待审核内容】\n" + (content == null ? "" : content);
+
+        List<Map<String, String>> messages = new ArrayList<>();
+        messages.add(message("system", system));
+        messages.add(message("user", user));
+
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("model", aiModel);
+        body.put("messages", messages);
+        body.put("max_tokens", 1024);
+        body.put("temperature", 0.1);
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.setBearerAuth(aiApiKey.trim());
+
+        String url = aiBaseUrl.replaceAll("/+$", "") + "/v1/chat/completions";
+        ResponseEntity<String> resp = restTemplate.postForEntity(url, new HttpEntity<>(body, headers), String.class);
+        String raw = resp.getBody();
+        if (raw == null || raw.isBlank()) {
+            throw new IllegalStateException("AI审核返回空");
+        }
+
+        // 解析 choices[0].message.content
+        com.fasterxml.jackson.databind.JsonNode root;
+        try {
+            root = objectMapper.readTree(raw);
+        } catch (Exception e) {
+            throw new IllegalStateException("AI返回非JSON: " + e.getMessage());
+        }
+        String text = root.path("choices").path(0).path("message").path("content").asText("");
+        if (text.isBlank()) {
+            throw new IllegalStateException("AI返回content为空");
+        }
+
+        // 剥离可能的 markdown code fence
+        String json = text.trim();
+        if (json.startsWith("```")) {
+            int firstNl = json.indexOf('\n');
+            if (firstNl > 0) json = json.substring(firstNl + 1);
+            if (json.endsWith("```")) json = json.substring(0, json.length() - 3);
+            json = json.trim();
+        }
+        // 截取第一个 { 到最后一个 }，防止模型前后加了多余文字
+        int start = json.indexOf('{');
+        int end = json.lastIndexOf('}');
+        if (start >= 0 && end > start) {
+            json = json.substring(start, end + 1);
+        }
+
+        Map<String, Object> result;
+        try {
+            result = objectMapper.readValue(json, Map.class);
+        } catch (Exception e) {
+            throw new IllegalStateException("AI返回JSON解析失败: " + e.getMessage());
+        }
+        int score = ((Number) result.getOrDefault("score", 50)).intValue();
+        String level = String.valueOf(result.getOrDefault("level", "medium"));
+        Object kwRaw = result.get("keywords");
+        List<String> keywords = new ArrayList<>();
+        if (kwRaw instanceof List) {
+            for (Object o : (List<?>) kwRaw) {
+                if (o != null && !o.toString().isBlank()) keywords.add(o.toString());
+            }
+        }
+        if (score < 0) score = 0;
+        if (score > 100) score = 100;
+        // 兜底校验 level
+        if (!List.of("low", "medium", "high").contains(level)) {
+            level = score >= 85 ? "low" : (score >= 60 ? "medium" : "high");
+        }
+        Map<String, Object> out = new HashMap<>();
+        out.put("score", score);
+        out.put("level", level);
+        out.put("keywords", keywords);
+        log.info("AI初审完成: score={}, level={}, keywords={}", score, level, keywords);
+        return out;
+    }
+
+    private Map<String, String> message(String role, String content) {
+        Map<String, String> m = new LinkedHashMap<>();
+        m.put("role", role);
+        m.put("content", content);
+        return m;
     }
 }

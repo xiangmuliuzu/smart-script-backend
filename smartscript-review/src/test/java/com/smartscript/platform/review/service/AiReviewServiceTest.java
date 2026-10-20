@@ -10,6 +10,10 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.web.client.RestTemplate;
 
 import java.util.Arrays;
 import java.util.Collections;
@@ -17,6 +21,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 /**
@@ -110,5 +115,101 @@ class AiReviewServiceTest {
         assertEquals(200, r.get("code"));
         assertNotNull(r.get("aiScore"));
         verify(reviewRecordMapper, times(1)).updateReviewRecord(any(ReviewRecord.class));
+    }
+
+    @Test
+    void score_有ApiKey_真调DeepSeek并解析JSON() {
+        // 给定：配置了 api-key，mock RestTemplate 返回标准 DeepSeek 响应（content 带 markdown code fence）
+        ReflectionTestUtils.setField(aiReviewService, "aiApiKey", "sk-test");
+        ReflectionTestUtils.setField(aiReviewService, "aiBaseUrl", "https://api.deepseek.com");
+        ReflectionTestUtils.setField(aiReviewService, "aiModel", "deepseek-chat");
+        RestTemplate mockRest = mock(RestTemplate.class);
+        ReflectionTestUtils.setField(aiReviewService, "restTemplate", mockRest);
+
+        // 合法JSON：choices[0].message.content 是字符串，内容为 ```json\n{...}\n```
+        String aiResp = "{\"choices\":[{\"message\":{\"content\":\"```json\\n"
+                + "{\\\"score\\\":92,\\\"level\\\":\\\"low\\\",\\\"keywords\\\":[]}\\n```\"}}]}";
+        when(mockRest.postForEntity(any(String.class), any(), eq(String.class)))
+                .thenReturn(new ResponseEntity<>(aiResp, HttpStatus.OK));
+
+        ReviewRecord record = new ReviewRecord();
+        record.setReviewId(20L);
+        when(reviewRecordMapper.selectReviewRecordById(20L)).thenReturn(record);
+        when(aiReviewRuleMapper.selectActiveAiReviewRules()).thenReturn(Collections.emptyList());
+
+        Map<String, Object> r = aiReviewService.score(20L, "正常内容");
+        assertEquals(200, r.get("code"));
+        assertEquals(false, r.get("usingMock"));
+        assertEquals(92, r.get("aiScore"));
+        assertEquals("low", r.get("riskLevel"));
+        verify(mockRest, times(1)).postForEntity(any(String.class), any(), eq(String.class));
+    }
+
+    @Test
+    void score_外部AI调用失败_回退Mock() {
+        ReflectionTestUtils.setField(aiReviewService, "aiApiKey", "sk-test");
+        ReflectionTestUtils.setField(aiReviewService, "aiBaseUrl", "https://api.deepseek.com");
+        ReflectionTestUtils.setField(aiReviewService, "aiModel", "deepseek-chat");
+        RestTemplate mockRest = mock(RestTemplate.class);
+        ReflectionTestUtils.setField(aiReviewService, "restTemplate", mockRest);
+        when(mockRest.postForEntity(any(String.class), any(), eq(String.class)))
+                .thenThrow(new RuntimeException("timeout"));
+
+        ReviewRecord record = new ReviewRecord();
+        record.setReviewId(21L);
+        when(reviewRecordMapper.selectReviewRecordById(21L)).thenReturn(record);
+        when(aiReviewRuleMapper.selectActiveAiReviewRules()).thenReturn(Collections.emptyList());
+
+        // 正常内容走 mock 得满分 100，证明回退成功
+        Map<String, Object> r = aiReviewService.score(21L, "这是一篇优秀的悬疑小说，情节紧凑");
+        assertEquals(200, r.get("code"));
+        assertEquals(100, r.get("aiScore"));
+    }
+
+    @Test
+    void score_低风险_自动流转pending() {
+        ReviewRecord record = new ReviewRecord();
+        record.setReviewId(30L);
+        record.setStatus("ai_reviewing");
+        when(reviewRecordMapper.selectReviewRecordById(30L)).thenReturn(record);
+        when(aiReviewRuleMapper.selectActiveAiReviewRules()).thenReturn(Collections.emptyList());
+
+        Map<String, Object> r = aiReviewService.score(30L, "这是一篇优秀的悬疑小说，情节紧凑");
+        assertEquals("pending", r.get("nextStatus"));
+        org.mockito.ArgumentCaptor<ReviewRecord> captor = org.mockito.ArgumentCaptor.forClass(ReviewRecord.class);
+        verify(reviewRecordMapper).updateReviewRecord(captor.capture());
+        assertEquals("pending", captor.getValue().getStatus());
+    }
+
+    @Test
+    void score_高风险_自动流转rejected() {
+        ReviewRecord record = new ReviewRecord();
+        record.setReviewId(31L);
+        record.setStatus("ai_reviewing");
+        when(reviewRecordMapper.selectReviewRecordById(31L)).thenReturn(record);
+        when(aiReviewRuleMapper.selectActiveAiReviewRules()).thenReturn(Collections.emptyList());
+
+        // 内容含暴力词，mockScore 扣到 low 分以下 -> high
+        Map<String, Object> r = aiReviewService.score(31L, "他拿起刀，用暴力血腥的色情毒品赌博手段解决一切");
+        assertEquals("rejected", r.get("nextStatus"));
+        org.mockito.ArgumentCaptor<ReviewRecord> captor = org.mockito.ArgumentCaptor.forClass(ReviewRecord.class);
+        verify(reviewRecordMapper).updateReviewRecord(captor.capture());
+        assertEquals("rejected", captor.getValue().getStatus());
+    }
+
+    @Test
+    void score_状态已非ai_reviewing_不自动流转() {
+        ReviewRecord record = new ReviewRecord();
+        record.setReviewId(32L);
+        record.setStatus("pending"); // 已被人工改为 pending
+        when(reviewRecordMapper.selectReviewRecordById(32L)).thenReturn(record);
+        when(aiReviewRuleMapper.selectActiveAiReviewRules()).thenReturn(Collections.emptyList());
+
+        Map<String, Object> r = aiReviewService.score(32L, "正常内容");
+        assertEquals("pending", r.get("nextStatus"));
+        org.mockito.ArgumentCaptor<ReviewRecord> captor = org.mockito.ArgumentCaptor.forClass(ReviewRecord.class);
+        verify(reviewRecordMapper).updateReviewRecord(captor.capture());
+        // upd 不应该带 status 字段（null）
+        assertNull(captor.getValue().getStatus());
     }
 }

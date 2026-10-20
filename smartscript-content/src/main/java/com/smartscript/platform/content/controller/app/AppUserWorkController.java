@@ -5,6 +5,7 @@ import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -33,6 +34,7 @@ import com.smartscript.platform.identity.IdentityProvider;
  * @author smartscript
  */
 @RestController
+@PreAuthorize("@contentAuthorAccess.allowed()")
 @RequestMapping("/api/v1/users/me/works")
 public class AppUserWorkController
 {
