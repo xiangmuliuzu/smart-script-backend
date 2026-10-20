@@ -53,6 +53,24 @@ public class ReviewController {
     }
 
     /**
+     * 查询审核作品完整内容（人工审核用）：简介/设定 + 章节正文
+     */
+    @GetMapping("/content/{reviewId}")
+    public Map<String, Object> content(@PathVariable("reviewId") Long reviewId) {
+        Map<String, Object> result = new HashMap<>();
+        Map<String, Object> data = reviewService.selectReviewContent(reviewId);
+        if (data == null) {
+            result.put("code", 404);
+            result.put("msg", "未找到该审核作品内容");
+        } else {
+            result.put("code", 200);
+            result.put("msg", "操作成功");
+            result.put("data", data);
+        }
+        return result;
+    }
+
+    /**
      * 新增审核记录
      */
     @PostMapping

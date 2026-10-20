@@ -2,9 +2,13 @@ package com.smartscript.platform.review.service;
 
 import com.smartscript.platform.review.domain.ReviewLog;
 import com.smartscript.platform.review.domain.ReviewRecord;
+import com.smartscript.platform.review.domain.vo.WorkChapterVO;
+import com.smartscript.platform.review.domain.vo.WorkContentVO;
 import com.smartscript.platform.review.mapper.ReviewLogMapper;
 import com.smartscript.platform.review.mapper.ReviewRecordMapper;
+import com.smartscript.platform.review.mapper.ReviewWorkContentMapper;
 import com.smartscript.platform.review.mapper.OperationLogMapper;
+import com.smartscript.platform.review.util.ReviewContentText;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import java.util.List;
@@ -26,6 +30,9 @@ public class ReviewService {
     @Autowired
     private OperationLogMapper operationLogMapper;
 
+    @Autowired
+    private ReviewWorkContentMapper reviewWorkContentMapper;
+
     /**
      * 查询审核记录列表
      */
@@ -38,6 +45,29 @@ public class ReviewService {
      */
     public ReviewRecord selectReviewRecordById(Long reviewId) {
         return reviewRecordMapper.selectReviewRecordById(reviewId);
+    }
+
+    /**
+     * 查询审核作品完整内容（人工审核用）：简介/核心/角色设定 + 各章节正文（纯文本）。
+     * @return 内容数据；审核记录不存在或非作品类型时返回 null
+     */
+    public java.util.Map<String, Object> selectReviewContent(Long reviewId) {
+        ReviewRecord record = reviewRecordMapper.selectReviewRecordById(reviewId);
+        if (record == null || record.getTargetId() == null) {
+            return null;
+        }
+        Long workId = record.getTargetId();
+        WorkContentVO work = reviewWorkContentMapper.selectWorkContent(workId);
+        List<WorkChapterVO> chapters = reviewWorkContentMapper.selectWorkChapters(workId);
+        for (WorkChapterVO ch : chapters) {
+            ch.setContent(ReviewContentText.plain(ch.getContent()));
+        }
+        java.util.Map<String, Object> data = new java.util.HashMap<>();
+        data.put("reviewId", reviewId);
+        data.put("workId", workId);
+        data.put("work", work);
+        data.put("chapters", chapters);
+        return data;
     }
 
     /**
