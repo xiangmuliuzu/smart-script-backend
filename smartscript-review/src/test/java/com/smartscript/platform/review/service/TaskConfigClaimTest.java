@@ -10,6 +10,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.util.Date;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -107,5 +108,48 @@ class TaskConfigClaimTest {
         assertEquals(5, r.get("rewardPoints"));
         verify(pointsService, times(1)).grantPoints(106L, 5, "TASK", 1L, "每日登录任务");
         verify(userTaskMapper, times(1)).insertUserTask(any());
+    }
+
+    @Test
+    void claim_任务未到生效开始时间_返回400() {
+        dailyTask.setStartTime(new Date(System.currentTimeMillis() + 100000));
+        when(taskConfigMapper.selectTaskConfigByCode("DAILY_LOGIN")).thenReturn(dailyTask);
+        Map<String, Object> r = taskConfigService.claimTask("DAILY_LOGIN", 106L);
+        assertEquals(400, r.get("code"));
+        assertEquals("任务尚未开始", r.get("msg"));
+        verify(pointsService, never()).grantPoints(anyLong(), anyInt(), anyString(), anyLong(), anyString());
+    }
+
+    @Test
+    void claim_任务已过生效结束时间_返回400() {
+        dailyTask.setEndTime(new Date(System.currentTimeMillis() - 100000));
+        when(taskConfigMapper.selectTaskConfigByCode("DAILY_LOGIN")).thenReturn(dailyTask);
+        Map<String, Object> r = taskConfigService.claimTask("DAILY_LOGIN", 106L);
+        assertEquals(400, r.get("code"));
+        assertEquals("任务已结束", r.get("msg"));
+        verify(pointsService, never()).grantPoints(anyLong(), anyInt(), anyString(), anyLong(), anyString());
+    }
+
+    @Test
+    void claim_每日上限已达_返回400() {
+        dailyTask.setDailyLimit(2);
+        when(taskConfigMapper.selectTaskConfigByCode("DAILY_LOGIN")).thenReturn(dailyTask);
+        when(userTaskMapper.countClaimed(eq(106L), eq(1L), anyString())).thenReturn(2);
+        Map<String, Object> r = taskConfigService.claimTask("DAILY_LOGIN", 106L);
+        assertEquals(400, r.get("code"));
+        assertEquals("今日领取次数已达上限", r.get("msg"));
+        verify(pointsService, never()).grantPoints(anyLong(), anyInt(), anyString(), anyLong(), anyString());
+    }
+
+    @Test
+    void claim_每日上限未达_可继续领取() {
+        dailyTask.setDailyLimit(2);
+        when(taskConfigMapper.selectTaskConfigByCode("DAILY_LOGIN")).thenReturn(dailyTask);
+        when(userTaskMapper.countClaimed(eq(106L), eq(1L), anyString())).thenReturn(1);
+        when(pointsService.grantPoints(106L, 5, "TASK", 1L, "每日登录任务")).thenReturn(20);
+        when(userTaskMapper.insertUserTask(any())).thenReturn(1);
+        Map<String, Object> r = taskConfigService.claimTask("DAILY_LOGIN", 106L);
+        assertEquals(200, r.get("code"));
+        assertEquals(20, r.get("balance"));
     }
 }

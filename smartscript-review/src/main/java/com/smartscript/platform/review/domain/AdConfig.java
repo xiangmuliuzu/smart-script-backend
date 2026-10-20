@@ -11,6 +11,11 @@ import java.util.Date;
 public class AdConfig {
 
     private Long adId;
+    /**
+     * 分类：WELFARE-广告福利任务（看广告得积分，福利页管理）
+     *       PLACEMENT-广告位（开屏/插屏，广告运营页管理）
+     */
+    private String category;
     private String adName;
     private String adPosition;
     private String adType;
@@ -43,6 +48,8 @@ public class AdConfig {
 
     public Long getAdId() { return adId; }
     public void setAdId(Long adId) { this.adId = adId; }
+    public String getCategory() { return category; }
+    public void setCategory(String category) { this.category = category; }
     public String getAdName() { return adName; }
     public void setAdName(String adName) { this.adName = adName; }
     public String getAdPosition() { return adPosition; }
