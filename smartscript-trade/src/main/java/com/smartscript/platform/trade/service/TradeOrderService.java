@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.util.Date;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import com.ruoyi.common.utils.SecurityUtils;
@@ -42,8 +43,15 @@ public class TradeOrderService
     @Autowired
     private SysEscrowMapper escrowMapper;
 
+    /** 状态流转用 CAS 定点更新，避免全字段 updateOrder 覆盖并发写入 */
+    @Autowired
+    private JdbcTemplate jdbc;
+
     @Autowired
     private TradeFinanceService financeService;
+
+    @Autowired
+    private TradeContractService contractService;
 
     public List<SysOrder> selectOrderList(SysOrder order)
     {
@@ -119,6 +127,24 @@ public class TradeOrderService
         log.setCreateTime(new Date());
         logMapper.insertLog(log);
 
+        // 自动生成合同
+        try
+        {
+            String buyerName = inquiry.getBuyerName() != null ? inquiry.getBuyerName() : "买方" + inquiry.getBuyerId();
+            String sellerName = inquiry.getSellerName() != null ? inquiry.getSellerName() : "卖方" + inquiry.getSellerId();
+            String workTitle = inquiry.getWorkTitle() != null ? inquiry.getWorkTitle() : "作品#" + inquiry.getWorkId();
+            contractService.autoGenerateContract(
+                    order.getOrderId(), order.getOrderNo(),
+                    inquiry.getBuyerId(), inquiry.getSellerId(),
+                    buyerName, sellerName, workTitle,
+                    total, inquiry.getLicenseType());
+        }
+        catch (Exception e)
+        {
+            // 合同生成失败不阻塞订单创建，记录日志即可
+            org.slf4j.LoggerFactory.getLogger(getClass()).warn("订单 {} 自动生成合同失败: {}", order.getOrderId(), e.getMessage());
+        }
+
         return order;
     }
 
@@ -181,11 +207,14 @@ public class TradeOrderService
             throw new RuntimeException("当前订单状态不可取消");
         }
 
-        order.setStatus(ORDER_STATUS_CANCELLED);
-        order.setRemark(reason);
-        order.setUpdateBy(operatorName);
-        order.setUpdateTime(new Date());
-        orderMapper.updateOrder(order);
+        // CAS 落库：仅当订单仍处于 confirmed 时生效，防止与付款/完成流转并发竞态
+        int changed = jdbc.update("UPDATE sys_order SET status = ?, remark = ?, update_by = ?, update_time = NOW() "
+                + "WHERE order_id = ? AND status = ?",
+                ORDER_STATUS_CANCELLED, reason, operatorName, orderId, ORDER_STATUS_CONFIRMED);
+        if (changed != 1)
+        {
+            throw new RuntimeException("订单状态已变化，请刷新后重试");
+        }
 
         SysOrderStatusLog log = new SysOrderStatusLog();
         log.setOrderId(orderId);
@@ -201,6 +230,8 @@ public class TradeOrderService
 
     /**
      * 买方付款到托管账户。订单 confirmed → escrow_pending，创建托管记录。
+     * <p>
+     * 前置条件：关联合同必须双方均已签署（status=completed）。
      */
     @Transactional
     public SysEscrow payToEscrow(Long orderId, String payChannel)
@@ -215,6 +246,26 @@ public class TradeOrderService
             throw new RuntimeException("当前订单状态不可付款，需为 confirmed");
         }
 
+        // 校验合同签署状态（脏数据场景转业务提示，避免落 500 兜底）
+        if (order.getContractId() == null)
+        {
+            throw new RuntimeException("该订单尚未生成合同，无法付款");
+        }
+        java.util.Map<String, Object> contract;
+        try
+        {
+            contract = contractService.getById(order.getContractId());
+        }
+        catch (IllegalArgumentException e)
+        {
+            throw new RuntimeException("关联合同数据异常，无法付款，请联系管理员");
+        }
+        String contractStatus = String.valueOf(contract.get("status"));
+        if (!"completed".equals(contractStatus))
+        {
+            throw new RuntimeException("合同尚未完成签署（当前状态：" + contractStatus + "），需双方签署后才能付款");
+        }
+
         // 创建托管记录
         SysEscrow escrow = new SysEscrow();
         escrow.setEscrowNo("ESC" + Seq.getId());
@@ -227,13 +278,14 @@ public class TradeOrderService
         escrow.setCreateTime(new Date());
         escrowMapper.insertEscrow(escrow);
 
-        // 订单状态 → escrow_pending
-        order.setStatus(ORDER_STATUS_ESCROW_PENDING);
-        order.setPayTime(new Date());
-        order.setEscrowId(escrow.getEscrowId());
-        order.setUpdateBy(safeGetOperatorName());
-        order.setUpdateTime(new Date());
-        orderMapper.updateOrder(order);
+        // CAS 落库：防止并发重复托管（重复 escrow 记录）；失败时事务回滚，已插入的托管记录一并撤销
+        int changed = jdbc.update("UPDATE sys_order SET status = ?, pay_time = ?, escrow_id = ?, update_by = ?, update_time = NOW() "
+                        + "WHERE order_id = ? AND status = ?",
+                ORDER_STATUS_ESCROW_PENDING, new Date(), escrow.getEscrowId(), safeGetOperatorName(), orderId, ORDER_STATUS_CONFIRMED);
+        if (changed != 1)
+        {
+            throw new RuntimeException("订单状态已变化，请刷新后重试");
+        }
 
         // 状态日志
         SysOrderStatusLog log = new SysOrderStatusLog();
@@ -271,10 +323,14 @@ public class TradeOrderService
             throw new RuntimeException("只有卖方可以确认交割");
         }
 
-        order.setStatus(ORDER_STATUS_DELIVERING);
-        order.setUpdateBy(safeGetOperatorName());
-        order.setUpdateTime(new Date());
-        orderMapper.updateOrder(order);
+        // CAS 落库：仅 escrow_pending 可交割
+        int changed = jdbc.update("UPDATE sys_order SET status = ?, update_by = ?, update_time = NOW() "
+                + "WHERE order_id = ? AND status = ?",
+                ORDER_STATUS_DELIVERING, safeGetOperatorName(), orderId, ORDER_STATUS_ESCROW_PENDING);
+        if (changed != 1)
+        {
+            throw new RuntimeException("订单状态已变化，请刷新后重试");
+        }
 
         SysOrderStatusLog log = new SysOrderStatusLog();
         log.setOrderId(orderId);
@@ -309,12 +365,15 @@ public class TradeOrderService
             throw new RuntimeException("只有买方可以确认收货");
         }
 
-        // 订单状态 → completed
-        order.setStatus(ORDER_STATUS_COMPLETED);
-        order.setCompleteTime(new Date());
-        order.setUpdateBy(safeGetOperatorName());
-        order.setUpdateTime(new Date());
-        orderMapper.updateOrder(order);
+        // CAS 落库：仅 delivering 可完成，并发重复调用（双击/重试）在此拦截，
+        // 确保后续资金释放与收益入账仅执行一次
+        int changed = jdbc.update("UPDATE sys_order SET status = ?, complete_time = ?, update_by = ?, update_time = NOW() "
+                + "WHERE order_id = ? AND status = ?",
+                ORDER_STATUS_COMPLETED, new Date(), safeGetOperatorName(), orderId, ORDER_STATUS_DELIVERING);
+        if (changed != 1)
+        {
+            throw new RuntimeException("订单状态已变化，请刷新后重试");
+        }
 
         // 释放托管
         SysEscrow escrow = escrowMapper.selectEscrowByOrderId(orderId);

@@ -2,6 +2,10 @@ package com.ruoyi.web.service.pc;
 
 import com.ruoyi.common.utils.SecurityUtils;
 import com.ruoyi.common.utils.uuid.Seq;
+import com.smartscript.platform.trade.service.TradeContractService;
+import com.smartscript.platform.trade.support.ContractHtmlSupport;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -11,21 +15,31 @@ import java.util.Map;
 
 @Service
 public class ContractManageService {
+    private static final Logger log = LoggerFactory.getLogger(ContractManageService.class);
+
     private static final String CONTRACT_SELECT = "SELECT c.contract_id AS contractId, c.contract_no AS contractNo, "
             + "c.contract_type AS contractType, c.template_id AS templateId, c.amount AS amount, "
             + "c.order_id AS orderId, o.order_no AS orderNo, c.buyer_id AS buyerId, ub.nick_name AS buyerName, "
             + "c.seller_id AS sellerId, us.nick_name AS sellerName, c.buyer_sign_status AS buyerSignStatus, "
             + "c.seller_sign_status AS sellerSignStatus, c.buyer_sign_time AS buyerSignTime, "
-            + "c.seller_sign_time AS sellerSignTime, c.status AS status, c.contract_content AS content, "
+            + "c.seller_sign_time AS sellerSignTime, c.buyer_signature_image AS buyerSignatureImage, "
+            + "c.buyer_seal_image AS buyerSealImage, c.seller_signature_image AS sellerSignatureImage, "
+            + "c.seller_seal_image AS sellerSealImage, c.signed_pdf_url AS signedPdfUrl, "
+            + "c.status AS status, c.contract_content AS content, "
             + "w.title AS workTitle, DATE_FORMAT(c.created_at, '%Y-%m-%d %H:%i:%s') AS createdAt "
             + "FROM sys_contract c JOIN sys_order o ON o.order_id = c.order_id "
             + "LEFT JOIN sys_user ub ON ub.user_id = c.buyer_id LEFT JOIN sys_user us ON us.user_id = c.seller_id "
             + "LEFT JOIN sys_work w ON w.work_id = o.work_id ";
 
-    private final JdbcTemplate jdbc;
+    /** 列表专用：不含 contract_content 大字段，避免分页白拖几 KB～几十 KB 正文 */
+    private static final String CONTRACT_LIST_SELECT = CONTRACT_SELECT.replace(", c.contract_content AS content, ", ", ");
 
-    public ContractManageService(JdbcTemplate jdbc) {
+    private final JdbcTemplate jdbc;
+    private final TradeContractService tradeContractService;
+
+    public ContractManageService(JdbcTemplate jdbc, TradeContractService tradeContractService) {
         this.jdbc = jdbc;
+        this.tradeContractService = tradeContractService;
     }
 
     public long count(String status, String keyword) {
@@ -40,7 +54,7 @@ public class ContractManageService {
         List<Object> args = new java.util.ArrayList<>(filter.args);
         args.add(pageSize);
         args.add((long) (pageNum - 1) * pageSize);
-        return jdbc.queryForList(CONTRACT_SELECT + filter.sql + " ORDER BY c.created_at DESC LIMIT ? OFFSET ?", args.toArray());
+        return jdbc.queryForList(CONTRACT_LIST_SELECT + filter.sql + " ORDER BY c.created_at DESC LIMIT ? OFFSET ?", args.toArray());
     }
 
     public Map<String, Object> get(Long contractId) {
@@ -90,7 +104,10 @@ public class ContractManageService {
 
         String contractNo = "CT" + Seq.getId();
         String contractType = "TPL_COPYRIGHT_TRANSFER".equals(templateId) ? "transfer" : "license";
-        String html = contractHtml(contractNo, order, templateId);
+        String html = ContractHtmlSupport.buildContractHtml(contractNo,
+                String.valueOf(order.get("orderNo")), String.valueOf(order.get("workTitle")),
+                String.valueOf(order.get("buyerName")), String.valueOf(order.get("sellerName")),
+                toAmount(order.get("amount")), String.valueOf(order.get("licenseType")), templateId);
         jdbc.update("INSERT INTO sys_contract (contract_no, contract_type, amount, order_id, buyer_id, seller_id, "
                         + "template_id, contract_content, contract_url, buyer_sign_status, seller_sign_status, status, create_by) "
                         + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', 0, 0, 'pending', ?)",
@@ -103,7 +120,8 @@ public class ContractManageService {
         if (updated != 1) {
             throw new IllegalStateException("订单状态已变化，请刷新后重试");
         }
-        logOrderStatus(orderId, oldStatus, "GENERATED", "生成合同");
+        // 订单状态本身未变化（仅回填 contract_id），to_status 保持原状态，避免污染按状态统计的查询
+        logOrderStatus(orderId, oldStatus, oldStatus, "生成合同");
         logContractEvent(contractId, "", "pending", "合同生成");
         return Map.of("contractId", contractId, "contractNo", contractNo);
     }
@@ -133,6 +151,15 @@ public class ContractManageService {
                 nextStatus, SecurityUtils.getUsername(), contractId);
         requireChanged(changed, "合同状态已变化，请刷新后重试");
         logContractEvent(contractId, currentStatus, nextStatus, "登记" + ("buyer".equals(party) ? "买方" : "卖方") + "签署");
+        // 双方签齐后同步生成最终 PDF（与 APP 端签署行为对齐，否则 signed_pdf_url 永远为空）；
+        // 生成失败不影响签署登记事务，可由管理端「重建PDF」补偿
+        if ("completed".equals(nextStatus)) {
+            try {
+                tradeContractService.regenerateSignedPdf(contractId);
+            } catch (Exception e) {
+                log.error("登记双签完成后生成 PDF 失败（签署状态不受影响），contractId={}", contractId, e);
+            }
+        }
     }
 
     @Transactional
@@ -197,11 +224,14 @@ public class ContractManageService {
         
         order.put("amount", amount);
         
-        String contractNo = String.valueOf(jdbc.queryForObject(
-                "SELECT contract_no FROM sys_contract WHERE contract_id = ?", String.class, contractId));
+        // contract_no 已随 lockContract 一并锁定查出，无需二次查询
+        String contractNo = String.valueOf(contract.get("contractNo"));
         String contractType = templateId.equals("TPL_COPYRIGHT_TRANSFER") ? "transfer" : "license";
-        String html = contractHtml(contractNo, order, templateId);
-        
+        String html = ContractHtmlSupport.buildContractHtml(contractNo,
+                        String.valueOf(order.get("orderNo")), String.valueOf(order.get("workTitle")),
+                        String.valueOf(order.get("buyerName")), String.valueOf(order.get("sellerName")),
+                        toAmount(order.get("amount")), String.valueOf(order.get("licenseType")), templateId);
+                
         int updated = jdbc.update("UPDATE sys_contract SET contract_type = ?, template_id = ?, amount = ?, contract_content = ?, "
                 + "update_by = ?, update_time = NOW() WHERE contract_id = ? AND status = 'pending'",
                 contractType, templateId, amount, html, SecurityUtils.getUsername(), contractId);
@@ -211,7 +241,7 @@ public class ContractManageService {
 
     private Map<String, Object> lockContract(Long contractId) {
         try {
-            return jdbc.queryForMap("SELECT contract_id AS contractId, order_id AS orderId, status, "
+            return jdbc.queryForMap("SELECT contract_id AS contractId, contract_no AS contractNo, order_id AS orderId, status, "
                     + "buyer_sign_status AS buyerSignStatus, seller_sign_status AS sellerSignStatus "
                     + "FROM sys_contract WHERE contract_id = ? FOR UPDATE", contractId);
         } catch (org.springframework.dao.EmptyResultDataAccessException e) {
@@ -257,7 +287,9 @@ public class ContractManageService {
         }
         if (keyword != null && !keyword.isBlank()) {
             sql.append(" AND (c.contract_no LIKE ? OR o.order_no LIKE ?)");
-            String match = "%" + keyword.trim() + "%";
+            // 转义 LIKE 通配符，避免用户输入 % / _ 改变匹配语义
+            String escaped = keyword.trim().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
+            String match = "%" + escaped + "%";
             args.add(match);
             args.add(match);
         }
@@ -266,80 +298,25 @@ public class ContractManageService {
 
     private record Filter(String sql, List<Object> args) { }
 
-    private static String contractHtml(String contractNo, Map<String, Object> order, String templateId) {
-        String title = "TPL_COPYRIGHT_TRANSFER".equals(templateId) ? "版权转让合同" : "版权授权合同";
-        boolean isTransfer = "TPL_COPYRIGHT_TRANSFER".equals(templateId);
-        
-        return "<!DOCTYPE html><html lang=\"zh-CN\"><head><meta charset=\"UTF-8\" />"
-                + "<title>" + title + "</title>"
-                + "<style>"
-                + "body { font-family: 'ContractCjk', SimSun, serif; font-size: 14px; line-height: 1.8; margin: 40px; }"
-                + "h1 { text-align: center; font-size: 24px; margin-bottom: 30px; font-weight: bold; }"
-                + ".contract-no { text-align: center; font-size: 12px; color: #666; margin-bottom: 20px; }"
-                + ".section { margin-bottom: 20px; }"
-                + ".section-title { font-weight: bold; font-size: 16px; margin-bottom: 10px; }"
-                + ".info-row { margin-bottom: 8px; }"
-                + ".label { display: inline-block; width: 120px; font-weight: bold; }"
-                + ".content { margin: 15px 0; text-indent: 2em; text-align: justify; }"
-                + ".signature { margin-top: 60px; }"
-                + ".signature-row { margin-top: 40px; display: flex; justify-content: space-between; }"
-                + ".signature-box { width: 45%; }"
-                + "</style></head><body>"
-                + "<h1>" + title + "</h1>"
-                + "<div class=\"contract-no\">合同编号：" + escape(contractNo) + "</div>"
-                + "<div class=\"section\">"
-                + "<div class=\"section-title\">基本信息</div>"
-                + "<div class=\"info-row\"><span class=\"label\">订单编号：</span>" + escape(order.get("orderNo")) + "</div>"
-                + "<div class=\"info-row\"><span class=\"label\">作品名称：</span>" + escape(order.get("workTitle")) + "</div>"
-                + "<div class=\"info-row\"><span class=\"label\">甲方（买方）：</span>" + escape(order.get("buyerName")) + "</div>"
-                + "<div class=\"info-row\"><span class=\"label\">乙方（卖方）：</span>" + escape(order.get("sellerName")) + "</div>"
-                + "<div class=\"info-row\"><span class=\"label\">合同金额：</span>人民币 " + escape(order.get("amount")) + " 元</div>"
-                + "<div class=\"info-row\"><span class=\"label\">许可类型：</span>" + escape(order.get("licenseType")) + "</div>"
-                + "</div>"
-                + "<div class=\"section\">"
-                + "<div class=\"section-title\">第一条 合同标的</div>"
-                + "<div class=\"content\">甲乙双方经友好协商，就作品《" + escape(order.get("workTitle")) + "》的版权"
-                + (isTransfer ? "转让" : "授权使用") + "事宜达成如下协议。</div>"
-                + "</div>"
-                + "<div class=\"section\">"
-                + "<div class=\"section-title\">第二条 " + (isTransfer ? "转让内容" : "授权范围") + "</div>"
-                + "<div class=\"content\">"
-                + (isTransfer 
-                    ? "乙方同意将作品的全部著作权（包括但不限于复制权、发行权、信息网络传播权、改编权等）转让给甲方。转让后，甲方享有完整的著作权，乙方不再保留任何权利。"
-                    : "乙方授权甲方在约定范围内使用作品，授权类型为：" + escape(order.get("licenseType")) + "。甲方应在授权范围内使用作品，不得超范围使用或转授权给第三方。")
-                + "</div>"
-                + "</div>"
-                + "<div class=\"section\">"
-                + "<div class=\"section-title\">第三条 合同金额及支付</div>"
-                + "<div class=\"content\">甲方应向乙方支付" + (isTransfer ? "转让" : "授权") + "费用人民币 " 
-                + escape(order.get("amount")) + " 元。该费用已通过平台完成支付，合同签署完成后将按约定结算给乙方。</div>"
-                + "</div>"
-                + "<div class=\"section\">"
-                + "<div class=\"section-title\">第四条 权利与义务</div>"
-                + "<div class=\"content\">1. 乙方保证对作品享有完整的著作权，不存在侵犯第三方权益的情形。</div>"
-                + "<div class=\"content\">2. 甲方应按约定支付费用，并在授权范围内合法使用作品。</div>"
-                + "<div class=\"content\">3. 双方应遵守国家相关法律法规，履行合同义务。</div>"
-                + "</div>"
-                + "<div class=\"section\">"
-                + "<div class=\"section-title\">第五条 违约责任</div>"
-                + "<div class=\"content\">任何一方违反本合同约定的，应承担违约责任，赔偿对方因此遭受的损失。</div>"
-                + "</div>"
-                + "<div class=\"section\">"
-                + "<div class=\"section-title\">第六条 争议解决</div>"
-                + "<div class=\"content\">因本合同引起的争议，双方应友好协商解决；协商不成的，可向平台所在地人民法院提起诉讼。</div>"
-                + "</div>"
-                + "<div class=\"signature\">"
-                + "<div class=\"signature-row\">"
-                + "<div class=\"signature-box\"><strong>甲方（买方）：</strong>" + escape(order.get("buyerName")) + "<br/><br/>签署时间：___________</div>"
-                + "<div class=\"signature-box\"><strong>乙方（卖方）：</strong>" + escape(order.get("sellerName")) + "<br/><br/>签署时间：___________</div>"
-                + "</div>"
-                + "</div>"
-                + "</body></html>";
+    private static java.math.BigDecimal toAmount(Object value) {
+        if (value instanceof java.math.BigDecimal bd) {
+            return bd;
+        }
+        return new java.math.BigDecimal(String.valueOf(value));
     }
 
-    private static String escape(Object value) {
-        if (value == null) return "—";
-        return String.valueOf(value).replace("&", "&amp;").replace("<", "&lt;")
-                .replace(">", "&gt;").replace("\"", "&quot;").replace("'", "&#39;");
+    /**
+     * 在合同 HTML 的签名区域注入双方签名/印章图片（统一委托给 trade 模块 ContractHtmlSupport）。
+     * 兼容两种模板：新模板含占位注释（直接替换）；
+     * 旧模板无占位符（在各方 signature-box 的“签署时间”前插入图片块）。
+     */
+    public String injectSignatureImages(String html, Map<String, Object> contract) {
+        return ContractHtmlSupport.injectSignatures(html,
+                str(contract.get("buyerSignatureImage")), str(contract.get("buyerSealImage")),
+                str(contract.get("sellerSignatureImage")), str(contract.get("sellerSealImage")));
+    }
+    
+    private static String str(Object value) {
+        return value == null ? "" : String.valueOf(value).trim();
     }
 }

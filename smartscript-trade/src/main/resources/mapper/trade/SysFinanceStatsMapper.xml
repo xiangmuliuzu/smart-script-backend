@@ -32,7 +32,7 @@
         where o.seller_id = #{userId}
           and o.status = 'completed'
           and o.order_id not in (
-              select order_id from sys_invoice where order_id is not null
+              select order_id from sys_invoice where order_id is not null and status &lt;&gt; 'rejected'
           )
         order by o.complete_time desc
     </select>

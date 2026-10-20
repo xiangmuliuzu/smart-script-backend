@@ -1,6 +1,5 @@
 package com.ruoyi.web.controller.pc;
 
-import com.openhtmltopdf.pdfboxout.PdfRendererBuilder;
 import com.ruoyi.common.annotation.Log;
 import com.ruoyi.common.constant.HttpStatus;
 import com.ruoyi.common.core.controller.BaseController;
@@ -9,15 +8,14 @@ import com.ruoyi.common.core.page.TableDataInfo;
 import com.ruoyi.common.enums.BusinessType;
 import com.ruoyi.common.utils.file.FileUtils;
 import com.ruoyi.web.service.pc.ContractManageService;
+import com.smartscript.platform.trade.service.TradeContractService;
+import com.smartscript.platform.trade.support.ContractHtmlSupport;
+import com.smartscript.platform.trade.support.ContractPdfRenderer;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -25,9 +23,14 @@ import java.util.Map;
 @RequestMapping("/api/v1/admin/copyright/contract")
 public class ContractManageController extends BaseController {
     private final ContractManageService contractService;
+    private final ContractPdfRenderer pdfRenderer;
+    private final TradeContractService tradeContractService;
 
-    public ContractManageController(ContractManageService contractService) {
+    public ContractManageController(ContractManageService contractService, ContractPdfRenderer pdfRenderer,
+                                    TradeContractService tradeContractService) {
         this.contractService = contractService;
+        this.pdfRenderer = pdfRenderer;
+        this.tradeContractService = tradeContractService;
     }
 
     @PreAuthorize("@ss.hasPermi('smartscript:copyright:contract:list')")
@@ -82,7 +85,13 @@ public class ContractManageController extends BaseController {
     public AjaxResult preview(@PathVariable Long contractId) {
         try {
             Map<String, Object> contract = contractService.get(contractId);
-            return success(Map.of("content", contract.get("content"), "contractNo", contract.get("contractNo")));
+            Object contentObj = contract.get("content");
+            if (contentObj == null || String.valueOf(contentObj).isBlank()) {
+                return error("合同正文缺失，无法预览");
+            }
+            // 预览时将已签署的签名/印章图片注入签名区域
+            String html = contractService.injectSignatureImages(String.valueOf(contentObj), contract);
+            return success(Map.of("content", html, "contractNo", contract.get("contractNo")));
         } catch (IllegalArgumentException e) {
             return error(e.getMessage());
         }
@@ -99,32 +108,35 @@ public class ContractManageController extends BaseController {
             return;
         }
         String contractNo = String.valueOf(contract.get("contractNo"));
-        byte[] pdf = buildContractPdf(String.valueOf(contract.get("content")));
+        Object contentObj = contract.get("content");
+        if (contentObj == null || String.valueOf(contentObj).isBlank()) {
+            response.sendError(HttpStatus.NOT_FOUND, "合同正文缺失，无法下载");
+            return;
+        }
+        // 下载时合成包含签名/印章的 PDF，并将 /profile/ 图片路径转为本地文件路径供渲染读取
+        String html = contractService.injectSignatureImages(String.valueOf(contentObj), contract);
+        byte[] pdf = pdfRenderer.render(ContractHtmlSupport.resolveProfileImages(html));
         response.setContentType("application/pdf");
         response.setContentLength(pdf.length);
         FileUtils.setAttachmentResponseHeader(response, contractNo + ".pdf");
         response.getOutputStream().write(pdf);
     }
 
-    private byte[] buildContractPdf(String html) throws IOException {
-        Path fontPath = findChineseFont();
-        if (fontPath == null) {
-            throw new IOException("未找到中文字体，请配置 smartscript.contract.pdf.font");
+    /**
+     * 重建签署完成后的 PDF（补偿签署时生成失败、或旧数据未生成 PDF 的场景）。
+     */
+    @PreAuthorize("@ss.hasPermi('smartscript:copyright:contract:list')")
+    @Log(title = "合同PDF重建", businessType = BusinessType.UPDATE)
+    @PostMapping("/{contractId}/regenerate-pdf")
+    public AjaxResult regeneratePdf(@PathVariable Long contractId) {
+        try {
+            tradeContractService.regenerateSignedPdf(contractId);
+            return success("PDF 已重建");
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            return error(e.getMessage());
+        } catch (IOException e) {
+            return error("PDF 重建失败：" + e.getMessage());
         }
-        ByteArrayOutputStream output = new ByteArrayOutputStream();
-        new PdfRendererBuilder().useFastMode().useFont(fontPath.toFile(), "ContractCjk")
-                .withHtmlContent(html, null).toStream(output).run();
-        return output.toByteArray();
-    }
-
-    private Path findChineseFont() {
-        String configuredFont = System.getProperty("smartscript.contract.pdf.font");
-        List<Path> candidates = new ArrayList<>();
-        if (configuredFont != null && !configuredFont.isBlank()) candidates.add(Path.of(configuredFont));
-        candidates.add(Path.of("C:/Windows/Fonts/Deng.ttf"));
-        candidates.add(Path.of("/usr/share/fonts/truetype/wqy/wqy-zenhei.ttf"));
-        candidates.add(Path.of("/usr/share/fonts/truetype/arphic/uming.ttf"));
-        return candidates.stream().filter(Files::isRegularFile).findFirst().orElse(null);
     }
 
     @PreAuthorize("@ss.hasPermi('smartscript:copyright:contract:sign')")
