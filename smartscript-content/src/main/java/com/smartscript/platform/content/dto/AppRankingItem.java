@@ -10,7 +10,7 @@ import java.math.BigDecimal;
  *   view     热门榜      最近 7 天阅读量（sys_read_record 计数；无数据回退累计 view_count）
  *   favorite 收藏榜      最近 7 天收藏数（sys_favorite 计数）
  *   sale     交易热度榜  最近 7 天已支付订单数（sys_order 计数）
- *   rating   评分榜      贝叶斯加权评分 (C*m + sum)/(C + n)
+ *   rating   评分榜      平均评分（sys_work.rating = ROUND(AVG(score),1)，无评分不进榜）
  *   new      新书榜      最近 30 天上架，按累计阅读量排序（score = view_count）
  * 其余 viewCount/favoriteCount/saleCount/rating 均为作品累计指标原值，供前端展示用。
  *

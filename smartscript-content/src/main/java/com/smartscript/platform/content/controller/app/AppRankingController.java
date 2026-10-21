@@ -19,7 +19,7 @@ import com.smartscript.platform.content.service.IAppBookstoreService;
  *   view     热门榜 最近 7 天阅读量
  *   favorite 收藏榜 最近 7 天收藏数
  *   sale     交易热度榜 最近 7 天已支付订单数
- *   rating   评分榜 贝叶斯加权评分
+ *   rating   评分榜 平均评分（无评分作品不进榜）
  *   new      新书榜 最近 30 天上架、按阅读量排序
  *
  * @author xiangsipeng

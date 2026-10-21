@@ -361,12 +361,13 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		</where>
 	</select>
 
-	<!-- 榜单：type 由控制层收敛为 view/favorite/sale/rating/new，此处按类型取「时间窗口 / 贝叶斯」指标并排序。
+	<!-- 榜单：type 由控制层收敛为 view/favorite/sale/rating/new，此处按类型取「时间窗口 / 平均分」指标并排序。
 	     指标口径（方案 A，均以 rank_score 列承载 AppRankingItem.score）：
 	       view     热门榜：sys_read_record 近 7 天阅读条数；无数据时以累计 view_count 兜底
 	       favorite 收藏榜：sys_favorite 近 7 天收藏条数（非 sys_bookshelf_record）
 	       sale     交易热度榜：sys_order 近 7 天已支付订单条数（pay_time 已落地即视为已支付）
-	       rating   评分榜：贝叶斯加权 (C*m + sum) / (C + n)，C=10、m=6.0（十分制中位）
+	       rating   评分榜：平均评分 sys_work.rating（由 AppWorkRatingMapper.refreshWorkRating
+	               在每次评分后回写为 ROUND(AVG(score),1)）；无评分（rating=0）的作品不进榜
 	       new      新书榜：首次审核通过（即上架）在近 30 天内，按累计阅读量排序。
 	               上架时间取 sys_review_record 中该作品最早一条 approved 记录的
 	               coalesce(review_end_time, updated_at, created_at)。
@@ -425,20 +426,15 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 				       w.sale_count, w.rating,
 				       u.nick_name as author_name,
 				       c.category_name as genre_name,
-				       round((10 * 6.0 + coalesce(rt.score_sum, 0)) / (10 + coalesce(rt.cnt, 0)), 2) as rank_score
+				       w.rating as rank_score
 				from sys_work w
 				left join sys_user u on u.user_id = w.author_id
 				left join sys_category c on c.category_id = w.genre_id
-				left join (
-					select r.work_id, count(1) as cnt, sum(r.score) as score_sum
-					from sys_work_rating r
-					group by r.work_id
-				) rt on rt.work_id = w.work_id
 				<where>
 					<include refid="readerVisibleWork"><property name="alias" value="w"/></include>
+					and w.rating &gt; 0
 				</where>
-				order by round((10 * 6.0 + coalesce(rt.score_sum, 0)) / (10 + coalesce(rt.cnt, 0)), 2) desc,
-				         w.rating desc, w.work_id desc
+				order by w.rating desc, w.view_count desc, w.work_id desc
 				limit #{limit}
 			</when>
 			<when test='type != null and type == "new"'>

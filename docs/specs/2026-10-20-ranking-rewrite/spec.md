@@ -18,7 +18,7 @@
 | 热门榜 | `view` | 最近 **7 天**阅读量 Top N |
 | 收藏榜 | `favorite` | 最近 **7 天**收藏数 Top N |
 | 交易热度榜 | `sale` | 最近 **7 天**已支付订单数 Top N |
-| 评分榜 | `rating` | **贝叶斯**加权评分 Top N |
+| 评分榜 | `rating` | **平均评分** Top N（`sys_work.rating`，无评分不进榜） |
 | 新书榜 | `new` | 首次上架（审核通过）在最近 **30 天**内，按阅读量排序 |
 
 附带：
@@ -35,7 +35,7 @@
 | 最近 7 天阅读量 | `sys_read_record(user_id, work_id, chapter_id, read_duration, read_progress, created_at, ...)` | ⚠️ **表存在，但应用层从不写入**（仅迁移/种子 SQL 引用），需补埋点 |
 | 最近 7 天收藏数 | `sys_favorite(user_id, work_id, created_at)` —— **注意：这是"收藏"表（附件5.1 表3-28）；`sys_bookshelf_record` 是"加入书架"，两表不可混用** | ✅ `AppFavoriteMapper.xml` 已写入，且有触发器 `trg_sys_favorite_ai_work_count` 回写 `sys_work.favorite_count` |
 | 最近 7 天销量 | `sys_order(order_id, work_id, buyer_id, status, pay_time, created_at, ...)`；索引 `idx_work_id/idx_status/idx_created_at/idx_pay_time` | ✅ 已有写入 |
-| 评分榜（贝叶斯） | `sys_work_rating`（`B_20261014_001` 创建）+ `AppWorkRatingMapper`（`upsertRating/countByWork/selectAvgRating/refreshWorkRating`） | ✅ 可算均值 + 人数 |
+| 评分榜（平均分） | `sys_work_rating`（`B_20261014_001` 创建）+ `AppWorkRatingMapper`（`upsertRating/countByWork/selectAvgRating/refreshWorkRating`）；均分由 `refreshWorkRating` 回写 `sys_work.rating` | ✅ 直接取回写的平均分 |
 | 新书榜「30 天内上架」 | `sys_review_record`（`target_type='work'`、`status='approved'`）最早一条的 `coalesce(review_end_time, updated_at, created_at)` | ⚠️ `sys_work` 无 `shelf_time` 列；`sys_work.review_time` **只有种子 SQL 写过，审核通过流程不回写**，App 新建作品该列为 NULL，会把真正的新书漏掉，故改用审核记录派生 |
 | 累计兜底 | `sys_work.view_count / favorite_count / sale_count`（int NOT NULL，均为**累计值**）、`rating` decimal(3,1) | 仅作兜底 |
 | 快照 | `sys_ranking_snapshot(ranking_type, period_start, period_end, work_id, view_count, bookshelf_count, growth_score, snapshot_time, status)`，唯一键 `(ranking_type, period_start, period_end, work_id)` | 本轮不改用它 |

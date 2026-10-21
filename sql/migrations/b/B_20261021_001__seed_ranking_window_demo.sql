@@ -5,7 +5,7 @@
 --   view     → sys_read_record 近 7 天阅读条数
 --   favorite → sys_favorite 近 7 天收藏条数
 --   sale     → sys_order 近 7 天已支付（pay_time 落地）订单条数
---   rating   → sys_work_rating 贝叶斯加权
+--   rating   → sys_work_rating 平均评分
 -- 现状：窗口内数据几乎为空（阅读 0 条、收藏 2 条、订单 4 条），榜单分数全为 0/1，
 --   无法体现排序差异。本脚本按作品累计浏览量分档补一批演示数据，单作品各指标均 < 1000。
 --

@@ -10,7 +10,7 @@
   - [x] T2.1 `view` 热门榜：`sys_read_record` 近 7 天计数 DESC；无数据时回退累计 `view_count`
   - [x] T2.2 `favorite` 收藏榜：`sys_favorite` 近 7 天计数 DESC（**不是** `sys_bookshelf_record`）
   - [x] T2.3 `sale` 交易热度榜：`sys_order` 近 7 天已支付订单数 DESC（`pay_time` 已落地即视为已支付）
-  - [x] T2.4 `rating` 评分榜：贝叶斯 `(C*m + sum)/(C+n)`，`C=10`、`m=6.0`（十分制中位）
+  - [x] T2.4 `rating` 评分榜：平均评分 `sys_work.rating`（评分后由 `refreshWorkRating` 回写为 `ROUND(AVG(score),1)`）DESC，`rating=0` 不进榜
   - [x] T2.5 `new` 新书榜：首次审核通过时间（`sys_review_record` 最早一条 approved 的 `coalesce(review_end_time, updated_at, created_at)`）`>= now()-30d`，按累计阅读量排序（原 `sys_work.review_time` 无人回写，已弃用）
   - [x] T2.6 全部保留 `readerVisibleWork` 可见性条件 + `limit`
 

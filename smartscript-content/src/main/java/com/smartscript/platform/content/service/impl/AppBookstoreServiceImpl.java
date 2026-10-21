@@ -199,7 +199,7 @@ public class AppBookstoreServiceImpl implements IAppBookstoreService
     {
         int safeLimit = limit < 1 ? DEFAULT_RANKING_LIMIT : Math.min(limit, RANKING_LIMIT_MAX);
         String safeType = normalizeRankingType(type);
-        // 各榜的指标口径（时间窗口 / 贝叶斯）由 SQL 按 type 分支计算，
+        // 各榜的指标口径（时间窗口 / 平均评分）由 SQL 按 type 分支计算，
         // rank_score 直接映射为条目 score，服务层只负责编号与更新时间
         List<AppRankingItem> rows = workMapper.selectAppRankingList(safeType, safeLimit);
         for (int i = 0; i < rows.size(); i++)

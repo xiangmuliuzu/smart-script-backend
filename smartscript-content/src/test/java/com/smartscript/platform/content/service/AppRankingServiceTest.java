@@ -20,7 +20,7 @@ import com.smartscript.platform.content.service.impl.AppBookstoreServiceImpl;
 /**
  * 榜单服务层单元测试（方案 A：5 榜 + 时间窗口）。
  *
- * SQL 侧指标口径（窗口聚合 / 贝叶斯）由 MyBatis 分支实现，此处校验服务层职责：
+ * SQL 侧指标口径（窗口聚合 / 平均评分）由 MyBatis 分支实现，此处校验服务层职责：
  *   - 榜单类型白名单：5 类透传，非法值回落 view；
  *   - rankNo 按结果顺序从 1 起递增；
  *   - 返回体含 updatedAt（榜单更新时间）；
