@@ -104,7 +104,7 @@ public interface SysContentWorkMapper
     /**
      * 书城作品详情（App 侧只读）
      *
-     * 固定条件：is_deleted = 0 且 status = 'on_shelf'；额外下发 core_setting/character_setting。
+     * 固定条件：is_deleted = 0 且 status = 'on_shelf'。
      *
      * @param workId 作品ID
      * @return 作品（AppWorkDto，未上架或已删除返回 null）

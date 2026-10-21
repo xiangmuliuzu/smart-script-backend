@@ -41,7 +41,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		  and work_id = #{workId}
 	</select>
 
-	<!-- 列表列与 SysContentWorkMapper.selectAppWorkList 一致（不含 core_setting/character_setting 长文本），
+	<!-- 列表列与 SysContentWorkMapper.selectAppWorkList 一致，
 	     在其 AppWorkDtoResult 结果映射上扩展进度列，避免同一批作品字段出现两套映射产生口径漂移 -->
 	<resultMap id="AppShelfWorkDtoResult"
 	           type="com.smartscript.platform.content.dto.AppShelfWorkDto"

@@ -12,9 +12,7 @@ import com.fasterxml.jackson.annotation.JsonFormat;
  * 字段裁剪：只下发 App 展示所需字段，不下发内部字段
  * （ext_json / reject_reason / reviewer_id / review_time / is_deleted / 若依审计字段）。
  *
- * 列表与详情共用本对象：
- *   - 列表不查询 core_setting/character_setting（长文本），这两项在列表中为 null；
- *   - 详情额外下发 core_setting/character_setting。
+ * 列表与详情共用本对象：列表仅下发展示所需字段，详情在此基础上补充。
  *
  * @author xiangsipeng
  */
@@ -55,12 +53,6 @@ public class AppWorkDto
 
     /** 简介 */
     private String summary;
-
-    /** 核心设置（仅详情下发） */
-    private String coreSetting;
-
-    /** 角色设定（仅详情下发） */
-    private String characterSetting;
 
     /** 价格 */
     private BigDecimal price;
@@ -245,26 +237,6 @@ public class AppWorkDto
     public void setSummary(String summary)
     {
         this.summary = summary;
-    }
-
-    public String getCoreSetting()
-    {
-        return coreSetting;
-    }
-
-    public void setCoreSetting(String coreSetting)
-    {
-        this.coreSetting = coreSetting;
-    }
-
-    public String getCharacterSetting()
-    {
-        return characterSetting;
-    }
-
-    public void setCharacterSetting(String characterSetting)
-    {
-        this.characterSetting = characterSetting;
     }
 
     public BigDecimal getPrice()

@@ -64,12 +64,6 @@ public class SysWork extends BaseEntity
     /** 简介 */
     private String summary;
 
-    /** 核心设置 */
-    private String coreSetting;
-
-    /** 角色设定 */
-    private String characterSetting;
-
     /** 价格 */
     private BigDecimal price;
 
@@ -263,26 +257,6 @@ public class SysWork extends BaseEntity
     public void setSummary(String summary)
     {
         this.summary = summary;
-    }
-
-    public String getCoreSetting()
-    {
-        return coreSetting;
-    }
-
-    public void setCoreSetting(String coreSetting)
-    {
-        this.coreSetting = coreSetting;
-    }
-
-    public String getCharacterSetting()
-    {
-        return characterSetting;
-    }
-
-    public void setCharacterSetting(String characterSetting)
-    {
-        this.characterSetting = characterSetting;
     }
 
     public BigDecimal getPrice()

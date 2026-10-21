@@ -38,7 +38,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		  and work_id = #{workId}
 	</select>
 
-	<!-- 列与 SysContentWorkMapper.selectAppWorkVo 一致（不含 core_setting/character_setting 长文本），
+	<!-- 列与 SysContentWorkMapper.selectAppWorkVo 一致，
 	     复用其 AppWorkDtoResult 结果映射，避免同一 DTO 出现两套映射产生口径漂移 -->
 	<select id="selectFavoriteWorks"
 	        resultMap="com.smartscript.platform.content.mapper.SysContentWorkMapper.AppWorkDtoResult">

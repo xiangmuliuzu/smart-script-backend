@@ -49,7 +49,7 @@ public class ReviewService {
     }
 
     /**
-     * 查询审核作品完整内容（人工审核用）：简介/核心/角色设定 + 各章节正文（纯文本）。
+     * 查询审核作品完整内容（人工审核用）：简介 + 各章节正文（纯文本）。
      * @return 内容数据；审核记录不存在或非作品类型时返回 null
      */
     public java.util.Map<String, Object> selectReviewContent(Long reviewId) {

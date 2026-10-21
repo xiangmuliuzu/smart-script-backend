@@ -24,8 +24,6 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		<result property="uploadType"       column="upload_type"       />
 		<result property="lengthType"       column="length_type"       />
 		<result property="summary"          column="summary"           />
-		<result property="coreSetting"      column="core_setting"      />
-		<result property="characterSetting" column="character_setting" />
 		<result property="price"            column="price"             />
 		<result property="tradeType"        column="trade_type"        />
 		<result property="tradeEnabled"     column="trade_enabled"     />
@@ -67,7 +65,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 	<!-- 作品管理列表：含 authorName/genreName，全字段 -->
 	<sql id="selectWorkVo">
 		select w.work_id, w.title, w.cover, w.author_id, w.genre_id, w.work_type, w.upload_type,
-		       w.length_type, w.summary, w.core_setting, w.character_setting,
+		       w.length_type, w.summary,
 		       w.price, w.trade_type, w.trade_enabled, w.negotiable_min, w.negotiable_max,
 		       w.quote_valid_days, w.word_count, w.episode_count, w.duration,
 		       w.is_free, w.preview_enabled, w.preview_episodes,
@@ -89,6 +87,9 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		<include refid="selectWorkVo"/>
 		<if test="title != null and title != ''">
 			AND w.title like concat('%', #{title}, '%')
+		</if>
+		<if test="authorName != null and authorName != ''">
+			AND u.nick_name like concat('%', #{authorName}, '%')
 		</if>
 		<if test="authorId != null">
 			AND w.author_id = #{authorId}
@@ -231,8 +232,6 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		<result property="uploadType"       column="upload_type"       />
 		<result property="lengthType"       column="length_type"       />
 		<result property="summary"          column="summary"           />
-		<result property="coreSetting"      column="core_setting"      />
-		<result property="characterSetting" column="character_setting" />
 		<result property="price"            column="price"             />
 		<result property="tradeType"        column="trade_type"        />
 		<result property="tradeEnabled"     column="trade_enabled"     />
@@ -287,7 +286,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		)
 	</sql>
 
-	<!-- 列表公共列：不含 core_setting/character_setting（长文本，仅详情下发） -->
+	<!-- 列表公共列 -->
 	<sql id="selectAppWorkVo">
 		select w.work_id, w.title, w.cover, w.author_id, w.genre_id, w.work_type, w.upload_type,
 		       w.length_type, w.summary, w.price, w.trade_type, w.trade_enabled,
@@ -346,7 +345,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 
 	<select id="selectAppWorkById" parameterType="Long" resultMap="AppWorkDtoResult">
 		select w.work_id, w.title, w.cover, w.author_id, w.genre_id, w.work_type, w.upload_type,
-		       w.length_type, w.summary, w.core_setting, w.character_setting,
+		       w.length_type, w.summary,
 		       w.price, w.trade_type, w.trade_enabled,
 		       w.word_count, w.episode_count, w.duration, w.is_free, w.preview_enabled,
 		       w.preview_episodes, w.status, w.is_copyrighted, w.quality_level,

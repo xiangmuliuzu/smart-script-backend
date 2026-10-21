@@ -185,7 +185,7 @@ INSERT INTO tmp_work
 -- ---------------------------------------------------------------------
 INSERT INTO sys_work (
     title, cover, author_id, genre_id, work_type, upload_type, length_type,
-    summary, core_setting, character_setting,
+    summary,
     price, trade_type, trade_enabled, quote_valid_days,
     word_count, episode_count, duration, is_free,
     preview_enabled, preview_episodes,
@@ -205,8 +205,6 @@ SELECT
     CONCAT('《', w.title, '》：', w.genre_name, '题材',
            IF(w.length_type = 'short', '短剧', IF(w.length_type = 'long', '长剧', '电影')),
            '剧本。围绕主角在', w.genre_name, '世界中的成长与抉择展开，节奏紧凑、反转密集，适配竖屏短剧与长剧改编。'),
-    CONCAT('核心设定：', w.genre_name, '世界观 + 强冲突主线 + 三幕式结构 + 明确爽点节奏。'),
-    CONCAT('人物设定：主角（成长弧光）、对手（利益对立）、关键配角（情感支点）。'),
     w.price,
     w.trade_type,
     IF(w.status = 'on_shelf' AND w.trade_type <> 'adaptation', 1, 0),

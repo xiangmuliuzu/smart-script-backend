@@ -7,8 +7,6 @@
         <result property="title"            column="title"/>
         <result property="workType"         column="work_type"/>
         <result property="summary"          column="summary"/>
-        <result property="coreSetting"      column="core_setting"/>
-        <result property="characterSetting" column="character_setting"/>
     </resultMap>
 
     <resultMap id="workChapterMap" type="com.smartscript.platform.review.domain.vo.WorkChapterVO">
@@ -19,7 +17,7 @@
     </resultMap>
 
     <select id="selectWorkContent" resultMap="workContentMap">
-        SELECT work_id, title, work_type, summary, core_setting, character_setting
+        SELECT work_id, title, work_type, summary
         FROM sys_work
         WHERE work_id = #{workId}
     </select>
