@@ -10,12 +10,14 @@ import org.springframework.transaction.annotation.Transactional;
 import com.smartscript.platform.user.constant.AppUserErrorCodes;
 import com.smartscript.platform.user.domain.ChatMessage;
 import com.smartscript.platform.user.domain.ChatSession;
+import com.smartscript.platform.user.domain.ChatTradeTemplate;
 import com.smartscript.platform.user.dto.ChatMessageSendRequest;
 import com.smartscript.platform.user.dto.ChatSessionCreateRequest;
 import com.smartscript.platform.user.dto.PageResult;
 import com.smartscript.platform.user.exception.AppAuthException;
 import com.smartscript.platform.user.mapper.ChatMessageMapper;
 import com.smartscript.platform.user.mapper.ChatSessionMapper;
+import com.smartscript.platform.user.mapper.ChatTradeTemplateMapper;
 
 /**
  * A3 聊天核心服务：会话管理 + 消息收发 + 已读/未读。
@@ -44,11 +46,15 @@ public class ChatService
 
     private final ChatSessionMapper sessionMapper;
     private final ChatMessageMapper messageMapper;
+    private final ChatTradeTemplateMapper templateMapper;
 
-    public ChatService(ChatSessionMapper sessionMapper, ChatMessageMapper messageMapper)
+    public ChatService(ChatSessionMapper sessionMapper,
+                       ChatMessageMapper messageMapper,
+                       ChatTradeTemplateMapper templateMapper)
     {
         this.sessionMapper = sessionMapper;
         this.messageMapper = messageMapper;
+        this.templateMapper = templateMapper;
     }
 
     /* ========== 任务 2/10：创建会话（幂等） ========== */
@@ -246,6 +252,14 @@ public class ChatService
         return PageResult.of(list.size(), list);
     }
 
+    /* ========== 定型文模板列表 ========== */
+
+    /** 获取所有已启用的交易会话定型文模板。 */
+    public List<ChatTradeTemplate> listTradeTemplates()
+    {
+        return templateMapper.selectEnabledTemplates();
+    }
+
     /* ========== 任务 5：发送消息 ========== */
 
     /**
@@ -253,6 +267,7 @@ public class ChatService
      *
      * 原子操作：插入消息 → 更新会话最后消息 → 对方未读 +1。
      * senderId 为当前用户；receiverId 为会话另一方。
+     * TRADE 会话强制校验定型文白名单。
      */
     @Transactional
     public Map<String, Object> sendMessage(Long sessionId, Long senderId,
@@ -270,6 +285,13 @@ public class ChatService
         {
             throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "会话已结束，无法发送消息");
         }
+
+        // TRADE 会话定型文白名单校验
+        if ("TRADE".equals(session.getSessionType()))
+        {
+            validateTradeTemplate(req.getContent().trim());
+        }
+
         Long receiverId = session.getUser1Id().equals(senderId) ? handlerId(session) : session.getUser1Id();
         String msgType = (req.getMsgType() != null && !req.getMsgType().isBlank()) ? req.getMsgType() : MSG_TYPE_TEXT;
         if (MSG_TYPE_SYSTEM.equals(msgType))
@@ -381,6 +403,36 @@ public class ChatService
         ChatSession session = sessionMapper.selectByInquiryId(inquiryId);
         if (session == null) return;
         insertSystemNotice(session.getSessionId(), content);
+    }
+
+    /**
+     * TRADE 会话定型文白名单校验。
+     *
+     * 将发送内容与所有已启用模板比对：
+     * - 含 {price} 占位符的模板：将占位符替换为数字正则后匹配
+     * - 纯文字模板：精确匹配
+     * 不匹配则抛出异常，拒绝发送。
+     */
+    private void validateTradeTemplate(String sentContent)
+    {
+        List<ChatTradeTemplate> templates = templateMapper.selectEnabledTemplates();
+        boolean matched = templates.stream().anyMatch(t -> {
+            if (t.getHasAmount() != null && t.getHasAmount() == 1)
+            {
+                // 含价格占位符：将 {price} 替换为数字正则后匹配
+                String pattern = t.getContent()
+                        .replace("{price}", "\\d+(?:\\.\\d+)?")
+                        .replace("(", "\\(")
+                        .replace(")", "\\)");
+                return sentContent.matches(pattern);
+            }
+            return t.getContent().equals(sentContent);
+        });
+        if (!matched)
+        {
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400,
+                    "交易会话仅支持使用定型文消息");
+        }
     }
 
     /**

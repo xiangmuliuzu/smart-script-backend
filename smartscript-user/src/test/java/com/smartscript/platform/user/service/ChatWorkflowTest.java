@@ -12,12 +12,14 @@ import com.smartscript.platform.user.dto.ChatMessageSendRequest;
 import com.smartscript.platform.user.exception.AppAuthException;
 import com.smartscript.platform.user.mapper.ChatSessionMapper;
 import com.smartscript.platform.user.mapper.ChatMessageMapper;
+import com.smartscript.platform.user.mapper.ChatTradeTemplateMapper;
 
 class ChatWorkflowTest
 {
     private final ChatSessionMapper sessions = mock(ChatSessionMapper.class);
     private final ChatMessageMapper messages = mock(ChatMessageMapper.class);
-    private final ChatService service = new ChatService(sessions, messages);
+    private final ChatTradeTemplateMapper templates = mock(ChatTradeTemplateMapper.class);
+    private final ChatService service = new ChatService(sessions, messages, templates);
 
     private ChatSession session()
     {

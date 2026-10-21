@@ -1,5 +1,7 @@
 package com.smartscript.platform.user.controller;
 
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -13,6 +15,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import com.smartscript.platform.api.AppApiResponse;
 import com.smartscript.platform.user.constant.AppAuthErrorCodes;
+import com.smartscript.platform.user.domain.ChatTradeTemplate;
 import com.smartscript.platform.user.dto.ChatMessageSendRequest;
 import com.smartscript.platform.user.dto.ChatSessionCreateRequest;
 import com.smartscript.platform.user.dto.PageResult;
@@ -97,6 +100,25 @@ public class AppChatController
     public AppApiResponse<Map<String, Object>> unreadCount()
     {
         return AppApiResponse.ok(chatService.chatUnreadCount(currentUserId()));
+    }
+
+    /** 交易会话定型文模板列表 */
+    @GetMapping("/trade-templates")
+    public AppApiResponse<List<Map<String, Object>>> listTradeTemplates()
+    {
+        List<ChatTradeTemplate> templates = chatService.listTradeTemplates();
+        List<Map<String, Object>> list = new java.util.ArrayList<>();
+        for (ChatTradeTemplate t : templates)
+        {
+            Map<String, Object> vo = new LinkedHashMap<>();
+            vo.put("templateId", t.getTemplateId());
+            vo.put("category", t.getCategory());
+            vo.put("content", t.getContent());
+            vo.put("role", t.getRole());
+            vo.put("hasAmount", t.getHasAmount());
+            list.add(vo);
+        }
+        return AppApiResponse.ok(list);
     }
 
     private Long currentUserId()
