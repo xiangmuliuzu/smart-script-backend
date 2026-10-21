@@ -266,6 +266,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		<result property="episodeCount"    column="episode_count"    />
 		<result property="price"           column="price"            />
 		<result property="isFree"          column="is_free"          />
+		<result property="score"           column="rank_score"       />
 	</resultMap>
 
 	<!-- 读者可见作品统一判定（书城/榜单/统计同口径，等价于 WorkStatusDeriver.isReaderVisible）：
@@ -361,26 +362,132 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		</where>
 	</select>
 
-	<!-- 榜单：type 由控制层收敛为 view/favorite/sale/rating，此处仅分支排序 -->
+	<!-- 榜单：type 由控制层收敛为 view/favorite/sale/rating/new，此处按类型取「时间窗口 / 贝叶斯」指标并排序。
+	     指标口径（方案 A，均以 rank_score 列承载 AppRankingItem.score）：
+	       view     热门榜：sys_read_record 近 7 天阅读条数；无数据时以累计 view_count 兜底
+	       favorite 收藏榜：sys_favorite 近 7 天收藏条数（非 sys_bookshelf_record）
+	       sale     交易热度榜：sys_order 近 7 天已支付订单条数（pay_time 已落地即视为已支付）
+	       rating   评分榜：贝叶斯加权 (C*m + sum) / (C + n)，C=10、m=6.0（十分制中位）
+	       new      新书榜：首次审核通过（即上架）在近 30 天内，按累计阅读量排序。
+	               上架时间取 sys_review_record 中该作品最早一条 approved 记录的
+	               coalesce(review_end_time, updated_at, created_at)。
+	               不用 sys_work.review_time：该列仅种子脚本写入过，审核通过流程不会回写，
+	               经 App 创建并审核的作品该列为 NULL，会被误判为非新书。
+	     统一保留读者可见性条件 + limit。 -->
 	<select id="selectAppRankingList" resultMap="AppRankingItemResult">
-		select w.work_id, w.title, w.cover, w.genre_id, w.price, w.is_free,
-		       w.word_count, w.episode_count, w.view_count, w.favorite_count,
-		       w.sale_count, w.rating,
-		       u.nick_name as author_name,
-		       c.category_name as genre_name
-		from sys_work w
-		left join sys_user u on u.user_id = w.author_id
-		left join sys_category c on c.category_id = w.genre_id
-		<where>
-			<include refid="readerVisibleWork"><property name="alias" value="w"/></include>
-		</where>
 		<choose>
-			<when test='type != null and type == "favorite"'>order by w.favorite_count desc, w.work_id desc</when>
-			<when test='type != null and type == "sale"'>order by w.sale_count desc, w.work_id desc</when>
-			<when test='type != null and type == "rating"'>order by w.rating desc, w.work_id desc</when>
-			<otherwise>order by w.view_count desc, w.work_id desc</otherwise>
-		</choose>
+			<when test='type != null and type == "favorite"'>
+				select w.work_id, w.title, w.cover, w.genre_id, w.price, w.is_free,
+				       w.word_count, w.episode_count, w.view_count, w.favorite_count,
+				       w.sale_count, w.rating,
+				       u.nick_name as author_name,
+				       c.category_name as genre_name,
+				       coalesce(fc.cnt_7d, 0) as rank_score
+				from sys_work w
+				left join sys_user u on u.user_id = w.author_id
+				left join sys_category c on c.category_id = w.genre_id
+				left join (
+					select f.work_id, count(1) as cnt_7d
+					from sys_favorite f
+					where f.created_at &gt;= date_sub(now(), interval 7 day)
+					group by f.work_id
+				) fc on fc.work_id = w.work_id
+				<where>
+					<include refid="readerVisibleWork"><property name="alias" value="w"/></include>
+				</where>
+				order by coalesce(fc.cnt_7d, 0) desc, w.favorite_count desc, w.work_id desc
 				limit #{limit}
+			</when>
+			<when test='type != null and type == "sale"'>
+				select w.work_id, w.title, w.cover, w.genre_id, w.price, w.is_free,
+				       w.word_count, w.episode_count, w.view_count, w.favorite_count,
+				       w.sale_count, w.rating,
+				       u.nick_name as author_name,
+				       c.category_name as genre_name,
+				       coalesce(so.cnt_7d, 0) as rank_score
+				from sys_work w
+				left join sys_user u on u.user_id = w.author_id
+				left join sys_category c on c.category_id = w.genre_id
+				left join (
+					select o.work_id, count(1) as cnt_7d
+					from sys_order o
+					where o.pay_time &gt;= date_sub(now(), interval 7 day)
+					group by o.work_id
+				) so on so.work_id = w.work_id
+				<where>
+					<include refid="readerVisibleWork"><property name="alias" value="w"/></include>
+				</where>
+				order by coalesce(so.cnt_7d, 0) desc, w.sale_count desc, w.work_id desc
+				limit #{limit}
+			</when>
+			<when test='type != null and type == "rating"'>
+				select w.work_id, w.title, w.cover, w.genre_id, w.price, w.is_free,
+				       w.word_count, w.episode_count, w.view_count, w.favorite_count,
+				       w.sale_count, w.rating,
+				       u.nick_name as author_name,
+				       c.category_name as genre_name,
+				       round((10 * 6.0 + coalesce(rt.score_sum, 0)) / (10 + coalesce(rt.cnt, 0)), 2) as rank_score
+				from sys_work w
+				left join sys_user u on u.user_id = w.author_id
+				left join sys_category c on c.category_id = w.genre_id
+				left join (
+					select r.work_id, count(1) as cnt, sum(r.score) as score_sum
+					from sys_work_rating r
+					group by r.work_id
+				) rt on rt.work_id = w.work_id
+				<where>
+					<include refid="readerVisibleWork"><property name="alias" value="w"/></include>
+				</where>
+				order by round((10 * 6.0 + coalesce(rt.score_sum, 0)) / (10 + coalesce(rt.cnt, 0)), 2) desc,
+				         w.rating desc, w.work_id desc
+				limit #{limit}
+			</when>
+			<when test='type != null and type == "new"'>
+				select w.work_id, w.title, w.cover, w.genre_id, w.price, w.is_free,
+				       w.word_count, w.episode_count, w.view_count, w.favorite_count,
+				       w.sale_count, w.rating,
+				       u.nick_name as author_name,
+				       c.category_name as genre_name,
+				       w.view_count as rank_score
+				from sys_work w
+				left join sys_user u on u.user_id = w.author_id
+				left join sys_category c on c.category_id = w.genre_id
+				<where>
+					<include refid="readerVisibleWork"><property name="alias" value="w"/></include>
+					and (
+						select min(coalesce(r.review_end_time, r.updated_at, r.created_at))
+						from sys_review_record r
+						where r.target_type = 'work'
+						  and r.target_id = w.work_id
+						  and r.status = 'approved'
+					) &gt;= date_sub(now(), interval 30 day)
+				</where>
+				order by w.view_count desc, w.work_id desc
+				limit #{limit}
+			</when>
+			<otherwise>
+				select w.work_id, w.title, w.cover, w.genre_id, w.price, w.is_free,
+				       w.word_count, w.episode_count, w.view_count, w.favorite_count,
+				       w.sale_count, w.rating,
+				       u.nick_name as author_name,
+				       c.category_name as genre_name,
+				       coalesce(rc.cnt_7d, 0) as rank_score
+				from sys_work w
+				left join sys_user u on u.user_id = w.author_id
+				left join sys_category c on c.category_id = w.genre_id
+				left join (
+					select rr.work_id, count(1) as cnt_7d
+					from sys_read_record rr
+					where rr.created_at &gt;= date_sub(now(), interval 7 day)
+					group by rr.work_id
+				) rc on rc.work_id = w.work_id
+				<where>
+					<include refid="readerVisibleWork"><property name="alias" value="w"/></include>
+				</where>
+				order by coalesce(rc.cnt_7d, 0) desc, w.view_count desc, w.work_id desc
+				limit #{limit}
+			</otherwise>
+		</choose>
 	</select>
 
 

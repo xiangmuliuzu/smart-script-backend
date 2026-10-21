@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.content.mapper.AppReadRecordMapper">
+
+	<!--
+	  依据：附件5.1 表3-31 sys_read_record（阅读记录表）真实列。
+	  反推处理点：
+	  1. 表无 (user_id, chapter_id) 唯一索引，故用 INSERT ... SELECT ... WHERE NOT EXISTS
+	     保证幂等（MySQL 允许 INSERT ... SELECT 读同一张表）；与 AppFavoriteMapper 同写法。
+	  2. read_duration / read_progress 为 NOT NULL，正文下发时刻无实际值，写 0 / 0.00。
+	  3. created_at / create_time 显式 now()，不依赖库默认值差异；create_by 记当前用户ID（varchar）。
+	  4. 去重边界为「同一用户当天同一章节一条」，用 created_at >= curdate() 限定当天。
+	-->
+	<insert id="insertReadRecordIfAbsent">
+		insert into sys_read_record
+			(user_id, work_id, chapter_id, read_duration, read_progress, created_at, create_by, create_time, remark)
+		select #{userId}, #{workId}, #{chapterId}, 0, 0.00, now(), cast(#{userId} as char), now(), ''
+		from dual
+		where not exists (
+			select 1 from sys_read_record r
+			where r.user_id = #{userId}
+			  and r.chapter_id = #{chapterId}
+			  and r.created_at &gt;= curdate()
+		)
+	</insert>
+
+</mapper>

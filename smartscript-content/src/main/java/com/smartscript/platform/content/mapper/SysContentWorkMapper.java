@@ -116,9 +116,9 @@ public interface SysContentWorkMapper
      *
      * 固定条件：is_deleted = 0 且 status = 'on_shelf'。
      *
-     * @param type  榜单类型：view（默认）/favorite/sale/rating
+     * @param type  榜单类型：view（默认）/favorite/sale/rating/new
      * @param limit 取前 N 条
-     * @return 榜单条目（rankNo 由服务层按顺序填充）
+     * @return 榜单条目（rankNo 由服务层按顺序填充；score 由 SQL 的 rank_score 列映射）
      */
     public List<AppRankingItem> selectAppRankingList(@Param("type") String type, @Param("limit") int limit);
 

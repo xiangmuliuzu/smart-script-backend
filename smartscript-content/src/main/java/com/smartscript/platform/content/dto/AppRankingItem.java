@@ -3,14 +3,16 @@ package com.smartscript.platform.content.dto;
 import java.math.BigDecimal;
 
 /**
- * 书城榜单条目（App 侧只读，接口文档 2.7.7 表 2-87「作品排行榜（4种排序）」）。
+ * 书城榜单条目（App 侧只读，接口文档 2.7.7 表 2-87「作品排行榜」）。
  *
- * 数据来源：sys_work 真实指标列，不依赖 sys_ranking_snapshot 快照是否已重算。
- * type 与指标列对应关系（score 即对应指标）：
- *   view     浏览量     sys_work.view_count
- *   favorite 收藏量     sys_work.favorite_count
- *   sale     销量       sys_work.sale_count
- *   rating   评分       sys_work.rating
+ * 数据来源：sys_work 指标列 + 互动表时间窗口实时聚合，不依赖 sys_ranking_snapshot 快照是否已重算。
+ * type 与主指标的对应关系（score 即该榜主指标取值）：
+ *   view     热门榜      最近 7 天阅读量（sys_read_record 计数；无数据回退累计 view_count）
+ *   favorite 收藏榜      最近 7 天收藏数（sys_favorite 计数）
+ *   sale     交易热度榜  最近 7 天已支付订单数（sys_order 计数）
+ *   rating   评分榜      贝叶斯加权评分 (C*m + sum)/(C + n)
+ *   new      新书榜      最近 30 天上架，按累计阅读量排序（score = view_count）
+ * 其余 viewCount/favoriteCount/saleCount/rating 均为作品累计指标原值，供前端展示用。
  *
  * @author xiangsipeng
  */
@@ -34,7 +36,7 @@ public class AppRankingItem
     /** 题材名称（JOIN sys_category.category_name） */
     private String genreName;
 
-    /** 榜单分数（等于 type 对应的指标值） */
+    /** 榜单分数 = 该榜主指标的取值（由 SQL 的 rank_score 列映射） */
     private BigDecimal score;
 
     /** 浏览量 */

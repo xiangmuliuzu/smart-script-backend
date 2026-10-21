@@ -1,14 +1,16 @@
 package com.smartscript.platform.content.service.impl;
 
-import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import com.github.pagehelper.PageHelper;
 import com.github.pagehelper.PageInfo;
+import com.ruoyi.common.utils.DateUtils;
 import com.smartscript.platform.content.domain.SysBanner;
 import com.smartscript.platform.content.domain.SysCategory;
 import com.smartscript.platform.content.domain.SysTag;
@@ -21,12 +23,14 @@ import com.smartscript.platform.content.dto.AppContactDto;
 import com.smartscript.platform.content.dto.AppPageResult;
 import com.smartscript.platform.content.dto.AppPreviewDto;
 import com.smartscript.platform.content.dto.AppRankingItem;
+import com.smartscript.platform.content.dto.AppRankingResult;
 import com.smartscript.platform.content.dto.AppTagDto;
 import com.smartscript.platform.content.dto.AppWorkDto;
 import com.smartscript.platform.content.dto.AppWorkFileDto;
 import com.smartscript.platform.content.dto.AppWorkQuery;
 import com.smartscript.platform.content.dto.AppWorkTagDto;
 import com.smartscript.platform.content.mapper.AppContactProfileMapper;
+import com.smartscript.platform.content.mapper.AppReadRecordMapper;
 import com.smartscript.platform.content.mapper.AppWorkAuthorizationMapper;
 import com.smartscript.platform.content.mapper.SysBannerMapper;
 import com.smartscript.platform.content.mapper.SysCategoryMapper;
@@ -53,6 +57,8 @@ import com.smartscript.platform.identity.IdentityProvider;
 @Service
 public class AppBookstoreServiceImpl implements IAppBookstoreService
 {
+    private static final Logger log = LoggerFactory.getLogger(AppBookstoreServiceImpl.class);
+
     /** 默认页码 */
     private static final int DEFAULT_PAGE_NUM = 1;
 
@@ -78,7 +84,7 @@ public class AppBookstoreServiceImpl implements IAppBookstoreService
     private static final String CHAPTER_FREE = "1";
 
     /** 榜单类型白名单 */
-    private static final List<String> RANKING_TYPES = List.of("view", "favorite", "sale", "rating");
+    private static final List<String> RANKING_TYPES = List.of("view", "favorite", "sale", "rating", "new");
 
     /** 访问范围：仅试读（未获授权） */
     private static final String ACCESS_SCOPE_PREVIEW = "preview";
@@ -109,6 +115,9 @@ public class AppBookstoreServiceImpl implements IAppBookstoreService
 
     @Autowired
     private AppContactProfileMapper contactProfileMapper;
+
+    @Autowired
+    private AppReadRecordMapper readRecordMapper;
 
     @Autowired
     private IdentityProvider identityProvider;
@@ -186,18 +195,22 @@ public class AppBookstoreServiceImpl implements IAppBookstoreService
     }
 
     @Override
-    public List<AppRankingItem> listRankings(String type, int limit)
+    public AppRankingResult listRankings(String type, int limit)
     {
         int safeLimit = limit < 1 ? DEFAULT_RANKING_LIMIT : Math.min(limit, RANKING_LIMIT_MAX);
         String safeType = normalizeRankingType(type);
+        // 各榜的指标口径（时间窗口 / 贝叶斯）由 SQL 按 type 分支计算，
+        // rank_score 直接映射为条目 score，服务层只负责编号与更新时间
         List<AppRankingItem> rows = workMapper.selectAppRankingList(safeType, safeLimit);
         for (int i = 0; i < rows.size(); i++)
         {
-            AppRankingItem item = rows.get(i);
-            item.setRankNo(i + 1);
-            item.setScore(scoreOf(item, safeType));
+            rows.get(i).setRankNo(i + 1);
         }
-        return rows;
+        AppRankingResult result = new AppRankingResult();
+        result.setList(rows);
+        // 榜单更新时间即本次实时取数时刻，对齐 PRD 5.2「榜单数据按规则排序并标明更新时间」
+        result.setUpdatedAt(DateUtils.getTime());
+        return result;
     }
 
     @Override
@@ -252,6 +265,12 @@ public class AppBookstoreServiceImpl implements IAppBookstoreService
         }
         // 可读 = 在试读范围内 或 作者标记的免费章节 或 当前身份已获授权
         boolean readable = isChapterReadable(work, chapter);
+        // 阅读埋点：正文实际下发（可读）时记一条，供热门榜「最近 7 天阅读量」取数；
+        // 仅登录用户写入，游客不写，写失败不影响正文返回（见 recordRead）
+        if (readable)
+        {
+            recordRead(chapter.getWorkId(), chapter.getChapterId());
+        }
         AppChapterDetailDto dto = new AppChapterDetailDto();
         dto.setChapterId(chapter.getChapterId());
         dto.setWorkId(chapter.getWorkId());
@@ -342,6 +361,31 @@ public class AppBookstoreServiceImpl implements IAppBookstoreService
             return false;
         }
         return authorizationMapper.countEffectiveAuthorization(workId, userId) > 0;
+    }
+
+    /**
+     * 阅读埋点：为当前登录用户补写一条 sys_read_record（幂等，同一用户当天同一章节一条）。
+     *
+     * 依据：附件5.1 表3-31；该表为「热门榜最近 7 天阅读量」的唯一带时间戳数据源。
+     * 边界：游客（无身份）不写，不伪造用户 ID；埋点属旁路统计，
+     * 任何写入异常只记 warn 日志，绝不向上抛出影响正文下发。
+     */
+    private void recordRead(Long workId, Long chapterId)
+    {
+        Long userId = identityProvider.currentUserId();
+        if (userId == null)
+        {
+            return;
+        }
+        try
+        {
+            readRecordMapper.insertReadRecordIfAbsent(userId, workId, chapterId);
+        }
+        catch (RuntimeException e)
+        {
+            log.warn("阅读记录写入失败，不影响正文返回：userId={}, workId={}, chapterId={}",
+                    userId, workId, chapterId, e);
+        }
     }
 
     /**
@@ -510,24 +554,5 @@ public class AppBookstoreServiceImpl implements IAppBookstoreService
             return "view";
         }
         return RANKING_TYPES.contains(type) ? type : "view";
-    }
-
-    /**
-     * 榜单分数 = type 对应的指标值（view/favorite/sale/rating 四种排序）。
-     */
-    private static BigDecimal scoreOf(AppRankingItem item, String type)
-    {
-        return switch (type)
-        {
-            case "favorite" -> toDecimal(item.getFavoriteCount());
-            case "sale" -> toDecimal(item.getSaleCount());
-            case "rating" -> item.getRating();
-            default -> toDecimal(item.getViewCount());
-        };
-    }
-
-    private static BigDecimal toDecimal(Integer value)
-    {
-        return value == null ? null : BigDecimal.valueOf(value);
     }
 }

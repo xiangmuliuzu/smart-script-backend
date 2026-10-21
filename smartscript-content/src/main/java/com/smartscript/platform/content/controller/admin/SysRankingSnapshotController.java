@@ -18,6 +18,8 @@ import com.ruoyi.common.core.page.TableDataInfo;
 import com.ruoyi.common.enums.BusinessType;
 import com.smartscript.platform.content.domain.SysRankingSnapshot;
 import com.smartscript.platform.content.service.ISysRankingSnapshotService;
+import com.smartscript.platform.content.service.IAppBookstoreService;
+import com.smartscript.platform.content.dto.AppRankingItem;
 
 /**
  * 排行榜管理（PC 后台）
@@ -39,6 +41,9 @@ public class SysRankingSnapshotController extends BaseController
     @Autowired
     private ISysRankingSnapshotService rankingService;
 
+
+    @Autowired
+    private IAppBookstoreService appBookstoreService;
     /**
      * 获取榜单列表
      * 入参（query，均可选）：rankingType/periodStart/periodEnd/status 精确；pageNum/pageSize 分页
@@ -52,6 +57,18 @@ public class SysRankingSnapshotController extends BaseController
         return getDataTable(list);
     }
 
+
+    /**
+     * 实时排行榜（五榜：view/favorite/sale/rating/new）
+     * 按时间衰减算法自动排序，不需要快照/重算
+     */
+    @PreAuthorize("@ss.hasPermi('content:ranking:list')")
+    @GetMapping("/realtime")
+    public AjaxResult realtime(@RequestParam(required = false) String type,
+                               @RequestParam(required = false, defaultValue = "50") Integer limit)
+    {
+        return success(appBookstoreService.listRankings(type, limit));
+    }
     /**
      * 通过排行榜ID获取详情
      */

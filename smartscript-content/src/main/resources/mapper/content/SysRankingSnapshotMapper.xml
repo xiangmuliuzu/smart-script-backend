@@ -91,12 +91,10 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		</where>
 	</select>
 
-	<!-- 删除同榜单同周期旧快照（重算=整体替换，避免撞唯一键 uk_ranking_work_period） -->
+	<!-- 删除同榜单所有旧快照（重算=整体替换，只保留最新一批，不累积） -->
 	<delete id="deleteSnapshots">
 		delete from sys_ranking_snapshot
 		where ranking_type = #{rankingType}
-		  and period_start = #{periodStart}
-		  and period_end = #{periodEnd}
 	</delete>
 
 	<!-- 批量插入新快照 -->

@@ -9,7 +9,7 @@ import com.smartscript.platform.content.dto.AppChapterListDto;
 import com.smartscript.platform.content.dto.AppContactDto;
 import com.smartscript.platform.content.dto.AppPageResult;
 import com.smartscript.platform.content.dto.AppPreviewDto;
-import com.smartscript.platform.content.dto.AppRankingItem;
+import com.smartscript.platform.content.dto.AppRankingResult;
 import com.smartscript.platform.content.dto.AppWorkDto;
 import com.smartscript.platform.content.dto.AppWorkQuery;
 
@@ -88,11 +88,11 @@ public interface IAppBookstoreService
     /**
      * 作品榜单
      *
-     * @param type  榜单类型：view（默认）/favorite/sale/rating
+     * @param type  榜单类型：view（默认）/favorite/sale/rating/new；非法值回落 view
      * @param limit 取前 N 条
-     * @return 榜单条目（rankNo 从 1 起）
+     * @return 榜单结果：{list（rankNo 从 1 起）, updatedAt（榜单更新时间）}
      */
-    public List<AppRankingItem> listRankings(String type, int limit);
+    public AppRankingResult listRankings(String type, int limit);
 
     /**
      * 作品章节目录（接口 2.7.8 免费试读）
