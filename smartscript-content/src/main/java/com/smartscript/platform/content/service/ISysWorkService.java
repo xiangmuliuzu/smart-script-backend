@@ -50,7 +50,7 @@ public interface ISysWorkService
     public List<CopyrightAssetDto> selectCopyrightAssetList(CopyrightAssetQuery query);
 
     /**
-     * 查询版权资产详情
+     * 查询版权资产详情（Admin 全平台）
      *
      * @param workId 作品ID
      * @return 版权资产详情
@@ -58,7 +58,17 @@ public interface ISysWorkService
     public CopyrightAssetDto selectCopyrightAssetById(Long workId);
 
     /**
-     * 更新版权资产状态
+     * 查询版权资产详情（可限制作者 / 已发布）
+     *
+     * @param workId 作品ID
+     * @param authorId 作者 ID，null 表示不限制
+     * @param onlyPublished 是否仅已发布，null/false 表示不限制
+     * @return 版权资产详情
+     */
+    public CopyrightAssetDto selectCopyrightAssetById(Long workId, Long authorId, Boolean onlyPublished);
+
+    /**
+     * 更新版权资产状态（Admin 全平台）
      *
      * @param workId 作品ID
      * @param status 状态
@@ -66,4 +76,15 @@ public interface ISysWorkService
      * @return 影响行数
      */
     public int updateCopyrightAssetStatus(Long workId, String status, String updateBy);
+
+    /**
+     * 更新版权资产状态（可限制作者，创作者侧上下架）
+     *
+     * @param workId 作品ID
+     * @param status 状态
+     * @param updateBy 更新者
+     * @param authorId 作者 ID，null 表示不限制
+     * @return 影响行数
+     */
+    public int updateCopyrightAssetStatus(Long workId, String status, String updateBy, Long authorId);
 }

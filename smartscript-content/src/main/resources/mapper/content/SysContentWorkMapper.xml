@@ -512,7 +512,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		<result property="createTime"  column="create_time"   />
 	</resultMap>
 
-	<!-- 查询版权资产列表 -->
+	<!-- 查询版权资产列表（authorId/onlyPublished 仅创作者侧传入，Admin 不传则行为不变） -->
 	<select id="selectCopyrightAssetList" parameterType="com.smartscript.platform.content.dto.CopyrightAssetQuery" resultMap="CopyrightAssetResult">
 		select w.work_id, w.title, w.work_type, w.status, w.summary, w.create_time,
 		       u.nick_name as author_name,
@@ -521,6 +521,22 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		left join sys_user u on u.user_id = w.author_id
 		left join sys_category c on c.category_id = w.genre_id
 		where w.is_deleted = 0
+		<if test="authorId != null">
+			and w.author_id = #{authorId}
+		</if>
+		<if test="onlyPublished != null and onlyPublished">
+			and w.status in ('on_shelf', 'off_shelf')
+			and exists (
+				select 1 from sys_review_record r
+				where r.target_type = 'work'
+				  and r.target_id = w.work_id
+				  and r.status = 'approved'
+				  and r.created_at = (
+					select max(r2.created_at) from sys_review_record r2
+					where r2.target_type = 'work' and r2.target_id = w.work_id
+				  )
+			)
+		</if>
 		<if test="keyword != null and keyword != ''">
 			and (w.title like concat('%', #{keyword}, '%') or u.nick_name like concat('%', #{keyword}, '%'))
 		</if>
@@ -530,8 +546,8 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		order by w.create_time desc
 	</select>
 
-	<!-- 查询版权资产详情 -->
-	<select id="selectCopyrightAssetById" parameterType="Long" resultMap="CopyrightAssetResult">
+	<!-- 查询版权资产详情（authorId 可选，创作者侧传入以限制本人作品） -->
+	<select id="selectCopyrightAssetById" resultMap="CopyrightAssetResult">
 		select w.work_id, w.title, w.work_type, w.status, w.summary, w.create_time,
 		       u.nick_name as author_name,
 		       c.category_name as genre_name
@@ -539,15 +555,36 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		left join sys_user u on u.user_id = w.author_id
 		left join sys_category c on c.category_id = w.genre_id
 		where w.work_id = #{workId} and w.is_deleted = 0
+		<if test="authorId != null">
+			and w.author_id = #{authorId}
+		</if>
+		<if test="onlyPublished != null and onlyPublished">
+			and w.status in ('on_shelf', 'off_shelf')
+			and exists (
+				select 1 from sys_review_record r
+				where r.target_type = 'work'
+				  and r.target_id = w.work_id
+				  and r.status = 'approved'
+				  and r.created_at = (
+					select max(r2.created_at) from sys_review_record r2
+					where r2.target_type = 'work' and r2.target_id = w.work_id
+				  )
+			)
+		</if>
 	</select>
 
-	<!-- 更新版权资产状态 -->
+	<!-- 更新版权资产状态（authorId 可选；创作者侧传入以限制本人作品） -->
 	<update id="updateCopyrightAssetStatus">
 		update sys_work
 		set status = #{status},
 		    update_by = #{updateBy},
 		    update_time = sysdate()
 		where work_id = #{workId}
+		<if test="authorId != null">
+			and author_id = #{authorId}
+			and is_deleted = 0
+			and status in ('on_shelf', 'off_shelf')
+		</if>
 	</update>
 
 <!-- ==================== 上传与创作（App 接口文档 2.9） ==================== -->

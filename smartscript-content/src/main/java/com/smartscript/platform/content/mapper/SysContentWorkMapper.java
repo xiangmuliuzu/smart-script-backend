@@ -141,22 +141,29 @@ public interface SysContentWorkMapper
     public List<CopyrightAssetDto> selectCopyrightAssetList(CopyrightAssetQuery query);
 
     /**
-     * 查询版权资产详情
+     * 查询版权资产详情。
+     * authorId / onlyPublished 为 null 时与 Admin 原行为一致。
      *
      * @param workId 作品ID
+     * @param authorId 作者 ID（可选）
+     * @param onlyPublished 是否仅已发布（可选）
      * @return 版权资产详情
      */
-    public CopyrightAssetDto selectCopyrightAssetById(Long workId);
+    public CopyrightAssetDto selectCopyrightAssetById(@Param("workId") Long workId,
+            @Param("authorId") Long authorId, @Param("onlyPublished") Boolean onlyPublished);
 
     /**
-     * 更新版权资产状态
+     * 更新版权资产状态。
+     * authorId 为 null 时与 Admin 原行为一致。
      *
      * @param workId 作品ID
      * @param status 状态
      * @param updateBy 更新者
+     * @param authorId 作者 ID（可选）
      * @return 影响行数
      */
-    public int updateCopyrightAssetStatus(@Param("workId") Long workId, @Param("status") String status, @Param("updateBy") String updateBy);
+    public int updateCopyrightAssetStatus(@Param("workId") Long workId, @Param("status") String status,
+            @Param("updateBy") String updateBy, @Param("authorId") Long authorId);
 
     // ==================== 上传与创作（App 接口文档 2.9） ====================
 

@@ -56,13 +56,25 @@ public class SysWorkServiceImpl implements ISysWorkService
     @Override
     public CopyrightAssetDto selectCopyrightAssetById(Long workId)
     {
-        return workMapper.selectCopyrightAssetById(workId);
+        return selectCopyrightAssetById(workId, null, null);
+    }
+
+    @Override
+    public CopyrightAssetDto selectCopyrightAssetById(Long workId, Long authorId, Boolean onlyPublished)
+    {
+        return workMapper.selectCopyrightAssetById(workId, authorId, onlyPublished);
     }
 
     @Override
     public int updateCopyrightAssetStatus(Long workId, String status, String updateBy)
     {
-        return workMapper.updateCopyrightAssetStatus(workId, status, updateBy);
+        return updateCopyrightAssetStatus(workId, status, updateBy, null);
+    }
+
+    @Override
+    public int updateCopyrightAssetStatus(Long workId, String status, String updateBy, Long authorId)
+    {
+        return workMapper.updateCopyrightAssetStatus(workId, status, updateBy, authorId);
     }
 }
 
