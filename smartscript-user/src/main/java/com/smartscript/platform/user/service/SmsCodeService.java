@@ -22,7 +22,7 @@ public class SmsCodeService
 {
     private static final Set<String> ALLOWED_SCENES = Set.of(
             "LOGIN", "REGISTER", "SET_PASSWORD", "RESET_PASSWORD",
-            "CHANGE_PHONE_OLD", "CHANGE_PHONE_NEW");
+            "CHANGE_PHONE_OLD", "CHANGE_PHONE_NEW", "DELETE_WORK");
 
     private final AppAuthProperties properties;
     private final AppSmsCodeMapper mapper;

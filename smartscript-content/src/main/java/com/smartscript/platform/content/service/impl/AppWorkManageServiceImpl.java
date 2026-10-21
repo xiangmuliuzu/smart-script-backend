@@ -3,11 +3,13 @@ package com.smartscript.platform.content.service.impl;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import com.github.pagehelper.PageHelper;
 import com.github.pagehelper.PageInfo;
+import com.ruoyi.common.exception.ServiceException;
 import com.smartscript.platform.content.domain.SysWork;
 import com.smartscript.platform.content.domain.SysWorkFile;
 import com.smartscript.platform.content.domain.SysWorkReviewRecord;
@@ -26,6 +28,7 @@ import com.smartscript.platform.content.mapper.SysWorkVersionMapper;
 import com.smartscript.platform.content.service.IAppWorkManageService;
 import com.smartscript.platform.content.util.WorkStatusDeriver;
 import com.smartscript.platform.identity.IdentityProvider;
+import com.smartscript.platform.identity.WorkDeletionVerification;
 
 /**
  * 上传与创作（App 侧写入）服务实现
@@ -96,6 +99,9 @@ public class AppWorkManageServiceImpl implements IAppWorkManageService
 
     @Autowired
     private SysTagMapper tagMapper;
+
+    @Autowired
+    private WorkDeletionVerification deletionVerification;
 
     @Autowired
     private SysWorkFileMapper workFileMapper;
@@ -210,23 +216,55 @@ public class AppWorkManageServiceImpl implements IAppWorkManageService
 
     @Override
     @Transactional
-    public boolean deleteWork(Long workId)
+    public boolean deleteWork(Long workId, String code)
     {
         Long userId = identityProvider.currentUserId();
+        if (!canDelete(workId, userId))
+        {
+            return false;
+        }
+        if (code == null || !code.matches("\\d{4,8}"))
+        {
+            throw new ServiceException("请输入正确格式的短信验证码", 40000);
+        }
+        deletionVerification.consumeCode(userId, code);
+        SysWork update = new SysWork();
+        update.setWorkId(workId);
+        update.setAuthorId(userId);
+        update.setUpdateBy(String.valueOf(userId));
+        boolean ok = workMapper.softDeleteWork(update) > 0;
+        if (!ok)
+        {
+            // 验证码消费与删除同事务；失败必须抛出异常，避免把验证码提交为已使用。
+            throw new ServiceException("作品状态已变化，未删除，请刷新后重试", 409);
+        }
+        // 作品逻辑删除后其标签引用不再计入：全量刷新标签使用数量，避免计数虚高
+        tagMapper.syncTagUseCount();
+        return true;
+    }
+
+    @Override
+    public Map<String, Object> sendDeletionCode(Long workId, String ip, String requestId)
+    {
+        Long userId = identityProvider.currentUserId();
+        if (!canDelete(workId, userId))
+        {
+            return null;
+        }
+        return deletionVerification.sendCode(userId, ip, requestId);
+    }
+
+    private boolean canDelete(Long workId, Long userId)
+    {
         if (requireOwned(workId, userId) == null)
         {
             return false;
         }
-        SysWork update = new SysWork();
-        update.setWorkId(workId);
-        update.setUpdateBy(String.valueOf(userId));
-        boolean ok = workMapper.softDeleteWork(update) > 0;
-        // 作品逻辑删除后其标签引用不再计入：全量刷新标签使用数量，避免计数虚高
-        if (ok)
+        if (workMapper.hasWorkTransactions(workId))
         {
-            tagMapper.syncTagUseCount();
+            throw new ServiceException("作品存在订单、合同或付费记录，不能删除，请使用下架功能", 409);
         }
-        return ok;
+        return true;
     }
 
     @Override
