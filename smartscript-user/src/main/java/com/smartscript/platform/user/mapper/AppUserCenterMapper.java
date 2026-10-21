@@ -81,6 +81,9 @@ public interface AppUserCenterMapper
     /** 写入新的实名申请（驳回后重提也走新增，保留完整审计链）。 */
     int insertRealName(UserRealNameAuth record);
 
+    /** 实名核验通过后写明文姓名快照到 sys_user（合同签署域渲染真实姓名用；掩码链不受影响）。 */
+    int markRealNameVerified(@Param("userId") Long userId, @Param("realName") String realName);
+
     // ------------------------------------------------------------------
     // 创作者申请
     // ------------------------------------------------------------------

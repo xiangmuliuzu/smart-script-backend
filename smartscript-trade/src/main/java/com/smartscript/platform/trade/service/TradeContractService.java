@@ -6,7 +6,9 @@ import com.ruoyi.common.utils.SecurityUtils;
 import com.ruoyi.common.utils.uuid.Seq;
 import com.smartscript.platform.trade.support.ContractHtmlSupport;
 import com.smartscript.platform.trade.support.ContractPdfRenderer;
+import com.smartscript.platform.user.mapper.AppUserCenterMapper;
 import com.smartscript.platform.user.security.AppIdentityContext;
+import com.smartscript.platform.user.service.AppRealNameService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -45,7 +47,9 @@ public class TradeContractService
             "SELECT c.contract_id AS contractId, c.contract_no AS contractNo, "
             + "c.contract_type AS contractType, c.template_id AS templateId, c.amount AS amount, "
             + "c.order_id AS orderId, o.order_no AS orderNo, c.buyer_id AS buyerId, ub.nick_name AS buyerName, "
+            + "ub.real_name AS buyerRealName, "
             + "c.seller_id AS sellerId, us.nick_name AS sellerName, "
+            + "us.real_name AS sellerRealName, "
             + "c.buyer_sign_status AS buyerSignStatus, c.seller_sign_status AS sellerSignStatus, "
             + "c.buyer_sign_time AS buyerSignTime, c.seller_sign_time AS sellerSignTime, "
             + "c.buyer_signature_image AS buyerSignatureImage, c.buyer_seal_image AS buyerSealImage, "
@@ -65,6 +69,10 @@ public class TradeContractService
     @Autowired
     private ContractPdfRenderer pdfRenderer;
 
+    /** 实名认证状态查询（A5）：签署前置校验用。 */
+    @Autowired
+    private AppUserCenterMapper userCenterMapper;
+
     /**
      * 按订单 ID 取合同详情。
      */
@@ -72,7 +80,7 @@ public class TradeContractService
     {
         try
         {
-            return jdbc.queryForMap(CONTRACT_SELECT + " WHERE c.order_id = ?", orderId);
+            return enrichWithSignatures(jdbc.queryForMap(CONTRACT_SELECT + " WHERE c.order_id = ?", orderId));
         }
         catch (org.springframework.dao.EmptyResultDataAccessException e)
         {
@@ -87,12 +95,29 @@ public class TradeContractService
     {
         try
         {
-            return jdbc.queryForMap(CONTRACT_SELECT + " WHERE c.contract_id = ?", contractId);
+            return enrichWithSignatures(jdbc.queryForMap(CONTRACT_SELECT + " WHERE c.contract_id = ?", contractId));
         }
         catch (org.springframework.dao.EmptyResultDataAccessException e)
         {
             throw new IllegalArgumentException("合同不存在");
         }
+    }
+
+    /**
+     * 详情出口实时注入双方签名/印章图：存库 content 是生成时固化的版本，
+     * 签署产生的图片在合同列上；返回前把占位符替换为 <img>，
+     * 使 APP 端 WebView 与任意详情消费方即时看到已签署的签字盖章。
+     */
+    private Map<String, Object> enrichWithSignatures(Map<String, Object> detail)
+    {
+        Object content = detail.get("content");
+        if (content instanceof String && !((String) content).isBlank())
+        {
+            detail.put("content", ContractHtmlSupport.injectSignatures((String) content,
+                    (String) detail.get("buyerSignatureImage"), (String) detail.get("buyerSealImage"),
+                    (String) detail.get("sellerSignatureImage"), (String) detail.get("sellerSealImage")));
+        }
+        return detail;
     }
 
     /**
@@ -132,7 +157,9 @@ public class TradeContractService
         String contractNo = "CT" + Seq.getId();
         String templateId = "TPL_COPYRIGHT_LICENSE";
         String contractType = "license";
-        String html = ContractHtmlSupport.buildContractHtml(contractNo, orderNo, workTitle, buyerName, sellerName,
+        // 署名优先用实名姓名快照：下单时可能已实名，未实名的仍回退昵称（签署时点另有双签重渲染兑底）
+        String html = ContractHtmlSupport.buildContractHtml(contractNo, orderNo, workTitle,
+                displayName(buyerId, buyerName), displayName(sellerId, sellerName),
                 amount, licenseType, templateId);
 
         jdbc.update("INSERT INTO sys_contract (contract_no, contract_type, amount, order_id, buyer_id, seller_id, "
@@ -210,6 +237,19 @@ public class TradeContractService
             throw new IllegalStateException("您已签署过该合同");
         }
 
+        // 实名前置：买卖双方均需已完成实名认证（APPROVED）方可签字盖章，
+        // 保证合同主体可追溯；报错指明缺失方，便于用户引导补办
+        String buyerRealNameStatus = userCenterMapper.selectLatestRealNameStatus(buyerId);
+        String sellerRealNameStatus = userCenterMapper.selectLatestRealNameStatus(sellerId);
+        if (!AppRealNameService.STATUS_APPROVED.equals(buyerRealNameStatus))
+        {
+            throw new IllegalStateException("买卖双方均需完成实名认证后才能签署合同，当前买方尚未实名");
+        }
+        if (!AppRealNameService.STATUS_APPROVED.equals(sellerRealNameStatus))
+        {
+            throw new IllegalStateException("买卖双方均需完成实名认证后才能签署合同，当前卖方尚未实名");
+        }
+
         // 保存图片
         String signatureUrl = null;
         String sealUrl = null;
@@ -254,11 +294,12 @@ public class TradeContractService
             throw new IllegalStateException("合同状态已变化，请刷新后重试");
         }
 
-        // 如果双方都签完，生成最终 PDF（生成失败不影响签署事务，可由管理端补偿重建）
+        // 如果双方都签完，按实名姓名重渲染正文并生成最终 PDF（生成失败不影响签署事务，可由管理端补偿重建）
         if ("completed".equals(newStatus))
         {
             try
             {
+                rerenderContentWithRealNames(contractId);
                 generateSignedPdf(contractId);
             }
             catch (Exception e)
@@ -267,7 +308,57 @@ public class TradeContractService
             }
         }
 
-        return jdbc.queryForMap(CONTRACT_SELECT + " WHERE c.contract_id = ?", contractId);
+        return getById(contractId);
+    }
+
+    /**
+     * 双签完成时用实名姓名快照重渲染正文后存库：
+     * 合同可能在双方实名之前生成（正文回退昵称），签署前置已保证此刻双方均已实名，
+     * 重渲染保证存库正文与最终 PDF 上的甲乙方为真实姓名。
+     */
+    private void rerenderContentWithRealNames(Long contractId)
+    {
+        Map<String, Object> detail = jdbc.queryForMap(CONTRACT_SELECT + " WHERE c.contract_id = ?", contractId);
+        Object licenseType = detail.get("licenseType");
+        String html = ContractHtmlSupport.buildContractHtml(
+                str(detail.get("contractNo")), str(detail.get("orderNo")), str(detail.get("workTitle")),
+                displayNameOf(detail.get("buyerRealName"), detail.get("buyerName")),
+                displayNameOf(detail.get("sellerRealName"), detail.get("sellerName")),
+                (java.math.BigDecimal) detail.get("amount"),
+                licenseType == null ? null : String.valueOf(licenseType),
+                str(detail.get("templateId")));
+        jdbc.update("UPDATE sys_contract SET contract_content = ?, update_time = NOW() WHERE contract_id = ?",
+                html, contractId);
+        log.info("合同 {} 双签完成，已按实名姓名重渲染正文", contractId);
+    }
+
+    /** 合同署名：实名通过者用明文姓名快照，否则回退昵称。 */
+    private String displayName(Long userId, String fallback)
+    {
+        try
+        {
+            String realName = jdbc.queryForObject(
+                    "SELECT COALESCE(NULLIF(real_name, ''), nick_name) FROM sys_user WHERE user_id = ?",
+                    String.class, userId);
+            return realName == null || realName.isBlank() ? fallback : realName;
+        }
+        catch (Exception e)
+        {
+            return fallback;
+        }
+    }
+
+    /** 显示姓名：实名快照优先，回退昵称。 */
+    private static String displayNameOf(Object realName, Object fallback)
+    {
+        String value = realName == null ? "" : String.valueOf(realName).trim();
+        return value.isEmpty() ? String.valueOf(fallback) : value;
+    }
+
+    /** null 安全转字符串。 */
+    private static String str(Object value)
+    {
+        return value == null ? "" : String.valueOf(value);
     }
 
     /**

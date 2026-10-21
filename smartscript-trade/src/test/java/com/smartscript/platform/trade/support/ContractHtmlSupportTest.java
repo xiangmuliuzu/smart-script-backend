@@ -38,6 +38,22 @@ class ContractHtmlSupportTest
     }
 
     @Test
+    @DisplayName("生成模板：签名区只留签字盖章空间不预填姓名，基本信息区仍展示双方姓名")
+    void buildContractHtmlSignatureAreaBlank()
+    {
+        String html = ContractHtmlSupport.buildContractHtml("CT001", "ORD001", "测试作品",
+                "买方甲", "卖方乙", new BigDecimal("1000.00"), "非独家", "TPL_COPYRIGHT_LICENSE");
+        assertTrue(html.contains("<strong>甲方（买方）签字：</strong>"));
+        assertTrue(html.contains("<strong>乙方（卖方）签字：</strong>"));
+        // 签名区不预填姓名：strong 标记后直接跟图片占位符
+        assertFalse(html.contains("签字：</strong>买方甲"));
+        assertFalse(html.contains("签字：</strong>卖方乙"));
+        // 姓名仍出现在基本信息区（label span 后）
+        assertTrue(html.contains("甲方（买方）：</span>买方甲"));
+        assertTrue(html.contains("乙方（卖方）：</span>卖方乙"));
+    }
+
+    @Test
     @DisplayName("生成模板：第三条支付文案为托管流程表述（P2-5 回归，授权/转让双分支）")
     void buildContractHtmlPaymentWording()
     {

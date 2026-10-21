@@ -129,6 +129,12 @@ public class AppRealNameService
         // 复用状态流转与提交后通知；运维端不再提供人工审核入口。
         reviewService.decide(record.getApplicationId(), rejectReason == null ? "APPROVE" : "REJECT",
                 rejectReason, null, STATUS_PENDING);
+        // 核验通过时把明文姓名快照写入 sys_user，供合同签署域渲染甲乙方真实姓名；
+        // 证件号仍不落明文，user_real_name_auth 掩码链保持不变
+        if (rejectReason == null)
+        {
+            centerMapper.markRealNameVerified(userId, realName);
+        }
         return getStatus(userId);
     }
 

@@ -157,6 +157,11 @@
              'app-user-center', NOW())
     </insert>
 
+    <!-- 实名通过后的明文姓名快照：仅供合同签署域渲染，掩码链与证件号边界不变 -->
+    <update id="markRealNameVerified">
+        UPDATE sys_user SET real_name = #{realName} WHERE user_id = #{userId}
+    </update>
+
     <!-- ================= 创作者申请 ================= -->
 
     <select id="selectCreatorCapabilityEnabled" resultType="java.lang.Boolean">

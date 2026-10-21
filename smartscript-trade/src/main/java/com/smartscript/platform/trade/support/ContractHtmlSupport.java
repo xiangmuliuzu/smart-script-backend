@@ -94,13 +94,14 @@ public final class ContractHtmlSupport
                 + "<div class=\"signature\">"
                 + "<div class=\"signature-row\">"
                 + "<div class=\"signature-box\">"
-                + "<strong>甲方（买方）：</strong>" + escape(buyerName)
+                // 签名区只留签字盖章空间，不预填姓名（姓名在基本信息区展示）
+                + "<strong>甲方（买方）签字：</strong>"
                 + "<div class=\"signature-image\"><!-- buyer_signature_placeholder --></div>"
                 + "<div class=\"signature-image\"><!-- buyer_seal_placeholder --></div>"
                 + "<br/>签署时间：___________"
                 + "</div>"
                 + "<div class=\"signature-box\">"
-                + "<strong>乙方（卖方）：</strong>" + escape(sellerName)
+                + "<strong>乙方（卖方）签字：</strong>"
                 + "<div class=\"signature-image\"><!-- seller_signature_placeholder --></div>"
                 + "<div class=\"signature-image\"><!-- seller_seal_placeholder --></div>"
                 + "<br/>签署时间：___________"
