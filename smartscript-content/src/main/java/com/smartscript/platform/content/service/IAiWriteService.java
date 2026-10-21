@@ -67,4 +67,38 @@ public interface IAiWriteService
      * @return {total, list}（仅当前登录身份的大纲请求记录）
      */
     public AppPageResult<AppAiOutlineRecordItem> pageOutlineRecords(int pageNum, int pageSize);
+
+    /**
+     * AI 写作（流式，SSE 打字机输出）。
+     *
+     * 流程：校验次数 → 流式调用外部 AI（[onDelta] 逐块回调内容增量）→
+     * 流成功结束后落 sys_ai_write_record 并扣减次数；流中途失败/中断不落库、不扣次数。
+     *
+     * @param request  写作请求（prompt 必填，调用方已校验）
+     * @param onDelta  内容增量回调（可为空操作）
+     * @return {content, recordId}（完整内容来自 AI 服务）
+     */
+    public AppAiWriteResult writeStream(AppAiWriteRequest request, java.util.function.Consumer<String> onDelta);
+
+    /**
+     * AI 润色（流式，SSE 打字机输出）。
+     *
+     * 流程与 {@link #writeStream} 一致：成功才落库扣次数。
+     *
+     * @param request  润色请求（content 必填，调用方已校验）
+     * @param onDelta  内容增量回调（可为空操作）
+     * @return {content, recordId}
+     */
+    public AppAiWriteResult polishStream(AppAiPolishRequest request, java.util.function.Consumer<String> onDelta);
+
+    /**
+     * AI 大纲（流式，SSE 打字机输出）。
+     *
+     * 流程与 {@link #writeStream} 一致：成功才落库扣次数。
+     *
+     * @param request  大纲请求（入参均可空）
+     * @param onDelta  内容增量回调（可为空操作）
+     * @return {outline, requestNo, quotaUsed}
+     */
+    public AppAiOutlineResult outlineStream(AppAiOutlineRequest request, java.util.function.Consumer<String> onDelta);
 }

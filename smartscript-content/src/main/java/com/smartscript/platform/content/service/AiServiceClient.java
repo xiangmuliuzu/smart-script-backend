@@ -1,9 +1,18 @@
 package com.smartscript.platform.content.service;
 
+import java.io.BufferedReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -44,6 +53,9 @@ public class AiServiceClient
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
+    /** 流式调用专用 HTTP 客户端（JDK 内置，支持 SSE 逐块读取）。 */
+    private final HttpClient streamClient;
+
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(AiServiceClient.class);
 
     public AiServiceClient(
@@ -58,6 +70,7 @@ public class AiServiceClient
         factory.setConnectTimeout(5000);
         factory.setReadTimeout(90000);
         this.restTemplate = new RestTemplate(factory);
+        this.streamClient = HttpClient.newBuilder().connectTimeout(java.time.Duration.ofSeconds(5)).build();
     }
 
     /**
@@ -111,6 +124,189 @@ public class AiServiceClient
         out.set("outline", parseJson(raw));
         out.put("model", model);
         return out;
+    }
+
+    // ================================================================
+    // 流式创作（SSE）：逐块回调内容增量，供 App/PC 端打字机式展示。
+    // 返回完整内容（调用方用于落库/扣次数）；中途失败抛异常，绝不编造。
+    // ================================================================
+
+    /**
+     * AI 写作（流式）。[onDelta] 每收到一个内容增量回调一次（含空格/换行）。
+     *
+     * @return 完整正文
+     */
+    public String writeStream(String prompt, String type, Consumer<String> onDelta)
+    {
+        String typeHint = (type == null || type.isBlank()) ? "" : "\n写作类型：" + type;
+        String system = "你是一名资深网络小说写手，擅长创作节奏紧凑、画面感强、对话自然的小说正文。"
+                + "请根据用户的要求直接创作小说正文，不要解释、不要标题、不要任何前后缀。";
+        return streamChat(system, prompt + typeHint, onDelta);
+    }
+
+    /**
+     * AI 润色（流式）。[onDelta] 每收到一个内容增量回调一次。
+     *
+     * @return 完整润色结果
+     */
+    public String polishStream(String content, String style, Consumer<String> onDelta)
+    {
+        String styleHint = (style == null || style.isBlank()) ? "自然流畅" : style;
+        String system = "你是一名资深文字编辑。请润色用户提供的文本，保持原意、人物关系与关键情节，"
+                + "提升表达、节奏与画面感，目标风格：" + styleHint + "。"
+                + "直接输出润色后的正文，不要解释、不要标注修改说明。";
+        return streamChat(system, content, onDelta);
+    }
+
+    /**
+     * AI 大纲（流式）。[onDelta] 每收到一个内容增量回调一次（JSON 文本片段）。
+     *
+     * @return 完整大纲 JSON 文本（调用方再解析为结构化对象）
+     */
+    public String outlineStream(String inspiration, String genre, String style, Consumer<String> onDelta)
+    {
+        String genreHint = (genre == null || genre.isBlank()) ? "不限" : genre;
+        String styleHint = (style == null || style.isBlank()) ? "不限" : style;
+        String insp = (inspiration == null || inspiration.isBlank()) ? "" : inspiration;
+        String system = "你是一名资深网文策划编辑。请根据用户的故事灵感、题材与风格，生成一份结构化的小说大纲。"
+                + "必须只输出一个合法 JSON 对象，不要输出任何解释，也不要使用 Markdown 代码块。"
+                + "JSON 结构如下："
+                + "{\"title\":\"作品名\",\"logline\":\"一句话故事\","
+                + "\"characters\":[{\"name\":\"角色名\",\"role\":\"身份或定位\"}],"
+                + "\"acts\":[{\"name\":\"第一幕\",\"summary\":\"本幕概述\",\"beats\":[\"关键情节1\",\"关键情节2\"]}]}";
+        String user = "故事灵感：" + insp + "\n题材：" + genreHint + "\n风格：" + styleHint;
+        return streamChat(system, user, onDelta);
+    }
+
+    /**
+     * 流式调用 Chat Completions（stream=true），逐块解析 SSE 的 delta.content 并回调 [onDelta]。
+     *
+     * SSE 约定：每行 {@code data: {...}}，choices[0].delta.content 为增量；{@code data: [DONE]} 结束。
+     * 逐行累积完整内容，结束时整体返回；非 2xx / 无有效内容 / 网络异常抛
+     * {@link AiServiceUnavailableException}。
+     */
+    private String streamChat(String system, String user, Consumer<String> onDelta)
+    {
+        if (apiKey.isBlank())
+        {
+            throw new AiServiceUnavailableException("AI 服务未配置，请联系管理员");
+        }
+        List<Map<String, String>> messages = new ArrayList<>();
+        messages.add(message("system", system));
+        messages.add(message("user", user));
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("model", model);
+        body.put("messages", messages);
+        body.put("max_tokens", 4096);
+        body.put("temperature", 0.8);
+        body.put("stream", true);
+        try
+        {
+            String payload = objectMapper.writeValueAsString(body);
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/v1/chat/completions"))
+                    .timeout(java.time.Duration.ofSeconds(120))
+                    .header("Content-Type", "application/json")
+                    .header("Authorization", "Bearer " + apiKey)
+                    .header("Accept", "text/event-stream")
+                    .POST(HttpRequest.BodyPublishers.ofString(payload, StandardCharsets.UTF_8))
+                    .build();
+            HttpResponse<InputStream> response = streamClient.send(request,
+                    HttpResponse.BodyHandlers.ofInputStream());
+            if (response.statusCode() < 200 || response.statusCode() >= 300)
+            {
+                throw new AiServiceUnavailableException("AI 服务不可用，请稍后重试 (HTTP " + response.statusCode() + ")");
+            }
+            StringBuilder full = new StringBuilder();
+            String errorMessage = "AI 未返回有效内容，请稍后重试";
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(response.body(), StandardCharsets.UTF_8)))
+            {
+                String line;
+                while ((line = reader.readLine()) != null)
+                {
+                    if (line.isBlank())
+                    {
+                        continue;
+                    }
+                    if (!line.startsWith("data:"))
+                    {
+                        continue; // 忽略注释/事件行
+                    }
+                    String data = line.substring(5).trim();
+                    if (data.equals("[DONE]"))
+                    {
+                        break;
+                    }
+                    String delta = parseSseDelta(data);
+                    if (delta != null && !delta.isEmpty())
+                    {
+                        full.append(delta);
+                        onDelta.accept(delta);
+                    }
+                    if (isSseFinish(data))
+                    {
+                        break;
+                    }
+                }
+            }
+            String content = full.toString().trim();
+            if (content.isEmpty())
+            {
+                throw new AiServiceUnavailableException(errorMessage);
+            }
+            return content;
+        }
+        catch (AiServiceUnavailableException e)
+        {
+            throw e;
+        }
+        catch (Exception e)
+        {
+            log.error("AI stream chat call failed: {}", e.toString(), e);
+            throw new AiServiceUnavailableException("AI 服务不可用，请稍后重试");
+        }
+    }
+
+    /**
+     * 解析单条 SSE data（不含 data: 前缀）的 delta.content。
+     * 无法解析的块返回 null（调用方跳过）；无增量内容返回空串。
+     */
+    static String parseSseDelta(String data)
+    {
+        if (data == null || data.isEmpty() || data.equals("[DONE]"))
+        {
+            return "";
+        }
+        try
+        {
+            JsonNode root = new ObjectMapper().readTree(data);
+            String delta = root.path("choices").path(0).path("delta").path("content").asText(null);
+            return delta == null ? "" : delta;
+        }
+        catch (Exception e)
+        {
+            return null; // 无法解析的中间块，调用方跳过
+        }
+    }
+
+    /** 是否 SSE 终止块（finish_reason=stop/length）。 */
+    static boolean isSseFinish(String data)
+    {
+        if (data == null || data.isEmpty())
+        {
+            return false;
+        }
+        try
+        {
+            JsonNode root = new ObjectMapper().readTree(data);
+            String reason = root.path("choices").path(0).path("finish_reason").asText("");
+            return "stop".equals(reason) || "length".equals(reason);
+        }
+        catch (Exception e)
+        {
+            return false;
+        }
     }
 
     /**

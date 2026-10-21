@@ -14,6 +14,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.github.pagehelper.PageHelper;
 import com.github.pagehelper.PageInfo;
 import com.smartscript.platform.content.dto.AppAiOutlineRequest;
@@ -163,6 +164,82 @@ public class AiWriteServiceImpl implements IAiWriteService
         List<AppAiOutlineRecordItem> rows = aiRequestMapper.selectOutlineRecordsByUser(userId);
         long total = new PageInfo<>(rows).getTotal();
         return AppPageResult.of(total, rows);
+    }
+
+    @Override
+    public AppAiWriteResult writeStream(AppAiWriteRequest request, java.util.function.Consumer<String> onDelta)
+    {
+        checkQuota(identityProvider.currentUserId());
+        String content = aiServiceClient.writeStream(request.getPrompt(), request.getType(), onDelta);
+        Long recordId = saveRecord(identityProvider.currentUserId(), request.getWorkId(),
+                resolveWriteType(request.getType()), request.getPrompt(), content, aiModel);
+        consumeQuota(identityProvider.currentUserId(), "write", recordId);
+        return new AppAiWriteResult(content, recordId);
+    }
+
+    @Override
+    public AppAiWriteResult polishStream(AppAiPolishRequest request, java.util.function.Consumer<String> onDelta)
+    {
+        checkQuota(identityProvider.currentUserId());
+        String content = aiServiceClient.polishStream(request.getContent(), request.getStyle(), onDelta);
+        Long recordId = saveRecord(identityProvider.currentUserId(), null,
+                WRITE_TYPE_POLISH, request.getContent(), content, aiModel);
+        consumeQuota(identityProvider.currentUserId(), "polish", recordId);
+        return new AppAiWriteResult(content, recordId);
+    }
+
+    @Override
+    public AppAiOutlineResult outlineStream(AppAiOutlineRequest request, java.util.function.Consumer<String> onDelta)
+    {
+        checkQuota(identityProvider.currentUserId());
+        Date startedAt = new Date();
+        String raw = aiServiceClient.outlineStream(request.getInspiration(), request.getGenre(), request.getStyle(), onDelta);
+        Date finishedAt = new Date();
+        JsonNode outlineNode = parseOutlineJson(raw);
+        Object outline = outlineNode.isMissingNode() || outlineNode.isNull()
+                ? null : OUTLINE_MAPPER.convertValue(outlineNode, Object.class);
+        String requestNo = generateRequestNo();
+        aiRequestMapper.insertAiRequest(requestNo, identityProvider.currentUserId(), request.getWorkId(),
+                CAPABILITY_OUTLINE, QUOTA_COST_OUTLINE, STATUS_SUCCESS, resolveProvider(),
+                sha256(buildOutlinePrompt(request)), startedAt, finishedAt);
+        Long recordId = saveRecord(identityProvider.currentUserId(), request.getWorkId(),
+                CAPABILITY_OUTLINE, buildOutlineInputText(request), outlineToText(outline), resolveModel(outlineNode));
+        consumeQuota(identityProvider.currentUserId(), "outline", recordId);
+        return new AppAiOutlineResult(outline, requestNo, QUOTA_COST_OUTLINE);
+    }
+
+    /** 把 AI 流式返回的完整大纲文本解析为 JsonNode（与同步路径共用 parseJson 语义）。 */
+    private JsonNode parseOutlineJson(String raw)
+    {
+        if (raw == null || raw.isBlank())
+        {
+            return OUTLINE_MAPPER.createObjectNode();
+        }
+        String s = raw.trim();
+        if (s.startsWith("```"))
+        {
+            int newline = s.indexOf('\n');
+            if (newline >= 0)
+            {
+                s = s.substring(newline + 1);
+            }
+            if (s.endsWith("```"))
+            {
+                s = s.substring(0, s.length() - 3);
+            }
+            s = s.trim();
+        }
+        try
+        {
+            return OUTLINE_MAPPER.readTree(s);
+        }
+        catch (Exception e)
+        {
+            // 兜底：整段文本放入 text 字段，避免编造结构
+            ObjectNode fallback = OUTLINE_MAPPER.createObjectNode();
+            fallback.put("text", raw);
+            return fallback;
+        }
     }
 
     @Override
