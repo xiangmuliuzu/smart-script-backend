@@ -164,8 +164,8 @@ public class AppCopyrightSealServiceImpl implements IAppCopyrightSealService
             return false;
         }
 
-        // 只有已审核通过且启用状态才能停用
-        if (!"approved".equals(seal.getReviewStatus()) || !"enabled".equals(seal.getSealStatus()))
+        // 启用中即可停用（含「审核中但仍启用」的历史异常数据，便于用户先停用再改）
+        if (!"enabled".equals(seal.getSealStatus()))
         {
             return false;
         }
@@ -181,6 +181,12 @@ public class AppCopyrightSealServiceImpl implements IAppCopyrightSealService
         if (seal == null || !userId.equals(seal.getUserId()))
         {
             return false;
+        }
+
+        // 启用中的印章必须先停用，再允许编辑提交（避免审核中仍可对外使用）
+        if ("enabled".equals(seal.getSealStatus()))
+        {
+            throw new IllegalArgumentException("启用中的印章请先停用后再编辑修改");
         }
 
         // 构建更新对象

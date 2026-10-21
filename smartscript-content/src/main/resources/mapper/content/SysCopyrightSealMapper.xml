@@ -145,8 +145,8 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         set seal_status = #{sealStatus},
             update_by = #{updateBy},
             update_time = sysdate()
-        where seal_id = #{sealId} and is_deleted = 0 
-              and review_status = 'approved' and seal_status = 'enabled'
+        where seal_id = #{sealId} and is_deleted = 0
+              and seal_status = 'enabled'
     </update>
 
     <update id="deleteSealById">
