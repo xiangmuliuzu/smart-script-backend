@@ -4,14 +4,15 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.util.UriUtils;
 import com.ruoyi.common.config.RuoYiConfig;
 import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.common.utils.file.FileUtils;
@@ -33,15 +34,23 @@ public class ProfileFileController
      * 路径示例: /profile/upload/2026/10/20/file.txt
      */
     @GetMapping("/**")
-    public void getFile(HttpServletResponse response, jakarta.servlet.http.HttpServletRequest request) throws IOException
+    public void getFile(HttpServletResponse response, HttpServletRequest request) throws IOException
     {
         try
         {
-            // 获取请求的完整路径
-            String requestPath = request.getRequestURI();
-            
+            // Servlet getRequestURI 可能仍是百分号编码；中文文件名必须 UTF-8 解码后再拼磁盘路径，
+            // 否则 File 找不到 → sendError → 转发 /error → 对外表现为 401。
+            String requestPath = resolveProfileRequestPath(request);
+            if (StringUtils.isEmpty(requestPath) || !requestPath.startsWith("/profile/"))
+            {
+                response.sendError(HttpServletResponse.SC_NOT_FOUND, "文件不存在");
+                return;
+            }
+
             // 移除 /profile 前缀
-            String filePath = requestPath.replaceFirst("^/profile/", "");
+            String filePath = requestPath.substring("/profile/".length());
+            // 统一分隔符，防止 Windows 下混用 / \
+            filePath = filePath.replace('\\', '/');
             
             // 安全检查
             if (!FileUtils.checkAllowDownload(filePath))
@@ -51,7 +60,7 @@ public class ProfileFileController
             }
             
             // 构造完整的文件系统路径
-            String fullPath = RuoYiConfig.getProfile() + File.separator + filePath;
+            String fullPath = RuoYiConfig.getProfile() + File.separator + filePath.replace('/', File.separatorChar);
             File file = new File(fullPath);
             
             if (!file.exists() || !file.isFile())
@@ -93,6 +102,25 @@ public class ProfileFileController
         }
     }
     
+    /**
+     * 解析 /profile/** 请求路径：去掉 contextPath，并按 UTF-8 解码百分号编码。
+     */
+    private static String resolveProfileRequestPath(HttpServletRequest request)
+    {
+        String uri = request.getRequestURI();
+        if (uri == null)
+        {
+            return "";
+        }
+        String contextPath = request.getContextPath();
+        if (StringUtils.isNotEmpty(contextPath) && uri.startsWith(contextPath))
+        {
+            uri = uri.substring(contextPath.length());
+        }
+        // 已是解码后的中文时，UriUtils.decode 会原样返回；仍是 %XX 时按 UTF-8 还原
+        return UriUtils.decode(uri, StandardCharsets.UTF_8);
+    }
+
     /**
      * 判断是否为文本文件
      */
