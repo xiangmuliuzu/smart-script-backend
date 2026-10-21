@@ -36,6 +36,17 @@
             <groupId>com.smartscript</groupId>
             <artifactId>smartscript-user</artifactId>
         </dependency>
+        <!-- PDF 生成：合同签署完成后合成最终 PDF -->
+        <dependency>
+            <groupId>com.openhtmltopdf</groupId>
+            <artifactId>openhtmltopdf-pdfbox</artifactId>
+            <version>1.0.10</version>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
 </project>

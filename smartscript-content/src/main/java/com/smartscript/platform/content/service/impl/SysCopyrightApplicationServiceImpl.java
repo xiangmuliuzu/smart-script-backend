@@ -11,12 +11,19 @@ import org.springframework.transaction.annotation.Transactional;
 import com.ruoyi.common.utils.DateUtils;
 import com.smartscript.platform.content.domain.SysCopyrightApplication;
 import com.smartscript.platform.content.domain.SysCopyrightCenterConfig;
+import com.smartscript.platform.content.domain.SysWork;
+import com.smartscript.platform.content.dto.copyright.AdminCopyrightApplicationDetailDto;
 import com.smartscript.platform.content.mapper.SysCopyrightApplicationMapper;
 import com.smartscript.platform.content.service.ISysCopyrightApplicationService;
 import com.smartscript.platform.content.service.ISysCopyrightCenterConfigService;
 import com.smartscript.platform.content.service.ICopyrightCenterApiService;
 import com.smartscript.platform.content.service.ISysCopyrightCertService;
+import com.smartscript.platform.content.service.ISysWorkService;
+import com.smartscript.platform.content.service.ISysWorkFileService;
+import com.smartscript.platform.content.domain.SysWorkFile;
 import com.smartscript.platform.content.util.CopyrightStatusUtil;
+import com.ruoyi.system.service.ISysUserService;
+import com.ruoyi.common.core.domain.entity.SysUser;
 
 /**
  * 版权申请Service业务层处理
@@ -50,6 +57,15 @@ public class SysCopyrightApplicationServiceImpl implements ISysCopyrightApplicat
 
     @Autowired
     private ISysCopyrightCertService copyrightCertService;
+
+    @Autowired
+    private ISysWorkService workService;
+
+    @Autowired
+    private ISysWorkFileService workFileService;
+
+    @Autowired
+    private ISysUserService userService;
 
     @Override
     public SysCopyrightApplication selectCopyrightApplicationByApplyId(Long applyId)
@@ -320,4 +336,117 @@ public class SysCopyrightApplicationServiceImpl implements ISysCopyrightApplicat
 
         return copyrightApplicationMapper.updateCopyrightApplication(application);
     }
+
+    @Override
+    public AdminCopyrightApplicationDetailDto getAdminApplicationDetail(Long applyId)
+    {
+        log.info("查询Admin端版权申请详情: applyId={}", applyId);
+        
+        SysCopyrightApplication application = copyrightApplicationMapper.selectCopyrightApplicationByApplyId(applyId);
+        if (application == null)
+        {
+            return null;
+        }
+        
+        enrichApplicationData(application);
+        
+        AdminCopyrightApplicationDetailDto dto = new AdminCopyrightApplicationDetailDto();
+        
+        // 填充申请基本信息
+        dto.setApplyId(application.getApplyId());
+        dto.setApplyNo(application.getApplyNo());
+        dto.setStatus(application.getStatus());
+        dto.setSyncStatus(application.getSyncStatus());
+        dto.setCopyrightCenter(application.getCopyrightCenter());
+        dto.setCenterName(application.getCenterName());
+        dto.setExternalApplyNo(application.getExternalNo());
+        dto.setCertNo(application.getCertNo());
+        dto.setCertUrl(application.getCertUrl());
+        dto.setRejectReason(application.getRejectReason());
+        dto.setCreateTime(application.getCreateTime());
+        dto.setSubmitTime(application.getSubmitTime());
+        dto.setCertTime(application.getCertTime());
+        dto.setRemark(application.getRemark());
+        
+        // 填充申请人信息（从用户表查询）
+        dto.setUserId(application.getUserId());
+        dto.setUserName(application.getUserName());
+        
+        if (application.getUserId() != null)
+        {
+            SysUser user = userService.selectUserById(application.getUserId());
+            if (user != null) {
+                dto.setUserPhone(user.getPhonenumber());
+                dto.setUserEmail(user.getEmail());
+                // 实名状态从用户扩展信息获取，如果没有字段则留空
+                // dto.setRealNameStatus(user.getRealNameStatus());
+            }
+        }
+        
+        // 填充作品信息（从work表查询）
+        if (application.getWorkId() != null)
+        {
+            dto.setWorkId(application.getWorkId());
+            dto.setWorkName(application.getWorkName());
+            
+            SysWork work = workService.selectWorkById(application.getWorkId());
+            if (work != null) {
+                dto.setWorkType(work.getWorkType());
+                dto.setWorkCoverUrl(work.getCover());
+                dto.setWorkSummary(work.getSummary());
+                dto.setWorkWordCount(work.getWordCount());
+                dto.setWorkDuration(work.getDuration());
+                
+                // 查询作品文件URL（取第一个文件）
+                SysWorkFile fileQuery = new SysWorkFile();
+                fileQuery.setWorkId(application.getWorkId());
+                List<SysWorkFile> files = workFileService.selectFileList(fileQuery);
+                if (files != null && !files.isEmpty()) {
+                    dto.setWorkFileUrl(files.get(0).getFileUrl());
+                }
+            }
+        }
+        
+        // 填充申请材料信息（兼容新旧两种格式）
+        // 新格式：所有材料统一存储在 originalityProof 字段
+        // 旧格式：材料分类存储在四个字段中
+        String originalityProof = application.getOriginalityProof();
+        String authorIdentityDoc = application.getAuthorIdentityDoc();
+        String creationProcess = application.getCreationProcess();
+        String otherProof = application.getOtherProof();
+        
+        // 调试日志
+        log.info("申请ID: {}, originalityProof: [{}], authorIdentityDoc: [{}], creationProcess: [{}], otherProof: [{}]",
+                application.getApplyId(), originalityProof, authorIdentityDoc, creationProcess, otherProof);
+        
+        // 判断是否为新格式（只有 originalityProof 有值，其他三个字段为空）
+        boolean hasOriginality = originalityProof != null && !originalityProof.trim().isEmpty();
+        boolean hasAuthorIdentity = authorIdentityDoc != null && !authorIdentityDoc.trim().isEmpty();
+        boolean hasCreationProcess = creationProcess != null && !creationProcess.trim().isEmpty();
+        boolean hasOtherProof = otherProof != null && !otherProof.trim().isEmpty();
+        
+        boolean isNewFormat = hasOriginality && !hasAuthorIdentity && !hasCreationProcess && !hasOtherProof;
+        
+        log.info("格式判断 - 申请ID: {}, isNewFormat: {}, hasOriginality: {}, hasAuthorIdentity: {}, hasCreationProcess: {}, hasOtherProof: {}",
+                application.getApplyId(), isNewFormat, hasOriginality, hasAuthorIdentity, hasCreationProcess, hasOtherProof);
+        
+        if (isNewFormat) {
+            // 新格式：将统一的材料显示在"原创性证明"位置，其他字段留空
+            dto.setOriginalityProofUrls(originalityProof);
+            dto.setAuthorIdentityDocUrls(null);
+            dto.setCreationProcessUrls(null);
+            dto.setOtherProofUrls(null);
+        } else {
+            // 旧格式：按原有逻辑分别显示
+            dto.setOriginalityProofUrls(originalityProof);
+            dto.setAuthorIdentityDocUrls(authorIdentityDoc);
+            dto.setCreationProcessUrls(creationProcess);
+            dto.setOtherProofUrls(otherProof);
+        }
+        
+        dto.setAttachmentUrl(application.getAttachmentUrl());  // 兼容更旧版本
+        
+        return dto;
+    }
 }
+

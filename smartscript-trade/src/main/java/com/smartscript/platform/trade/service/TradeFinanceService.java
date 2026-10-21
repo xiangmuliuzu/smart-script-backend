@@ -2,16 +2,19 @@ package com.smartscript.platform.trade.service;
 
 import java.math.BigDecimal;
 import java.util.*;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import com.ruoyi.common.utils.uuid.Seq;
 import com.smartscript.platform.trade.domain.SysBillRecord;
 import com.smartscript.platform.trade.domain.SysEscrow;
 import com.smartscript.platform.trade.domain.SysInvoice;
+import com.smartscript.platform.trade.domain.SysOrder;
 import com.smartscript.platform.trade.mapper.SysBillRecordMapper;
 import com.smartscript.platform.trade.mapper.SysEscrowMapper;
 import com.smartscript.platform.trade.mapper.SysFinanceStatsMapper;
 import com.smartscript.platform.trade.mapper.SysInvoiceMapper;
+import com.smartscript.platform.trade.mapper.SysOrderMapper;
 
 /**
  * 财务域服务（资金托管 / 发票 / 收益）。
@@ -23,16 +26,22 @@ public class TradeFinanceService
     private final SysInvoiceMapper invoiceMapper;
     private final SysBillRecordMapper billRecordMapper;
     private final SysFinanceStatsMapper financeStatsMapper;
+    private final SysOrderMapper orderMapper;
+    private final JdbcTemplate jdbc;
 
     public TradeFinanceService(SysEscrowMapper escrowMapper,
                                SysInvoiceMapper invoiceMapper,
                                SysBillRecordMapper billRecordMapper,
-                               SysFinanceStatsMapper financeStatsMapper)
+                               SysFinanceStatsMapper financeStatsMapper,
+                               SysOrderMapper orderMapper,
+                               JdbcTemplate jdbc)
     {
         this.escrowMapper = escrowMapper;
         this.invoiceMapper = invoiceMapper;
         this.billRecordMapper = billRecordMapper;
         this.financeStatsMapper = financeStatsMapper;
+        this.orderMapper = orderMapper;
+        this.jdbc = jdbc;
     }
 
     /* ========== 收益总览 ========== */
@@ -146,9 +155,35 @@ public class TradeFinanceService
 
     /**
      * 申请发票。
+     * <p>
+     * 校验链（修复前金额/归属/状态/重复四项均不设防）：
+     * 订单存在 → 申请人须为订单卖方 → 订单已完成 → 同订单不存在非 rejected 发票；
+     * 发票金额一律以订单 total_amount 为准，不信任客户端传入值。
      */
+    @Transactional
     public int applyInvoice(SysInvoice invoice)
     {
+        SysOrder order = orderMapper.selectOrderById(invoice.getOrderId());
+        if (order == null)
+        {
+            throw new RuntimeException("订单不存在，无法申请发票");
+        }
+        if (!invoice.getApplicantId().equals(order.getSellerId()))
+        {
+            throw new RuntimeException("只有卖方可以申请该订单的发票");
+        }
+        if (!"completed".equals(order.getStatus()))
+        {
+            throw new RuntimeException("仅已完成订单可以申请发票");
+        }
+        Integer existing = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM sys_invoice WHERE order_id = ? AND status <> 'rejected'",
+                Integer.class, invoice.getOrderId());
+        if (existing != null && existing > 0)
+        {
+            throw new RuntimeException("该订单已申请发票，请勿重复申请");
+        }
+        invoice.setAmount(order.getTotalAmount());
         invoice.setInvoiceNo(generateInvoiceNo());
         return invoiceMapper.insertInvoice(invoice);
     }

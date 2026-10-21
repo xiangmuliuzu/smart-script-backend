@@ -32,4 +32,9 @@ public interface UserTaskMapper {
      */
     UserTask selectByUserAndTask(@Param("userId") Long userId,
                                  @Param("taskId") Long taskId);
+
+    /**
+     * 更新任务进度/完成状态（行为上报累加进度用，按主键更新）
+     */
+    int updateUserTaskProgress(UserTask userTask);
 }

@@ -36,6 +36,10 @@ public class SysCopyrightApplication extends BaseEntity
     @Excel(name = "申请状态")
     private String status;
 
+    /** 同步状态 */
+    @Excel(name = "同步状态")
+    private String syncStatus;
+
     /** 版权中心外部编号 */
     @Excel(name = "外部编号")
     private String externalNo;
@@ -59,6 +63,18 @@ public class SysCopyrightApplication extends BaseEntity
     /** 拒绝原因 */
     @Excel(name = "拒绝原因")
     private String rejectReason;
+
+    /** 原创性证明材料URL（JSON数组） */
+    private String originalityProof;
+
+    /** 作者身份证明材料URL（JSON数组） */
+    private String authorIdentityDoc;
+
+    /** 创作过程材料URL（JSON数组） */
+    private String creationProcess;
+
+    /** 其他辅助证明材料URL（JSON数组） */
+    private String otherProof;
 
     /** 提交时间 */
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
@@ -180,6 +196,16 @@ public class SysCopyrightApplication extends BaseEntity
         return status;
     }
 
+    public void setSyncStatus(String syncStatus) 
+    {
+        this.syncStatus = syncStatus;
+    }
+
+    public String getSyncStatus() 
+    {
+        return syncStatus;
+    }
+
     public void setExternalNo(String externalNo) 
     {
         this.externalNo = externalNo;
@@ -238,6 +264,46 @@ public class SysCopyrightApplication extends BaseEntity
     public String getRejectReason() 
     {
         return rejectReason;
+    }
+
+    public void setOriginalityProof(String originalityProof) 
+    {
+        this.originalityProof = originalityProof;
+    }
+
+    public String getOriginalityProof() 
+    {
+        return originalityProof;
+    }
+
+    public void setAuthorIdentityDoc(String authorIdentityDoc) 
+    {
+        this.authorIdentityDoc = authorIdentityDoc;
+    }
+
+    public String getAuthorIdentityDoc() 
+    {
+        return authorIdentityDoc;
+    }
+
+    public void setCreationProcess(String creationProcess) 
+    {
+        this.creationProcess = creationProcess;
+    }
+
+    public String getCreationProcess() 
+    {
+        return creationProcess;
+    }
+
+    public void setOtherProof(String otherProof) 
+    {
+        this.otherProof = otherProof;
+    }
+
+    public String getOtherProof() 
+    {
+        return otherProof;
     }
 
     public void setSubmitTime(Date submitTime) 

@@ -607,10 +607,22 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 	<update id="softDeleteWork" parameterType="SysContentWork">
 		update sys_work
 		set is_deleted = '1',
+		    status = 'off_shelf',
+		    trade_enabled = '0',
 		    update_by = #{updateBy},
 		    update_time = sysdate()
 		where work_id = #{workId} and is_deleted = 0
+		  and author_id = #{authorId}
+		  and not exists(select 1 from sys_order where work_id = #{workId})
+		  and not exists(select 1 from sys_offline_cooperation where work_id = #{workId})
+		  and not exists(select 1 from sys_unlock_record where work_id = #{workId} and unlock_type != 'ad')
 	</update>
+
+	<select id="hasWorkTransactions" resultType="boolean">
+		select exists(select 1 from sys_order where work_id = #{workId})
+		    or exists(select 1 from sys_offline_cooperation where work_id = #{workId})
+		    or exists(select 1 from sys_unlock_record where work_id = #{workId} and unlock_type != 'ad')
+	</select>
 
 	<!-- 草稿箱（2.9.5）：本人 + 未删除 + 从未提交审核 -->
 	<select id="selectDraftWorks" resultMap="AppDraftWorkItemResult">

@@ -8,6 +8,8 @@ public interface ISysCopyrightCertService
 {
     List<SysCopyrightCert> selectCertList(String status, String keyword);
     
+    List<SysCopyrightCert> selectCertListByUserId(Long userId, String status, String keyword);
+    
     SysCopyrightCert selectCertById(Long certId);
     
     byte[] downloadCert(Long certId);

@@ -58,6 +58,12 @@ public class AppAuthController
             HttpServletRequest http,
             @RequestHeader(value = "X-Request-Id", required = false) String requestId)
     {
+        if ("DELETE_WORK".equals(request.getScene()))
+        {
+            throw new com.smartscript.platform.user.exception.AppAuthException(
+                    com.smartscript.platform.user.constant.AppAuthErrorCodes.PARAM,
+                    400, "请从作品设置中获取删除验证码");
+        }
         smsCodeService.sendCode(request.getPhone(), request.getScene(), clientIp(http), requestId);
         return AjaxResult.success(Map.of(
                 "cooldownSeconds", properties.getSms().getCooldownSeconds(),

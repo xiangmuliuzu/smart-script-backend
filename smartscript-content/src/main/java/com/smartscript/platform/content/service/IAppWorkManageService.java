@@ -1,6 +1,7 @@
 package com.smartscript.platform.content.service;
 
 import java.util.List;
+import java.util.Map;
 import com.smartscript.platform.content.dto.AppDraftWorkItem;
 import com.smartscript.platform.content.dto.AppPageResult;
 import com.smartscript.platform.content.dto.AppReviewStatusDto;
@@ -45,9 +46,13 @@ public interface IAppWorkManageService
      * 删除作品（2.9.4，逻辑删除）
      *
      * @param workId 作品ID
+     * @param code 当前绑定手机号收到的删除场景验证码
      * @return true 删除成功；false 作品不存在或非本人
      */
-    public boolean deleteWork(Long workId);
+    public boolean deleteWork(Long workId, String code);
+
+    /** 向当前账号绑定手机号发送删除验证码；非本人或不存在返回 null。 */
+    public Map<String, Object> sendDeletionCode(Long workId, String ip, String requestId);
 
     /**
      * 草稿箱列表（2.9.5，分页）
