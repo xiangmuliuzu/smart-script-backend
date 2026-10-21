@@ -184,10 +184,13 @@ public interface SysContentWorkMapper
      *
      * 只置 is_deleted=1，不物理删除；调用方需先校验归属。
      *
-     * @param work 仅携带 workId + updateBy
+     * @param work 携带 workId + authorId + updateBy；更新时再次阻止关联交易作品
      * @return 影响行数
      */
     public int softDeleteWork(SysWork work);
+
+    /** 订单涵盖其关联合同，另保护线下合作及付费解锁历史。 */
+    public boolean hasWorkTransactions(@Param("workId") Long workId);
 
     /**
      * 草稿箱列表（2.9.5）

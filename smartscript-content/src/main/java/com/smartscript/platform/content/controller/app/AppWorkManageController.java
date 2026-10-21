@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -16,6 +17,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 import com.smartscript.platform.api.AppApiResponse;
+import com.ruoyi.common.exception.ServiceException;
+import com.ruoyi.common.utils.ip.IpUtils;
 import com.smartscript.platform.content.dto.AppDraftWorkItem;
 import com.smartscript.platform.content.dto.AppPageResult;
 import com.smartscript.platform.content.dto.AppReviewStatusDto;
@@ -201,13 +204,39 @@ public class AppWorkManageController
      * @return data = {message}；非本人或不存在 404
      */
     @DeleteMapping("/works/{workId}")
-    public AppApiResponse<Map<String, Object>> delete(@PathVariable Long workId)
+    public AppApiResponse<Map<String, Object>> delete(@PathVariable Long workId,
+            @RequestBody(required = false) Map<String, Object> request)
     {
-        if (!workManageService.deleteWork(workId))
+        try
         {
-            return AppApiResponse.fail(CODE_NOT_FOUND, "作品不存在或无权操作");
+            if (!workManageService.deleteWork(workId, trimToNull(asString(request, "code"))))
+            {
+                return AppApiResponse.fail(CODE_NOT_FOUND, "作品不存在或无权操作");
+            }
+            return AppApiResponse.ok(Map.of("message", "删除成功"));
         }
-        return AppApiResponse.ok(Map.of("message", "删除成功"));
+        catch (ServiceException e)
+        {
+            return AppApiResponse.fail(e.getCode() == null ? CODE_BAD_REQUEST : e.getCode(), e.getMessage());
+        }
+    }
+
+    /** 删除验证码仅发送到服务端读取的账号绑定手机号。 */
+    @PostMapping("/works/{workId}/delete-code")
+    public AppApiResponse<Map<String, Object>> sendDeletionCode(@PathVariable Long workId,
+            HttpServletRequest request)
+    {
+        try
+        {
+            Map<String, Object> data = workManageService.sendDeletionCode(workId,
+                    IpUtils.getIpAddr(request), request.getHeader("X-Request-Id"));
+            return data == null ? AppApiResponse.fail(CODE_NOT_FOUND, "作品不存在或无权操作")
+                    : AppApiResponse.ok(data);
+        }
+        catch (ServiceException e)
+        {
+            return AppApiResponse.fail(e.getCode() == null ? CODE_BAD_REQUEST : e.getCode(), e.getMessage());
+        }
     }
 
     /**
