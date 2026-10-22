@@ -47,7 +47,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             <if test="workId != null "> and a.work_id = #{workId}</if>
             <if test="userId != null "> and a.user_id = #{userId}</if>
             <if test="status != null  and status != ''"> and a.status = #{status}</if>
-            <if test="workName != null and workName != ''"> and w.work_name like concat('%', #{workName}, '%')</if>
+            <if test="workName != null and workName != ''"> and w.title like concat('%', #{workName}, '%')</if>
             <if test="externalNo != null  and externalNo != ''"> and a.external_apply_no = #{externalNo}</if>
             <if test="configId != null "> and a.config_id = #{configId}</if>
             <if test="params.statusList != null and params.statusList != ''">
