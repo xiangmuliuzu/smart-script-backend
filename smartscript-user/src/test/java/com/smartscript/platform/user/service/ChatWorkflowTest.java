@@ -100,4 +100,14 @@ class ChatWorkflowTest
         var user = service.mySessions(12L, null, null).getList().get(0);
         assertEquals(0, user.get("status")); assertEquals(8L, user.get("peerId"));
     }
+
+    @Test
+    void tradeSessionsKeepTheCounterpartyForBothParticipants()
+    {
+        ChatSession session = session();
+        session.setSessionType("TRADE"); session.setAssignedAdminId(null);
+        when(sessions.selectById(17L)).thenReturn(session);
+        assertEquals(1L, service.sessionDetail(17L, 12L).get("peerId"));
+        assertEquals(12L, service.sessionDetail(17L, 1L).get("peerId"));
+    }
 }
