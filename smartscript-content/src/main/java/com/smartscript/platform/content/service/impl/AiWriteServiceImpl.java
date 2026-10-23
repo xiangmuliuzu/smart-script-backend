@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.UUID;
+import java.util.regex.Pattern;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -71,6 +72,10 @@ public class AiWriteServiceImpl implements IAiWriteService
     /** 写作默认类型（type 为空时） */
     private static final String WRITE_TYPE_DEFAULT = "write";
 
+    /** 无正文的续写指令不能确定需要续写的作品。 */
+    private static final Pattern CONTEXT_ONLY_CONTINUATION = Pattern.compile(
+            "(?iu)\\s*(?:请\\s*)?(?:继续(?:写(?:作|下去)?|生成)?|接着写|续写|continue(?:\\s+writing)?)(?:吧)?[\\s。！!，,.]*");
+
     /** 润色写作类型 */
     private static final String WRITE_TYPE_POLISH = "polish";
 
@@ -121,6 +126,7 @@ public class AiWriteServiceImpl implements IAiWriteService
     @Override
     public AppAiWriteResult write(AppAiWriteRequest request)
     {
+        requireContinuationContext(request.getPrompt());
         checkQuota(identityProvider.currentUserId());
         JsonNode data = aiServiceClient.write(request.getPrompt(), request.getType());
         String content = text(data, "content");
@@ -169,6 +175,7 @@ public class AiWriteServiceImpl implements IAiWriteService
     @Override
     public AppAiWriteResult writeStream(AppAiWriteRequest request, java.util.function.Consumer<String> onDelta)
     {
+        requireContinuationContext(request.getPrompt());
         checkQuota(identityProvider.currentUserId());
         String content = aiServiceClient.writeStream(request.getPrompt(), request.getType(), onDelta);
         Long recordId = saveRecord(identityProvider.currentUserId(), request.getWorkId(),
@@ -262,6 +269,15 @@ public class AiWriteServiceImpl implements IAiWriteService
                 CAPABILITY_OUTLINE, buildOutlineInputText(request), outlineToText(outline), resolveModel(data));
         consumeQuota(identityProvider.currentUserId(), "outline", recordId);
         return new AppAiOutlineResult(outline, requestNo, QUOTA_COST_OUTLINE);
+    }
+
+    private static void requireContinuationContext(String prompt)
+    {
+        // 当前接口不隐式读取历史记录；无正文时不让模型猜测需要续写的作品。
+        if (prompt != null && CONTEXT_ONLY_CONTINUATION.matcher(prompt).matches())
+        {
+            throw new IllegalArgumentException("请提供需要续写的正文，或在作品编辑器中基于当前正文续写");
+        }
     }
 
     /**

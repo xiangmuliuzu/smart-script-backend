@@ -95,6 +95,10 @@ public class AppAiController
         {
             return AppApiResponse.fail(CODE_SERVICE_UNAVAILABLE, e.getMessage());
         }
+        catch (IllegalArgumentException e)
+        {
+            return AppApiResponse.fail(CODE_BAD_REQUEST, e.getMessage());
+        }
     }
 
     /**
@@ -200,6 +204,10 @@ public class AppAiController
         {
             completeWithError(emitter, CODE_SERVICE_UNAVAILABLE, e.getMessage());
         }
+        catch (IllegalArgumentException e)
+        {
+            completeWithError(emitter, CODE_BAD_REQUEST, e.getMessage());
+        }
         catch (Exception e)
         {
             completeWithError(emitter, CODE_SERVICE_UNAVAILABLE, "AI 服务不可用，请稍后重试");
@@ -298,7 +306,7 @@ public class AppAiController
         {
             emitter.send(SseEmitter.event()
                     .name("message")
-                    .data(json, MediaType.APPLICATION_JSON));
+                    .data(json.getBytes(StandardCharsets.UTF_8), MediaType.APPLICATION_JSON));
         }
         catch (IOException | IllegalStateException e)
         {
@@ -313,7 +321,8 @@ public class AppAiController
         {
             emitter.send(SseEmitter.event()
                     .name("error")
-                    .data("{\"code\":" + code + ",\"message\":" + jsonEscape(message) + "}",
+                    .data(("{\"code\":" + code + ",\"message\":" + jsonEscape(message) + "}")
+                                    .getBytes(StandardCharsets.UTF_8),
                             MediaType.APPLICATION_JSON));
         }
         catch (IOException | IllegalStateException ignored)
