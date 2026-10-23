@@ -218,7 +218,7 @@ public class AppUserWorkController
         try
         {
             return AppApiResponse.ok(userWorkService.addChapter(userId, workId,
-                    str(body.get("chapterTitle")), str(body.get("content"))));
+                    str(body.get("chapterTitle")), str(body.get("content")), str(body.get("isFree"))));
         }
         catch (IllegalArgumentException e)
         {
@@ -245,7 +245,7 @@ public class AppUserWorkController
         try
         {
             userWorkService.updateChapter(userId, workId, chapterId,
-                    str(body.get("chapterTitle")), str(body.get("content")));
+                    str(body.get("chapterTitle")), str(body.get("content")), str(body.get("isFree")));
             return AppApiResponse.ok();
         }
         catch (IllegalArgumentException e)

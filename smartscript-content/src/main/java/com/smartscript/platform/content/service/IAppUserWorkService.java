@@ -59,9 +59,10 @@ public interface IAppUserWorkService
      * @param workId       作品ID
      * @param chapterTitle 章节标题
      * @param content      章节内容
+     * @param isFree       免费试读标记（"0"/"1"，null 默认为 "0"）
      * @return 新增后的章节对象
      */
-    SysWorkChapter addChapter(Long userId, Long workId, String chapterTitle, String content);
+    SysWorkChapter addChapter(Long userId, Long workId, String chapterTitle, String content, String isFree);
 
     /**
      * 修改章节（仅 draft / revision / rejected 状态允许）
@@ -71,8 +72,9 @@ public interface IAppUserWorkService
      * @param chapterId    章节ID
      * @param chapterTitle 章节标题
      * @param content      章节内容
+     * @param isFree       免费试读标记（"0"/"1"，null 不修改）
      */
-    void updateChapter(Long userId, Long workId, Long chapterId, String chapterTitle, String content);
+    void updateChapter(Long userId, Long workId, Long chapterId, String chapterTitle, String content, String isFree);
 
     /**
      * 删除章节（仅 draft / revision / rejected 状态允许）
