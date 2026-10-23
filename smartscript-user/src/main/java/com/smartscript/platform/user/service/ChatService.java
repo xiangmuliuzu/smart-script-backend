@@ -554,7 +554,7 @@ public class ChatService
         vo.put("unread", unread);
         // 对方信息
         boolean isUser1 = currentUserId.equals(s.getUser1Id());
-        vo.put("peerId", isUser1 ? s.getUser2Id() : s.getUser1Id());
+        vo.put("peerId", isUser1 ? handlerId(s) : s.getUser1Id());
         vo.put("peerName", isUser1 ? s.getUser2Name() : s.getUser1Name());
         vo.put("peerAvatar", isUser1 ? s.getUser2Avatar() : s.getUser1Avatar());
         return vo;
