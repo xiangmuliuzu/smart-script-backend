@@ -212,4 +212,108 @@ class AiReviewServiceTest {
         // upd 不应该带 status 字段（null）
         assertNull(captor.getValue().getStatus());
     }
+
+    // ===== 处理方式（action）生效验证 =====
+
+    @Test
+    void score_规则处理方式人工复审_命中阈值_流转pending() {
+        // 核心修复：规则全部选「人工复审」，AI 判高风险（score<threshold 命中）也必须进人工复审，不得直接驳回
+        contentRule.setAction("manual_review");
+        ReviewRecord record = new ReviewRecord();
+        record.setReviewId(40L);
+        record.setStatus("ai_reviewing");
+        when(reviewRecordMapper.selectReviewRecordById(40L)).thenReturn(record);
+        when(aiReviewRuleMapper.selectActiveAiReviewRules()).thenReturn(Collections.singletonList(contentRule));
+
+        // 含暴力词：mockScore 扣分 score=75 < threshold=80 -> 命中 -> manual_review -> pending
+        Map<String, Object> r = aiReviewService.score(40L, "他拿起刀，用暴力解决了一切");
+        assertEquals("pending", r.get("nextStatus"));
+        org.mockito.ArgumentCaptor<ReviewRecord> captor = org.mockito.ArgumentCaptor.forClass(ReviewRecord.class);
+        verify(reviewRecordMapper).updateReviewRecord(captor.capture());
+        assertEquals("pending", captor.getValue().getStatus());
+    }
+
+    @Test
+    void score_规则处理方式人工复审_未命中阈值_默认流转() {
+        // 内容安全未命中（score>=threshold）：不按规则拦截，仍走默认兜底（此处含暴力词 score=75<80 会命中，
+        // 换用正常内容 score=100>=80 未命中 -> 默认 pending）
+        contentRule.setAction("manual_review");
+        ReviewRecord record = new ReviewRecord();
+        record.setReviewId(41L);
+        record.setStatus("ai_reviewing");
+        when(reviewRecordMapper.selectReviewRecordById(41L)).thenReturn(record);
+        when(aiReviewRuleMapper.selectActiveAiReviewRules()).thenReturn(Collections.singletonList(contentRule));
+
+        Map<String, Object> r = aiReviewService.score(41L, "这是一篇优秀的悬疑小说，情节紧凑");
+        assertEquals("pending", r.get("nextStatus"));
+    }
+
+    @Test
+    void score_规则处理方式自动驳回_命中阈值_流转rejected() {
+        contentRule.setAction("auto_reject");
+        ReviewRecord record = new ReviewRecord();
+        record.setReviewId(42L);
+        record.setStatus("ai_reviewing");
+        when(reviewRecordMapper.selectReviewRecordById(42L)).thenReturn(record);
+        when(aiReviewRuleMapper.selectActiveAiReviewRules()).thenReturn(Collections.singletonList(contentRule));
+
+        Map<String, Object> r = aiReviewService.score(42L, "他拿起刀，用暴力解决了一切");
+        assertEquals("rejected", r.get("nextStatus"));
+        org.mockito.ArgumentCaptor<ReviewRecord> captor = org.mockito.ArgumentCaptor.forClass(ReviewRecord.class);
+        verify(reviewRecordMapper).updateReviewRecord(captor.capture());
+        assertEquals("rejected", captor.getValue().getStatus());
+    }
+
+    @Test
+    void score_规则处理方式自动通过_命中阈值_视为放行走默认() {
+        // auto_pass 命中=放行（不拦截），状态机不允许 ai_reviewing 直跳 approved，故走默认兜底
+        contentRule.setAction("auto_pass");
+        ReviewRecord record = new ReviewRecord();
+        record.setReviewId(43L);
+        record.setStatus("ai_reviewing");
+        when(reviewRecordMapper.selectReviewRecordById(43L)).thenReturn(record);
+        when(aiReviewRuleMapper.selectActiveAiReviewRules()).thenReturn(Collections.singletonList(contentRule));
+
+        Map<String, Object> r = aiReviewService.score(43L, "他拿起刀，用暴力解决了一切");
+        assertEquals("pending", r.get("nextStatus"));
+    }
+
+    @Test
+    void score_敏感词规则人工复审_词表命中_流转pending() {
+        // 敏感词命中不依赖 AI 综合分，命中词表即触发 -> manual_review -> pending
+        sensitiveRule.setAction("manual_review");
+        ReviewRecord record = new ReviewRecord();
+        record.setReviewId(44L);
+        record.setStatus("ai_reviewing");
+        when(reviewRecordMapper.selectReviewRecordById(44L)).thenReturn(record);
+        when(aiReviewRuleMapper.selectActiveAiReviewRules()).thenReturn(Collections.singletonList(sensitiveRule));
+
+        Map<String, Object> r = aiReviewService.score(44L, "内容里出现了违禁词汇");
+        assertEquals("pending", r.get("nextStatus"));
+    }
+
+    @Test
+    void score_多规则命中_取最严处置_自动驳回优先() {
+        // content_safety 命中(score<threshold) 且 action=manual_review；sensitive_word 命中 且 action=auto_reject
+        // 最严 = auto_reject -> rejected
+        contentRule.setAction("manual_review");
+        sensitiveRule.setAction("auto_reject");
+        ReviewRecord record = new ReviewRecord();
+        record.setReviewId(45L);
+        record.setStatus("ai_reviewing");
+        when(reviewRecordMapper.selectReviewRecordById(45L)).thenReturn(record);
+        when(aiReviewRuleMapper.selectActiveAiReviewRules()).thenReturn(Arrays.asList(contentRule, sensitiveRule));
+
+        Map<String, Object> r = aiReviewService.score(45L, "他拿起刀用暴力手段，内容里还出现了违禁词汇");
+        assertEquals("rejected", r.get("nextStatus"));
+    }
+
+    @Test
+    void decideAction_无命中或全部放行_返回null() {
+        assertNull(aiReviewService.decideAction(100, "正常内容", Collections.singletonList(contentRule)));
+        contentRule.setAction("auto_pass");
+        // auto_pass 命中阈值但视为放行 -> null
+        assertNull(aiReviewService.decideAction(60, "他拿起刀，用暴力解决了一切", Collections.singletonList(contentRule)));
+        assertNull(aiReviewService.decideAction(50, "内容", null));
+    }
 }

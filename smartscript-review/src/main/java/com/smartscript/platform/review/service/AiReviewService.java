@@ -118,18 +118,25 @@ public class AiReviewService {
         upd.setAiStartTime(record.getAiStartTime() != null ? record.getAiStartTime() : now);
         upd.setAiEndTime(now);
 
-        // 5) 自动流转状态：仅当当前仍为 ai_reviewing 时按 AI 结果推进
-        //    low/medium -> pending（进人工复审）；high -> rejected（自动驳回）
+        // 5) 自动流转状态：仅当当前仍为 ai_reviewing 时按规则处理方式/AI结果推进
+        //    优先按「启用规则」判定：规则命中（content_safety 按 AI 综合分 < 阈值，sensitive_word 按词表命中）
+        //    取最严拦截动作：auto_reject(驳回) > manual_review(进人工复审)，auto_pass 视为放行不拦截；
+        //    无规则拦截时按 AI 风险等级兜底：high -> rejected（自动驳回），否则 -> pending（进人工复审）。
         String nextStatus;
         if ("ai_reviewing".equals(record.getStatus())) {
-            if ("high".equals(riskLevel)) {
+            String ruleAction = decideAction(score, content, rules);
+            if ("auto_reject".equals(ruleAction)) {
+                nextStatus = "rejected";
+            } else if ("manual_review".equals(ruleAction)) {
+                nextStatus = "pending";
+            } else if ("high".equals(riskLevel)) {
                 nextStatus = "rejected";
             } else {
                 nextStatus = "pending";
             }
             upd.setStatus(nextStatus);
-            log.info("AI初审自动流转: reviewId={}, {} -> {}, score={}, level={}",
-                    reviewId, record.getStatus(), nextStatus, score, riskLevel);
+            log.info("AI初审自动流转: reviewId={}, {} -> {}, score={}, level={}, ruleAction={}",
+                    reviewId, record.getStatus(), nextStatus, score, riskLevel, ruleAction);
         } else {
             nextStatus = record.getStatus();
             log.info("AI初审完成但状态已非ai_reviewing({})，不自动流转 reviewId={}", record.getStatus(), reviewId);
@@ -145,6 +152,66 @@ public class AiReviewService {
         result.put("nextStatus", nextStatus);
         result.put("prompt", prompt);
         return result;
+    }
+
+    /**
+     * 按启用规则判定最严「拦截」处理方式。
+     * 规则命中判定：sensitive_word 类按内容命中词表（ruleContent 按逗号/顿号/分号/竖线切词）；
+     * 其余类型（content_safety 等）按 AI 综合分 score < threshold 即命中。
+     * 命中规则的处理方式取最严：auto_reject > manual_review；auto_pass 视为放行（不拦截，返回 null 语义等同未触发）。
+     * 无规则命中或全部放行时返回 null。
+     */
+    public String decideAction(int score, String content, List<AiReviewRule> rules) {
+        String strictest = null;
+        int rank = 0;
+        if (rules != null) {
+            String text = content == null ? "" : content;
+            for (AiReviewRule rule : rules) {
+                if (rule == null) {
+                    continue;
+                }
+                if (!isRuleTriggered(rule, score, text)) {
+                    continue;
+                }
+                // auto_pass 命中视为放行（不拦截），不参与最严比较
+                if ("auto_pass".equals(rule.getAction())) {
+                    continue;
+                }
+                int r = actionRank(rule.getAction());
+                if (r > rank) {
+                    rank = r;
+                    strictest = rule.getAction();
+                }
+            }
+        }
+        return strictest;
+    }
+
+    private boolean isRuleTriggered(AiReviewRule rule, int score, String text) {
+        if ("sensitive_word".equals(rule.getRuleType()) && StringUtils.hasText(rule.getRuleContent())) {
+            String[] words = rule.getRuleContent().split("[,，;；|]+");
+            for (String w : words) {
+                String word = w.trim();
+                if (word.length() > 0 && text.contains(word)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        return rule.getThreshold() != null && score < rule.getThreshold();
+    }
+
+    private int actionRank(String action) {
+        if ("auto_reject".equals(action)) {
+            return 3;
+        }
+        if ("manual_review".equals(action)) {
+            return 2;
+        }
+        if ("auto_pass".equals(action)) {
+            return 1;
+        }
+        return 0;
     }
 
     /**
