@@ -149,19 +149,20 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
 
     @Override
     @Transactional
-    public SysWorkChapter addChapter(Long userId, Long workId, String chapterTitle, String content)
+    public SysWorkChapter addChapter(Long userId, Long workId, String chapterTitle, String content, String isFree)
     {
         requireOwnWork(userId, workId);
         requireEditable(workId, userId);
 
         int maxNo = chapterMapper.selectMaxChapterNo(workId);
+        validateTrialFlag(isFree);
         SysWorkChapter chapter = new SysWorkChapter();
         chapter.setWorkId(workId);
         chapter.setChapterNo(maxNo + 1);
         chapter.setChapterTitle(chapterTitle == null ? "" : chapterTitle);
         chapter.setContent(content == null ? "" : content);
         chapter.setWordCount(countWords(chapter.getContent()));
-        chapter.setIsFree("0");
+        chapter.setIsFree(isFree == null ? "0" : isFree);
         // 章节两态：新增即草稿（仅作者可见），作者写完再发布（PUT 传 status='0'）
         chapter.setStatus(WorkStatusDeriver.CHAPTER_DRAFT);
         chapter.setCreateBy(String.valueOf(userId));
@@ -174,17 +175,19 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
 
     @Override
     @Transactional
-    public void updateChapter(Long userId, Long workId, Long chapterId, String chapterTitle, String content)
+    public void updateChapter(Long userId, Long workId, Long chapterId, String chapterTitle, String content, String isFree)
     {
         requireOwnWork(userId, workId);
         requireEditable(workId, userId);
 
         SysWorkChapter chapter = requireOwnChapter(workId, chapterId);
+        validateTrialFlag(isFree);
         SysWorkChapter update = new SysWorkChapter();
         update.setChapterId(chapterId);
         update.setChapterTitle(chapterTitle == null ? chapter.getChapterTitle() : chapterTitle);
         update.setContent(content == null ? chapter.getStorageContent() : content);
         update.setWordCount(countWords(update.getContent()));
+        update.setIsFree(isFree);
         update.setUpdateBy(String.valueOf(userId));
         update.setUpdateTime(new Date());
         chapterMapper.updateChapter(update);
@@ -446,6 +449,14 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
             case "approved" -> "审核通过";
             default -> null;
         };
+    }
+
+    private void validateTrialFlag(String isFree)
+    {
+        if (isFree != null && !"0".equals(isFree) && !"1".equals(isFree))
+        {
+            throw new IllegalArgumentException("isFree 只能为 \"0\" 或 \"1\"");
+        }
     }
 
     /** 校验作品存在且归属当前用户（selectWorkById 已含 is_deleted=0 过滤） */

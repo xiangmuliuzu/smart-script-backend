@@ -275,7 +275,7 @@ class AppUserWorkServiceTest
         when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of());
         when(chapterMapper.selectMaxChapterNo(WORK_ID)).thenReturn(3);
 
-        SysWorkChapter created = service.addChapter(OWNER, WORK_ID, "第四章", "这是第四章内容。Hello world!");
+        SysWorkChapter created = service.addChapter(OWNER, WORK_ID, "第四章", "这是第四章内容。Hello world!", null);
 
         assertEquals(4, created.getChapterNo());
         assertEquals("这是第四章内容。Helloworld!", created.getContent().replace(" ", ""));
@@ -517,8 +517,57 @@ class AppUserWorkServiceTest
         when(chapterMapper.selectMaxChapterNo(WORK_ID)).thenReturn(0);
         when(chapterMapper.insertChapter(any(SysWorkChapter.class))).thenReturn(1);
 
-        service.addChapter(OWNER, WORK_ID, "第一章", "内容");
+        service.addChapter(OWNER, WORK_ID, "第一章", "内容", null);
 
-        verify(chapterMapper).insertChapter(argThat(c -> "1".equals(c.getStatus())));
+        verify(chapterMapper).insertChapter(argThat(c -> "1".equals(c.getStatus()) && "0".equals(c.getIsFree())));
+    }
+
+    @Test
+    void trialChapterCanBeCreated()
+    {
+        when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
+        when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of());
+        SysWorkChapter created = service.addChapter(OWNER, WORK_ID, "试读章节", "正文", "1");
+        assertEquals("1", created.getIsFree());
+        assertEquals("1", created.getStatus());
+    }
+
+    @Test
+    void trialFlagCanBeEnabledDisabledOrOmittedWithoutChangingPublicationStatus()
+    {
+        when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
+        when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of());
+        SysWorkChapter chapter = new SysWorkChapter();
+        chapter.setChapterId(55L);
+        chapter.setWorkId(WORK_ID);
+        chapter.setIsFree("1");
+        chapter.setContent("原正文");
+        when(chapterMapper.selectChapterDetail(55L)).thenReturn(chapter);
+
+        for (String flag : new String[] { "1", "0", null })
+        {
+            service.updateChapter(OWNER, WORK_ID, 55L, null, null, flag);
+            verify(chapterMapper).updateChapter(argThat(c -> java.util.Objects.equals(flag, c.getIsFree())
+                    && c.getStatus() == null && "原正文".equals(c.getContent())));
+        }
+    }
+
+    @Test
+    void trialFlagRejectsInvalidValuesAndUnauthorizedOrReviewingChanges()
+    {
+        when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
+        when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of());
+        SysWorkChapter chapter = new SysWorkChapter();
+        chapter.setChapterId(55L);
+        chapter.setWorkId(WORK_ID);
+        when(chapterMapper.selectChapterDetail(55L)).thenReturn(chapter);
+
+        assertThrows(IllegalArgumentException.class, () -> service.addChapter(OWNER, WORK_ID, "标题", "正文", "true"));
+        assertThrows(IllegalArgumentException.class, () -> service.updateChapter(OWNER, WORK_ID, 55L, null, null, "2"));
+        assertThrows(SecurityException.class, () -> service.updateChapter(OTHER, WORK_ID, 55L, null, null, "1"));
+        when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of(recordOf("pending")));
+        assertThrows(IllegalStateException.class, () -> service.updateChapter(OWNER, WORK_ID, 55L, null, null, "1"));
+        verify(chapterMapper, never()).insertChapter(any());
+        verify(chapterMapper, never()).updateChapter(any());
     }
 }
