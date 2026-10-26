@@ -286,11 +286,12 @@ public class ChatService
             throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "会话已结束，无法发送消息");
         }
 
-        // TRADE 会话定型文白名单校验
-        if ("TRADE".equals(session.getSessionType()))
-        {
-            validateTradeTemplate(req.getContent().trim());
-        }
+        // TRADE 会话定型文白名单校验已取消：定型文作为快捷选项提供，但不强制限制自由文本
+        // 历史原因：早期设计 TRADE 会话仅允许定型文，实测发现用户需要自由沟通场景
+        // if ("TRADE".equals(session.getSessionType()))
+        // {
+        //     validateTradeTemplate(req.getContent().trim());
+        // }
 
         Long receiverId = session.getUser1Id().equals(senderId) ? handlerId(session) : session.getUser1Id();
         String msgType = (req.getMsgType() != null && !req.getMsgType().isBlank()) ? req.getMsgType() : MSG_TYPE_TEXT;
@@ -409,7 +410,7 @@ public class ChatService
      * TRADE 会话定型文白名单校验。
      *
      * 将发送内容与所有已启用模板比对：
-     * - 含 {price} 占位符的模板：将占位符替换为数字正则后匹配
+     * - 含 {price} 占位符的模板：按占位符分段，分别转义后拼接数字正则
      * - 纯文字模板：精确匹配
      * 不匹配则抛出异常，拒绝发送。
      */
@@ -419,11 +420,13 @@ public class ChatService
         boolean matched = templates.stream().anyMatch(t -> {
             if (t.getHasAmount() != null && t.getHasAmount() == 1)
             {
-                // 含价格占位符：将 {price} 替换为数字正则后匹配
-                String pattern = t.getContent()
-                        .replace("{price}", "\\d+(?:\\.\\d+)?")
-                        .replace("(", "\\(")
-                        .replace(")", "\\)");
+                // 含价格占位符：按 {price} 分段，分别 quote 后拼接数字正则
+                String content = t.getContent();
+                int idx = content.indexOf("{price}");
+                if (idx < 0) return false;
+                String before = java.util.regex.Pattern.quote(content.substring(0, idx));
+                String after = java.util.regex.Pattern.quote(content.substring(idx + 7));
+                String pattern = before + "\\d+(?:\\.\\d+)?" + after;
                 return sentContent.matches(pattern);
             }
             return t.getContent().equals(sentContent);

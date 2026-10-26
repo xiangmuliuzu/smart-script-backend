@@ -9,7 +9,9 @@ import com.ruoyi.common.utils.SecurityUtils;
 import com.ruoyi.common.utils.uuid.Seq;
 import com.smartscript.platform.trade.domain.SysInquiry;
 import com.smartscript.platform.trade.domain.SysOrder;
+import com.smartscript.platform.trade.domain.SysWork;
 import com.smartscript.platform.trade.mapper.SysInquiryMapper;
+import com.smartscript.platform.trade.mapper.SysWorkMapper;
 
 /**
  * C module: inquiry management service.
@@ -42,7 +44,14 @@ public class TradeInquiryService
     private SysInquiryMapper inquiryMapper;
 
     @Autowired
+    private SysWorkMapper workMapper;
+
+    @Autowired
     private TradeOrderService orderService;
+
+    /** 交易全生命周期站内通知统一出口。 */
+    @Autowired
+    private TradeNotifyService notifyService;
 
     public List<SysInquiry> selectInquiryList(SysInquiry inquiry)
     {
@@ -78,6 +87,19 @@ public class TradeInquiryService
         {
             throw new RuntimeException("授权类型不能为空");
         }
+        // 不能对自己拥有的作品发起询盘：以作品真实归属 authorId 为准做同源校验，
+        // 防止调用方伪造 sellerId 绕过（APP/PC/企业端所有创建入口在此统一收口）。
+        SysWork work = workMapper.selectWorkById(inquiry.getWorkId());
+        if (work == null)
+        {
+            throw new RuntimeException("作品不存在: " + inquiry.getWorkId());
+        }
+        if (work.getAuthorId() != null && work.getAuthorId().equals(inquiry.getBuyerId()))
+        {
+            throw new RuntimeException("不能对自己的作品发起询盘");
+        }
+        // 以作品归属为准回填卖方，避免调用方传入的 sellerId 与实际作者不一致
+        inquiry.setSellerId(work.getAuthorId());
         if (inquiry.getIntendedUse() == null || inquiry.getIntendedUse().isEmpty())
         {
             inquiry.setIntendedUse("-");
@@ -95,6 +117,8 @@ public class TradeInquiryService
         }
         inquiry.setCreateTime(new Date());
         inquiryMapper.insertInquiry(inquiry);
+        // 发起询盘 → 通知卖方及时处理（通知失败不影响询盘落库）
+        notifyService.notifyInquiryCreated(inquiry.getInquiryId(), inquiry.getInquiryNo(), inquiry.getSellerId());
         return inquiry;
     }
 
@@ -105,7 +129,9 @@ public class TradeInquiryService
     @Transactional
     public int acceptInquiry(Long inquiryId)
     {
-        return transitionInquiry(inquiryId, INQUIRY_STATUS_QUOTED, null, INQUIRY_STATUS_PENDING);
+        int rows = transitionInquiry(inquiryId, INQUIRY_STATUS_QUOTED, null, INQUIRY_STATUS_PENDING);
+        notifyInquiryAccepted(inquiryId);
+        return rows;
     }
 
     /**
@@ -113,7 +139,19 @@ public class TradeInquiryService
      */
     public int acceptInquiry(Long inquiryId, String updateBy)
     {
-        return transitionInquiry(inquiryId, INQUIRY_STATUS_QUOTED, updateBy, INQUIRY_STATUS_PENDING);
+        int rows = transitionInquiry(inquiryId, INQUIRY_STATUS_QUOTED, updateBy, INQUIRY_STATUS_PENDING);
+        notifyInquiryAccepted(inquiryId);
+        return rows;
+    }
+
+    /** 接受询盘成功后通知买方进入会话洽谈（回查买方 ID 与询盘编号）。 */
+    private void notifyInquiryAccepted(Long inquiryId)
+    {
+        SysInquiry inquiry = inquiryMapper.selectInquiryById(inquiryId);
+        if (inquiry != null)
+        {
+            notifyService.notifyInquiryAccepted(inquiryId, inquiry.getInquiryNo(), inquiry.getBuyerId());
+        }
     }
 
     /**

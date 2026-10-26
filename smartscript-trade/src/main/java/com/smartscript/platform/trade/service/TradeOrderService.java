@@ -53,6 +53,10 @@ public class TradeOrderService
     @Autowired
     private TradeContractService contractService;
 
+    /** 交易全生命周期站内通知统一出口。 */
+    @Autowired
+    private TradeNotifyService notifyService;
+
     public List<SysOrder> selectOrderList(SysOrder order)
     {
         return orderMapper.selectOrderList(order);
@@ -299,6 +303,9 @@ public class TradeOrderService
         log.setCreateTime(new Date());
         logMapper.insertLog(log);
 
+        // 买方付款到托管 → 通知卖方开始交割
+        notifyService.notifyOrderPaid(orderId, order.getOrderNo(), order.getSellerId());
+
         return escrow;
     }
 
@@ -400,5 +407,8 @@ public class TradeOrderService
         log.setCreateBy(safeGetOperatorName());
         log.setCreateTime(new Date());
         logMapper.insertLog(log);
+
+        // 买方确认收货、订单完成 → 通知买卖双方订单已完成、资金已释放
+        notifyService.notifyOrderCompleted(orderId, order.getOrderNo(), order.getBuyerId(), order.getSellerId());
     }
 }

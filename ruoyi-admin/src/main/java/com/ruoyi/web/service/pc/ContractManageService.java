@@ -313,7 +313,8 @@ public class ContractManageService {
     public String injectSignatureImages(String html, Map<String, Object> contract) {
         return ContractHtmlSupport.injectSignatures(html,
                 str(contract.get("buyerSignatureImage")), str(contract.get("buyerSealImage")),
-                str(contract.get("sellerSignatureImage")), str(contract.get("sellerSealImage")));
+                str(contract.get("sellerSignatureImage")), str(contract.get("sellerSealImage")),
+                str(contract.get("buyerSignTime")), str(contract.get("sellerSignTime")));
     }
     
     private static String str(Object value) {

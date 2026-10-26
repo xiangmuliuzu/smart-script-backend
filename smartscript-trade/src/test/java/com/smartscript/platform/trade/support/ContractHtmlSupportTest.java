@@ -18,6 +18,8 @@ class ContractHtmlSupportTest
     private static final String BUYER_SEAL = "/profile/contract/1/buyer_seal.png";
     private static final String SELLER_SIG = "/profile/contract/1/seller_sig.png";
     private static final String SELLER_SEAL = "/profile/contract/1/seller_seal.png";
+    private static final String BUYER_TIME = "2026-10-21 10:00:00";
+    private static final String SELLER_TIME = "2026-10-21 11:00:00";
 
     @Test
     @DisplayName("生成模板：含四个签名占位符与 table 双栏布局")
@@ -25,10 +27,10 @@ class ContractHtmlSupportTest
     {
         String html = ContractHtmlSupport.buildContractHtml("CT001", "ORD001", "测试作品",
                 "买方甲", "卖方乙", new BigDecimal("1000.00"), "非独家", "TPL_COPYRIGHT_LICENSE");
-        assertTrue(html.contains("<!-- buyer_signature_placeholder -->"));
-        assertTrue(html.contains("<!-- buyer_seal_placeholder -->"));
-        assertTrue(html.contains("<!-- seller_signature_placeholder -->"));
-        assertTrue(html.contains("<!-- seller_seal_placeholder -->"));
+        assertTrue(html.contains("<!-- buyer_sign_overlay -->"));
+        assertTrue(html.contains("<!-- seller_sign_overlay -->"));
+        assertTrue(html.contains("<!-- buyer_sign_time -->"));
+        assertTrue(html.contains("<!-- seller_sign_time -->"));
         assertTrue(html.contains("display: table;"));
         assertTrue(html.contains("display: table-cell;"));
         assertFalse(html.contains("display: flex"));
@@ -74,10 +76,12 @@ class ContractHtmlSupportTest
     {
         String html = ContractHtmlSupport.buildContractHtml("CT001", "ORD001", "测试作品",
                 "买方甲", "卖方乙", new BigDecimal("1000.00"), "非独家", "TPL_COPYRIGHT_LICENSE");
-        String injected = ContractHtmlSupport.injectSignatures(html, BUYER_SIG, BUYER_SEAL, SELLER_SIG, SELLER_SEAL);
-        assertFalse(injected.contains("<!-- buyer_signature_placeholder -->"));
-        assertFalse(injected.contains("<!-- seller_seal_placeholder -->"));
-        assertEquals(4, injected.split("<img src=\"" + "/profile/", -1).length - 1);
+        String injected = ContractHtmlSupport.injectSignatures(html, BUYER_SIG, BUYER_SEAL, SELLER_SIG, SELLER_SEAL, BUYER_TIME, SELLER_TIME);
+        assertFalse(injected.contains("<!-- buyer_sign_overlay -->"));
+        assertFalse(injected.contains("<!-- seller_sign_overlay -->"));
+        assertTrue(injected.contains(BUYER_TIME));
+        assertTrue(injected.contains(SELLER_TIME));
+        assertEquals(4, injected.split("src=\"/profile/", -1).length - 1);
         // 图片出现在各自方的占位符位置（买方签名在买方 box，卖方签名在卖方 box）
         assertTrue(injected.indexOf(BUYER_SIG) < injected.indexOf(SELLER_SIG));
     }
@@ -87,7 +91,7 @@ class ContractHtmlSupportTest
     void injectSignaturesLegacyTemplateBothParties()
     {
         String html = legacyTemplateHtml();
-        String injected = ContractHtmlSupport.injectSignatures(html, BUYER_SIG, BUYER_SEAL, SELLER_SIG, SELLER_SEAL);
+        String injected = ContractHtmlSupport.injectSignatures(html, BUYER_SIG, BUYER_SEAL, SELLER_SIG, SELLER_SEAL, BUYER_TIME, SELLER_TIME);
         assertLegacyInjection(injected, BUYER_SIG, SELLER_SIG);
     }
 
@@ -96,7 +100,7 @@ class ContractHtmlSupportTest
     void injectSignaturesLegacyTemplateBuyerOnly()
     {
         String html = legacyTemplateHtml();
-        String injected = ContractHtmlSupport.injectSignatures(html, BUYER_SIG, null, null, null);
+        String injected = ContractHtmlSupport.injectSignatures(html, BUYER_SIG, null, null, null, BUYER_TIME, null);
         // 买方签名图插在买方签署时间前；卖方区无图片
         int buyerImg = injected.indexOf(BUYER_SIG);
         assertTrue(buyerImg > injected.indexOf("<strong>甲方（买方）：</strong>"));
@@ -110,7 +114,7 @@ class ContractHtmlSupportTest
     void injectSignaturesLegacyTemplateSellerSealOnly()
     {
         String html = legacyTemplateHtml();
-        String injected = ContractHtmlSupport.injectSignatures(html, null, null, null, SELLER_SEAL);
+        String injected = ContractHtmlSupport.injectSignatures(html, null, null, null, SELLER_SEAL, null, SELLER_TIME);
         int sealImg = injected.indexOf(SELLER_SEAL);
         assertTrue(sealImg > injected.indexOf("<strong>乙方（卖方）：</strong>"));
         assertTrue(sealImg < injected.indexOf("签署时间", injected.indexOf("<strong>乙方（卖方）：</strong>")));
@@ -122,10 +126,10 @@ class ContractHtmlSupportTest
     void injectSignaturesNoImagesReturnsUnchanged()
     {
         String legacy = legacyTemplateHtml();
-        assertEquals(legacy, ContractHtmlSupport.injectSignatures(legacy, null, null, null, null));
+        assertEquals(legacy, ContractHtmlSupport.injectSignatures(legacy, null, null, null, null, null, null));
         String legacyWithEmpty = legacyTemplateHtml();
         assertEquals(legacyWithEmpty,
-                ContractHtmlSupport.injectSignatures(legacyWithEmpty, "", "", "", ""));
+                ContractHtmlSupport.injectSignatures(legacyWithEmpty, "", "", "", "", "", ""));
     }
 
     @Test
@@ -133,9 +137,9 @@ class ContractHtmlSupportTest
     void injectSignaturesUnrecognizedTemplateReturnsUnchanged()
     {
         String plain = "<html><body>无签名区</body></html>";
-        assertEquals(plain, ContractHtmlSupport.injectSignatures(plain, BUYER_SIG, null, null, null));
+        assertEquals(plain, ContractHtmlSupport.injectSignatures(plain, BUYER_SIG, null, null, null, null, null));
         // null 输入原样透传
-        assertEquals(null, ContractHtmlSupport.injectSignatures(null, BUYER_SIG, null, null, null));
+        assertEquals(null, ContractHtmlSupport.injectSignatures(null, BUYER_SIG, null, null, null, null, null));
     }
 
     @Test

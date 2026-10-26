@@ -37,6 +37,7 @@ public class AppCopyrightSealServiceImpl implements IAppCopyrightSealService
             item.put("sealId", seal.getSealId());
             item.put("sealName", seal.getSealName());
             item.put("sealImageUrl", seal.getSealImageUrl());
+            item.put("materialUrls", seal.getMaterialUrls());
             item.put("reviewStatus", seal.getReviewStatus());
             item.put("sealStatus", seal.getSealStatus());
             item.put("rejectReason", seal.getRejectReason());

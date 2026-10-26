@@ -65,6 +65,10 @@ public class TradeQuoteService
     @Autowired
     private TradeOrderService orderService;
 
+    /** 交易全生命周期站内通知统一出口。 */
+    @Autowired
+    private TradeNotifyService notifyService;
+
     public List<SysQuote> selectQuoteList(SysQuote quote)
     {
         return quoteMapper.selectQuoteList(quote);
@@ -313,6 +317,10 @@ public class TradeQuoteService
             update.setUpdateTime(new Date());
             inquiryMapper.updateInquiry(update);
         }
+
+        // 一方接受报价 → 通知另一方（未接受的那方）订单已生成、进入订单流程
+        Long counterpartId = OPERATOR_ROLE_BUYER.equals(operatorRole) ? inquiry.getSellerId() : inquiry.getBuyerId();
+        notifyService.notifyQuoteAccepted(order.getOrderId(), order.getOrderNo(), counterpartId);
 
         return order;
     }

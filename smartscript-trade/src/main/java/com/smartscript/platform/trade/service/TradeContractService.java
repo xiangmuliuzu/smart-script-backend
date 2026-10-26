@@ -73,6 +73,10 @@ public class TradeContractService
     @Autowired
     private AppUserCenterMapper userCenterMapper;
 
+    /** 交易全生命周期站内通知统一出口。 */
+    @Autowired
+    private TradeNotifyService notifyService;
+
     /**
      * 按订单 ID 取合同详情。
      */
@@ -115,7 +119,8 @@ public class TradeContractService
         {
             detail.put("content", ContractHtmlSupport.injectSignatures((String) content,
                     (String) detail.get("buyerSignatureImage"), (String) detail.get("buyerSealImage"),
-                    (String) detail.get("sellerSignatureImage"), (String) detail.get("sellerSealImage")));
+                    (String) detail.get("sellerSignatureImage"), (String) detail.get("sellerSealImage"),
+                    str(detail.get("buyerSignTime")), str(detail.get("sellerSignTime"))));
         }
         return detail;
     }
@@ -294,6 +299,9 @@ public class TradeContractService
             throw new IllegalStateException("合同状态已变化，请刷新后重试");
         }
 
+        // 每次签署后立即将签名/印章持久化到 contract_content，使 DB 中的 HTML 始终反映最新签署状态
+        persistSignaturesToContent(contractId);
+
         // 如果双方都签完，按实名姓名重渲染正文并生成最终 PDF（生成失败不影响签署事务，可由管理端补偿重建）
         if ("completed".equals(newStatus))
         {
@@ -308,6 +316,27 @@ public class TradeContractService
             }
         }
 
+        // 签署结果通知：双方签满→通知买方付款；仅单方签完→通知另一方尽快签署
+        Long orderId = ((Number) contract.get("orderId")).longValue();
+        String orderNo = null;
+        try
+        {
+            orderNo = jdbc.queryForObject("SELECT order_no FROM sys_order WHERE order_id = ?", String.class, orderId);
+        }
+        catch (Exception ignore)
+        {
+            // 编号仅用于通知文案展示，取不到不影响通知投递
+        }
+        if ("completed".equals(newStatus))
+        {
+            notifyService.notifyContractCompleted(orderId, orderNo, buyerId);
+        }
+        else
+        {
+            Long counterpartId = "buyer".equals(party) ? sellerId : buyerId;
+            notifyService.notifyContractSignedByParty(contractId, orderNo, counterpartId);
+        }
+
         return getById(contractId);
     }
 
@@ -315,6 +344,8 @@ public class TradeContractService
      * 双签完成时用实名姓名快照重渲染正文后存库：
      * 合同可能在双方实名之前生成（正文回退昵称），签署前置已保证此刻双方均已实名，
      * 重渲染保证存库正文与最终 PDF 上的甲乙方为真实姓名。
+     * <p>
+     * 重渲染后保留已有的签名/印章图片，避免丢失先签署方的视觉内容。
      */
     private void rerenderContentWithRealNames(Long contractId)
     {
@@ -327,9 +358,42 @@ public class TradeContractService
                 (java.math.BigDecimal) detail.get("amount"),
                 licenseType == null ? null : String.valueOf(licenseType),
                 str(detail.get("templateId")));
+        // 重渲染后注入已有的签名/印章，保证实名重渲染不丢失签署内容
+        html = ContractHtmlSupport.injectSignatures(html,
+                (String) detail.get("buyerSignatureImage"), (String) detail.get("buyerSealImage"),
+                (String) detail.get("sellerSignatureImage"), (String) detail.get("sellerSealImage"),
+                str(detail.get("buyerSignTime")), str(detail.get("sellerSignTime")));
         jdbc.update("UPDATE sys_contract SET contract_content = ?, update_time = NOW() WHERE contract_id = ?",
                 html, contractId);
-        log.info("合同 {} 双签完成，已按实名姓名重渲染正文", contractId);
+        log.info("合同 {} 双签完成，已按实名姓名重渲染正文（含签名/印章持久化）", contractId);
+    }
+
+    /**
+     * 每次签署后将签名/印章图片注入 contract_content 并回写数据库。
+     * <p>
+     * 保证 contract_content 始终是"活文档"——即使服务重启、API 不再动态注入，
+     * WebView 加载 content 也能直接看到已签署的签名、印章与签署时间。
+     */
+    private void persistSignaturesToContent(Long contractId)
+    {
+        Map<String, Object> row = jdbc.queryForMap(
+                "SELECT contract_content AS content, "
+                + "buyer_signature_image AS buyerSignatureImage, buyer_seal_image AS buyerSealImage, "
+                + "seller_signature_image AS sellerSignatureImage, seller_seal_image AS sellerSealImage, "
+                + "buyer_sign_time AS buyerSignTime, seller_sign_time AS sellerSignTime "
+                + "FROM sys_contract WHERE contract_id = ?", contractId);
+        String html = String.valueOf(row.get("content"));
+        if (html.isBlank())
+        {
+            return;
+        }
+        String enriched = ContractHtmlSupport.injectSignatures(html,
+                (String) row.get("buyerSignatureImage"), (String) row.get("buyerSealImage"),
+                (String) row.get("sellerSignatureImage"), (String) row.get("sellerSealImage"),
+                str(row.get("buyerSignTime")), str(row.get("sellerSignTime")));
+        jdbc.update("UPDATE sys_contract SET contract_content = ?, update_time = NOW() WHERE contract_id = ?",
+                enriched, contractId);
+        log.debug("合同 {} 签名/印章已持久化到 contract_content", contractId);
     }
 
     /** 合同署名：实名通过者用明文姓名快照，否则回退昵称。 */
@@ -377,7 +441,7 @@ public class TradeContractService
         String ext = detectImageExtension(file);
         if (ext == null)
         {
-            throw new IllegalArgumentException("仅支持 PNG/JPG/WebP 格式图片");
+            throw new IllegalArgumentException("印章/签名图片仅支持 PNG/JPG/BMP/GIF/WebP 格式");
         }
         // 保存到若依 profile 目录（uploadPath/contract/{id}），经 /profile/** 静态映射对外可访问
         // 注意：MultipartFile.transferTo 对相对路径会基于 Tomcat 临时目录解析，必须转绝对路径
@@ -402,7 +466,10 @@ public class TradeContractService
     /**
      * 按文件头魔数校验图片类型并推导安全扩展名，不信任用户上传的原始文件名。
      *
-     * @return 白名单内的扩展名（.png/.jpg/.webp），不匹配返回 null
+     * 白名单与印章上传（AppContentFileUploadService）保持一致：bmp/gif/jpg/jpeg/png/webp，
+     * 避免「上传得进、签署用不了」的口径分叉。
+     *
+     * @return 白名单内的扩展名（.png/.jpg/.webp/.bmp/.gif），不匹配返回 null
      */
     private String detectImageExtension(MultipartFile file) throws IOException
     {
@@ -429,6 +496,16 @@ public class TradeContractService
         {
             return ".webp";
         }
+        // BMP：文件头两字节 'B' 'M'
+        if (head[0] == 'B' && head[1] == 'M')
+        {
+            return ".bmp";
+        }
+        // GIF：文件头四字节 'G' 'I' 'F' '8'（GIF87a / GIF89a）
+        if (head[0] == 'G' && head[1] == 'I' && head[2] == 'F' && head[3] == '8')
+        {
+            return ".gif";
+        }
         return null;
     }
 
@@ -449,23 +526,17 @@ public class TradeContractService
 
     /**
      * 双方签署完成后合成最终 PDF 并回写 signed_pdf_url。
+     * <p>
+     * 前置：persistSignaturesToContent / rerenderContentWithRealNames 已保证
+     * contract_content 中已注入签名/印章图片与签署时间，此处只需解析图片路径后渲染 PDF。
      */
     private void generateSignedPdf(Long contractId) throws IOException
     {
-        // 列名需加驼峰别名，否则 Map key 为下划线形式，下方 get 取不到值
         Map<String, Object> contract = jdbc.queryForMap(
-                "SELECT contract_no AS contractNo, contract_content, buyer_signature_image AS buyerSignatureImage, buyer_seal_image AS buyerSealImage, "
-                + "seller_signature_image AS sellerSignatureImage, seller_seal_image AS sellerSealImage FROM sys_contract WHERE contract_id = ?",
+                "SELECT contract_no AS contractNo, contract_content AS content FROM sys_contract WHERE contract_id = ?",
                 contractId);
 
-        String html = String.valueOf(contract.get("contract_content"));
-        String buyerSigImg = (String) contract.get("buyerSignatureImage");
-        String buyerSealImg = (String) contract.get("buyerSealImage");
-        String sellerSigImg = (String) contract.get("sellerSignatureImage");
-        String sellerSealImg = (String) contract.get("sellerSealImage");
-
-        // 在签名区域注入签名/印章图片（新模板占位符替换 / 旧模板标记定位插入）
-        html = ContractHtmlSupport.injectSignatures(html, buyerSigImg, buyerSealImg, sellerSigImg, sellerSealImg);
+        String html = String.valueOf(contract.get("content"));
 
         // PDF 渲染无 baseUri，将 /profile/ 相对路径转换为本地文件绝对路径
         html = ContractHtmlSupport.resolveProfileImages(html);

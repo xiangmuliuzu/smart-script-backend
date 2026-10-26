@@ -46,7 +46,9 @@ public final class ContractHtmlSupport
                 + ".signature { margin-top: 60px; }"
                 + ".signature-row { margin-top: 40px; display: table; width: 100%; table-layout: fixed; }"
                 + ".signature-box { display: table-cell; width: 50%; vertical-align: top; padding-right: 24px; }"
-                + ".signature-image { margin-top: 10px; }"
+                + ".sign-overlay { position: relative; height: 100px; margin-top: 8px; }"
+                + ".sign-overlay img.sig { position: absolute; left: 0; top: 0; max-width: 200px; max-height: 80px; }"
+                + ".sign-overlay img.seal { position: absolute; left: 30px; top: 10px; max-width: 80px; max-height: 80px; opacity: 0.9; }"
                 + "</style></head><body>"
                 + "<h1>" + title + "</h1>"
                 + "<div class=\"contract-no\">合同编号：" + escape(contractNo) + "</div>"
@@ -96,15 +98,13 @@ public final class ContractHtmlSupport
                 + "<div class=\"signature-box\">"
                 // 签名区只留签字盖章空间，不预填姓名（姓名在基本信息区展示）
                 + "<strong>甲方（买方）签字：</strong>"
-                + "<div class=\"signature-image\"><!-- buyer_signature_placeholder --></div>"
-                + "<div class=\"signature-image\"><!-- buyer_seal_placeholder --></div>"
-                + "<br/>签署时间：___________"
+                + "<div class=\"sign-overlay\"><!-- buyer_sign_overlay --></div>"
+                + "<br/>签署时间：<!-- buyer_sign_time -->"
                 + "</div>"
                 + "<div class=\"signature-box\">"
                 + "<strong>乙方（卖方）签字：</strong>"
-                + "<div class=\"signature-image\"><!-- seller_signature_placeholder --></div>"
-                + "<div class=\"signature-image\"><!-- seller_seal_placeholder --></div>"
-                + "<br/>签署时间：___________"
+                + "<div class=\"sign-overlay\"><!-- seller_sign_overlay --></div>"
+                + "<br/>签署时间：<!-- seller_sign_time -->"
                 + "</div>"
                 + "</div>"
                 + "</div>"
@@ -112,38 +112,48 @@ public final class ContractHtmlSupport
     }
 
     /**
-     * 在合同 HTML 的签名区域注入双方签名/印章图片。
+     * 在合同 HTML 的签名区域注入双方签名/印章图片（印章叠加在签名上）及签署时间。
      * <p>
      * 兼容两种模板：新模板含占位注释（直接替换）；
      * 旧模板无占位符（在各方 signature-box 的"签署时间"前插入图片块）。
+     *
+     * @param html       合同 HTML 原文
+     * @param buyerSig   买方签名图片 URL（可空）
+     * @param buyerSeal  买方印章图片 URL（可空）
+     * @param sellerSig  卖方签名图片 URL（可空）
+     * @param sellerSeal 卖方印章图片 URL（可空）
+     * @param buyerSignTime  买方签署时间（可空，格式 yyyy-MM-dd HH:mm:ss）
+     * @param sellerSignTime 卖方签署时间（可空，格式 yyyy-MM-dd HH:mm:ss）
      */
     public static String injectSignatures(String html, String buyerSig, String buyerSeal,
-                                          String sellerSig, String sellerSeal)
+                                          String sellerSig, String sellerSeal,
+                                          String buyerSignTime, String sellerSignTime)
     {
         if (html == null || html.isBlank())
         {
             return html;
         }
-        boolean hasPlaceholder = html.contains("<!-- buyer_signature_placeholder -->")
-                || html.contains("<!-- seller_signature_placeholder -->");
+        boolean hasPlaceholder = html.contains("<!-- buyer_sign_overlay -->")
+                || html.contains("<!-- seller_sign_overlay -->");
         if (hasPlaceholder)
         {
-            // 新模板：替换签名区占位符
-            if (notBlank(buyerSig))
+            // 新模板：替换签名+印章叠加区占位符
+            if (notBlank(buyerSig) || notBlank(buyerSeal))
             {
-                html = html.replace("<!-- buyer_signature_placeholder -->", img(buyerSig, 200, 80));
+                html = html.replace("<!-- buyer_sign_overlay -->", overlayHtml(buyerSig, buyerSeal));
             }
-            if (notBlank(buyerSeal))
+            if (notBlank(sellerSig) || notBlank(sellerSeal))
             {
-                html = html.replace("<!-- buyer_seal_placeholder -->", img(buyerSeal, 100, 100));
+                html = html.replace("<!-- seller_sign_overlay -->", overlayHtml(sellerSig, sellerSeal));
             }
-            if (notBlank(sellerSig))
+            // 替换签署时间
+            if (notBlank(buyerSignTime))
             {
-                html = html.replace("<!-- seller_signature_placeholder -->", img(sellerSig, 200, 80));
+                html = html.replace("<!-- buyer_sign_time -->", buyerSignTime);
             }
-            if (notBlank(sellerSeal))
+            if (notBlank(sellerSignTime))
             {
-                html = html.replace("<!-- seller_seal_placeholder -->", img(sellerSeal, 100, 100));
+                html = html.replace("<!-- seller_sign_time -->", sellerSignTime);
             }
             return html;
         }
@@ -151,6 +161,21 @@ public final class ContractHtmlSupport
         html = insertImagesBeforeSignTime(html, buyerSig, buyerSeal, "<strong>甲方（买方）：</strong>");
         html = insertImagesBeforeSignTime(html, sellerSig, sellerSeal, "<strong>乙方（卖方）：</strong>");
         return html;
+    }
+
+    /** 生成签名+印章叠加 HTML（印章盖在签名上面）。 */
+    private static String overlayHtml(String signature, String seal)
+    {
+        StringBuilder sb = new StringBuilder();
+        if (notBlank(signature))
+        {
+            sb.append("<img class=\"sig\" src=\"").append(signature).append("\" />");
+        }
+        if (notBlank(seal))
+        {
+            sb.append("<img class=\"seal\" src=\"").append(seal).append("\" />");
+        }
+        return sb.toString();
     }
 
     /** 在指定方签名区"签署时间"前插入签名/印章图片。 */

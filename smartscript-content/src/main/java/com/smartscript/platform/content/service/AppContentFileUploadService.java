@@ -59,9 +59,9 @@ public class AppContentFileUploadService
     /** 剧本文档扩展名白名单 */
     private static final String[] SCRIPT_EXTENSION = { "txt", "doc", "docx", "pdf" };
 
-    /** 缺省/未知 type 时的合并白名单（图片+文档） */
+    /** 缺省/未知 type 时的合并白名单（图片+文档）；图片部分与合同签署 detectImageExtension 对齐 */
     private static final String[] DEFAULT_EXTENSION = {
-            "bmp", "gif", "jpg", "jpeg", "png", "txt", "doc", "docx", "pdf" };
+            "bmp", "gif", "jpg", "jpeg", "png", "webp", "txt", "doc", "docx", "pdf" };
 
     /**
      * 保存上传文件并返回可访问地址。
