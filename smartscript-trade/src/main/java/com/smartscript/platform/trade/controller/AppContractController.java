@@ -17,6 +17,7 @@ import java.util.Map;
  * <p>
  * 基础路径：/api/v1/trade/contracts
  * <ul>
+ *   <li>GET /list — 合同列表（可按买卖角色与状态过滤，分页）</li>
  *   <li>GET /{orderId} — 按订单取合同详情</li>
  *   <li>POST /{contractId}/sign — 签署合同（multipart：signatureImage 可选、sealImage 可选）</li>
  * </ul>
@@ -30,6 +31,28 @@ public class AppContractController
 
     @Autowired
     private TradeOrderService orderService;
+
+    /**
+     * 合同列表。
+     * <p>
+     * role=seller 取我作为卖方的合同，role=buyer 取我作为买方的合同，为空取两者并集。
+     * 列表不返回合同正文（大字段），查看详情仍走 /{orderId}。
+     */
+    @GetMapping("/list")
+    public AjaxResult list(@RequestParam(value = "role", required = false) String role,
+                           @RequestParam(value = "status", required = false) String status,
+                           @RequestParam(value = "pageNum", defaultValue = "1") Integer pageNum,
+                           @RequestParam(value = "pageSize", defaultValue = "10") Integer pageSize)
+    {
+        try
+        {
+            return success(contractService.listContracts(currentUserId(), role, status, pageNum, pageSize));
+        }
+        catch (Exception e)
+        {
+            return error(e.getMessage());
+        }
+    }
 
     /**
      * 按订单 ID 取合同详情。

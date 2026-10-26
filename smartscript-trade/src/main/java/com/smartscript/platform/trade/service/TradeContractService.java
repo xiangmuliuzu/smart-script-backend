@@ -63,6 +63,23 @@ public class TradeContractService
             + "LEFT JOIN sys_user us ON us.user_id = c.seller_id "
             + "LEFT JOIN sys_work w ON w.work_id = o.work_id ";
 
+    /**
+     * 合同列表查询（不带 contract_content 大字段，额外带作品封面）。
+     */
+    private static final String CONTRACT_LIST_SELECT =
+            "SELECT c.contract_id AS contractId, c.contract_no AS contractNo, c.amount AS amount, "
+            + "c.order_id AS orderId, o.order_no AS orderNo, c.buyer_id AS buyerId, ub.nick_name AS buyerName, "
+            + "c.seller_id AS sellerId, us.nick_name AS sellerName, "
+            + "c.buyer_sign_status AS buyerSignStatus, c.seller_sign_status AS sellerSignStatus, "
+            + "c.buyer_sign_time AS buyerSignTime, c.seller_sign_time AS sellerSignTime, "
+            + "c.signed_pdf_url AS signedPdfUrl, c.status AS status, "
+            + "w.title AS workTitle, w.cover AS workCover, o.license_type AS licenseType, "
+            + "DATE_FORMAT(c.created_at, '%Y-%m-%d %H:%i:%s') AS createdAt "
+            + "FROM sys_contract c JOIN sys_order o ON o.order_id = c.order_id "
+            + "LEFT JOIN sys_user ub ON ub.user_id = c.buyer_id "
+            + "LEFT JOIN sys_user us ON us.user_id = c.seller_id "
+            + "LEFT JOIN sys_work w ON w.work_id = o.work_id ";
+
     @Autowired
     private JdbcTemplate jdbc;
 
@@ -105,6 +122,60 @@ public class TradeContractService
         {
             throw new IllegalArgumentException("合同不存在");
         }
+    }
+
+    /**
+     * 合同列表（PC 门户 / APP 共用）。
+     * <p>
+     * role=seller 取我作为卖方的合同，role=buyer 取我作为买方的合同，为空取两者并集；
+     * status 可选（pending / partial_signed / completed 等）。
+     *
+     * @param userId   当前用户 ID
+     * @param role     买卖角色过滤（seller / buyer / 空）
+     * @param status   合同状态过滤（可选）
+     * @param pageNum  页码（从 1 开始）
+     * @param pageSize 每页条数
+     * @return {total, list}
+     */
+    public Map<String, Object> listContracts(Long userId, String role, String status, int pageNum, int pageSize)
+    {
+        StringBuilder where = new StringBuilder(" WHERE 1 = 1 ");
+        java.util.List<Object> args = new java.util.ArrayList<>();
+        if ("seller".equalsIgnoreCase(role))
+        {
+            where.append(" AND c.seller_id = ? ");
+            args.add(userId);
+        }
+        else if ("buyer".equalsIgnoreCase(role))
+        {
+            where.append(" AND c.buyer_id = ? ");
+            args.add(userId);
+        }
+        else
+        {
+            where.append(" AND (c.buyer_id = ? OR c.seller_id = ?) ");
+            args.add(userId);
+            args.add(userId);
+        }
+        if (status != null && !status.isBlank())
+        {
+            where.append(" AND c.status = ? ");
+            args.add(status);
+        }
+
+        Long total = jdbc.queryForObject("SELECT COUNT(*) FROM sys_contract c " + where, Long.class, args.toArray());
+        int size = Math.max(1, Math.min(pageSize, 100));
+        int offset = Math.max(0, pageNum - 1) * size;
+        java.util.List<Object> listArgs = new java.util.ArrayList<>(args);
+        listArgs.add(size);
+        listArgs.add(offset);
+        java.util.List<Map<String, Object>> list = jdbc.queryForList(
+                CONTRACT_LIST_SELECT + where + " ORDER BY c.created_at DESC LIMIT ? OFFSET ?", listArgs.toArray());
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("total", total == null ? 0L : total);
+        result.put("list", list);
+        return result;
     }
 
     /**

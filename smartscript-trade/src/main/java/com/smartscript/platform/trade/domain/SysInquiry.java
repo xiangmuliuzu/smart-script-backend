@@ -35,6 +35,8 @@ public class SysInquiry extends BaseEntity
 
     /** Transient: work title joined from sys_work */
     private String workTitle;
+    /** Transient: work cover joined from sys_work */
+    private String workCover;
     /** Transient: buyer name */
     private String buyerName;
     /** Transient: seller name */
@@ -68,6 +70,8 @@ public class SysInquiry extends BaseEntity
     public void setUpdatedAt(Date updatedAt) { this.updatedAt = updatedAt; }
     public String getWorkTitle() { return workTitle; }
     public void setWorkTitle(String workTitle) { this.workTitle = workTitle; }
+    public String getWorkCover() { return workCover; }
+    public void setWorkCover(String workCover) { this.workCover = workCover; }
     public String getBuyerName() { return buyerName; }
     public void setBuyerName(String buyerName) { this.buyerName = buyerName; }
     public String getSellerName() { return sellerName; }

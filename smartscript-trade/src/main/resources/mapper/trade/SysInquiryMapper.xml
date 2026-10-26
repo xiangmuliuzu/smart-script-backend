@@ -20,6 +20,7 @@
         <result property="createTime"   column="create_time" />
         <result property="remark"       column="remark" />
         <result property="workTitle"    column="work_title" />
+        <result property="workCover"    column="work_cover" />
         <result property="buyerName"    column="buyer_name" />
         <result property="sellerName"   column="seller_name" />
     </resultMap>
@@ -29,6 +30,7 @@
                i.license_type, i.intended_use, i.budget, i.message, i.status,
                i.expire_at, i.created_at, i.updated_at, i.create_by, i.create_time, i.remark,
                w.title as work_title,
+               w.cover as work_cover,
                ub.nick_name as buyer_name,
                us.nick_name as seller_name
         from sys_inquiry i
@@ -50,7 +52,7 @@
     </select>
 
     <select id="selectInquiryById" parameterType="Long" resultMap="SysInquiryResult">
-        select i.*, w.title as work_title,
+        select i.*, w.title as work_title, w.cover as work_cover,
                ub.nick_name as buyer_name, us.nick_name as seller_name
         from sys_inquiry i
         left join sys_work w on i.work_id = w.work_id
