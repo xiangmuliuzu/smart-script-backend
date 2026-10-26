@@ -427,6 +427,10 @@ public class AiWriteServiceImpl implements IAiWriteService
     /** 大纲结果转可读文本（落 output_content，用户可见，非 JSON） */
     private static String outlineToText(Object outline)
     {
+        if (outline instanceof Map<?, ?> map && map.size() == 1 && map.get("text") instanceof String text)
+        {
+            return text;
+        }
         StringBuilder sb = new StringBuilder();
         appendOutline(sb, outline, 0, null);
         String text = sb.toString().trim();

@@ -3,6 +3,7 @@ package com.smartscript.platform.content.service;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -18,6 +19,7 @@ import org.junit.jupiter.api.Test;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpServer;
+import com.smartscript.platform.content.exception.AiServiceUnavailableException;
 
 class AiServiceClientIsolationTest
 {
@@ -27,6 +29,7 @@ class AiServiceClientIsolationTest
     private HttpServer server;
     private AiServiceClient client;
     private volatile CountDownLatch bothRequests;
+    private boolean truncateStream;
 
     @BeforeEach
     void start() throws Exception
@@ -53,7 +56,8 @@ class AiServiceClientIsolationTest
                 {
                     exchange.getResponseHeaders().set("Content-Type", "text/event-stream");
                     int middle = content.length() / 2;
-                    response = delta(content.substring(0, middle)) + delta(content.substring(middle))
+                    response = delta(content.substring(0, middle));
+                    if (!truncateStream) response += delta(content.substring(middle))
                             + "data: {\"choices\":[{\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n";
                 }
                 else
@@ -85,6 +89,25 @@ class AiServiceClientIsolationTest
     {
         server.stop(0);
         executor.shutdownNow();
+    }
+
+    @Test
+    void truncatedUpstreamFailsInsteadOfConfirmingPartialContent()
+    {
+        truncateStream = true;
+        StringBuilder received = new StringBuilder();
+        assertThrows(AiServiceUnavailableException.class,
+                () -> client.writeStream("尚未完成的故事", null, received::append));
+        assertFalse(received.isEmpty());
+    }
+
+    @Test
+    void streamingOutlineRequestsReadableTextRatherThanWaitingForJson()
+    {
+        StringBuilder received = new StringBuilder();
+        String result = client.outlineStream("雨夜故事", "悬疑", "紧凑", received::append);
+        assertEquals(result, received.toString());
+        assertTrue(captured.get(0).path("messages").path(0).path("content").asText().contains("分段输出可读文本"));
     }
 
     @Test

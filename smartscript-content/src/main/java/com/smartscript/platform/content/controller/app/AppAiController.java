@@ -1,17 +1,22 @@
 package com.smartscript.platform.content.controller.app;
 
 import java.io.IOException;
+import java.io.OutputStream;
+import java.io.UncheckedIOException;
+import jakarta.servlet.http.HttpServletRequest;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 import com.smartscript.platform.api.AppApiResponse;
 import com.smartscript.platform.content.dto.AppAiOutlineRequest;
 import com.smartscript.platform.content.dto.AppAiOutlineRecordItem;
@@ -171,165 +176,103 @@ public class AppAiController
      *
      * 协议：text/event-stream，逐块发送 {@code data: {"delta":"..."}}，
      * 结束时发送 {@code data: {"done":true,"recordId":..}}；中途失败发送
-     * {@code data: {"error":"..."}}（不落库、不扣次数）。次数不足在握手期
-     * 直接返回 App 信封 400，不进入流。
+     * {@code event:error} 携带 code/message；次数不足同样以错误事件返回。
      *
      * @param body 请求体 {prompt 必填, type 可选, work_id 可选}
      */
     @PostMapping(value = "/write/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter writeStream(@RequestBody(required = false) Map<String, Object> body)
+    public ResponseEntity<StreamingResponseBody> writeStream(
+            @RequestBody(required = false) Map<String, Object> body, HttpServletRequest servletRequest)
     {
         String prompt = trimToNull(asString(body, "prompt"));
-        if (prompt == null)
-        {
-            return errorEmitter(CODE_BAD_REQUEST, "prompt 不能为空");
-        }
         AppAiWriteRequest request = new AppAiWriteRequest();
         request.setPrompt(prompt);
         request.setType(trimToNull(asString(body, "type")));
         request.setWorkId(asLong(body, "work_id", "workId"));
-        SseEmitter emitter = new SseEmitter(120_000L);
-        try
-        {
-            Consumer<String> delta = d -> sendData(emitter, "{\"delta\":" + jsonEscape(d) + "}");
+        return streamResponse(servletRequest, delta -> {
+            if (prompt == null) throw new IllegalArgumentException("prompt 不能为空");
             AppAiWriteResult result = aiWriteService.writeStream(request, delta);
-            sendData(emitter, "{\"done\":true,\"recordId\":" + result.getRecordId() + "}");
-            emitter.complete();
-        }
-        catch (AiQuotaInsufficientException e)
-        {
-            completeWithError(emitter, CODE_BAD_REQUEST, e.getMessage());
-        }
-        catch (AiServiceUnavailableException e)
-        {
-            completeWithError(emitter, CODE_SERVICE_UNAVAILABLE, e.getMessage());
-        }
-        catch (IllegalArgumentException e)
-        {
-            completeWithError(emitter, CODE_BAD_REQUEST, e.getMessage());
-        }
-        catch (Exception e)
-        {
-            completeWithError(emitter, CODE_SERVICE_UNAVAILABLE, "AI 服务不可用，请稍后重试");
-        }
-        return emitter;
+            return "{\"done\":true,\"recordId\":" + result.getRecordId() + "}";
+        });
     }
 
-    /**
-     * AI 润色（流式，SSE 打字机输出）。
-     *
-     * @param body 请求体 {content 必填, style 可选}
-     */
     @PostMapping(value = "/polish/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter polishStream(@RequestBody(required = false) Map<String, Object> body)
+    public ResponseEntity<StreamingResponseBody> polishStream(
+            @RequestBody(required = false) Map<String, Object> body, HttpServletRequest servletRequest)
     {
         String content = trimToNull(asString(body, "content"));
-        if (content == null)
-        {
-            return errorEmitter(CODE_BAD_REQUEST, "content 不能为空");
-        }
         AppAiPolishRequest request = new AppAiPolishRequest();
         request.setContent(content);
         request.setStyle(trimToNull(asString(body, "style")));
-        SseEmitter emitter = new SseEmitter(120_000L);
-        try
-        {
-            Consumer<String> delta = d -> sendData(emitter, "{\"delta\":" + jsonEscape(d) + "}");
+        return streamResponse(servletRequest, delta -> {
+            if (content == null) throw new IllegalArgumentException("content 不能为空");
             AppAiWriteResult result = aiWriteService.polishStream(request, delta);
-            sendData(emitter, "{\"done\":true,\"recordId\":" + result.getRecordId() + "}");
-            emitter.complete();
-        }
-        catch (AiQuotaInsufficientException e)
-        {
-            completeWithError(emitter, CODE_BAD_REQUEST, e.getMessage());
-        }
-        catch (AiServiceUnavailableException e)
-        {
-            completeWithError(emitter, CODE_SERVICE_UNAVAILABLE, e.getMessage());
-        }
-        catch (Exception e)
-        {
-            completeWithError(emitter, CODE_SERVICE_UNAVAILABLE, "AI 服务不可用，请稍后重试");
-        }
-        return emitter;
+            return "{\"done\":true,\"recordId\":" + result.getRecordId() + "}";
+        });
     }
 
-    /**
-     * AI 大纲（流式，SSE 打字机输出）。
-     *
-     * @param body 请求体 {inspiration, genre, style, work_id} 均可选
-     */
     @PostMapping(value = "/outline/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter outlineStream(@RequestBody(required = false) Map<String, Object> body)
+    public ResponseEntity<StreamingResponseBody> outlineStream(
+            @RequestBody(required = false) Map<String, Object> body, HttpServletRequest servletRequest)
     {
         AppAiOutlineRequest request = new AppAiOutlineRequest();
         request.setInspiration(trimToNull(asString(body, "inspiration")));
         request.setGenre(trimToNull(asString(body, "genre")));
         request.setStyle(trimToNull(asString(body, "style")));
         request.setWorkId(asLong(body, "work_id", "workId"));
-        SseEmitter emitter = new SseEmitter(120_000L);
-        try
-        {
-            Consumer<String> delta = d -> sendData(emitter, "{\"delta\":" + jsonEscape(d) + "}");
+        return streamResponse(servletRequest, delta -> {
             AppAiOutlineResult result = aiWriteService.outlineStream(request, delta);
-            sendData(emitter, "{\"done\":true,\"quotaUsed\":" + result.getQuotaUsed() + ",\"requestNo\":"
-                    + jsonEscape(result.getRequestNo() == null ? "" : result.getRequestNo()) + "}");
-            emitter.complete();
-        }
-        catch (AiQuotaInsufficientException e)
-        {
-            completeWithError(emitter, CODE_BAD_REQUEST, e.getMessage());
-        }
-        catch (AiServiceUnavailableException e)
-        {
-            completeWithError(emitter, CODE_SERVICE_UNAVAILABLE, e.getMessage());
-        }
-        catch (Exception e)
-        {
-            completeWithError(emitter, CODE_SERVICE_UNAVAILABLE, "AI 服务不可用，请稍后重试");
-        }
-        return emitter;
+            return "{\"done\":true,\"quotaUsed\":" + result.getQuotaUsed() + ",\"requestNo\":"
+                    + jsonEscape(result.getRequestNo() == null ? "" : result.getRequestNo()) + "}";
+        });
     }
 
-    /** 直接构造一个只带错误事件的 SseEmitter（握手期参数错误用）。 */
-    private static SseEmitter errorEmitter(int code, String message)
+    /** MVC 在异步任务中执行生成，并传递请求和安全上下文；每个事件立即 flush。 */
+    private ResponseEntity<StreamingResponseBody> streamResponse(HttpServletRequest request,
+            Function<Consumer<String>, String> generate)
     {
-        SseEmitter emitter = new SseEmitter(120_000L);
-        completeWithError(emitter, code, message);
-        return emitter;
+        return ResponseEntity.ok().contentType(MediaType.TEXT_EVENT_STREAM)
+                .header("Cache-Control", "no-cache, no-transform")
+                .header("X-Accel-Buffering", "no")
+                .body(output -> {
+                    request.getAsyncContext().setTimeout(120_000L);
+                    output.write(": connected\n\n".getBytes(StandardCharsets.UTF_8));
+                    output.flush();
+                    try
+                    {
+                        String done = generate.apply(delta -> sendEvent(output, "message",
+                                "{\"delta\":" + jsonEscape(delta) + "}"));
+                        sendEvent(output, "message", done);
+                    }
+                    catch (AiQuotaInsufficientException | IllegalArgumentException e)
+                    {
+                        sendError(output, CODE_BAD_REQUEST, e.getMessage());
+                    }
+                    catch (AiServiceUnavailableException e)
+                    {
+                        sendError(output, CODE_SERVICE_UNAVAILABLE, e.getMessage());
+                    }
+                    catch (UncheckedIOException e) { throw e.getCause(); }
+                    catch (Exception e)
+                    {
+                        sendError(output, CODE_SERVICE_UNAVAILABLE, "AI 服务不可用，请稍后重试");
+                    }
+                });
     }
 
-    /** 发送 SSE data 块；发送失败时抛运行时异常由上层 catch 收敛。 */
-    private static void sendData(SseEmitter emitter, String json)
+    private static void sendError(OutputStream output, int code, String message)
+    {
+        sendEvent(output, "error", "{\"code\":" + code + ",\"message\":" + jsonEscape(message) + "}");
+    }
+
+    private static void sendEvent(OutputStream output, String event, String json)
     {
         try
         {
-            emitter.send(SseEmitter.event()
-                    .name("message")
-                    .data(json.getBytes(StandardCharsets.UTF_8), MediaType.APPLICATION_JSON));
+            output.write(("event:" + event + "\ndata:" + json + "\n\n").getBytes(StandardCharsets.UTF_8));
+            output.flush();
         }
-        catch (IOException | IllegalStateException e)
-        {
-            throw new IllegalStateException("SSE 发送中断", e);
-        }
-    }
-
-    /** 发送错误事件并关闭流。 */
-    private static void completeWithError(SseEmitter emitter, int code, String message)
-    {
-        try
-        {
-            emitter.send(SseEmitter.event()
-                    .name("error")
-                    .data(("{\"code\":" + code + ",\"message\":" + jsonEscape(message) + "}")
-                                    .getBytes(StandardCharsets.UTF_8),
-                            MediaType.APPLICATION_JSON));
-        }
-        catch (IOException | IllegalStateException ignored)
-        {
-            // 客户端已断开，无需再写
-        }
-        emitter.complete();
+        catch (IOException e) { throw new UncheckedIOException(e); }
     }
 
     /** JSON 字符串转义（用于把增量文本嵌入 data 块）。 */

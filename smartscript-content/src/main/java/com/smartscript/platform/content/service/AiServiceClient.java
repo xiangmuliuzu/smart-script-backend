@@ -159,21 +159,18 @@ public class AiServiceClient
     }
 
     /**
-     * AI 大纲（流式）。[onDelta] 每收到一个内容增量回调一次（JSON 文本片段）。
+     * AI 大纲（流式）。[onDelta] 每收到一个内容增量回调一次（可读大纲文本）。
      *
-     * @return 完整大纲 JSON 文本（调用方再解析为结构化对象）
+     * @return 完整可读大纲文本（调用方保留兼容的 outline 结果对象）
      */
     public String outlineStream(String inspiration, String genre, String style, Consumer<String> onDelta)
     {
         String genreHint = (genre == null || genre.isBlank()) ? "不限" : genre;
         String styleHint = (style == null || style.isBlank()) ? "不限" : style;
         String insp = (inspiration == null || inspiration.isBlank()) ? "" : inspiration;
-        String system = "你是一名资深网文策划编辑。请根据用户的故事灵感、题材与风格，生成一份结构化的小说大纲。"
-                + "必须只输出一个合法 JSON 对象，不要输出任何解释，也不要使用 Markdown 代码块。"
-                + "JSON 结构如下："
-                + "{\"title\":\"作品名\",\"logline\":\"一句话故事\","
-                + "\"characters\":[{\"name\":\"角色名\",\"role\":\"身份或定位\"}],"
-                + "\"acts\":[{\"name\":\"第一幕\",\"summary\":\"本幕概述\",\"beats\":[\"关键情节1\",\"关键情节2\"]}]}";
+        String system = "你是一名资深网文策划编辑。请根据故事灵感、题材与风格生成小说大纲。"
+                + "依次包含书名、一句话简介、角色、分幕剧情和关键情节，以中文标题分段输出可读文本。"
+                + "直接从书名开始，不要解释，不要 JSON，不要 Markdown 代码块。";
         String user = "故事灵感：" + insp + "\n题材：" + genreHint + "\n风格：" + styleHint;
         return streamChat(system, user, onDelta);
     }
@@ -218,6 +215,7 @@ public class AiServiceClient
                 throw new AiServiceUnavailableException("AI 服务不可用，请稍后重试 (HTTP " + response.statusCode() + ")");
             }
             StringBuilder full = new StringBuilder();
+            boolean completed = false;
             String errorMessage = "AI 未返回有效内容，请稍后重试";
             try (BufferedReader reader = new BufferedReader(
                     new InputStreamReader(response.body(), StandardCharsets.UTF_8)))
@@ -236,6 +234,7 @@ public class AiServiceClient
                     String data = line.substring(5).trim();
                     if (data.equals("[DONE]"))
                     {
+                        completed = true;
                         break;
                     }
                     String delta = parseSseDelta(data);
@@ -246,11 +245,16 @@ public class AiServiceClient
                     }
                     if (isSseFinish(data))
                     {
+                        completed = true;
                         break;
                     }
                 }
             }
             String content = full.toString().trim();
+            if (!completed)
+            {
+                throw new AiServiceUnavailableException("AI 生成中断，请稍后重试");
+            }
             if (content.isEmpty())
             {
                 throw new AiServiceUnavailableException(errorMessage);
