@@ -50,6 +50,8 @@ public class ReviewService {
 
     /**
      * 查询审核作品完整内容（人工审核用）：简介 + 各章节正文（纯文本）。
+     * 同时返回 AI 审核结果（aiInfo）与章节级问题定位（issues：命中词 + 上下文片段），
+     * 供审核工作台「详情」只展示有问题的地方（问题片段红字 + 章节后驳回原因）。
      * @return 内容数据；审核记录不存在或非作品类型时返回 null
      */
     public java.util.Map<String, Object> selectReviewContent(Long reviewId) {
@@ -68,7 +70,125 @@ public class ReviewService {
         data.put("workId", workId);
         data.put("work", work);
         data.put("chapters", chapters);
+
+        // AI 审核结果（优先从 ai_result JSON 解析；ai_score 列可能未被写入）
+        java.util.Map<String, Object> aiInfo = new java.util.HashMap<>();
+        aiInfo.put("score", record.getAiScore());
+        aiInfo.put("level", record.getAiRiskLevel());
+        java.util.List<String> keywords = new java.util.ArrayList<>();
+        if (record.getAiResult() != null) {
+            try {
+                com.fasterxml.jackson.databind.JsonNode node = new com.fasterxml.jackson.databind.ObjectMapper().readTree(record.getAiResult());
+                if (node.path("score").isNumber()) {
+                    aiInfo.put("score", node.path("score").asInt());
+                }
+                if (node.path("level").isTextual() && !node.path("level").asText().isBlank()) {
+                    aiInfo.put("level", node.path("level").asText());
+                }
+                if (node.path("keywords").isArray()) {
+                    for (com.fasterxml.jackson.databind.JsonNode k : node.path("keywords")) {
+                        String s = k.asText("").trim();
+                        if (!s.isEmpty()) {
+                            keywords.add(s);
+                        }
+                    }
+                }
+            } catch (Exception ignored) {
+                // ai_result 非 JSON（历史脏数据）时忽略，仅用 ai_sensitive_words 定位
+            }
+        }
+        // 补充 AI 命中的敏感词列（逗号/顿号/分号/竖线分隔）
+        if (record.getAiSensitiveWords() != null) {
+            for (String s : record.getAiSensitiveWords().split("[,，;；|]+")) {
+                String w = s.trim();
+                if (!w.isEmpty() && !keywords.contains(w)) {
+                    keywords.add(w);
+                }
+            }
+        }
+        aiInfo.put("keywords", new java.util.ArrayList<>(keywords));
+
+        // 逐章节定位命中词 → 问题片段（只输出有问题章节）
+        java.util.List<java.util.Map<String, Object>> issues = new java.util.ArrayList<>();
+        for (WorkChapterVO ch : chapters) {
+            String text = ch.getContent() == null ? "" : ch.getContent();
+            java.util.List<java.util.Map<String, Object>> hits = hitsOf(text, keywords);
+            if (!hits.isEmpty()) {
+                java.util.Map<String, Object> issue = new java.util.HashMap<>();
+                issue.put("chapterId", ch.getChapterId());
+                issue.put("chapterNo", ch.getChapterNo());
+                issue.put("chapterTitle", ch.getChapterTitle());
+                issue.put("hits", hits);
+                issues.add(issue);
+            }
+        }
+        // 简介中的命中词也作为「简介」问题项输出
+        String summary = work == null ? null : work.getSummary();
+        if (summary != null && !summary.isEmpty()) {
+            java.util.List<java.util.Map<String, Object>> hits = hitsOf(summary, keywords);
+            if (!hits.isEmpty()) {
+                java.util.Map<String, Object> issue = new java.util.HashMap<>();
+                issue.put("chapterId", null);
+                issue.put("chapterNo", 0);
+                issue.put("chapterTitle", "简介");
+                issue.put("hits", hits);
+                issues.add(0, issue);
+            }
+        }
+        data.put("aiInfo", aiInfo);
+        data.put("issues", issues);
         return data;
+    }
+
+    /** 在文本中查找所有命中词及其上下文片段。整词未命中时按标点/符号拆词再查（如
+     *  AI 给出的语义化关键词"疑似《斗破苍穹》原文，版权风险"可拆出"斗破苍穹"等原文词），
+     *  拆词命中项 word 记录实际命中的词，便于前端红字定位。 */
+    private java.util.List<java.util.Map<String, Object>> hitsOf(String text, java.util.List<String> keywords) {
+        java.util.List<java.util.Map<String, Object>> hits = new java.util.ArrayList<>();
+        if (text == null || text.isEmpty()) {
+            return hits;
+        }
+        for (String kw : keywords) {
+            int idx = text.indexOf(kw);
+            if (idx >= 0) {
+                java.util.Map<String, Object> hit = new java.util.HashMap<>();
+                hit.put("word", kw);
+                hit.put("snippet", snippetAround(text, idx, kw.length(), 30));
+                hits.add(hit);
+                continue;
+            }
+            // 整词未命中：拆词兜底（仅取长度>=2 的子词，避免单字噪声）
+            for (String part : kw.split("[，。、；：！？!?\"“”'（）()《》<>\\s\\[\\]【】]+")) {
+                String w = part.trim();
+                if (w.length() < 2) {
+                    continue;
+                }
+                int p = text.indexOf(w);
+                if (p >= 0 && !containsWord(hits, w)) {
+                    java.util.Map<String, Object> hit = new java.util.HashMap<>();
+                    hit.put("word", w);
+                    hit.put("snippet", snippetAround(text, p, w.length(), 30));
+                    hits.add(hit);
+                }
+            }
+        }
+        return hits;
+    }
+
+    private boolean containsWord(java.util.List<java.util.Map<String, Object>> hits, String word) {
+        for (java.util.Map<String, Object> h : hits) {
+            if (word.equals(h.get("word"))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 截取命中词前后各 pad 个字符作为上下文片段 */
+    private String snippetAround(String text, int start, int len, int pad) {
+        int from = Math.max(0, start - pad);
+        int to = Math.min(text.length(), start + len + pad);
+        return text.substring(from, to);
     }
 
     /**
