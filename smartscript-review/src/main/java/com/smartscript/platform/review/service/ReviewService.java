@@ -76,6 +76,7 @@ public class ReviewService {
         aiInfo.put("score", record.getAiScore());
         aiInfo.put("level", record.getAiRiskLevel());
         java.util.List<String> keywords = new java.util.ArrayList<>();
+        java.util.List<String> aiQuotes = new java.util.ArrayList<>();
         if (record.getAiResult() != null) {
             try {
                 com.fasterxml.jackson.databind.JsonNode node = new com.fasterxml.jackson.databind.ObjectMapper().readTree(record.getAiResult());
@@ -90,6 +91,15 @@ public class ReviewService {
                         String s = k.asText("").trim();
                         if (!s.isEmpty()) {
                             keywords.add(s);
+                        }
+                    }
+                }
+                // AI 引用的正文原文片段（issues[].quote），用于精确问题定位
+                if (node.path("issues").isArray()) {
+                    for (com.fasterxml.jackson.databind.JsonNode iss : node.path("issues")) {
+                        String q = iss.path("quote").asText("").trim();
+                        if (!q.isEmpty() && !aiQuotes.contains(q)) {
+                            aiQuotes.add(q);
                         }
                     }
                 }
@@ -108,11 +118,24 @@ public class ReviewService {
         }
         aiInfo.put("keywords", new java.util.ArrayList<>(keywords));
 
-        // 逐章节定位命中词 → 问题片段（只输出有问题章节）
+        // 逐章节定位问题 → 问题片段（只输出有问题章节）
+        // 优先级：AI 引用句(quote)精确定位 > 关键词字面定位
         java.util.List<java.util.Map<String, Object>> issues = new java.util.ArrayList<>();
         for (WorkChapterVO ch : chapters) {
             String text = ch.getContent() == null ? "" : ch.getContent();
-            java.util.List<java.util.Map<String, Object>> hits = hitsOf(text, keywords);
+            java.util.List<java.util.Map<String, Object>> hits = new java.util.ArrayList<>();
+            // 1) AI 引用句：整句精确匹配，标点差异时去标点再匹配
+            for (String q : aiQuotes) {
+                int idx = indexOfQuote(text, q);
+                if (idx >= 0 && !containsWord(hits, q)) {
+                    java.util.Map<String, Object> hit = new java.util.HashMap<>();
+                    hit.put("word", q);
+                    hit.put("snippet", snippetAround(text, idx, q.length(), 30));
+                    hits.add(hit);
+                }
+            }
+            // 2) 关键词字面定位（与引用句命中去重）
+            hits.addAll(hitsOf(text, keywords));
             if (!hits.isEmpty()) {
                 java.util.Map<String, Object> issue = new java.util.HashMap<>();
                 issue.put("chapterId", ch.getChapterId());
@@ -125,7 +148,17 @@ public class ReviewService {
         // 简介中的命中词也作为「简介」问题项输出
         String summary = work == null ? null : work.getSummary();
         if (summary != null && !summary.isEmpty()) {
-            java.util.List<java.util.Map<String, Object>> hits = hitsOf(summary, keywords);
+            java.util.List<java.util.Map<String, Object>> hits = new java.util.ArrayList<>();
+            for (String q : aiQuotes) {
+                int idx = indexOfQuote(summary, q);
+                if (idx >= 0 && !containsWord(hits, q)) {
+                    java.util.Map<String, Object> hit = new java.util.HashMap<>();
+                    hit.put("word", q);
+                    hit.put("snippet", snippetAround(summary, idx, q.length(), 30));
+                    hits.add(hit);
+                }
+            }
+            hits.addAll(hitsOf(summary, keywords));
             if (!hits.isEmpty()) {
                 java.util.Map<String, Object> issue = new java.util.HashMap<>();
                 issue.put("chapterId", null);
@@ -138,6 +171,41 @@ public class ReviewService {
         data.put("aiInfo", aiInfo);
         data.put("issues", issues);
         return data;
+    }
+
+    /** 去掉中英文标点/空白/括号，用于 AI 引用句与正文存在细微标点差异时的兜底匹配 */
+    private String stripPunct(String s) {
+        return s == null ? "" : s.replaceAll("[，。、；：！？!?\"“”'（）()《》<>\\s\\[\\]【】]", "");
+    }
+
+    /** 引用句模糊定位：优先整句精确匹配；标点差异时在去标点文本中匹配，并把命中位置映射回原文本 */
+    private int indexOfQuote(String text, String quote) {
+        if (text == null || quote == null || quote.isEmpty()) {
+            return -1;
+        }
+        int idx = text.indexOf(quote);
+        if (idx >= 0) {
+            return idx;
+        }
+        String t = stripPunct(text);
+        String q = stripPunct(quote);
+        if (q.isEmpty()) {
+            return -1;
+        }
+        int qi = t.indexOf(q);
+        if (qi < 0) {
+            return -1;
+        }
+        // 映射回原文本：数到去标点串第 qi 个非标点字符在原文的位置
+        int ti = 0;
+        int nonPunct = 0;
+        while (ti < text.length() && nonPunct < qi) {
+            if (stripPunct(String.valueOf(text.charAt(ti))).length() > 0) {
+                nonPunct++;
+            }
+            ti++;
+        }
+        return ti < text.length() ? ti : -1;
     }
 
     /** 在文本中查找所有命中词及其上下文片段。整词未命中时按标点/符号拆词再查（如

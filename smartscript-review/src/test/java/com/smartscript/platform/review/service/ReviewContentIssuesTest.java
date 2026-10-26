@@ -170,6 +170,64 @@ class ReviewContentIssuesTest {
     }
 
     @Test
+    void selectReviewContent_Ai引用句_按原文整句定位章节() {
+        // AI 审核返回 issues[].quote（正文原句），应优先精确命中对应章节
+        record.setAiResult("{\"score\":35,\"level\":\"high\",\"keywords\":[\"暴力描写\"],"
+                + "\"issues\":[{\"reason\":\"暴力描写\",\"quote\":\"他拿起刀，用暴力解决了一切\"}]}");
+        record.setAiSensitiveWords(null);
+        c1.setContent("<div data-script-document=\"1\"><p>巷子里，他拿起刀，用暴力解决了一切，众人四散奔逃。</p></div>");
+        stubContent();
+
+        Map<String, Object> data = reviewService.selectReviewContent(99L);
+
+        assertNotNull(data);
+        java.util.List<Map<String, Object>> issues = (java.util.List<Map<String, Object>>) data.get("issues");
+        assertTrue(issues.size() >= 1);
+        Map<String, Object> issue = issues.get(0);
+        java.util.List<Map<String, Object>> hits = (java.util.List<Map<String, Object>>) issue.get("hits");
+        // 引用句整句作为 word 命中（前端可整句标红）
+        assertTrue(hits.stream().anyMatch(h -> "他拿起刀，用暴力解决了一切".equals(h.get("word"))));
+        // 关键词"暴力描写"拆词兜底与引用句命中合并去重后仍至少保留引用句
+        assertEquals(11L, issue.get("chapterId"));
+    }
+
+    @Test
+    void selectReviewContent_Ai引用句_标点差异去标点兜底命中() {
+        // AI 引用句与正文存在标点细微差异（少了逗号），去标点后仍能定位
+        record.setAiResult("{\"score\":40,\"level\":\"high\",\"keywords\":[],"
+                + "\"issues\":[{\"reason\":\"血腥描写\",\"quote\":\"拿起刀用暴力解决了一切\"}]}");
+        record.setAiSensitiveWords(null);
+        c1.setContent("<div data-script-document=\"1\"><p>他拿起刀，用暴力解决了一切，众人四散奔逃。</p></div>");
+        stubContent();
+
+        Map<String, Object> data = reviewService.selectReviewContent(99L);
+
+        java.util.List<Map<String, Object>> issues = (java.util.List<Map<String, Object>>) data.get("issues");
+        assertTrue(issues.size() >= 1);
+        java.util.List<Map<String, Object>> hits = (java.util.List<Map<String, Object>>) issues.get(0).get("hits");
+        assertTrue(hits.stream().anyMatch(h -> "拿起刀用暴力解决了一切".equals(h.get("word"))));
+    }
+
+    @Test
+    void selectReviewContent_Ai引用句不在正文_回退关键词定位() {
+        // quote 与正文完全无关时，不产生引用句命中，仍按关键词定位（此处无关键词命中则 issues 空）
+        record.setAiResult("{\"score\":50,\"level\":\"medium\",\"keywords\":[\"斗破苍穹\"],"
+                + "\"issues\":[{\"reason\":\"引用\",\"quote\":\"这段文字在正文中不存在\"}]}");
+        record.setAiSensitiveWords(null);
+        c1.setContent("<div data-script-document=\"1\"><p>主角进入斗破苍穹的世界，展开冒险。</p></div>");
+        stubContent();
+
+        Map<String, Object> data = reviewService.selectReviewContent(99L);
+
+        java.util.List<Map<String, Object>> issues = (java.util.List<Map<String, Object>>) data.get("issues");
+        assertTrue(issues.size() >= 1);
+        java.util.List<Map<String, Object>> hits = (java.util.List<Map<String, Object>>) issues.get(0).get("hits");
+        // 不应出现引用句（正文无此句），关键词拆词命中"斗破苍穹"
+        assertTrue(hits.stream().noneMatch(h -> "这段文字在正文中不存在".equals(h.get("word"))));
+        assertTrue(hits.stream().anyMatch(h -> "斗破苍穹".equals(h.get("word"))));
+    }
+
+    @Test
     void selectReviewContent_记录不存在_返回null() {
         when(reviewRecordMapper.selectReviewRecordById(404L)).thenReturn(null);
         assertNull(reviewService.selectReviewContent(404L));

@@ -309,6 +309,58 @@ class AiReviewServiceTest {
     }
 
     @Test
+    void mockScore_含暴力词_生成引用句quote() {
+        Map<String, Object> r = aiReviewService.mockScore("他拿起刀，用暴力解决了一切。大家都吓坏了", Collections.singletonList(contentRule));
+        assertTrue(((Number) r.get("score")).intValue() < 100);
+        java.util.List<Map<String, Object>> issues = (java.util.List<Map<String, Object>>) r.get("issues");
+        assertNotNull(issues);
+        assertTrue(issues.size() >= 1);
+        // 引用句必须是正文原句（含命中词）
+        assertTrue(issues.stream().anyMatch(i -> "他拿起刀，用暴力解决了一切".equals(i.get("quote"))));
+    }
+
+    @Test
+    void mockScore_无违规_issues为空() {
+        Map<String, Object> r = aiReviewService.mockScore("这是一篇优秀的悬疑小说，情节紧凑", Collections.singletonList(contentRule));
+        assertEquals(100, r.get("score"));
+        java.util.List<Map<String, Object>> issues = (java.util.List<Map<String, Object>>) r.get("issues");
+        assertTrue(issues == null || issues.isEmpty());
+    }
+
+    @Test
+    void score_真调AI_解析issues并落库() {
+        ReflectionTestUtils.setField(aiReviewService, "aiApiKey", "sk-test");
+        ReflectionTestUtils.setField(aiReviewService, "aiBaseUrl", "https://api.deepseek.com");
+        ReflectionTestUtils.setField(aiReviewService, "aiModel", "deepseek-chat");
+        RestTemplate mockRest = mock(RestTemplate.class);
+        ReflectionTestUtils.setField(aiReviewService, "restTemplate", mockRest);
+
+        // AI 返回带 issues 的 JSON（quote 为正文原文引用）
+        String aiResp = "{\"choices\":[{\"message\":{\"content\":\"{\\\"score\\\":35,\\\"level\\\":\\\"high\\\","
+                + "\\\"keywords\\\":[\\\"暴力描写\\\"],"
+                + "\\\"issues\\\":[{\\\"reason\\\":\\\"暴力描写\\\",\\\"quote\\\":\\\"他拿起刀，用暴力解决了一切\\\"}]"
+                + "}\"}}]}";
+        when(mockRest.postForEntity(any(String.class), any(), eq(String.class)))
+                .thenReturn(new ResponseEntity<>(aiResp, HttpStatus.OK));
+
+        ReviewRecord record = new ReviewRecord();
+        record.setReviewId(22L);
+        when(reviewRecordMapper.selectReviewRecordById(22L)).thenReturn(record);
+        when(aiReviewRuleMapper.selectActiveAiReviewRules()).thenReturn(Collections.emptyList());
+
+        Map<String, Object> r = aiReviewService.score(22L, "他拿起刀，用暴力解决了一切");
+        assertEquals(200, r.get("code"));
+        assertEquals(35, r.get("aiScore"));
+
+        org.mockito.ArgumentCaptor<ReviewRecord> captor = org.mockito.ArgumentCaptor.forClass(ReviewRecord.class);
+        verify(reviewRecordMapper).updateReviewRecord(captor.capture());
+        String aiResult = captor.getValue().getAiResult();
+        assertTrue(aiResult.contains("\"issues\""));
+        assertTrue(aiResult.contains("他拿起刀，用暴力解决了一切"));
+        assertTrue(aiResult.contains("暴力描写"));
+    }
+
+    @Test
     void decideAction_无命中或全部放行_返回null() {
         assertNull(aiReviewService.decideAction(100, "正常内容", Collections.singletonList(contentRule)));
         contentRule.setAction("auto_pass");

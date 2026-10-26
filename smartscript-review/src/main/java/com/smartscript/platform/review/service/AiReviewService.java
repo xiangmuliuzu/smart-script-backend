@@ -97,6 +97,10 @@ public class AiReviewService {
         int score = ((Number) aiResp.get("score")).intValue();
         String riskLevel = (String) aiResp.get("level");
         List<String> keywords = (List<String>) aiResp.get("keywords");
+        List<Map<String, Object>> issues = (List<Map<String, Object>>) aiResp.get("issues");
+        if (issues == null) {
+            issues = new ArrayList<>();
+        }
         String sensitiveWords = String.join(",", keywords);
 
         // 4) 落库AI结果
@@ -108,6 +112,7 @@ public class AiReviewService {
             aiJson.put("score", score);
             aiJson.put("level", riskLevel);
             aiJson.put("keywords", keywords);
+            aiJson.put("issues", issues);
             aiJson.put("prompt", prompt.length() > 500 ? prompt.substring(0, 500) : prompt);
             upd.setAiResult(objectMapper.writeValueAsString(aiJson));
         } catch (Exception ignored) {
@@ -287,11 +292,34 @@ public class AiReviewService {
             score = 0;
         }
         String level = score >= 85 ? "low" : (score >= 60 ? "medium" : "high");
+        // 引用句：对每个命中词，取正文中含该词的原句作为 quote（供定位/展示）
+        java.util.List<Map<String, Object>> issues = new ArrayList<>();
+        for (String kw : keywords) {
+            Map<String, Object> issue = new HashMap<>();
+            issue.put("reason", "命中违规词/特征词");
+            issue.put("quote", sentenceContaining(text, kw));
+            issues.add(issue);
+        }
         Map<String, Object> resp = new HashMap<>();
         resp.put("score", score);
         resp.put("level", level);
         resp.put("keywords", keywords);
+        resp.put("issues", issues);
         return resp;
+    }
+
+    /** 取正文中包含指定词的整句（按句号/叹号/问号/换行切句），找不到时回退该词本身 */
+    private String sentenceContaining(String text, String word) {
+        if (text == null || text.isEmpty() || word == null || word.isEmpty()) {
+            return word == null ? "" : word;
+        }
+        String[] sentences = text.split("[。！？!?\\n]+");
+        for (String s : sentences) {
+            if (s.contains(word)) {
+                return s.trim();
+            }
+        }
+        return word;
     }
 
     /**
@@ -303,9 +331,12 @@ public class AiReviewService {
     private Map<String, Object> callExternalAi(String prompt, String content) {
         String system = "你是一名严格的内容安全审核员。请根据用户给出的审核规则，对待审核作品内容逐项判定。"
                 + "只输出一个JSON对象，不要任何解释、不要markdown代码块包裹，格式严格为："
-                + "{\"score\":0到100的整数,\"level\":\"low或medium或high\",\"keywords\":[\"命中的违规词或问题点\"]}。"
+                + "{\"score\":0到100的整数,\"level\":\"low或medium或high\",\"keywords\":[\"命中的违规词或问题点\"],"
+                + "\"issues\":[{\"reason\":\"问题描述\",\"quote\":\"正文中的原文片段，必须逐字引用待审核内容里的原句\"}]}。"
                 + "score越高越安全合规：>=85为low（低风险），60-84为medium（中风险），<60为high（高风险）。"
-                + "若内容没有问题，keywords为空数组[]，score=100，level=low。";
+                + "每条问题都必须在issues中给出reason（问题点）与quote（正文原文片段，用于给审核员/用户定位具体位置，"
+                + "若正文确实没有明显字面违规内容则issues为空数组）。"
+                + "若内容没有问题，keywords为空数组[]、issues为空数组[]、score=100、level=low。";
         String user = prompt + "\n\n【待审核内容】\n" + (content == null ? "" : content);
 
         List<Map<String, String>> messages = new ArrayList<>();
@@ -315,7 +346,7 @@ public class AiReviewService {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("model", aiModel);
         body.put("messages", messages);
-        body.put("max_tokens", 1024);
+        body.put("max_tokens", 2048);
         body.put("temperature", 0.1);
 
         HttpHeaders headers = new HttpHeaders();
@@ -371,6 +402,26 @@ public class AiReviewService {
                 if (o != null && !o.toString().isBlank()) keywords.add(o.toString());
             }
         }
+        // 解析问题引用（issues[].reason/quote，quote 非空才保留）
+        List<Map<String, Object>> issues = new ArrayList<>();
+        Object issRaw = result.get("issues");
+        if (issRaw instanceof List) {
+            for (Object o : (List<?>) issRaw) {
+                if (!(o instanceof Map)) {
+                    continue;
+                }
+                Map<?, ?> m = (Map<?, ?>) o;
+                String reason = m.get("reason") == null ? "" : m.get("reason").toString().trim();
+                String quote = m.get("quote") == null ? "" : m.get("quote").toString().trim();
+                if (quote.isEmpty()) {
+                    continue;
+                }
+                Map<String, Object> issue = new HashMap<>();
+                issue.put("reason", reason);
+                issue.put("quote", quote);
+                issues.add(issue);
+            }
+        }
         if (score < 0) score = 0;
         if (score > 100) score = 100;
         // 兜底校验 level
@@ -381,7 +432,8 @@ public class AiReviewService {
         out.put("score", score);
         out.put("level", level);
         out.put("keywords", keywords);
-        log.info("AI初审完成: score={}, level={}, keywords={}", score, level, keywords);
+        out.put("issues", issues);
+        log.info("AI初审完成: score={}, level={}, keywords={}, issues={}", score, level, keywords, issues.size());
         return out;
     }
 
