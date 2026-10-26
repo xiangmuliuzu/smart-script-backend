@@ -47,7 +47,14 @@ public class TradeFinanceService
     /* ========== 收益总览 ========== */
 
     /**
-     * 查询作者收益总览（从 sys_income_account + sys_creator_stats）。
+     * 查询作者收益总览（从 sys_income_account + sys_creator_stats + 待结算）。
+     * <p>
+     * 字段口径：
+     * totalIncome = 累计已入账收益（作者确认结算后计入，提现不扣减）；
+     * pendingSettleAmount = 待作者确认、尚未入账；
+     * availableAmount = 可提现；
+     * withdrawnAmount = 已提现（含审核中/已通过/冻结/已打款，不含已驳回）。
+     * 因此总收益 ≠ 待结算+可提现+已提现（待结算未入账；总收益是累计入账口径）。
      */
     public Map<String, Object> getIncomeOverview(Long userId)
     {
@@ -85,7 +92,416 @@ public class TradeFinanceService
             overview.put("soldCount", 0);
         }
 
+        // 待结算：作者待确认入账金额（sys_income_settle.pending）
+        overview.put("pendingSettleAmount", queryPendingSettleAmount(userId));
+        overview.put("pendingSettleCount", countPendingSettle(userId));
+        overview.put("withdrawnAmount", queryWithdrawnAmount(userId));
+
         return overview;
+    }
+
+    /** 已提现合计：提现申请中未驳回的金额。 */
+    private BigDecimal queryWithdrawnAmount(Long userId)
+    {
+        try
+        {
+            BigDecimal amount = jdbc.queryForObject(
+                    "SELECT IFNULL(SUM(amount), 0) FROM sys_withdraw_apply "
+                            + "WHERE user_id = ? AND status IN ('pending','approved','frozen','paid')",
+                    BigDecimal.class, userId);
+            return amount != null ? amount : BigDecimal.ZERO;
+        }
+        catch (Exception ex)
+        {
+            return BigDecimal.ZERO;
+        }
+    }
+
+    private BigDecimal queryPendingSettleAmount(Long userId)
+    {
+        BigDecimal amount = jdbc.queryForObject(
+                "SELECT IFNULL(SUM(seller_amount), 0) FROM sys_income_settle "
+                        + "WHERE user_id = ? AND status = 'pending'",
+                BigDecimal.class, userId);
+        return amount != null ? amount : BigDecimal.ZERO;
+    }
+
+    private long countPendingSettle(Long userId)
+    {
+        Long count = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM sys_income_settle WHERE user_id = ? AND status = 'pending'",
+                Long.class, userId);
+        return count == null ? 0 : count;
+    }
+
+    /* ========== 待结算（到账前作者确认/异议） ========== */
+
+    private static final String SETTLE_SELECT =
+            "SELECT settle_id AS settleId, settle_no AS settleNo, user_id AS userId, order_id AS orderId, "
+                    + "order_no AS orderNo, work_title AS workTitle, total_amount AS totalAmount, "
+                    + "platform_fee AS platformFee, split_rate AS splitRate, seller_amount AS sellerAmount, "
+                    + "status AS status, dispute_reason AS disputeReason, bill_id AS billId, "
+                    + "DATE_FORMAT(confirm_time, '%Y-%m-%d %H:%i:%s') AS confirmTime, "
+                    + "DATE_FORMAT(dispute_time, '%Y-%m-%d %H:%i:%s') AS disputeTime, "
+                    + "DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS createdAt "
+                    + "FROM sys_income_settle ";
+
+    /**
+     * 订单完成后创建待结算单（不入账）。同一 order_id 幂等：已存在则直接返回。
+     */
+    @Transactional
+    public Map<String, Object> createPendingSettle(SysOrder order)
+    {
+        if (order == null || order.getOrderId() == null || order.getSellerId() == null)
+        {
+            throw new IllegalArgumentException("订单信息不完整，无法创建待结算");
+        }
+        BigDecimal sellerAmount = order.getSellerAmount() != null
+                ? order.getSellerAmount() : BigDecimal.ZERO;
+        if (sellerAmount.compareTo(BigDecimal.ZERO) <= 0)
+        {
+            throw new IllegalArgumentException("作者应得金额无效，无法创建待结算");
+        }
+
+        List<Map<String, Object>> existed = jdbc.queryForList(
+                SETTLE_SELECT + " WHERE order_id = ? LIMIT 1", order.getOrderId());
+        if (!existed.isEmpty())
+        {
+            return existed.get(0);
+        }
+
+        String settleNo = "ST" + Seq.getId();
+        BigDecimal total = order.getTotalAmount() != null ? order.getTotalAmount() : sellerAmount;
+        BigDecimal fee = order.getPlatformFee() != null ? order.getPlatformFee() : BigDecimal.ZERO;
+        BigDecimal rate = order.getSplitRate() != null ? order.getSplitRate() : BigDecimal.ZERO;
+
+        jdbc.update(
+                "INSERT INTO sys_income_settle (settle_no, user_id, order_id, order_no, work_title, "
+                        + "total_amount, platform_fee, split_rate, seller_amount, status, created_at, updated_at) "
+                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NOW(), NOW())",
+                settleNo, order.getSellerId(), order.getOrderId(), order.getOrderNo(),
+                order.getWorkTitle(), total, fee, rate, sellerAmount);
+
+        List<Map<String, Object>> created = jdbc.queryForList(
+                SETTLE_SELECT + " WHERE settle_no = ? LIMIT 1", settleNo);
+        return created.isEmpty() ? Map.of("settleNo", settleNo, "status", "pending") : created.get(0);
+    }
+
+    public long countSettleList(Long userId, String status)
+    {
+        StringBuilder sql = new StringBuilder("SELECT COUNT(*) FROM sys_income_settle WHERE user_id = ?");
+        List<Object> args = new ArrayList<>();
+        args.add(userId);
+        if (status != null && !status.isBlank())
+        {
+            sql.append(" AND status = ?");
+            args.add(status.trim());
+        }
+        Long count = jdbc.queryForObject(sql.toString(), Long.class, args.toArray());
+        return count == null ? 0 : count;
+    }
+
+    public List<Map<String, Object>> getSettleList(Long userId, String status, int pageNum, int pageSize)
+    {
+        StringBuilder sql = new StringBuilder(SETTLE_SELECT + " WHERE user_id = ?");
+        List<Object> args = new ArrayList<>();
+        args.add(userId);
+        if (status != null && !status.isBlank())
+        {
+            sql.append(" AND status = ?");
+            args.add(status.trim());
+        }
+        sql.append(" ORDER BY created_at DESC LIMIT ? OFFSET ?");
+        args.add(pageSize);
+        args.add((long) (pageNum - 1) * pageSize);
+        return jdbc.queryForList(sql.toString(), args.toArray());
+    }
+
+    public Map<String, Object> getSettleDetail(Long userId, Long settleId)
+    {
+        List<Map<String, Object>> rows = jdbc.queryForList(
+                SETTLE_SELECT + " WHERE settle_id = ? AND user_id = ? LIMIT 1", settleId, userId);
+        if (rows.isEmpty())
+        {
+            throw new IllegalArgumentException("待结算单不存在");
+        }
+        return rows.get(0);
+    }
+
+    /**
+     * 作者确认结算 → 入账到可提现，并写收益账单。
+     */
+    @Transactional
+    public Map<String, Object> confirmSettle(Long userId, Long settleId)
+    {
+        Map<String, Object> settle = getSettleDetail(userId, settleId);
+        String status = String.valueOf(settle.get("status"));
+        if (!"pending".equals(status) && !"disputed".equals(status))
+        {
+            throw new IllegalStateException("仅待确认或有异议的结算单可以确认入账");
+        }
+
+        int changed = jdbc.update(
+                "UPDATE sys_income_settle SET status = 'confirmed', confirm_time = NOW(), "
+                        + "dispute_reason = NULL, updated_at = NOW() "
+                        + "WHERE settle_id = ? AND user_id = ? AND status IN ('pending', 'disputed')",
+                settleId, userId);
+        if (changed != 1)
+        {
+            throw new IllegalStateException("结算单状态已变化，请刷新后重试");
+        }
+
+        Long orderId = ((Number) settle.get("orderId")).longValue();
+        BigDecimal amount = toDecimal(settle.get("sellerAmount"));
+        Long billId = creditSellerIncome(userId, amount, orderId);
+
+        jdbc.update("UPDATE sys_income_settle SET bill_id = ?, updated_at = NOW() WHERE settle_id = ?",
+                billId, settleId);
+
+        Map<String, Object> result = new HashMap<>(settle);
+        result.put("status", "confirmed");
+        result.put("billId", billId);
+        return result;
+    }
+
+    /**
+     * 作者提出异议（不入账），须填写原因。
+     */
+    @Transactional
+    public Map<String, Object> disputeSettle(Long userId, Long settleId, String reason)
+    {
+        String text = reason == null ? "" : reason.trim();
+        if (text.isEmpty() || text.length() > 500)
+        {
+            throw new IllegalArgumentException("异议原因须为 1 至 500 个字符");
+        }
+
+        int changed = jdbc.update(
+                "UPDATE sys_income_settle SET status = 'disputed', dispute_reason = ?, dispute_time = NOW(), "
+                        + "updated_at = NOW() WHERE settle_id = ? AND user_id = ? AND status = 'pending'",
+                text, settleId, userId);
+        if (changed != 1)
+        {
+            throw new IllegalStateException("仅待确认的结算单可以提出异议");
+        }
+        return getSettleDetail(userId, settleId);
+    }
+
+    /**
+     * 账单详情（含订单分成字段，供收益明细详情页）。
+     */
+    public Map<String, Object> getBillDetail(Long userId, Long billId)
+    {
+        List<Map<String, Object>> rows = jdbc.queryForList(
+                "SELECT b.bill_id AS billId, b.bill_no AS billNo, b.bill_type AS billType, b.amount AS amount, "
+                        + "b.balance_after AS balanceAfter, b.related_type AS relatedType, b.related_id AS relatedId, "
+                        + "b.remark AS remark, DATE_FORMAT(b.created_at, '%Y-%m-%d %H:%i:%s') AS createdAt, "
+                        + "o.order_no AS orderNo, o.status AS orderStatus, "
+                        + "o.total_amount AS totalAmount, o.platform_fee AS platformFee, "
+                        + "o.split_rate AS splitRate, o.seller_amount AS sellerAmount, "
+                        + "DATE_FORMAT(o.pay_time, '%Y-%m-%d %H:%i:%s') AS payTime, "
+                        + "DATE_FORMAT(o.complete_time, '%Y-%m-%d %H:%i:%s') AS completeTime, "
+                        + "w.title AS workTitle "
+                        + "FROM sys_bill_record b "
+                        + "LEFT JOIN sys_order o ON b.related_type = 'order' AND b.related_id = o.order_id "
+                        + "LEFT JOIN sys_work w ON o.work_id = w.work_id "
+                        + "WHERE b.bill_id = ? AND b.user_id = ? LIMIT 1",
+                billId, userId);
+        if (rows.isEmpty())
+        {
+            throw new IllegalArgumentException("账单不存在");
+        }
+        return rows.get(0);
+    }
+
+    /* ========== 提现（App） ========== */
+
+    private static final List<String> WITHDRAW_TYPES = List.of("bank", "alipay", "wechat");
+
+    /**
+     * App 发起提现申请：校验余额 → 冻结可用金额 → 写入申请单 → 记账。
+     * <p>
+     * 幂等：同一 userId + clientToken 重复提交返回已有申请；同一用户同时只允许一笔 pending。
+     */
+    @Transactional
+    public Map<String, Object> applyWithdraw(Long userId, BigDecimal amount, String withdrawType,
+                                             String accountName, String accountNo, String bankName,
+                                             String clientToken)
+    {
+        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0)
+        {
+            throw new IllegalArgumentException("提现金额必须大于 0");
+        }
+        if (amount.scale() > 2)
+        {
+            throw new IllegalArgumentException("提现金额最多两位小数");
+        }
+        String type = withdrawType == null ? "" : withdrawType.trim();
+        if (!WITHDRAW_TYPES.contains(type))
+        {
+            throw new IllegalArgumentException("提现方式无效，仅支持 bank/alipay/wechat");
+        }
+        String name = requireText(accountName, "账户名", 100);
+        String no = requireText(accountNo, "账号", 100);
+        String bank = bankName == null ? null : bankName.trim();
+        if ("bank".equals(type) && (bank == null || bank.isEmpty()))
+        {
+            throw new IllegalArgumentException("银行卡提现须填写开户行");
+        }
+        if (bank != null && bank.length() > 100)
+        {
+            bank = bank.substring(0, 100);
+        }
+
+        String token = clientToken == null ? null : clientToken.trim();
+        if (token != null && !token.isEmpty())
+        {
+            if (token.length() > 64)
+            {
+                throw new IllegalArgumentException("clientToken 长度不能超过 64");
+            }
+            List<Map<String, Object>> existed = jdbc.queryForList(
+                    "SELECT withdraw_id AS withdrawId, withdraw_no AS withdrawNo, status AS status "
+                            + "FROM sys_withdraw_apply WHERE user_id = ? AND client_token = ? LIMIT 1",
+                    userId, token);
+            if (!existed.isEmpty())
+            {
+                return existed.get(0);
+            }
+        }
+        else
+        {
+            token = null;
+        }
+
+        Integer pendingCount = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM sys_withdraw_apply WHERE user_id = ? AND status = 'pending'",
+                Integer.class, userId);
+        if (pendingCount != null && pendingCount > 0)
+        {
+            throw new IllegalStateException("已有待审核提现申请，请勿重复提交");
+        }
+
+        Map<String, Object> account = financeStatsMapper.selectIncomeAccount(userId);
+        if (account == null)
+        {
+            throw new IllegalStateException("收益账户不存在");
+        }
+        BigDecimal available = toDecimal(account.get("availableAmount"));
+        if (available.compareTo(amount) < 0)
+        {
+            throw new IllegalStateException("可提现余额不足");
+        }
+
+        int frozen = jdbc.update(
+                "UPDATE sys_income_account SET available_amount = available_amount - ?, "
+                        + "frozen_amount = frozen_amount + ?, version = version + 1, updated_at = NOW() "
+                        + "WHERE user_id = ? AND available_amount >= ?",
+                amount, amount, userId, amount);
+        if (frozen != 1)
+        {
+            throw new IllegalStateException("余额变更失败，请重试");
+        }
+
+        Map<String, Object> after = financeStatsMapper.selectIncomeAccount(userId);
+        BigDecimal balanceAfter = after != null ? toDecimal(after.get("availableAmount")) : available.subtract(amount);
+
+        String withdrawNo = "WD" + Seq.getId();
+        BigDecimal fee = BigDecimal.ZERO;
+        BigDecimal actual = amount.subtract(fee);
+        jdbc.update(
+                "INSERT INTO sys_withdraw_apply (withdraw_no, user_id, amount, fee, actual_amount, "
+                        + "withdraw_type, account_name, account_no, bank_name, status, client_token, created_at) "
+                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, NOW())",
+                withdrawNo, userId, amount, fee, actual, type, name, no, bank, token);
+
+        Long withdrawId = jdbc.queryForObject(
+                "SELECT withdraw_id FROM sys_withdraw_apply WHERE withdraw_no = ?", Long.class, withdrawNo);
+
+        String billNo = "BILL" + Seq.getId();
+        Map<String, Object> billParams = new HashMap<>();
+        billParams.put("billNo", billNo);
+        billParams.put("userId", userId);
+        billParams.put("billType", "withdraw");
+        billParams.put("amount", amount.negate());
+        billParams.put("balanceAfter", balanceAfter);
+        billParams.put("relatedType", "withdraw");
+        billParams.put("relatedId", withdrawId);
+        billParams.put("remark", "提现申请冻结");
+        financeStatsMapper.insertBillRecord(billParams);
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("withdrawId", withdrawId);
+        result.put("withdrawNo", withdrawNo);
+        result.put("status", "pending");
+        return result;
+    }
+
+    /**
+     * App 提现记录总数。
+     */
+    public long countWithdrawList(Long userId, String status)
+    {
+        StringBuilder sql = new StringBuilder("SELECT COUNT(*) FROM sys_withdraw_apply WHERE user_id = ?");
+        List<Object> args = new ArrayList<>();
+        args.add(userId);
+        if (status != null && !status.isBlank())
+        {
+            sql.append(" AND status = ?");
+            args.add(status.trim());
+        }
+        Long count = jdbc.queryForObject(sql.toString(), Long.class, args.toArray());
+        return count == null ? 0 : count;
+    }
+
+    /**
+     * App 提现记录列表（含驳回原因 reviewOpinion；JdbcTemplate 手动分页）。
+     */
+    public List<Map<String, Object>> getWithdrawList(Long userId, String status, int pageNum, int pageSize)
+    {
+        StringBuilder sql = new StringBuilder(
+                "SELECT withdraw_id AS withdrawId, withdraw_no AS withdrawNo, amount AS amount, "
+                        + "fee AS fee, actual_amount AS actualAmount, withdraw_type AS withdrawType, "
+                        + "account_name AS accountName, account_no AS accountNo, bank_name AS bankName, "
+                        + "status AS status, review_opinion AS reviewOpinion, "
+                        + "DATE_FORMAT(review_time, '%Y-%m-%d %H:%i:%s') AS reviewTime, "
+                        + "DATE_FORMAT(pay_time, '%Y-%m-%d %H:%i:%s') AS payTime, "
+                        + "DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS createdAt "
+                        + "FROM sys_withdraw_apply WHERE user_id = ?");
+        List<Object> args = new ArrayList<>();
+        args.add(userId);
+        if (status != null && !status.isBlank())
+        {
+            sql.append(" AND status = ?");
+            args.add(status.trim());
+        }
+        sql.append(" ORDER BY created_at DESC LIMIT ? OFFSET ?");
+        args.add(pageSize);
+        args.add((long) (pageNum - 1) * pageSize);
+        return jdbc.queryForList(sql.toString(), args.toArray());
+    }
+
+    private static String requireText(String value, String label, int maxLen)
+    {
+        String text = value == null ? "" : value.trim();
+        if (text.isEmpty() || text.length() > maxLen)
+        {
+            throw new IllegalArgumentException(label + "须为 1 至 " + maxLen + " 个字符");
+        }
+        return text;
+    }
+
+    private static BigDecimal toDecimal(Object value)
+    {
+        if (value instanceof BigDecimal bd)
+        {
+            return bd;
+        }
+        if (value instanceof Number n)
+        {
+            return BigDecimal.valueOf(n.doubleValue());
+        }
+        return BigDecimal.ZERO;
     }
 
     /**
@@ -100,6 +516,45 @@ public class TradeFinanceService
             query.setBillType(billType);
         }
         return billRecordMapper.selectBillRecordList(query);
+    }
+
+    /**
+     * 收入/提现统计（按周、月、年）。
+     * <p>
+     * period: week / month / year；金额单位元。
+     */
+    public Map<String, Object> getIncomeStats(Long userId, String period)
+    {
+        String p = period == null ? "month" : period.trim().toLowerCase();
+        if (!List.of("week", "month", "year").contains(p))
+        {
+            throw new IllegalArgumentException("统计周期仅支持 week/month/year");
+        }
+
+        java.time.LocalDate today = java.time.LocalDate.now();
+        java.time.LocalDate startDate;
+        switch (p)
+        {
+            case "week" -> startDate = today.with(java.time.DayOfWeek.MONDAY);
+            case "year" -> startDate = today.withDayOfYear(1);
+            default -> startDate = today.withDayOfMonth(1);
+        }
+        java.time.LocalDateTime start = startDate.atStartOfDay();
+        java.time.LocalDateTime end = today.plusDays(1).atStartOfDay();
+
+        Map<String, Object> row = jdbc.queryForMap(
+                "SELECT IFNULL(SUM(CASE WHEN bill_type = 'income' THEN amount ELSE 0 END), 0) AS incomeAmount, "
+                        + "IFNULL(SUM(CASE WHEN bill_type = 'withdraw' THEN ABS(amount) ELSE 0 END), 0) AS withdrawAmount "
+                        + "FROM sys_bill_record WHERE user_id = ? AND created_at >= ? AND created_at < ?",
+                userId, java.sql.Timestamp.valueOf(start), java.sql.Timestamp.valueOf(end));
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("period", p);
+        result.put("periodStart", startDate.toString());
+        result.put("periodEnd", today.toString());
+        result.put("incomeAmount", toDecimal(row.get("incomeAmount")));
+        result.put("withdrawAmount", toDecimal(row.get("withdrawAmount")));
+        return result;
     }
 
     /* ========== 资金托管 ========== */
@@ -199,14 +654,12 @@ public class TradeFinanceService
     /* ========== 收益入账（订单完成时调用） ========== */
 
     /**
-     * 订单完成后，将卖家收益写入账户 + 账单流水 + 统计。
+     * 将卖家收益写入账户 + 账单流水 + 统计（作者确认结算后调用）。
      *
-     * @param sellerId 卖家用户 ID
-     * @param amount   卖家应得金额（seller_amount）
-     * @param orderId  关联订单 ID
+     * @return 新建账单 ID
      */
     @Transactional
-    public void creditSellerIncome(Long sellerId, BigDecimal amount, Long orderId)
+    public Long creditSellerIncome(Long sellerId, BigDecimal amount, Long orderId)
     {
         // 1. UPSERT 收益账户
         Map<String, Object> accountParams = new HashMap<>();
@@ -217,7 +670,7 @@ public class TradeFinanceService
         // 2. 查当前余额（用于记录 balance_after）
         Map<String, Object> account = financeStatsMapper.selectIncomeAccount(sellerId);
         BigDecimal balanceAfter = account != null
-                ? (BigDecimal) account.getOrDefault("availableAmount", BigDecimal.ZERO)
+                ? toDecimal(account.get("availableAmount"))
                 : amount;
 
         // 3. INSERT 账单流水
@@ -230,7 +683,7 @@ public class TradeFinanceService
         billParams.put("balanceAfter", balanceAfter);
         billParams.put("relatedType", "order");
         billParams.put("relatedId", orderId);
-        billParams.put("remark", "订单完成收益入账");
+        billParams.put("remark", "作者确认结算后入账");
         financeStatsMapper.insertBillRecord(billParams);
 
         // 4. UPSERT 作者统计
@@ -238,5 +691,9 @@ public class TradeFinanceService
         statsParams.put("userId", sellerId);
         statsParams.put("amount", amount);
         financeStatsMapper.upsertCreatorStats(statsParams);
+
+        Long billId = jdbc.queryForObject(
+                "SELECT bill_id FROM sys_bill_record WHERE bill_no = ? LIMIT 1", Long.class, billNo);
+        return billId;
     }
 }

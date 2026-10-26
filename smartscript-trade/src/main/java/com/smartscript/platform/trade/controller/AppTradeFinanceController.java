@@ -75,6 +75,204 @@ public class AppTradeFinanceController
         return AppApiResponse.ok(result);
     }
 
+    /**
+     * 收入/提现统计。
+     * period: week / month / year
+     */
+    @GetMapping("/income/stats")
+    public AppApiResponse<Map<String, Object>> incomeStats(
+            @RequestParam(defaultValue = "month") String period)
+    {
+        Long userId = currentUserId();
+        try
+        {
+            return AppApiResponse.ok(financeService.getIncomeStats(userId, period));
+        }
+        catch (IllegalArgumentException ex)
+        {
+            return AppApiResponse.fail(400, ex.getMessage());
+        }
+    }
+
+    /* ========== 待结算（到账前确认/异议） ========== */
+
+    /**
+     * 待结算列表。
+     */
+    @GetMapping("/income/settle/list")
+    public AppApiResponse<Map<String, Object>> settleList(
+            @RequestParam(required = false) String status,
+            @RequestParam(defaultValue = "1") int pageNum,
+            @RequestParam(defaultValue = "20") int pageSize)
+    {
+        Long userId = currentUserId();
+        int safePage = Math.max(1, pageNum);
+        int safeSize = Math.max(1, Math.min(100, pageSize));
+        long total = financeService.countSettleList(userId, status);
+        List<Map<String, Object>> rows = financeService.getSettleList(userId, status, safePage, safeSize);
+        for (Map<String, Object> row : rows)
+        {
+            toFen(row, "totalAmount");
+            toFen(row, "platformFee");
+            toFen(row, "sellerAmount");
+        }
+        Map<String, Object> result = new HashMap<>();
+        result.put("total", total);
+        result.put("rows", rows);
+        return AppApiResponse.ok(result);
+    }
+
+    /**
+     * 待结算详情。
+     */
+    @GetMapping("/income/settle/{settleId}")
+    public AppApiResponse<Map<String, Object>> settleDetail(@PathVariable Long settleId)
+    {
+        Long userId = currentUserId();
+        try
+        {
+            Map<String, Object> detail = financeService.getSettleDetail(userId, settleId);
+            toFen(detail, "totalAmount");
+            toFen(detail, "platformFee");
+            toFen(detail, "sellerAmount");
+            return AppApiResponse.ok(detail);
+        }
+        catch (IllegalArgumentException ex)
+        {
+            return AppApiResponse.fail(404, ex.getMessage());
+        }
+    }
+
+    /**
+     * 作者确认结算并入账。
+     */
+    @PostMapping("/income/settle/{settleId}/confirm")
+    public AppApiResponse<Map<String, Object>> settleConfirm(@PathVariable Long settleId)
+    {
+        Long userId = currentUserId();
+        try
+        {
+            Map<String, Object> result = financeService.confirmSettle(userId, settleId);
+            toFen(result, "totalAmount");
+            toFen(result, "platformFee");
+            toFen(result, "sellerAmount");
+            return AppApiResponse.ok(result);
+        }
+        catch (IllegalArgumentException | IllegalStateException ex)
+        {
+            return AppApiResponse.fail(400, ex.getMessage());
+        }
+    }
+
+    /**
+     * 作者提出异议。
+     * body: reason
+     */
+    @PostMapping("/income/settle/{settleId}/dispute")
+    public AppApiResponse<Map<String, Object>> settleDispute(
+            @PathVariable Long settleId, @RequestBody Map<String, String> body)
+    {
+        Long userId = currentUserId();
+        try
+        {
+            String reason = body == null ? null : body.get("reason");
+            Map<String, Object> result = financeService.disputeSettle(userId, settleId, reason);
+            toFen(result, "totalAmount");
+            toFen(result, "platformFee");
+            toFen(result, "sellerAmount");
+            return AppApiResponse.ok(result);
+        }
+        catch (IllegalArgumentException | IllegalStateException ex)
+        {
+            return AppApiResponse.fail(400, ex.getMessage());
+        }
+    }
+
+    /**
+     * 收益账单详情（含订单分成核算字段）。
+     */
+    @GetMapping("/income/detail/{billId}")
+    public AppApiResponse<Map<String, Object>> incomeBillDetail(@PathVariable Long billId)
+    {
+        Long userId = currentUserId();
+        try
+        {
+            Map<String, Object> detail = financeService.getBillDetail(userId, billId);
+            toFen(detail, "amount");
+            toFen(detail, "balanceAfter");
+            toFen(detail, "totalAmount");
+            toFen(detail, "platformFee");
+            toFen(detail, "sellerAmount");
+            detail.put("incomeSource", billSourceLabel(
+                    detail.get("billType") != null ? detail.get("billType").toString() : null));
+            return AppApiResponse.ok(detail);
+        }
+        catch (IllegalArgumentException ex)
+        {
+            return AppApiResponse.fail(404, ex.getMessage());
+        }
+    }
+
+    /* ========== 提现 ========== */
+
+    /**
+     * 发起提现申请。
+     * <p>
+     * body: amount, withdrawType(bank/alipay/wechat), accountName, accountNo, bankName?, clientToken?
+     */
+    @PostMapping("/withdraw/apply")
+    public AppApiResponse<Map<String, Object>> withdrawApply(@RequestBody Map<String, Object> body)
+    {
+        Long userId = currentUserId();
+        try
+        {
+            BigDecimal amount = body.get("amount") != null
+                    ? new BigDecimal(body.get("amount").toString()) : null;
+            Map<String, Object> result = financeService.applyWithdraw(
+                    userId,
+                    amount,
+                    body.get("withdrawType") != null ? body.get("withdrawType").toString() : null,
+                    body.get("accountName") != null ? body.get("accountName").toString() : null,
+                    body.get("accountNo") != null ? body.get("accountNo").toString() : null,
+                    body.get("bankName") != null ? body.get("bankName").toString() : null,
+                    body.get("clientToken") != null ? body.get("clientToken").toString() : null);
+            return AppApiResponse.ok(result);
+        }
+        catch (IllegalArgumentException | IllegalStateException ex)
+        {
+            return AppApiResponse.fail(400, ex.getMessage());
+        }
+    }
+
+    /**
+     * 我的提现记录（含失败/驳回原因 reviewOpinion）。
+     */
+    @GetMapping("/withdraw/list")
+    public AppApiResponse<Map<String, Object>> withdrawList(
+            @RequestParam(required = false) String status,
+            @RequestParam(defaultValue = "1") int pageNum,
+            @RequestParam(defaultValue = "20") int pageSize)
+    {
+        Long userId = currentUserId();
+        int safePage = Math.max(1, pageNum);
+        int safeSize = Math.max(1, Math.min(100, pageSize));
+        long total = financeService.countWithdrawList(userId, status);
+        List<Map<String, Object>> rows = financeService.getWithdrawList(userId, status, safePage, safeSize);
+
+        // 金额统一转分，与账单明细一致
+        for (Map<String, Object> row : rows)
+        {
+            toFen(row, "amount");
+            toFen(row, "fee");
+            toFen(row, "actualAmount");
+        }
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("total", total);
+        result.put("rows", rows);
+        return AppApiResponse.ok(result);
+    }
+
     /* ========== 资金托管 ========== */
 
     /**
@@ -315,6 +513,35 @@ public class AppTradeFinanceController
         m.put("createdAt", b.getCreatedAt());
         m.put("orderNo", b.getOrderNo());
         m.put("workTitle", b.getWorkTitle());
+        m.put("settleStatus", b.getSettleStatus());
+        // 收益来源文案，便于 App 直接展示
+        m.put("incomeSource", billSourceLabel(b.getBillType()));
         return m;
+    }
+
+    private static String billSourceLabel(String billType)
+    {
+        if (billType == null) return "未知";
+        return switch (billType)
+        {
+            case "income" -> "订单收入";
+            case "withdraw" -> "提现支出";
+            case "freeze" -> "资金冻结";
+            case "settle" -> "分成结算";
+            default -> billType;
+        };
+    }
+
+    private static void toFen(Map<String, Object> row, String key)
+    {
+        Object value = row.get(key);
+        if (value instanceof BigDecimal bd)
+        {
+            row.put(key, bd.multiply(new BigDecimal("100")).intValue());
+        }
+        else if (value instanceof Number n)
+        {
+            row.put(key, BigDecimal.valueOf(n.doubleValue()).multiply(new BigDecimal("100")).intValue());
+        }
     }
 }

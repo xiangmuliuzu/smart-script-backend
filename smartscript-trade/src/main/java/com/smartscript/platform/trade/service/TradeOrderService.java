@@ -394,8 +394,10 @@ public class TradeOrderService
             escrowMapper.updateEscrow(escrow);
         }
 
-        // 写入作者收益
-        financeService.creditSellerIncome(order.getSellerId(), order.getSellerAmount(), orderId);
+        // 到账前先生成待结算单，作者确认后再入账（不直接 creditSellerIncome）
+        // 重新查询以带上作品标题等展示字段
+        SysOrder settledOrder = orderMapper.selectOrderById(orderId);
+        financeService.createPendingSettle(settledOrder != null ? settledOrder : order);
 
         SysOrderStatusLog log = new SysOrderStatusLog();
         log.setOrderId(orderId);
@@ -403,7 +405,7 @@ public class TradeOrderService
         log.setToStatus(ORDER_STATUS_COMPLETED);
         log.setOperatorId(operatorId);
         log.setOperatorRole("buyer");
-        log.setRemark("买方确认收货，订单完成，资金已释放");
+        log.setRemark("买方确认收货，订单完成，资金已释放，待卖家确认收益结算");
         log.setCreateBy(safeGetOperatorName());
         log.setCreateTime(new Date());
         logMapper.insertLog(log);

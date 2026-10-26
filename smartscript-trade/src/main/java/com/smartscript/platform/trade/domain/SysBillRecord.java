@@ -28,6 +28,8 @@ public class SysBillRecord extends BaseEntity
     /* ---- Transient ---- */
     private String orderNo;
     private String workTitle;
+    /** 结算状态（pending/settled/abnormal），来自结算单或账单类型推导 */
+    private String settleStatus;
 
     public Long getBillId() { return billId; }
     public void setBillId(Long billId) { this.billId = billId; }
@@ -53,4 +55,6 @@ public class SysBillRecord extends BaseEntity
     public void setOrderNo(String orderNo) { this.orderNo = orderNo; }
     public String getWorkTitle() { return workTitle; }
     public void setWorkTitle(String workTitle) { this.workTitle = workTitle; }
+    public String getSettleStatus() { return settleStatus; }
+    public void setSettleStatus(String settleStatus) { this.settleStatus = settleStatus; }
 }

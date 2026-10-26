@@ -15,13 +15,21 @@
         <result property="createdAt"    column="created_at" />
         <result property="orderNo"      column="order_no" />
         <result property="workTitle"    column="work_title" />
+        <result property="settleStatus" column="settle_status" />
     </resultMap>
 
     <select id="selectBillRecordList" parameterType="com.smartscript.platform.trade.domain.SysBillRecord" resultMap="SysBillRecordResult">
         select b.bill_id, b.bill_no, b.user_id, b.bill_type, b.amount, b.balance_after,
                b.related_type, b.related_id, b.remark, b.created_at,
                o.order_no,
-               w.title as work_title
+               w.title as work_title,
+               CASE b.bill_type
+                   WHEN 'income' THEN 'settled'
+                   WHEN 'settle' THEN 'settled'
+                   WHEN 'freeze' THEN 'pending'
+                   WHEN 'withdraw' THEN 'settled'
+                   ELSE 'settled'
+               END as settle_status
         from sys_bill_record b
         left join sys_order o on b.related_type = 'order' and b.related_id = o.order_id
         left join sys_work w on o.work_id = w.work_id

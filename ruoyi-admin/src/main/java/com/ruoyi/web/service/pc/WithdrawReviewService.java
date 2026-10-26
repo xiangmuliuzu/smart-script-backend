@@ -71,11 +71,34 @@ public class WithdrawReviewService {
         if (reason.isEmpty() || reason.length() > 500) {
             throw new IllegalArgumentException("驳回原因须为 1 至 500 个字符");
         }
+        Map<String, Object> apply;
+        try {
+            apply = jdbc.queryForMap(
+                    "SELECT user_id AS userId, amount AS amount FROM sys_withdraw_apply "
+                            + "WHERE withdraw_id = ? AND status = 'pending'",
+                    withdrawId);
+        } catch (EmptyResultDataAccessException e) {
+            throw new IllegalStateException("仅待审核申请可以驳回");
+        }
         int changed = jdbc.update("UPDATE sys_withdraw_apply SET status = 'rejected', reviewer_id = ?, "
                         + "review_time = NOW(), review_opinion = ?, update_by = ?, update_time = NOW() "
                         + "WHERE withdraw_id = ? AND status = 'pending'",
                 SecurityUtils.getUserId(), reason, SecurityUtils.getUsername(), withdrawId);
         requireChanged(changed, "仅待审核申请可以驳回");
+
+        // 驳回后解冻：冻结金额退回可用余额
+        Long userId = ((Number) apply.get("userId")).longValue();
+        Object amountObj = apply.get("amount");
+        java.math.BigDecimal amount = amountObj instanceof java.math.BigDecimal bd
+                ? bd : new java.math.BigDecimal(amountObj.toString());
+        int restored = jdbc.update(
+                "UPDATE sys_income_account SET available_amount = available_amount + ?, "
+                        + "frozen_amount = frozen_amount - ?, version = version + 1, updated_at = NOW() "
+                        + "WHERE user_id = ? AND frozen_amount >= ?",
+                amount, amount, userId, amount);
+        if (restored != 1) {
+            throw new IllegalStateException("驳回后退回余额失败，请检查收益账户");
+        }
     }
 
     @Transactional
