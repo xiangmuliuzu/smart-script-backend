@@ -56,6 +56,12 @@
             <if test="workTitle != null and workTitle != ''">AND w.title like concat('%', #{workTitle}, '%')</if>
             <if test="buyerId != null">AND o.buyer_id = #{buyerId}</if>
             <if test="sellerId != null">AND o.seller_id = #{sellerId}</if>
+            <if test="keyword != null and keyword != ''">
+                AND (o.order_no like concat('%', #{keyword}, '%')
+                     OR w.title like concat('%', #{keyword}, '%')
+                     OR ub.nick_name like concat('%', #{keyword}, '%')
+                     OR us.nick_name like concat('%', #{keyword}, '%'))
+            </if>
         </where>
         order by o.created_at desc
     </select>

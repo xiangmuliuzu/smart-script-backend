@@ -206,6 +206,9 @@ public class TradeInquiryService
 
     /**
      * 询盘状态机：仅当前状态在 allowedFrom 内才允许流转到 target，否则抛错。
+     * <p>
+     * 采用 CAS（{@code UPDATE ... WHERE status IN (allowedFrom)}）而非「先读后无条件写」，
+     * 消除并发下 accept/reject/close/报价 互覆的窗口（问题5）；影响 0 行即视为被并发抢先。
      */
     private int transitionInquiry(Long inquiryId, String target, String updateBy, String... allowedFrom)
     {
@@ -214,34 +217,15 @@ public class TradeInquiryService
         {
             throw new RuntimeException("询盘不存在: " + inquiryId);
         }
-        String current = inquiry.getStatus();
-        boolean allowed = false;
-        for (String from : allowedFrom)
-        {
-            if (from.equals(current))
-            {
-                allowed = true;
-                break;
-            }
-        }
-        if (!allowed)
-        {
-            throw new RuntimeException("当前询盘状态不可执行该操作: " + current);
-        }
-        SysInquiry update = new SysInquiry();
-        update.setInquiryId(inquiryId);
-        update.setStatus(target);
         // APP端已设置updateBy时不再调用SecurityUtils.getUsername()
-        if (updateBy == null || updateBy.isEmpty())
+        String actor = (updateBy == null || updateBy.isEmpty()) ? SecurityUtils.getUsername() : updateBy;
+        int changed = inquiryMapper.updateStatusCas(inquiryId, target, java.util.Arrays.asList(allowedFrom), actor);
+        if (changed != 1)
         {
-            update.setUpdateBy(SecurityUtils.getUsername());
+            // 读到的当前状态已不满足流转条件（多为并发抢先），给出与原语义一致的错误
+            throw new RuntimeException("当前询盘状态不可执行该操作（或状态刚被变更），请刷新后重试: " + inquiry.getStatus());
         }
-        else
-        {
-            update.setUpdateBy(updateBy);
-        }
-        update.setUpdateTime(new Date());
-        return inquiryMapper.updateInquiry(update);
+        return changed;
     }
 
     /** 当前时间 + days 天 */

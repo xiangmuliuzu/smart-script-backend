@@ -10,7 +10,10 @@
             SELECT 'NOTIFICATION' AS source, n.id AS message_id,
                    CONVERT(n.type USING utf8mb4) COLLATE utf8mb4_unicode_ci AS type,
                    CONVERT(n.title USING utf8mb4) COLLATE utf8mb4_unicode_ci AS title,
-                   CONVERT(n.body USING utf8mb4) COLLATE utf8mb4_unicode_ci AS content, n.create_time AS created_at,
+                   CONVERT(n.body USING utf8mb4) COLLATE utf8mb4_unicode_ci AS content,
+                   CONVERT(n.business_type USING utf8mb4) COLLATE utf8mb4_unicode_ci AS business_type,
+                   CONVERT(COALESCE(n.business_id, n.biz_ref) USING utf8mb4) COLLATE utf8mb4_unicode_ci AS business_id,
+                   n.create_time AS created_at,
                    (r.read_at IS NOT NULL) AS is_read, r.read_at
             FROM user_notification n JOIN user_notification_receiver r ON r.notification_id = n.id
             WHERE r.user_id = #{userId} AND r.deleted_flag = 0
@@ -19,6 +22,7 @@
                    CONVERT('SYSTEM' USING utf8mb4) COLLATE utf8mb4_unicode_ci AS type,
                    CONVERT(n.notice_title USING utf8mb4) COLLATE utf8mb4_unicode_ci AS title,
                    CONVERT(n.notice_content USING utf8mb4) COLLATE utf8mb4_unicode_ci AS content,
+                   NULL AS business_type, NULL AS business_id,
                    n.create_time AS created_at, (r.notice_id IS NOT NULL) AS is_read, r.read_time AS read_at
             FROM sys_notice n LEFT JOIN sys_notice_read r ON r.notice_id = n.notice_id AND r.user_id = #{userId}
             WHERE n.status = '0' AND n.audience IN ('USER', 'ALL')

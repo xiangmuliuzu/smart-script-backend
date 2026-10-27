@@ -80,24 +80,32 @@ public class TradeNotifyService
     public void notifyContractCompleted(Long orderId, String orderNo, Long buyerId)
     {
         push("TRD-CTC-CMP-" + orderId, "合同签署完成，待付款",
-                "订单" + noSuffix(orderNo) + "的合同已双方签署完成，请及时付款至托管账户以推进交割。",
+                "订单" + noSuffix(orderNo) + "的合同已双方签署完成，请买方尽快付款以推进交割。",
                 "ORDER", str(orderId), one(buyerId));
     }
 
-    /** 买方付款到托管 → 通知卖方开始交割。 */
+    /** 买方付款 → 通知卖方订单进入交割。 */
     public void notifyOrderPaid(Long orderId, String orderNo, Long sellerId)
     {
         push("TRD-ORD-PAY-" + orderId, "买方已付款，请交割",
-                "订单" + noSuffix(orderNo) + "买方已付款至托管账户，请尽快开始交割、交付作品。",
+                "订单" + noSuffix(orderNo) + "买方已付款，订单进入交割，请尽快交付作品。",
                 "ORDER", str(orderId), one(sellerId));
     }
 
-    /** 买方确认收货、订单完成 → 通知买卖双方订单已完成、资金已释放。 */
+    /** 买方确认收货、订单完成 → 通知买卖双方订单已完成。 */
     public void notifyOrderCompleted(Long orderId, String orderNo, Long buyerId, Long sellerId)
     {
         push("TRD-ORD-CMP-" + orderId, "订单已完成",
-                "订单" + noSuffix(orderNo) + "已完成，托管资金已释放给卖方，感谢本次交易。",
+                "订单" + noSuffix(orderNo) + "已完成，感谢本次交易。",
                 "ORDER", str(orderId), two(buyerId, sellerId));
+    }
+
+    /** 合同签署前任一方取消订单 → 通知对方。 */
+    public void notifyOrderCancelled(Long orderId, String orderNo, Long counterpartUserId)
+    {
+        push("TRD-ORD-CXL-" + orderId, "订单已取消",
+                "订单" + noSuffix(orderNo) + "已在合同签署完成前被对方取消，如有疑问可与对方沟通。",
+                "ORDER", str(orderId), one(counterpartUserId));
     }
 
     // ===== 内部工具 =====

@@ -82,6 +82,17 @@
         where inquiry_id = #{inquiryId}
     </update>
 
+    <!-- CAS 状态流转：仅当前 status 落在 allowedFrom 内才写 target，并发抢改则影响 0 行（问题5）。 -->
+    <update id="updateStatusCas">
+        update sys_inquiry
+        set status = #{target},
+            update_by = #{updateBy},
+            update_time = now()
+        where inquiry_id = #{inquiryId}
+          and status in
+          <foreach collection="allowedFrom" item="s" open="(" separator="," close=")">#{s}</foreach>
+    </update>
+
     <!-- P1-08：扫描过期询盘（status ∈ pending/accepted/quoted 且 expire_at < now）批量置 closed。
          由 Quartz 任务 tradeInquiryTask.closeExpiredInquiries 定时调用（见迁移 C_20260928_005）。
          deal/rejected/closed 为终态，不再处理。 -->

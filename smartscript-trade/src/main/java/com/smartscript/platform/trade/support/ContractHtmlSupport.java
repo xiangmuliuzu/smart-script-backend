@@ -27,6 +27,23 @@ public final class ContractHtmlSupport
                                            String buyerName, String sellerName, BigDecimal amount,
                                            String licenseType, String templateId)
     {
+        return buildContractHtml(contractNo, orderNo, workTitle, buyerName, sellerName, amount,
+                licenseType, templateId, null);
+    }
+
+    /**
+     * 生成版权授权/转让合同 HTML（签名区含占位注释），正文条款可传入自定义纯文本。
+     * <p>
+     * 信息区与签名占位区固定生成；正文区按 clausesText 逐行转义渲染，
+     * 为空时回退 {@link #defaultClausesText}。禁止注入原始 HTML（PDF/openhtmltopdf 兼容 + 安全）。
+     *
+     * @param templateId  TPL_COPYRIGHT_TRANSFER / TPL_COPYRIGHT_LICENSE
+     * @param clausesText 可编辑正文条款纯文本；为空回退模板默认条款
+     */
+    public static String buildContractHtml(String contractNo, String orderNo, String workTitle,
+                                           String buyerName, String sellerName, BigDecimal amount,
+                                           String licenseType, String templateId, String clausesText)
+    {
         boolean isTransfer = "TPL_COPYRIGHT_TRANSFER".equals(templateId);
         String title = isTransfer ? "版权转让合同" : "版权授权合同";
 
@@ -61,38 +78,7 @@ public final class ContractHtmlSupport
                 + "<div class=\"info-row\"><span class=\"label\">合同金额：</span>人民币 " + escape(amount) + " 元</div>"
                 + "<div class=\"info-row\"><span class=\"label\">许可类型：</span>" + escape(licenseType) + "</div>"
                 + "</div>"
-                + "<div class=\"section\">"
-                + "<div class=\"section-title\">第一条 合同标的</div>"
-                + "<div class=\"content\">甲乙双方经友好协商，就作品《" + escape(workTitle) + "》的版权"
-                + (isTransfer ? "转让" : "授权使用") + "事宜达成如下协议。</div>"
-                + "</div>"
-                + "<div class=\"section\">"
-                + "<div class=\"section-title\">第二条 " + (isTransfer ? "转让内容" : "授权范围") + "</div>"
-                + "<div class=\"content\">"
-                + (isTransfer
-                    ? "乙方同意将作品的全部著作权（包括但不限于复制权、发行权、信息网络传播权、改编权等）转让给甲方。转让后，甲方享有完整的著作权，乙方不再保留任何权利。"
-                    : "乙方授权甲方在约定范围内使用作品，授权类型为：" + escape(licenseType) + "。甲方应在授权范围内使用作品，不得超范围使用或转授权给第三方。")
-                + "</div>"
-                + "</div>"
-                + "<div class=\"section\">"
-                + "<div class=\"section-title\">第三条 合同金额及支付</div>"
-                + "<div class=\"content\">甲方应向乙方支付" + (isTransfer ? "转让" : "授权") + "费用人民币 "
-                + escape(amount) + " 元。该费用由甲方按平台托管流程支付，在订单完成后由平台结算给乙方。</div>"
-                + "</div>"
-                + "<div class=\"section\">"
-                + "<div class=\"section-title\">第四条 权利与义务</div>"
-                + "<div class=\"content\">1. 乙方保证对作品享有完整的著作权，不存在侵犯第三方权益的情形。</div>"
-                + "<div class=\"content\">2. 甲方应按约定支付费用，并在授权范围内合法使用作品。</div>"
-                + "<div class=\"content\">3. 双方应遵守国家相关法律法规，履行合同义务。</div>"
-                + "</div>"
-                + "<div class=\"section\">"
-                + "<div class=\"section-title\">第五条 违约责任</div>"
-                + "<div class=\"content\">任何一方违反本合同约定的，应承担违约责任，赔偿对方因此遭受的损失。</div>"
-                + "</div>"
-                + "<div class=\"section\">"
-                + "<div class=\"section-title\">第六条 争议解决</div>"
-                + "<div class=\"content\">因本合同引起的争议，双方应友好协商解决；协商不成的，可向平台所在地人民法院提起诉讼。</div>"
-                + "</div>"
+                + renderClauseBody(clausesText, templateId, workTitle, licenseType, amount)
                 + "<div class=\"signature\">"
                 + "<div class=\"signature-row\">"
                 + "<div class=\"signature-box\">"
@@ -109,6 +95,89 @@ public final class ContractHtmlSupport
                 + "</div>"
                 + "</div>"
                 + "</body></html>";
+    }
+
+    /**
+     * 渲染正文条款区：clausesText 非空则逐行转义渲染，否则回退模板默认条款。
+     * 以「第…条」开头的行作为 section-title，其余行作为 content。
+     */
+    private static String renderClauseBody(String clausesText, String templateId, String workTitle,
+                                           String licenseType, BigDecimal amount)
+    {
+        String text = (clausesText == null || clausesText.trim().isEmpty())
+                ? defaultClausesText(templateId, workTitle, licenseType, amount)
+                : clausesText;
+        StringBuilder sb = new StringBuilder();
+        boolean inSection = false;
+        for (String raw : text.split("\r?\n"))
+        {
+            String line = raw.trim();
+            if (line.isEmpty())
+            {
+                continue;
+            }
+            if (line.matches("^第[一二三四五六七八九十百千0-9]+条.*"))
+            {
+                if (inSection)
+                {
+                    sb.append("</div>");
+                }
+                sb.append("<div class=\"section\"><div class=\"section-title\">")
+                        .append(escape(line)).append("</div>");
+                inSection = true;
+            }
+            else
+            {
+                if (!inSection)
+                {
+                    sb.append("<div class=\"section\">");
+                    inSection = true;
+                }
+                sb.append("<div class=\"content\">").append(escape(line)).append("</div>");
+            }
+        }
+        if (inSection)
+        {
+            sb.append("</div>");
+        }
+        return sb.toString();
+    }
+
+    /**
+     * 模板默认正文条款纯文本（第一条~第六条），供编辑区回填与渲染回退。
+     * 返回未转义纯文本，渲染时由 {@link #renderClauseBody} 统一转义。
+     */
+    public static String defaultClausesText(String templateId, String workTitle,
+                                            String licenseType, BigDecimal amount)
+    {
+        boolean isTransfer = "TPL_COPYRIGHT_TRANSFER".equals(templateId);
+        String amountStr = amount == null ? "" : String.valueOf(amount);
+        StringBuilder sb = new StringBuilder();
+        sb.append("第一条 合同标的\n");
+        sb.append("甲乙双方经友好协商，就作品《").append(workTitle).append("》的版权")
+                .append(isTransfer ? "转让" : "授权使用").append("事宜达成如下协议。\n");
+        sb.append("第二条 ").append(isTransfer ? "转让内容" : "授权范围").append("\n");
+        if (isTransfer)
+        {
+            sb.append("乙方同意将作品的全部著作权（包括但不限于复制权、发行权、信息网络传播权、改编权等）转让给甲方。转让后，甲方享有完整的著作权，乙方不再保留任何权利。\n");
+        }
+        else
+        {
+            sb.append("乙方授权甲方在约定范围内使用作品，授权类型为：").append(licenseType)
+                    .append("。甲方应在授权范围内使用作品，不得超范围使用或转授权给第三方。\n");
+        }
+        sb.append("第三条 合同金额及支付\n");
+        sb.append("甲方应向乙方支付").append(isTransfer ? "转让" : "授权").append("费用人民币 ")
+                .append(amountStr).append(" 元。该费用由甲方按平台托管流程支付，在订单完成后由平台结算给乙方。\n");
+        sb.append("第四条 权利与义务\n");
+        sb.append("1. 乙方保证对作品享有完整的著作权，不存在侵犯第三方权益的情形。\n");
+        sb.append("2. 甲方应按约定支付费用，并在授权范围内合法使用作品。\n");
+        sb.append("3. 双方应遵守国家相关法律法规，履行合同义务。\n");
+        sb.append("第五条 违约责任\n");
+        sb.append("任何一方违反本合同约定的，应承担违约责任，赔偿对方因此遭受的损失。\n");
+        sb.append("第六条 争议解决\n");
+        sb.append("因本合同引起的争议，双方应友好协商解决；协商不成的，可向平台所在地人民法院提起诉讼。");
+        return sb.toString();
     }
 
     /**

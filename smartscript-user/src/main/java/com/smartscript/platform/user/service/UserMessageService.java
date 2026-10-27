@@ -266,6 +266,9 @@ public class UserMessageService
         item.put("type", message.getType());
         item.put("title", message.getTitle());
         item.put("summary", summarize(message.getContent()));
+        // 交易域通知携带业务主键，供前端跳转到对应的询盘/订单/合同（非交易通知为 null）。
+        item.put("businessType", message.getBusinessType());
+        item.put("businessId", message.getBusinessId());
         item.put("read", message.isRead());
         item.put("createdAt", message.getCreatedAt());
         return item;

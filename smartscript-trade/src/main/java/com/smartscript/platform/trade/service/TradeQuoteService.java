@@ -307,15 +307,17 @@ public class TradeQuoteService
 
         updateQuoteStatus(quoteId, QUOTE_ACCEPTED);
 
-        // 询盘置 deal（幂等：convertToOrder 内已判重，此处直接更新）
-        if (!TradeInquiryService.INQUIRY_STATUS_DEAL.equals(inquiry.getStatus()))
+        // 询盘置 deal（CAS：仅 pending/quoted/accepted 可置 deal，并发抢先接受则 0 行 → 抛错回滚本次接受，问题5）
+        // 注：上一步 generateOrderFromInquiry 与本报错同属一个事务，回滚会一并撤销刚建的订单，不会残留脏单
+        int dealChanged = inquiryMapper.updateStatusCas(inquiry.getInquiryId(),
+                TradeInquiryService.INQUIRY_STATUS_DEAL,
+                java.util.Arrays.asList(TradeInquiryService.INQUIRY_STATUS_PENDING,
+                        TradeInquiryService.INQUIRY_STATUS_QUOTED,
+                        TradeInquiryService.INQUIRY_STATUS_ACCEPTED),
+                safeGetOperatorName());
+        if (dealChanged != 1)
         {
-            SysInquiry update = new SysInquiry();
-            update.setInquiryId(inquiry.getInquiryId());
-            update.setStatus(TradeInquiryService.INQUIRY_STATUS_DEAL);
-            update.setUpdateBy(safeGetOperatorName());
-            update.setUpdateTime(new Date());
-            inquiryMapper.updateInquiry(update);
+            throw new RuntimeException("询盘状态已变化（可能已被并发接受），请刷新后重试");
         }
 
         // 一方接受报价 → 通知另一方（未接受的那方）订单已生成、进入订单流程
