@@ -1,6 +1,7 @@
 package com.smartscript.platform.trade.service;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.*;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -46,53 +47,59 @@ public class TradeFinanceService
 
     /* ========== 收益总览 ========== */
 
+    /** 收益结算平台抽成：仅作用于待结算/入账，不改订单本身金额。 */
+    public static final BigDecimal PLATFORM_SPLIT_RATE = new BigDecimal("0.05");
+
     /**
-     * 查询作者收益总览（从 sys_income_account + sys_creator_stats + 待结算）。
+     * 查询作者收益总览（从 sys_income_account + 账单累计 + 待结算）。
      * <p>
      * 字段口径：
-     * totalIncome = 累计已入账收益（作者确认结算后计入，提现不扣减）；
-     * pendingSettleAmount = 待作者确认、尚未入账；
+     * totalIncome = 累计已入账作者实得（确认结算后计入，提现不扣减）；
+     * pendingSettleAmount = 待作者确认、尚未入账（已扣 5% 平台抽成后的作者实得）；
      * availableAmount = 可提现；
      * withdrawnAmount = 已提现（含审核中/已通过/冻结/已打款，不含已驳回）。
-     * 因此总收益 ≠ 待结算+可提现+已提现（待结算未入账；总收益是累计入账口径）。
+     * 待结算未入账，因此总收益 = 可提现口径的累计入账，不含待结算。
+     * 不使用 sys_creator_stats.total_income：该表按日插入且无累计唯一键，最新一行只是当日增量。
      */
     public Map<String, Object> getIncomeOverview(Long userId)
     {
         Map<String, Object> overview = new HashMap<>();
 
-        // 查收益账户
+        BigDecimal available = BigDecimal.ZERO;
+        BigDecimal frozen = BigDecimal.ZERO;
+        BigDecimal settled = BigDecimal.ZERO;
         Map<String, Object> account = financeStatsMapper.selectIncomeAccount(userId);
         if (account != null)
         {
-            overview.put("availableAmount", account.get("availableAmount"));
-            overview.put("frozenAmount", account.get("frozenAmount"));
-            overview.put("settledAmount", account.get("settledAmount"));
+            available = toDecimal(account.get("availableAmount"));
+            frozen = toDecimal(account.get("frozenAmount"));
+            settled = toDecimal(account.get("settledAmount"));
         }
-        else
-        {
-            overview.put("availableAmount", BigDecimal.ZERO);
-            overview.put("frozenAmount", BigDecimal.ZERO);
-            overview.put("settledAmount", BigDecimal.ZERO);
-        }
+        overview.put("availableAmount", available);
+        overview.put("frozenAmount", frozen);
+        overview.put("settledAmount", settled);
 
-        // 查最新统计
         Map<String, Object> stats = financeStatsMapper.selectLatestCreatorStats(userId);
         if (stats != null)
         {
-            overview.put("totalIncome", stats.get("totalIncome"));
             overview.put("monthIncome", stats.get("monthIncome"));
             overview.put("totalOrders", stats.get("totalOrders"));
             overview.put("soldCount", stats.get("soldCount"));
         }
         else
         {
-            overview.put("totalIncome", BigDecimal.ZERO);
             overview.put("monthIncome", BigDecimal.ZERO);
             overview.put("totalOrders", 0);
             overview.put("soldCount", 0);
         }
 
-        // 待结算：作者待确认入账金额（sys_income_settle.pending）
+        BigDecimal credited = queryCreditedIncome(userId);
+        if (settled.compareTo(credited) > 0)
+        {
+            credited = settled;
+        }
+        overview.put("totalIncome", credited);
+
         overview.put("pendingSettleAmount", queryPendingSettleAmount(userId));
         overview.put("pendingSettleCount", countPendingSettle(userId));
         overview.put("withdrawnAmount", queryWithdrawnAmount(userId));
@@ -108,6 +115,23 @@ public class TradeFinanceService
             BigDecimal amount = jdbc.queryForObject(
                     "SELECT IFNULL(SUM(amount), 0) FROM sys_withdraw_apply "
                             + "WHERE user_id = ? AND status IN ('pending','approved','frozen','paid')",
+                    BigDecimal.class, userId);
+            return amount != null ? amount : BigDecimal.ZERO;
+        }
+        catch (Exception ex)
+        {
+            return BigDecimal.ZERO;
+        }
+    }
+
+    /** 累计已入账收益：收入类账单合计（提现不扣减）。 */
+    private BigDecimal queryCreditedIncome(Long userId)
+    {
+        try
+        {
+            BigDecimal amount = jdbc.queryForObject(
+                    "SELECT IFNULL(SUM(amount), 0) FROM sys_bill_record "
+                            + "WHERE user_id = ? AND bill_type = 'income'",
                     BigDecimal.class, userId);
             return amount != null ? amount : BigDecimal.ZERO;
         }
@@ -156,8 +180,15 @@ public class TradeFinanceService
         {
             throw new IllegalArgumentException("订单信息不完整，无法创建待结算");
         }
-        BigDecimal sellerAmount = order.getSellerAmount() != null
-                ? order.getSellerAmount() : BigDecimal.ZERO;
+        BigDecimal total = order.getTotalAmount() != null ? order.getTotalAmount() : BigDecimal.ZERO;
+        if (total.compareTo(BigDecimal.ZERO) <= 0 && order.getSellerAmount() != null)
+        {
+            total = order.getSellerAmount();
+        }
+        BigDecimal[] split = splitSettleAmounts(total);
+        BigDecimal fee = split[0];
+        BigDecimal rate = split[1];
+        BigDecimal sellerAmount = split[2];
         if (sellerAmount.compareTo(BigDecimal.ZERO) <= 0)
         {
             throw new IllegalArgumentException("作者应得金额无效，无法创建待结算");
@@ -167,13 +198,10 @@ public class TradeFinanceService
                 SETTLE_SELECT + " WHERE order_id = ? LIMIT 1", order.getOrderId());
         if (!existed.isEmpty())
         {
-            return existed.get(0);
+            return applyPendingPlatformSplit(existed.get(0));
         }
 
         String settleNo = "ST" + Seq.getId();
-        BigDecimal total = order.getTotalAmount() != null ? order.getTotalAmount() : sellerAmount;
-        BigDecimal fee = order.getPlatformFee() != null ? order.getPlatformFee() : BigDecimal.ZERO;
-        BigDecimal rate = order.getSplitRate() != null ? order.getSplitRate() : BigDecimal.ZERO;
 
         jdbc.update(
                 "INSERT INTO sys_income_settle (settle_no, user_id, order_id, order_no, work_title, "
@@ -214,7 +242,12 @@ public class TradeFinanceService
         sql.append(" ORDER BY created_at DESC LIMIT ? OFFSET ?");
         args.add(pageSize);
         args.add((long) (pageNum - 1) * pageSize);
-        return jdbc.queryForList(sql.toString(), args.toArray());
+        List<Map<String, Object>> rows = jdbc.queryForList(sql.toString(), args.toArray());
+        for (int i = 0; i < rows.size(); i++)
+        {
+            rows.set(i, applyPendingPlatformSplit(rows.get(i)));
+        }
+        return rows;
     }
 
     public Map<String, Object> getSettleDetail(Long userId, Long settleId)
@@ -225,7 +258,7 @@ public class TradeFinanceService
         {
             throw new IllegalArgumentException("待结算单不存在");
         }
-        return rows.get(0);
+        return applyPendingPlatformSplit(rows.get(0));
     }
 
     /**
@@ -297,13 +330,16 @@ public class TradeFinanceService
                         + "b.balance_after AS balanceAfter, b.related_type AS relatedType, b.related_id AS relatedId, "
                         + "b.remark AS remark, DATE_FORMAT(b.created_at, '%Y-%m-%d %H:%i:%s') AS createdAt, "
                         + "o.order_no AS orderNo, o.status AS orderStatus, "
-                        + "o.total_amount AS totalAmount, o.platform_fee AS platformFee, "
-                        + "o.split_rate AS splitRate, o.seller_amount AS sellerAmount, "
+                        + "COALESCE(s.total_amount, o.total_amount) AS totalAmount, "
+                        + "COALESCE(s.platform_fee, o.platform_fee) AS platformFee, "
+                        + "COALESCE(s.split_rate, o.split_rate) AS splitRate, "
+                        + "COALESCE(s.seller_amount, o.seller_amount) AS sellerAmount, "
                         + "DATE_FORMAT(o.pay_time, '%Y-%m-%d %H:%i:%s') AS payTime, "
                         + "DATE_FORMAT(o.complete_time, '%Y-%m-%d %H:%i:%s') AS completeTime, "
                         + "w.title AS workTitle "
                         + "FROM sys_bill_record b "
                         + "LEFT JOIN sys_order o ON b.related_type = 'order' AND b.related_id = o.order_id "
+                        + "LEFT JOIN sys_income_settle s ON s.order_id = o.order_id "
                         + "LEFT JOIN sys_work w ON o.work_id = w.work_id "
                         + "WHERE b.bill_id = ? AND b.user_id = ? LIMIT 1",
                 billId, userId);
@@ -505,6 +541,66 @@ public class TradeFinanceService
     }
 
     /**
+     * 按订单总额计算结算抽成。返回 [platformFee, splitRate, sellerAmount]。
+     * 不改写 sys_order，避免影响合同/托管/发票等其它功能。
+     */
+    static BigDecimal[] splitSettleAmounts(BigDecimal totalAmount)
+    {
+        BigDecimal total = totalAmount != null ? totalAmount : BigDecimal.ZERO;
+        if (total.compareTo(BigDecimal.ZERO) < 0)
+        {
+            total = BigDecimal.ZERO;
+        }
+        BigDecimal fee = total.multiply(PLATFORM_SPLIT_RATE).setScale(2, RoundingMode.HALF_UP);
+        if (fee.compareTo(total) > 0)
+        {
+            fee = total;
+        }
+        BigDecimal seller = total.subtract(fee);
+        return new BigDecimal[] { fee, PLATFORM_SPLIT_RATE, seller };
+    }
+
+    /**
+     * 未入账结算单若仍是旧的 0 抽成快照，补算 5% 并写回，保证详情/确认金额一致。
+     * 已确认入账的历史单不改。
+     */
+    private Map<String, Object> applyPendingPlatformSplit(Map<String, Object> settle)
+    {
+        if (settle == null || settle.isEmpty())
+        {
+            return settle;
+        }
+        String status = String.valueOf(settle.get("status"));
+        if (!"pending".equals(status) && !"disputed".equals(status))
+        {
+            return settle;
+        }
+        BigDecimal total = toDecimal(settle.get("totalAmount"));
+        BigDecimal[] split = splitSettleAmounts(total);
+        BigDecimal fee = split[0];
+        BigDecimal rate = split[1];
+        BigDecimal seller = split[2];
+        if (toDecimal(settle.get("platformFee")).compareTo(fee) == 0
+                && toDecimal(settle.get("splitRate")).compareTo(rate) == 0
+                && toDecimal(settle.get("sellerAmount")).compareTo(seller) == 0)
+        {
+            return settle;
+        }
+        Object settleId = settle.get("settleId");
+        if (settleId != null)
+        {
+            jdbc.update(
+                    "UPDATE sys_income_settle SET platform_fee = ?, split_rate = ?, seller_amount = ?, "
+                            + "updated_at = NOW() WHERE settle_id = ? AND status IN ('pending', 'disputed')",
+                    fee, rate, seller, settleId);
+        }
+        settle.put("platformFee", fee);
+        settle.put("splitRate", rate);
+        settle.put("sellerAmount", seller);
+        return settle;
+    }
+
+    /**
      * 收益明细列表（账单流水）。
      */
     public List<SysBillRecord> getBillRecordList(Long userId, String billType)
@@ -683,7 +779,7 @@ public class TradeFinanceService
         billParams.put("balanceAfter", balanceAfter);
         billParams.put("relatedType", "order");
         billParams.put("relatedId", orderId);
-        billParams.put("remark", "作者确认结算后入账");
+        billParams.put("remark", "作者确认结算后入账（已扣除5%平台抽成）");
         financeStatsMapper.insertBillRecord(billParams);
 
         // 4. UPSERT 作者统计
