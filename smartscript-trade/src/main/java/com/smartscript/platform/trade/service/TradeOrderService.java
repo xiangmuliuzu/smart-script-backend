@@ -12,8 +12,10 @@ import com.ruoyi.common.utils.uuid.Seq;
 import com.smartscript.platform.trade.domain.SysInquiry;
 import com.smartscript.platform.trade.domain.SysOrder;
 import com.smartscript.platform.trade.domain.SysOrderStatusLog;
+import com.smartscript.platform.trade.domain.SysEscrow;
 import com.smartscript.platform.trade.mapper.SysOrderMapper;
 import com.smartscript.platform.trade.mapper.SysOrderStatusLogMapper;
+import com.smartscript.platform.trade.mapper.SysEscrowMapper;
 
 /**
  * C module: order query + generation service.
@@ -40,6 +42,9 @@ public class TradeOrderService
 
     @Autowired
     private SysOrderStatusLogMapper logMapper;
+
+    @Autowired
+    private SysEscrowMapper escrowMapper;
 
     /** 状态流转用 CAS 定点更新，避免全字段 updateOrder 覆盖并发写入 */
     @Autowired
