@@ -47,6 +47,9 @@ public class SysLoginController
     @Autowired
     private ISysConfigService configService;
 
+    @Autowired
+    private com.smartscript.platform.review.service.RiskCheckService riskCheckService;
+
     /**
      * 登录方法
      * 
@@ -56,6 +59,8 @@ public class SysLoginController
     @PostMapping("/login")
     public AjaxResult login(@RequestBody LoginBody loginBody)
     {
+        // 风控：登录频控（login 规则，按 IP 计数）
+        riskCheckService.checkFrequencyOrThrow(null, com.ruoyi.common.utils.ip.IpUtils.getIpAddr(), "login");
         AjaxResult ajax = AjaxResult.success();
         // 生成令牌
         String token = loginService.login(loginBody.getUsername(), loginBody.getPassword(), loginBody.getCode(),

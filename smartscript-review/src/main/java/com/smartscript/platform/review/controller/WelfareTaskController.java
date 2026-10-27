@@ -1,6 +1,8 @@
 package com.smartscript.platform.review.controller;
 
 import com.ruoyi.common.annotation.Anonymous;
+import com.ruoyi.common.utils.ip.IpUtils;
+import com.smartscript.platform.review.service.RiskCheckService;
 import com.smartscript.platform.review.service.TaskConfigService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
@@ -19,6 +21,9 @@ public class WelfareTaskController {
 
     @Autowired
     private TaskConfigService taskConfigService;
+
+    @Autowired
+    private RiskCheckService riskCheckService;
 
     /**
      * 统一信封：{code, msg, data:{...}}，App 端按标准若依信封解析。
@@ -44,6 +49,8 @@ public class WelfareTaskController {
         try {
             String taskCode = params.get("taskCode") != null ? params.get("taskCode").toString() : null;
             Long userId = params.get("userId") != null ? Long.valueOf(params.get("userId").toString()) : null;
+            // 风控：领取奖励按 operation 频控防刷
+            riskCheckService.checkFrequencyOrThrow(userId, IpUtils.getIpAddr(), "operation");
             return wrap(taskConfigService.claimTask(taskCode, userId));
         } catch (Exception e) {
             result.put("code", 500);
@@ -62,6 +69,8 @@ public class WelfareTaskController {
         try {
             String taskCode = params.get("taskCode") != null ? params.get("taskCode").toString() : null;
             Long userId = params.get("userId") != null ? Long.valueOf(params.get("userId").toString()) : null;
+            // 风控：行为进度上报按 operation 频控防刷
+            riskCheckService.checkFrequencyOrThrow(userId, IpUtils.getIpAddr(), "operation");
             int increment = params.get("increment") != null ? Integer.parseInt(params.get("increment").toString()) : 1;
             return wrap(taskConfigService.reportProgress(taskCode, userId, increment));
         } catch (Exception e) {

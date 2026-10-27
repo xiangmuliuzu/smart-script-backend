@@ -53,6 +53,7 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
     private final SysWorkReviewRecordMapper reviewRecordMapper;
     private final SysTagMapper tagMapper;
     private final AiReviewService aiReviewService;
+    private final com.smartscript.platform.review.service.RiskCheckService riskCheckService;
 
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(AppUserWorkServiceImpl.class);
 
@@ -60,13 +61,15 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
             SysWorkChapterMapper chapterMapper,
             SysWorkReviewRecordMapper reviewRecordMapper,
             SysTagMapper tagMapper,
-            AiReviewService aiReviewService)
+            AiReviewService aiReviewService,
+            com.smartscript.platform.review.service.RiskCheckService riskCheckService)
     {
         this.workMapper = workMapper;
         this.chapterMapper = chapterMapper;
         this.reviewRecordMapper = reviewRecordMapper;
         this.tagMapper = tagMapper;
         this.aiReviewService = aiReviewService;
+        this.riskCheckService = riskCheckService;
     }
 
     @Override
@@ -96,6 +99,9 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
     {
         requireOwnWork(userId, workId);
         requireEditable(workId, userId);
+        // 风控：标题/简介敏感词检查
+        riskCheckService.checkContentOrThrow(userId,
+                (title == null ? "" : title) + (summary == null ? "" : summary));
 
         if (price != null && (price.signum() < 0 || price.scale() > 2
                 || price.compareTo(new BigDecimal("9999999999.99")) > 0))
@@ -165,6 +171,9 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
     {
         requireOwnWork(userId, workId);
         requireEditable(workId, userId);
+        // 风控：章节标题/正文敏感词检查
+        riskCheckService.checkContentOrThrow(userId,
+                (chapterTitle == null ? "" : chapterTitle) + (content == null ? "" : content));
 
         int maxNo = chapterMapper.selectMaxChapterNo(workId);
         validateTrialFlag(isFree);
@@ -193,11 +202,15 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
         requireEditable(workId, userId);
 
         SysWorkChapter chapter = requireOwnChapter(workId, chapterId);
+        // 风控：章节标题/正文敏感词检查
+        String mergedTitle = chapterTitle == null ? chapter.getChapterTitle() : chapterTitle;
+        String mergedContent = content == null ? chapter.getStorageContent() : content;
+        riskCheckService.checkContentOrThrow(userId, mergedTitle + mergedContent);
         validateTrialFlag(isFree);
         SysWorkChapter update = new SysWorkChapter();
         update.setChapterId(chapterId);
-        update.setChapterTitle(chapterTitle == null ? chapter.getChapterTitle() : chapterTitle);
-        update.setContent(content == null ? chapter.getStorageContent() : content);
+        update.setChapterTitle(mergedTitle);
+        update.setContent(mergedContent);
         update.setWordCount(countWords(update.getContent()));
         update.setIsFree(isFree);
         update.setUpdateBy(String.valueOf(userId));
@@ -241,6 +254,8 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
 
         // 拼待审核内容：作品标题+简介 + 前若干章正文（每章截断，避免 token 过长）
         String content = buildAiReviewContent(work);
+        // 风控：提交前整体敏感词检查
+        riskCheckService.checkContentOrThrow(userId, content);
         final Long reviewId = record.getReviewId();
         log.info("作品提交审核，reviewId={}, workId={}，异步触发AI初审", reviewId, workId);
 

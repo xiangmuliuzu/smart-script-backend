@@ -29,6 +29,7 @@ import com.smartscript.platform.content.service.IAppWorkManageService;
 import com.smartscript.platform.content.util.WorkStatusDeriver;
 import com.smartscript.platform.identity.IdentityProvider;
 import com.smartscript.platform.identity.WorkDeletionVerification;
+import com.smartscript.platform.review.service.RiskCheckService;
 
 /**
  * 上传与创作（App 侧写入）服务实现
@@ -97,6 +98,18 @@ public class AppWorkManageServiceImpl implements IAppWorkManageService
     @Autowired
     private SysContentWorkMapper workMapper;
 
+    @Autowired(required = false)
+    private RiskCheckService riskCheckService;
+
+    /** 内容风控（测试无 Bean 时跳过，生产必注入） */
+    private void checkContent(Long userId, String text)
+    {
+        if (riskCheckService != null && text != null && !text.isBlank())
+        {
+            riskCheckService.checkContentOrThrow(userId, text);
+        }
+    }
+
     @Autowired
     private SysTagMapper tagMapper;
 
@@ -124,6 +137,10 @@ public class AppWorkManageServiceImpl implements IAppWorkManageService
         {
             return null;
         }
+        // 风控：新建作品标题/简介敏感词检查
+        checkContent(userId,
+                (request.getTitle() == null ? "" : request.getTitle())
+                        + (request.getDescription() == null ? "" : request.getDescription()));
         SysWork work = new SysWork();
         work.setTitle(trimToNull(request.getTitle()));
         work.setCover(trimToNull(request.getCover()));
@@ -204,6 +221,10 @@ public class AppWorkManageServiceImpl implements IAppWorkManageService
         {
             return false;
         }
+        // 风控：更新作品标题/简介敏感词检查
+        checkContent(userId,
+                (request.getTitle() == null ? "" : request.getTitle())
+                        + (request.getDescription() == null ? "" : request.getDescription()));
         SysWork update = new SysWork();
         update.setWorkId(workId);
         // 只放行文档定义的三项可改字段，避免调用方误传其他字段被动态 SQL 一并更新

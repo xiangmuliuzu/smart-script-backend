@@ -52,6 +52,12 @@
         ORDER BY sort ASC, created_at DESC
     </select>
 
+    <select id="selectActiveRulesByType" resultMap="RiskRuleResult">
+        <include refid="selectRiskRuleVo"/>
+        WHERE rule_type = #{ruleType} AND status = 1
+        ORDER BY sort ASC, created_at DESC
+    </select>
+
     <insert id="insertRiskRule" parameterType="com.smartscript.platform.review.domain.RiskRule" useGeneratedKeys="true" keyProperty="ruleId">
         INSERT INTO sys_risk_rule
         <trim prefix="(" suffix=")" suffixOverrides=",">
@@ -78,7 +84,8 @@
             <if test="ruleContent != null">#{ruleContent},</if>
             <if test="threshold != null">#{threshold},</if>
             <if test="action != null and action != ''">#{action},</if>
-            <if test="status != null and status != ''">CASE #{status} WHEN 'enabled' THEN 1 ELSE 0 END,</if>
+            <if test="status != null and status != ''">CASE #{status} WHEN 'enabled' THEN 1 WHEN '1' THEN 1 ELSE 0 END,</if>
+            <if test="status == null or status == ''">1,</if>
             'LOW',
             0,
             <if test="sort != null">#{sort},</if>
@@ -98,7 +105,7 @@
             <if test="ruleContent != null">trigger_condition = #{ruleContent},</if>
             <if test="threshold != null">threshold = #{threshold},</if>
             <if test="action != null and action != ''">action = #{action},</if>
-            <if test="status != null and status != ''">status = #{status},</if>
+            <if test="status != null and status != ''">status = CASE #{status} WHEN 'enabled' THEN 1 WHEN '1' THEN 1 ELSE 0 END,</if>
             <if test="sort != null">sort = #{sort},</if>
             <if test="updateBy != null">update_by = #{updateBy},</if>
             <if test="updateTime != null">update_time = #{updateTime},</if>

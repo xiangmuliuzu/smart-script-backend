@@ -43,14 +43,17 @@ public class AppAuthController
     private final AppAuthenticationService authenticationService;
     private final SmsCodeService smsCodeService;
     private final com.smartscript.platform.user.config.AppAuthProperties properties;
+    private final com.smartscript.platform.review.service.RiskCheckService riskCheckService;
 
     public AppAuthController(AppAuthenticationService authenticationService,
             SmsCodeService smsCodeService,
-            com.smartscript.platform.user.config.AppAuthProperties properties)
+            com.smartscript.platform.user.config.AppAuthProperties properties,
+            com.smartscript.platform.review.service.RiskCheckService riskCheckService)
     {
         this.authenticationService = authenticationService;
         this.smsCodeService = smsCodeService;
         this.properties = properties;
+        this.riskCheckService = riskCheckService;
     }
 
     @PostMapping("/sms/send")
@@ -64,6 +67,8 @@ public class AppAuthController
                     com.smartscript.platform.user.constant.AppAuthErrorCodes.PARAM,
                     400, "请从作品设置中获取删除验证码");
         }
+        // 风控：短信发送按 login 频控防轰炸（DELETE_WORK 拒绝路径先行）
+        riskCheckService.checkFrequencyOrThrow(null, clientIp(http), "login");
         smsCodeService.sendCode(request.getPhone(), request.getScene(), clientIp(http), requestId);
         return AjaxResult.success(Map.of(
                 "cooldownSeconds", properties.getSms().getCooldownSeconds(),
@@ -73,6 +78,7 @@ public class AppAuthController
     @PostMapping("/sms/login")
     public AjaxResult smsLogin(@Valid @RequestBody SmsLoginRequest request, HttpServletRequest http)
     {
+        riskCheckService.checkFrequencyOrThrow(null, clientIp(http), "login");
         AuthSessionDto session = authenticationService.smsLogin(request, clientIp(http));
         return loginResult(session);
     }
@@ -80,9 +86,17 @@ public class AppAuthController
     @PostMapping("/login")
     public AjaxResult login(@RequestBody LoginBody request, HttpServletRequest http)
     {
+        riskCheckService.checkFrequencyOrThrow(null, clientIp(http), "login");
         String identifier = request.getUsername() == null ? "" : request.getUsername().trim();
         return loginResult(authenticationService.ruoyiPasswordLogin(identifier, request.getPassword(),
                 request.getCode(), request.getUuid(), clientIp(http)));
+    }
+
+    @ExceptionHandler(com.ruoyi.common.exception.ServiceException.class)
+    public ResponseEntity<AjaxResult> riskRejected(com.ruoyi.common.exception.ServiceException error)
+    {
+        // 风控拦截：业务码 500 + 明确文案（App 端按 code 判失败并展示 msg）
+        return ResponseEntity.ok(AjaxResult.error(error.getMessage()));
     }
 
     private static AjaxResult loginResult(AuthSessionDto session)
@@ -130,12 +144,14 @@ public class AppAuthController
     public AjaxResult passwordLogin(@Valid @RequestBody PasswordLoginRequest request,
             HttpServletRequest http)
     {
+        riskCheckService.checkFrequencyOrThrow(null, clientIp(http), "login");
         return AjaxResult.success(authenticationService.passwordLogin(request, clientIp(http)));
     }
 
     @PostMapping("/register")
     public AjaxResult register(@Valid @RequestBody RegisterRequest request, HttpServletRequest http)
     {
+        riskCheckService.checkFrequencyOrThrow(null, clientIp(http), "login");
         return loginResult(authenticationService.register(request, clientIp(http)));
     }
 

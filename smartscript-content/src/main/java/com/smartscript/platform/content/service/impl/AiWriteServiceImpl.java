@@ -115,6 +115,18 @@ public class AiWriteServiceImpl implements IAiWriteService
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    @Autowired(required = false)
+    private com.smartscript.platform.review.service.RiskCheckService riskCheckService;
+
+    /** 内容风控（测试无 Bean 时跳过，生产必注入） */
+    private void checkContent(Long userId, String text)
+    {
+        if (riskCheckService != null && text != null && !text.isBlank())
+        {
+            checkContent(userId, text);
+        }
+    }
+
     /** AI 模型名（AI 未返回时使用） */
     @Value("${AI_SERVICE_MODEL:smartscript-ai}")
     private String aiModel;
@@ -127,6 +139,7 @@ public class AiWriteServiceImpl implements IAiWriteService
     public AppAiWriteResult write(AppAiWriteRequest request)
     {
         requireContinuationContext(request.getPrompt());
+        checkContent(identityProvider.currentUserId(), request.getPrompt());
         checkQuota(identityProvider.currentUserId());
         JsonNode data = aiServiceClient.write(request.getPrompt(), request.getType());
         String content = text(data, "content");
@@ -140,6 +153,7 @@ public class AiWriteServiceImpl implements IAiWriteService
     public AppAiWriteResult polish(AppAiPolishRequest request)
     {
         checkQuota(identityProvider.currentUserId());
+        checkContent(identityProvider.currentUserId(), request.getContent());
         JsonNode data = aiServiceClient.polish(request.getContent(), request.getStyle());
         String content = text(data, "content");
         Long recordId = saveRecord(identityProvider.currentUserId(), null,
@@ -176,6 +190,7 @@ public class AiWriteServiceImpl implements IAiWriteService
     public AppAiWriteResult writeStream(AppAiWriteRequest request, java.util.function.Consumer<String> onDelta)
     {
         requireContinuationContext(request.getPrompt());
+        checkContent(identityProvider.currentUserId(), request.getPrompt());
         checkQuota(identityProvider.currentUserId());
         String content = aiServiceClient.writeStream(request.getPrompt(), request.getType(), onDelta);
         Long recordId = saveRecord(identityProvider.currentUserId(), request.getWorkId(),
@@ -188,6 +203,7 @@ public class AiWriteServiceImpl implements IAiWriteService
     public AppAiWriteResult polishStream(AppAiPolishRequest request, java.util.function.Consumer<String> onDelta)
     {
         checkQuota(identityProvider.currentUserId());
+        checkContent(identityProvider.currentUserId(), request.getContent());
         String content = aiServiceClient.polishStream(request.getContent(), request.getStyle(), onDelta);
         Long recordId = saveRecord(identityProvider.currentUserId(), null,
                 WRITE_TYPE_POLISH, request.getContent(), content, aiModel);
@@ -199,6 +215,8 @@ public class AiWriteServiceImpl implements IAiWriteService
     public AppAiOutlineResult outlineStream(AppAiOutlineRequest request, java.util.function.Consumer<String> onDelta)
     {
         checkQuota(identityProvider.currentUserId());
+        checkContent(identityProvider.currentUserId(),
+                (request.getInspiration() == null ? "" : request.getInspiration()));
         Date startedAt = new Date();
         String raw = aiServiceClient.outlineStream(request.getInspiration(), request.getGenre(), request.getStyle(), onDelta);
         Date finishedAt = new Date();
@@ -253,6 +271,8 @@ public class AiWriteServiceImpl implements IAiWriteService
     public AppAiOutlineResult outline(AppAiOutlineRequest request)
     {
         checkQuota(identityProvider.currentUserId());
+        checkContent(identityProvider.currentUserId(),
+                (request.getInspiration() == null ? "" : request.getInspiration()));
         Date startedAt = new Date();
         JsonNode data = aiServiceClient.outline(request.getInspiration(), request.getGenre(), request.getStyle());
         Date finishedAt = new Date();

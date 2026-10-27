@@ -42,4 +42,9 @@ public interface RiskRuleMapper {
      * 查询启用的敏感词规则（业务 check 用，rule_type='sensitive' AND status=1）
      */
     List<RiskRule> selectActiveSensitiveRules();
+
+    /**
+     * 按规则类型查询启用中的规则（login/operation/ip 等频控规则）
+     */
+    List<RiskRule> selectActiveRulesByType(@Param("ruleType") String ruleType);
 }

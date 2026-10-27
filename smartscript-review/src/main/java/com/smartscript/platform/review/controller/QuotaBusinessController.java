@@ -1,7 +1,9 @@
 package com.smartscript.platform.review.controller;
 
 import com.ruoyi.common.annotation.Anonymous;
+import com.ruoyi.common.utils.ip.IpUtils;
 import com.smartscript.platform.review.service.AiQuotaService;
+import com.smartscript.platform.review.service.RiskCheckService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
@@ -24,6 +26,9 @@ public class QuotaBusinessController {
     @Autowired
     private AiQuotaService aiQuotaService;
 
+    @Autowired
+    private RiskCheckService riskCheckService;
+
     /**
      * 统一信封：{code, msg, data:{...}}，App 端按标准若依信封解析。
      */
@@ -45,6 +50,8 @@ public class QuotaBusinessController {
     public Map<String, Object> consume(@RequestBody Map<String, Object> params) {
         try {
             Long userId = params.get("userId") != null ? Long.valueOf(params.get("userId").toString()) : null;
+            // 风控：AI次数消耗按 operation 频控防刷
+            riskCheckService.checkFrequencyOrThrow(userId, IpUtils.getIpAddr(), "operation");
             String capability = params.get("capability") != null ? params.get("capability").toString() : null;
             Integer quotaCost = params.get("quotaCost") != null ? Integer.valueOf(params.get("quotaCost").toString()) : null;
             Long workId = params.get("workId") != null ? Long.valueOf(params.get("workId").toString()) : null;
@@ -103,6 +110,8 @@ public class QuotaBusinessController {
     public Map<String, Object> exchange(@RequestBody Map<String, Object> params) {
         try {
             Long userId = params.get("userId") != null ? Long.valueOf(params.get("userId").toString()) : null;
+            // 风控：积分兑换按 operation 频控防刷
+            riskCheckService.checkFrequencyOrThrow(userId, IpUtils.getIpAddr(), "operation");
             Integer points = params.get("points") != null ? Integer.valueOf(params.get("points").toString()) : null;
             String idempotencyKey = params.get("idempotencyKey") != null ? params.get("idempotencyKey").toString() : null;
             return wrap(aiQuotaService.exchange(userId, points, idempotencyKey));

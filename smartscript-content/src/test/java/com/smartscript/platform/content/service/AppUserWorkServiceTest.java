@@ -54,7 +54,8 @@ class AppUserWorkServiceTest
         reviewRecordMapper = mock(SysWorkReviewRecordMapper.class);
         tagMapper = mock(SysTagMapper.class);
         aiReviewService = mock(com.smartscript.platform.review.service.AiReviewService.class);
-        service = new AppUserWorkServiceImpl(workMapper, chapterMapper, reviewRecordMapper, tagMapper, aiReviewService);
+        service = new AppUserWorkServiceImpl(workMapper, chapterMapper, reviewRecordMapper, tagMapper, aiReviewService,
+                mock(com.smartscript.platform.review.service.RiskCheckService.class));
     }
 
     private SysWork workOf()
