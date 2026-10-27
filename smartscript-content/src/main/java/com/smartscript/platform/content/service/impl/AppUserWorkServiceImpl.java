@@ -1,6 +1,7 @@
 package com.smartscript.platform.content.service.impl;
 
 import java.text.SimpleDateFormat;
+import java.math.BigDecimal;
 import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -91,12 +92,23 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
     @Override
     @Transactional
     public void updateWorkBase(Long userId, Long workId, String title, String summary, Integer genreId, String cover,
-            List<Integer> tagIds)
+            List<Integer> tagIds, BigDecimal price, String tradeType)
     {
         requireOwnWork(userId, workId);
         requireEditable(workId, userId);
 
+        if (price != null && (price.signum() < 0 || price.scale() > 2
+                || price.compareTo(new BigDecimal("9999999999.99")) > 0))
+        {
+            throw new IllegalArgumentException("定价须为 0 到 9999999999.99，最多两位小数");
+        }
+        if (tradeType != null && !List.of("exclusive", "non_exclusive", "adaptation").contains(tradeType))
+        {
+            throw new IllegalArgumentException("请选择有效的合作方式");
+        }
         SysWork update = new SysWork();
+        update.setPrice(price);
+        update.setTradeType(tradeType);
         update.setWorkId(workId);
         update.setTitle(title);
         update.setSummary(summary);

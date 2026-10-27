@@ -1,5 +1,6 @@
 package com.smartscript.platform.content.service;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 import com.smartscript.platform.content.domain.SysWorkChapter;
@@ -41,7 +42,7 @@ public interface IAppUserWorkService
      *                null = 不修改标签，空列表 = 清空标签）
      */
     void updateWorkBase(Long userId, Long workId, String title, String summary, Integer genreId, String cover,
-            List<Integer> tagIds);
+            List<Integer> tagIds, BigDecimal price, String tradeType);
 
     /**
      * 章节目录（含 content 全文，用户端编辑用）

@@ -1,5 +1,6 @@
 package com.smartscript.platform.content.controller.app;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -148,7 +149,8 @@ public class AppUserWorkController
         {
             userWorkService.updateWorkBase(userId, workId,
                     str(body.get("title")), str(body.get("summary")), integer(body.get("genreId")),
-                    str(body.get("cover")), integerList(body.get("tagIds")));
+                    str(body.get("cover")), integerList(body.get("tagIds")), decimal(body.get("price")),
+                    str(body.get("tradeType")));
             return AppApiResponse.ok();
         }
         catch (IllegalArgumentException e)
@@ -351,6 +353,19 @@ public class AppUserWorkController
     private String str(Object value)
     {
         return value == null ? null : value.toString();
+    }
+
+    private BigDecimal decimal(Object value)
+    {
+        if (value == null) return null;
+        try
+        {
+            return new BigDecimal(value.toString());
+        }
+        catch (NumberFormatException e)
+        {
+            throw new IllegalArgumentException("定价格式不正确");
+        }
     }
 
     private Integer integer(Object value)

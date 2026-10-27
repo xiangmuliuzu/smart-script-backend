@@ -494,6 +494,8 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 			<if test="summary != null">summary = #{summary},</if>
 			<if test="genreId != null">genre_id = #{genreId},</if>
 			<if test="cover != null and cover != ''">cover = #{cover},</if>
+			<if test="price != null">price = #{price},</if>
+			<if test="tradeType != null">trade_type = #{tradeType},</if>
 			<if test="updateBy != null">update_by = #{updateBy},</if>
 			<if test="updateTime != null">update_time = #{updateTime},</if>
 		</trim>
