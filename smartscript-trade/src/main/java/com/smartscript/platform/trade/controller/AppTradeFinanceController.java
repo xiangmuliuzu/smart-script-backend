@@ -216,7 +216,7 @@ public class AppTradeFinanceController
     /* ========== 提现 ========== */
 
     /**
-     * 发起提现申请。
+     * 发起提现申请。金额 ≤ 10000 元自动通过；超过 10000 元进入待审核。
      * <p>
      * body: amount, withdrawType(bank/alipay/wechat), accountName, accountNo, bankName?, clientToken?
      */

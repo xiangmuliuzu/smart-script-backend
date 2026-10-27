@@ -80,30 +80,6 @@ public class WithdrawReviewController extends BaseController {
         }
     }
 
-    @PreAuthorize("@ss.hasPermi('smartscript:copyright:withdraw:freeze')")
-    @Log(title = "提现冻结", businessType = BusinessType.UPDATE)
-    @PostMapping("/{withdrawId}/freeze")
-    public AjaxResult freeze(@PathVariable Long withdrawId) {
-        try {
-            withdrawService.freeze(withdrawId);
-            return success("冻结成功");
-        } catch (IllegalStateException e) {
-            return error(e.getMessage());
-        }
-    }
-
-    @PreAuthorize("@ss.hasPermi('smartscript:copyright:withdraw:unfreeze')")
-    @Log(title = "提现解冻", businessType = BusinessType.UPDATE)
-    @PostMapping("/{withdrawId}/unfreeze")
-    public AjaxResult unfreeze(@PathVariable Long withdrawId) {
-        try {
-            withdrawService.unfreeze(withdrawId);
-            return success("解冻成功");
-        } catch (IllegalStateException e) {
-            return error(e.getMessage());
-        }
-    }
-
     @PreAuthorize("@ss.hasPermi('smartscript:copyright:withdraw:export')")
     @Log(title = "提现记录导出", businessType = BusinessType.EXPORT)
     @PostMapping("/export")

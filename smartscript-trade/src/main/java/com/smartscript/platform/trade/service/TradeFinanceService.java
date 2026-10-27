@@ -57,7 +57,7 @@ public class TradeFinanceService
      * totalIncome = 累计已入账作者实得（确认结算后计入，提现不扣减）；
      * pendingSettleAmount = 待作者确认、尚未入账（已扣 5% 平台抽成后的作者实得）；
      * availableAmount = 可提现；
-     * withdrawnAmount = 已提现（含审核中/已通过/冻结/已打款，不含已驳回）。
+     * withdrawnAmount = 已提现（含审核中/已通过/已打款，不含已驳回）。
      * 待结算未入账，因此总收益 = 可提现口径的累计入账，不含待结算。
      * 不使用 sys_creator_stats.total_income：该表按日插入且无累计唯一键，最新一行只是当日增量。
      */
@@ -353,10 +353,14 @@ public class TradeFinanceService
     /* ========== 提现（App） ========== */
 
     private static final List<String> WITHDRAW_TYPES = List.of("bank", "alipay", "wechat");
+    /** 超过该金额（元）需管理员人工审核；小于等于该金额申请后自动通过。 */
+    public static final BigDecimal WITHDRAW_AUTO_APPROVE_LIMIT = new BigDecimal("10000");
 
     /**
-     * App 发起提现申请：校验余额 → 冻结可用金额 → 写入申请单 → 记账。
+     * App / 创作者端发起提现：校验余额 → 扣减可用金额 → 写入申请单 → 记账。
      * <p>
+     * 金额 ≤ 10000 元自动通过（approved）；超过 10000 元进入 pending，由管理员审核。
+     * 申请时即扣减可用余额，避免重复提现；驳回时退回。
      * 幂等：同一 userId + clientToken 重复提交返回已有申请；同一用户同时只允许一笔 pending。
      */
     @Transactional
@@ -429,12 +433,12 @@ public class TradeFinanceService
             throw new IllegalStateException("可提现余额不足");
         }
 
-        int frozen = jdbc.update(
+        int deducted = jdbc.update(
                 "UPDATE sys_income_account SET available_amount = available_amount - ?, "
-                        + "frozen_amount = frozen_amount + ?, version = version + 1, updated_at = NOW() "
+                        + "version = version + 1, updated_at = NOW() "
                         + "WHERE user_id = ? AND available_amount >= ?",
-                amount, amount, userId, amount);
-        if (frozen != 1)
+                amount, userId, amount);
+        if (deducted != 1)
         {
             throw new IllegalStateException("余额变更失败，请重试");
         }
@@ -442,14 +446,29 @@ public class TradeFinanceService
         Map<String, Object> after = financeStatsMapper.selectIncomeAccount(userId);
         BigDecimal balanceAfter = after != null ? toDecimal(after.get("availableAmount")) : available.subtract(amount);
 
+        boolean autoApprove = amount.compareTo(WITHDRAW_AUTO_APPROVE_LIMIT) <= 0;
+        String status = autoApprove ? "approved" : "pending";
         String withdrawNo = "WD" + Seq.getId();
         BigDecimal fee = BigDecimal.ZERO;
         BigDecimal actual = amount.subtract(fee);
-        jdbc.update(
-                "INSERT INTO sys_withdraw_apply (withdraw_no, user_id, amount, fee, actual_amount, "
-                        + "withdraw_type, account_name, account_no, bank_name, status, client_token, created_at) "
-                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, NOW())",
-                withdrawNo, userId, amount, fee, actual, type, name, no, bank, token);
+        if (autoApprove)
+        {
+            jdbc.update(
+                    "INSERT INTO sys_withdraw_apply (withdraw_no, user_id, amount, fee, actual_amount, "
+                            + "withdraw_type, account_name, account_no, bank_name, status, client_token, "
+                            + "review_time, review_opinion, update_by, update_time, created_at) "
+                            + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?, NOW(), NOW())",
+                    withdrawNo, userId, amount, fee, actual, type, name, no, bank, status, token,
+                    "系统自动通过（金额不超过10000元）", "system");
+        }
+        else
+        {
+            jdbc.update(
+                    "INSERT INTO sys_withdraw_apply (withdraw_no, user_id, amount, fee, actual_amount, "
+                            + "withdraw_type, account_name, account_no, bank_name, status, client_token, created_at) "
+                            + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())",
+                    withdrawNo, userId, amount, fee, actual, type, name, no, bank, status, token);
+        }
 
         Long withdrawId = jdbc.queryForObject(
                 "SELECT withdraw_id FROM sys_withdraw_apply WHERE withdraw_no = ?", Long.class, withdrawNo);
@@ -463,13 +482,13 @@ public class TradeFinanceService
         billParams.put("balanceAfter", balanceAfter);
         billParams.put("relatedType", "withdraw");
         billParams.put("relatedId", withdrawId);
-        billParams.put("remark", "提现申请冻结");
+        billParams.put("remark", autoApprove ? "提现自动通过" : "提现申请待审核");
         financeStatsMapper.insertBillRecord(billParams);
 
         Map<String, Object> result = new HashMap<>();
         result.put("withdrawId", withdrawId);
         result.put("withdrawNo", withdrawNo);
-        result.put("status", "pending");
+        result.put("status", status);
         return result;
     }
 
