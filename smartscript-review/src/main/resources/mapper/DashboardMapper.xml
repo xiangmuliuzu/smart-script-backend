@@ -41,6 +41,24 @@
         GROUP BY status
     </select>
 
+    <!-- 业务数据总览：用户(买方/创作者)/作品各阶段/订单/合同/交易额/平台收成 -->
+    <select id="selectBusinessOverviewRow" resultType="java.util.Map">
+        SELECT
+          (SELECT COUNT(*) FROM sys_user WHERE del_flag = 0 AND user_type = '01') AS buyers,
+          (SELECT COUNT(*) FROM user_author_capability WHERE enabled = 1) AS creators,
+          (SELECT COUNT(*) FROM sys_work WHERE is_deleted = 0) AS worksTotal,
+          (SELECT COUNT(*) FROM sys_work WHERE is_deleted = 0 AND status = 'on_shelf') AS worksOnShelf,
+          (SELECT COUNT(*) FROM sys_work WHERE is_deleted = 0 AND status = 'off_shelf') AS worksOffShelf,
+          (SELECT COUNT(*) FROM sys_work WHERE is_deleted = 0 AND status = 'pending') AS worksReviewing,
+          (SELECT COUNT(*) FROM sys_order) AS ordersTotal,
+          (SELECT COUNT(*) FROM sys_order WHERE status = 'completed') AS ordersCompleted,
+          (SELECT COUNT(*) FROM sys_order WHERE status &lt;&gt; 'completed') AS ordersUnfinished,
+          (SELECT COUNT(*) FROM sys_contract) AS contracts,
+          (SELECT IFNULL(SUM(total_amount),0) FROM sys_order) AS tradeTotal,
+          (SELECT IFNULL(SUM(total_amount),0) FROM sys_order WHERE status = 'completed') AS tradeCompleted,
+          (SELECT IFNULL(SUM(platform_fee),0) FROM sys_order) AS platformFee
+    </select>
+
     <!-- 交易趋势：近7日按天 -->
     <select id="selectTrendWeek" resultType="java.util.Map">
         SELECT DATE_FORMAT(t.d, '%m/%d') AS label,

@@ -19,6 +19,9 @@ public interface DashboardMapper {
     /** 作品状态分布 */
     List<Map<String, Object>> selectWorkStatusDist();
 
+    /** 业务数据总览：用户/作品各阶段/订单/合同/交易额/平台收成 */
+    Map<String, Object> selectBusinessOverviewRow();
+
     /** 交易趋势：近7日 */
     List<Map<String, Object>> selectTrendWeek();
 

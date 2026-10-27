@@ -79,6 +79,60 @@ public class DashboardService {
         data.put("stats", stats);
         data.put("quick", quick);
         data.put("statusDist", statusList);
+
+        // ===== 业务数据总览：用户/作品各阶段/订单/合同/交易额/平台收成 =====
+        Map<String, Object> biz = dashboardMapper.selectBusinessOverviewRow();
+        long buyers = num(biz, "buyers");
+        long creators = num(biz, "creators");
+        long worksTotal = num(biz, "worksTotal");
+        long worksOnShelf = num(biz, "worksOnShelf");
+        long worksOffShelf = num(biz, "worksOffShelf");
+        long worksReviewing = num(biz, "worksReviewing");
+        long ordersTotal = num(biz, "ordersTotal");
+        long ordersCompleted = num(biz, "ordersCompleted");
+        long ordersUnfinished = num(biz, "ordersUnfinished");
+        long contracts = num(biz, "contracts");
+        double tradeTotal = dnum(biz, "tradeTotal");
+        double tradeCompleted = dnum(biz, "tradeCompleted");
+        double platformFee = dnum(biz, "platformFee");
+
+        Map<String, Object> users = new HashMap<>();
+        users.put("total", buyers);
+        users.put("creators", creators);
+        data.put("users", users);
+
+        Map<String, Object> works = new HashMap<>();
+        works.put("total", worksTotal);
+        works.put("onShelf", worksOnShelf);
+        works.put("offShelf", worksOffShelf);
+        works.put("reviewing", worksReviewing);
+        data.put("works", works);
+
+        Map<String, Object> orders = new HashMap<>();
+        orders.put("total", ordersTotal);
+        orders.put("completed", ordersCompleted);
+        orders.put("unfinished", ordersUnfinished);
+        data.put("orders", orders);
+
+        Map<String, Object> contractMap = new HashMap<>();
+        contractMap.put("total", contracts);
+        data.put("contracts", contractMap);
+
+        Map<String, Object> trade = new HashMap<>();
+        trade.put("totalAmount", tradeTotal);
+        trade.put("completedAmount", tradeCompleted);
+        trade.put("platformFee", platformFee);
+        data.put("trade", trade);
+
+        // 柱状图：用户(买方/创作者) + 作品(上架/下架/审核中)
+        List<Map<String, Object>> bar = new ArrayList<>();
+        bar.add(barItem("买方用户", buyers));
+        bar.add(barItem("创作者", creators));
+        bar.add(barItem("上架作品", worksOnShelf));
+        bar.add(barItem("下架作品", worksOffShelf));
+        bar.add(barItem("审核中作品", worksReviewing));
+        data.put("barChart", bar);
+
         return data;
     }
 
@@ -112,6 +166,13 @@ public class DashboardService {
         item.put("count", count);
         item.put("label", label);
         item.put("route", route);
+        return item;
+    }
+
+    private Map<String, Object> barItem(String name, long value) {
+        Map<String, Object> item = new HashMap<>();
+        item.put("name", name);
+        item.put("value", value);
         return item;
     }
 
