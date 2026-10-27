@@ -58,3 +58,6 @@ nbdist/
 # 用根级锚定，避免误伤 */src/main/java/com/ 源码包
 /BOOT-INF/
 /com/
+
+# Redis 本地产物
+dump.rdb
