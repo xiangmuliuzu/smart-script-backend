@@ -102,7 +102,9 @@ public class AppAuthAuthenticationFilter extends OncePerRequestFilter
             throws ServletException, IOException
     {
         String uri = request.getRequestURI();
-        if (!requiresAppIdentity(uri))
+        // 开屏请求不依赖登录态，旧 Token 也不应阻止展示；其余广告接口仍需身份。
+        boolean publicSplash = "GET".equals(request.getMethod()) && "/api/v1/ad/splash".equals(uri);
+        if (publicSplash || !requiresAppIdentity(uri))
         {
             filterChain.doFilter(request, response);
             return;

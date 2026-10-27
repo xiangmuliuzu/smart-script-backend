@@ -76,6 +76,8 @@ public class AppAuthSecurityConfig
                         .requestMatchers(HttpMethod.GET,
                                 "/api/v1/auth/captchaImage",
                                 "/api/v1/auth/agreements").permitAll()
+                        // 开屏素材在登录及会话恢复之前获取，仅公开此只读接口。
+                        .requestMatchers(HttpMethod.GET, "/api/v1/ad/splash").permitAll()
                         .requestMatchers(HttpMethod.POST,
                                 "/api/v1/auth/oauth/wechat/login",
                                 "/api/v1/auth/oauth/qq/login").permitAll()
