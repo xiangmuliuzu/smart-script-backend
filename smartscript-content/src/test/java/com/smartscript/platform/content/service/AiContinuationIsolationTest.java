@@ -24,6 +24,7 @@ import com.smartscript.platform.content.dto.AppAiWriteRecordInsert;
 import com.smartscript.platform.content.dto.AppAiWriteRequest;
 import com.smartscript.platform.content.mapper.AppAiRequestMapper;
 import com.smartscript.platform.content.mapper.AppAiWriteRecordMapper;
+import com.smartscript.platform.content.service.AiGenLimitConfig;
 import com.smartscript.platform.content.service.impl.AiWriteServiceImpl;
 import com.smartscript.platform.identity.IdentityProvider;
 
@@ -35,6 +36,7 @@ class AiContinuationIsolationTest
     private final JdbcTemplate jdbc = mock(JdbcTemplate.class);
     private final AppAiWriteRecordMapper records = mock(AppAiWriteRecordMapper.class);
     private final AppAiRequestMapper requests = mock(AppAiRequestMapper.class);
+    private final AiGenLimitConfig genLimit = mock(AiGenLimitConfig.class);
 
     @BeforeEach
     void setUp() throws Exception
@@ -45,6 +47,8 @@ class AiContinuationIsolationTest
         ReflectionTestUtils.setField(service, "writeRecordMapper", records);
         ReflectionTestUtils.setField(service, "aiRequestMapper", requests);
         ReflectionTestUtils.setField(service, "aiModel", "test-model");
+        ReflectionTestUtils.setField(service, "genLimitConfig", genLimit);
+        when(genLimit.maxChars(anyString())).thenReturn(10000);
         when(identity.currentUserId()).thenReturn(101L);
         when(jdbc.queryForObject(anyString(), eq(Integer.class), any(Long.class))).thenReturn(5);
         when(client.write(anyString(), nullable(String.class)))
@@ -85,7 +89,8 @@ class AiContinuationIsolationTest
         Consumer<String> delta = ignored -> {};
         assertEquals("synthetic story", service.writeStream(request, delta).getContent());
         verify(client).write(prompt, null);
-        verify(client).writeStream(prompt, null, delta);
+        verify(client).writeStream(eq(prompt), nullable(String.class),
+                org.mockito.ArgumentMatchers.<Consumer<String>>any());
         var saved = org.mockito.ArgumentCaptor.forClass(AppAiWriteRecordInsert.class);
         verify(records, org.mockito.Mockito.times(2)).insertWriteRecord(saved.capture());
         saved.getAllValues().forEach(row -> assertEquals(202L, row.getUserId()));

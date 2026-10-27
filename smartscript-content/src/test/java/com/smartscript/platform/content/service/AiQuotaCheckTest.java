@@ -41,6 +41,7 @@ class AiQuotaCheckTest
     private AppAiWriteRecordMapper writeRecordMapper;
     private AiServiceClient aiServiceClient;
     private IdentityProvider identityProvider;
+    private AiGenLimitConfig genLimitConfig;
     private AiWriteServiceImpl service;
 
     @BeforeEach
@@ -51,6 +52,7 @@ class AiQuotaCheckTest
         writeRecordMapper = mock(AppAiWriteRecordMapper.class);
         aiServiceClient = mock(AiServiceClient.class);
         identityProvider = mock(IdentityProvider.class);
+        genLimitConfig = mock(AiGenLimitConfig.class);
         service = new AiWriteServiceImpl();
         setField(service, "jdbcTemplate", jdbcTemplate);
         setField(service, "aiRequestMapper", aiRequestMapper);
@@ -59,6 +61,8 @@ class AiQuotaCheckTest
         setField(service, "identityProvider", identityProvider);
         setField(service, "aiModel", "deepseek-flash");
         setField(service, "aiProvider", "deepseek");
+        setField(service, "genLimitConfig", genLimitConfig);
+        when(genLimitConfig.maxChars(anyString())).thenReturn(10000);
         when(identityProvider.currentUserId()).thenReturn(USER_ID);
     }
 
