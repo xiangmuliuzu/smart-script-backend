@@ -144,6 +144,48 @@ public class AiQuotaController {
     }
 
     /**
+     * 查询 AI 生成字数上限（write/polish/outline；未配置回退默认值，0=不限）
+     * GET /api/v1/admin/ai/quota/limit-config
+     */
+    @GetMapping("/limit-config")
+    public Map<String, Object> getGenLimitConfig() {
+        return aiQuotaService.getGenLimitConfig();
+    }
+
+    /**
+     * 更新 AI 生成字数上限（防平台亏损）
+     * PUT /api/v1/admin/ai/quota/limit-config {"write":2000,"polish":2000,"outline":1000}
+     */
+    @PutMapping("/limit-config")
+    public Map<String, Object> updateGenLimitConfig(@RequestBody Map<String, Object> body) {
+        String[] keys = {"write", "polish", "outline"};
+        for (String key : keys) {
+            Object v = body == null ? null : body.get(key);
+            if (v == null) {
+                Map<String, Object> result = new HashMap<>();
+                result.put("code", 400);
+                result.put("msg", key + " 必填");
+                return result;
+            }
+            try {
+                int n = Integer.parseInt(String.valueOf(v).trim());
+                if (n < 0) {
+                    Map<String, Object> result = new HashMap<>();
+                    result.put("code", 400);
+                    result.put("msg", key + " 不能为负数");
+                    return result;
+                }
+            } catch (NumberFormatException e) {
+                Map<String, Object> result = new HashMap<>();
+                result.put("code", 400);
+                result.put("msg", key + " 必须为整数");
+                return result;
+            }
+        }
+        return aiQuotaService.updateGenLimitConfig(body);
+    }
+
+    /**
      * 查询AI配额记录列表
      */
     @GetMapping("/record/list")

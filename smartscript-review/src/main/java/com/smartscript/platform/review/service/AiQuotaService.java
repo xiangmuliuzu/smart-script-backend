@@ -108,6 +108,104 @@ public class AiQuotaService {
         }
     }
 
+    /** AI 生成字数上限默认值（未配置时）：大纲1000 / 写作2000 / 润色2000 */
+    private static final int DEFAULT_GEN_LIMIT_WRITE = 2000;
+    private static final int DEFAULT_GEN_LIMIT_POLISH = 2000;
+    private static final int DEFAULT_GEN_LIMIT_OUTLINE = 1000;
+
+    /** 生成字数上限配置 key 前缀（与 smartscript-content 模块 AiGenLimitConfig 一致） */
+    private static final String GEN_LIMIT_KEY_PREFIX = "ai.gen.max.";
+
+    /** 读取单条 sys_config 配置值；缺失/非法返回 null */
+    private Integer readConfigInt(String key) {
+        try {
+            List<Map<String, Object>> rows = jdbcTemplate.queryForList(
+                "SELECT config_value FROM sys_config WHERE config_key = ? LIMIT 1", key);
+            if (!rows.isEmpty() && rows.get(0).get("config_value") != null) {
+                return Integer.parseInt(String.valueOf(rows.get(0).get("config_value")).trim());
+            }
+        } catch (Exception e) {
+            log.warn("读取配置 {} 失败: {}", key, e.getMessage());
+        }
+        return null;
+    }
+
+    /** 管理员查询 AI 生成字数上限（write/polish/outline；未配置回退默认值，0=不限） */
+    public Map<String, Object> getGenLimitConfig() {
+        Map<String, Object> data = new HashMap<>();
+        Integer write = readConfigInt(GEN_LIMIT_KEY_PREFIX + "write");
+        Integer polish = readConfigInt(GEN_LIMIT_KEY_PREFIX + "polish");
+        Integer outline = readConfigInt(GEN_LIMIT_KEY_PREFIX + "outline");
+        data.put("write", write == null ? DEFAULT_GEN_LIMIT_WRITE : write);
+        data.put("polish", polish == null ? DEFAULT_GEN_LIMIT_POLISH : polish);
+        data.put("outline", outline == null ? DEFAULT_GEN_LIMIT_OUTLINE : outline);
+        Map<String, Object> result = new HashMap<>();
+        result.put("code", 200);
+        result.put("msg", "操作成功");
+        result.put("data", data);
+        return result;
+    }
+
+    /** 管理员更新 AI 生成字数上限（三个值均可配置；0=不限，负数非法） */
+    public Map<String, Object> updateGenLimitConfig(Map<String, Object> body) {
+        Map<String, Object> result = new HashMap<>();
+        String[] keys = {"write", "polish", "outline"};
+        int[] values = new int[keys.length];
+        for (int i = 0; i < keys.length; i++) {
+            Object v = body.get(keys[i]);
+            if (v == null) {
+                result.put("code", 400);
+                result.put("msg", keys[i] + " 必填");
+                return result;
+            }
+            try {
+                int n = Integer.parseInt(String.valueOf(v).trim());
+                if (n < 0) {
+                    result.put("code", 400);
+                    result.put("msg", keys[i] + " 不能为负数");
+                    return result;
+                }
+                values[i] = n;
+            } catch (NumberFormatException e) {
+                result.put("code", 400);
+                result.put("msg", keys[i] + " 必须为整数");
+                return result;
+            }
+        }
+        String[] names = {"AI写作单次生成字数上限", "AI润色单次生成字数上限", "AI大纲单次生成字数上限"};
+        String[] remarks = {"单次AI写作调用输出字数上限，0=不限", "单次AI润色调用输出字数上限，0=不限", "单次AI大纲调用输出字数上限，0=不限"};
+        try {
+            for (int i = 0; i < keys.length; i++) {
+                upsertConfig(GEN_LIMIT_KEY_PREFIX + keys[i], names[i], String.valueOf(values[i]), remarks[i]);
+            }
+            Map<String, Object> data = new HashMap<>();
+            data.put("write", values[0]);
+            data.put("polish", values[1]);
+            data.put("outline", values[2]);
+            result.put("code", 200);
+            result.put("msg", "生成字数上限已更新");
+            result.put("data", data);
+            return result;
+        } catch (Exception e) {
+            result.put("code", 500);
+            result.put("msg", "更新生成字数上限失败: " + e.getClass().getSimpleName() + ": " + e.getMessage());
+            return result;
+        }
+    }
+
+    /** sys_config upsert（通用） */
+    private void upsertConfig(String key, String name, String value, String remark) {
+        int rows = jdbcTemplate.update(
+            "UPDATE sys_config SET config_value = ?, update_time = NOW() WHERE config_key = ?",
+            value, key);
+        if (rows == 0) {
+            jdbcTemplate.update(
+                "INSERT INTO sys_config (config_name, config_key, config_value, config_type, create_time, remark) "
+                + "VALUES (?, ?, ?, 'Y', NOW(), ?)",
+                name, key, value, remark);
+        }
+    }
+
     /**
      * 查询AI配额账户列表
      */

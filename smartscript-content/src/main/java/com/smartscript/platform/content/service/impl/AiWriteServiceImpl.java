@@ -30,6 +30,7 @@ import com.smartscript.platform.content.dto.AppPageResult;
 import com.smartscript.platform.content.mapper.AppAiRequestMapper;
 import com.smartscript.platform.content.mapper.AppAiWriteRecordMapper;
 import com.smartscript.platform.content.exception.AiQuotaInsufficientException;
+import com.smartscript.platform.content.service.AiGenLimitConfig;
 import com.smartscript.platform.content.service.AiServiceClient;
 import com.smartscript.platform.content.service.IAiWriteService;
 import com.smartscript.platform.identity.IdentityProvider;
@@ -110,6 +111,9 @@ public class AiWriteServiceImpl implements IAiWriteService
     private AiServiceClient aiServiceClient;
 
     @Autowired
+    private AiGenLimitConfig genLimitConfig;
+
+    @Autowired
     private IdentityProvider identityProvider;
 
     @Autowired
@@ -142,11 +146,12 @@ public class AiWriteServiceImpl implements IAiWriteService
         checkContent(identityProvider.currentUserId(), request.getPrompt());
         checkQuota(identityProvider.currentUserId());
         JsonNode data = aiServiceClient.write(request.getPrompt(), request.getType());
-        String content = text(data, "content");
+        int maxChars = genLimitConfig.maxChars("write");
+        String content = DeltaLimitTruncator.truncate(text(data, "content"), maxChars);
         Long recordId = saveRecord(identityProvider.currentUserId(), request.getWorkId(),
                 resolveWriteType(request.getType()), request.getPrompt(), content, resolveModel(data));
         consumeQuota(identityProvider.currentUserId(), "write", recordId);
-        return new AppAiWriteResult(content, recordId);
+        return new AppAiWriteResult(content, recordId, maxChars != 0 && content.length() >= maxChars);
     }
 
     @Override
@@ -155,11 +160,12 @@ public class AiWriteServiceImpl implements IAiWriteService
         checkQuota(identityProvider.currentUserId());
         checkContent(identityProvider.currentUserId(), request.getContent());
         JsonNode data = aiServiceClient.polish(request.getContent(), request.getStyle());
-        String content = text(data, "content");
+        int maxChars = genLimitConfig.maxChars("polish");
+        String content = DeltaLimitTruncator.truncate(text(data, "content"), maxChars);
         Long recordId = saveRecord(identityProvider.currentUserId(), null,
                 WRITE_TYPE_POLISH, request.getContent(), content, resolveModel(data));
         consumeQuota(identityProvider.currentUserId(), "polish", recordId);
-        return new AppAiWriteResult(content, recordId);
+        return new AppAiWriteResult(content, recordId, maxChars != 0 && content.length() >= maxChars);
     }
 
     @Override
@@ -192,11 +198,14 @@ public class AiWriteServiceImpl implements IAiWriteService
         requireContinuationContext(request.getPrompt());
         checkContent(identityProvider.currentUserId(), request.getPrompt());
         checkQuota(identityProvider.currentUserId());
-        String content = aiServiceClient.writeStream(request.getPrompt(), request.getType(), onDelta);
+        int maxChars = genLimitConfig.maxChars("write");
+        DeltaLimitTruncator limiter = new DeltaLimitTruncator(onDelta, maxChars);
+        String raw = aiServiceClient.writeStream(request.getPrompt(), request.getType(), limiter::accept);
+        String content = DeltaLimitTruncator.truncate(raw, maxChars);
         Long recordId = saveRecord(identityProvider.currentUserId(), request.getWorkId(),
                 resolveWriteType(request.getType()), request.getPrompt(), content, aiModel);
         consumeQuota(identityProvider.currentUserId(), "write", recordId);
-        return new AppAiWriteResult(content, recordId);
+        return new AppAiWriteResult(content, recordId, limiter.isTruncated());
     }
 
     @Override
@@ -204,11 +213,14 @@ public class AiWriteServiceImpl implements IAiWriteService
     {
         checkQuota(identityProvider.currentUserId());
         checkContent(identityProvider.currentUserId(), request.getContent());
-        String content = aiServiceClient.polishStream(request.getContent(), request.getStyle(), onDelta);
+        int maxChars = genLimitConfig.maxChars("polish");
+        DeltaLimitTruncator limiter = new DeltaLimitTruncator(onDelta, maxChars);
+        String raw = aiServiceClient.polishStream(request.getContent(), request.getStyle(), limiter::accept);
+        String content = DeltaLimitTruncator.truncate(raw, maxChars);
         Long recordId = saveRecord(identityProvider.currentUserId(), null,
                 WRITE_TYPE_POLISH, request.getContent(), content, aiModel);
         consumeQuota(identityProvider.currentUserId(), "polish", recordId);
-        return new AppAiWriteResult(content, recordId);
+        return new AppAiWriteResult(content, recordId, limiter.isTruncated());
     }
 
     @Override
@@ -218,7 +230,9 @@ public class AiWriteServiceImpl implements IAiWriteService
         checkContent(identityProvider.currentUserId(),
                 (request.getInspiration() == null ? "" : request.getInspiration()));
         Date startedAt = new Date();
-        String raw = aiServiceClient.outlineStream(request.getInspiration(), request.getGenre(), request.getStyle(), onDelta);
+        int maxChars = genLimitConfig.maxChars("outline");
+        DeltaLimitTruncator limiter = new DeltaLimitTruncator(onDelta, maxChars);
+        String raw = aiServiceClient.outlineStream(request.getInspiration(), request.getGenre(), request.getStyle(), limiter::accept);
         Date finishedAt = new Date();
         JsonNode outlineNode = parseOutlineJson(raw);
         Object outline = outlineNode.isMissingNode() || outlineNode.isNull()
@@ -230,7 +244,7 @@ public class AiWriteServiceImpl implements IAiWriteService
         Long recordId = saveRecord(identityProvider.currentUserId(), request.getWorkId(),
                 CAPABILITY_OUTLINE, buildOutlineInputText(request), outlineToText(outline), resolveModel(outlineNode));
         consumeQuota(identityProvider.currentUserId(), "outline", recordId);
-        return new AppAiOutlineResult(outline, requestNo, QUOTA_COST_OUTLINE);
+        return new AppAiOutlineResult(outline, requestNo, QUOTA_COST_OUTLINE, limiter.isTruncated());
     }
 
     /** 把 AI 流式返回的完整大纲文本解析为 JsonNode（与同步路径共用 parseJson 语义）。 */
@@ -288,7 +302,7 @@ public class AiWriteServiceImpl implements IAiWriteService
         Long recordId = saveRecord(identityProvider.currentUserId(), request.getWorkId(),
                 CAPABILITY_OUTLINE, buildOutlineInputText(request), outlineToText(outline), resolveModel(data));
         consumeQuota(identityProvider.currentUserId(), "outline", recordId);
-        return new AppAiOutlineResult(outline, requestNo, QUOTA_COST_OUTLINE);
+        return new AppAiOutlineResult(outline, requestNo, QUOTA_COST_OUTLINE, false);
     }
 
     private static void requireContinuationContext(String prompt)

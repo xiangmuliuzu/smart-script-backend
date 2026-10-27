@@ -24,15 +24,24 @@ public class AppAiOutlineResult
     /** 消耗机会（sys_ai_request.quota_cost） */
     private Integer quotaUsed;
 
+    /** 是否因字数上限被截断 */
+    private boolean truncated;
+
     public AppAiOutlineResult()
     {
     }
 
     public AppAiOutlineResult(Object outline, String requestNo, Integer quotaUsed)
     {
+        this(outline, requestNo, quotaUsed, false);
+    }
+
+    public AppAiOutlineResult(Object outline, String requestNo, Integer quotaUsed, boolean truncated)
+    {
         this.outline = outline;
         this.requestNo = requestNo;
         this.quotaUsed = quotaUsed;
+        this.truncated = truncated;
     }
 
     public Object getOutline()
@@ -63,5 +72,15 @@ public class AppAiOutlineResult
     public void setQuotaUsed(Integer quotaUsed)
     {
         this.quotaUsed = quotaUsed;
+    }
+
+    public boolean isTruncated()
+    {
+        return truncated;
+    }
+
+    public void setTruncated(boolean truncated)
+    {
+        this.truncated = truncated;
     }
 }

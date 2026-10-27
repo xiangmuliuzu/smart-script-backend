@@ -192,7 +192,8 @@ public class AppAiController
         return streamResponse(servletRequest, delta -> {
             if (prompt == null) throw new IllegalArgumentException("prompt 不能为空");
             AppAiWriteResult result = aiWriteService.writeStream(request, delta);
-            return "{\"done\":true,\"recordId\":" + result.getRecordId() + "}";
+            return "{\"done\":true,\"recordId\":" + result.getRecordId() + ",\"truncated\":"
+                    + result.isTruncated() + "}";
         });
     }
 
@@ -207,7 +208,8 @@ public class AppAiController
         return streamResponse(servletRequest, delta -> {
             if (content == null) throw new IllegalArgumentException("content 不能为空");
             AppAiWriteResult result = aiWriteService.polishStream(request, delta);
-            return "{\"done\":true,\"recordId\":" + result.getRecordId() + "}";
+            return "{\"done\":true,\"recordId\":" + result.getRecordId() + ",\"truncated\":"
+                    + result.isTruncated() + "}";
         });
     }
 
@@ -223,7 +225,8 @@ public class AppAiController
         return streamResponse(servletRequest, delta -> {
             AppAiOutlineResult result = aiWriteService.outlineStream(request, delta);
             return "{\"done\":true,\"quotaUsed\":" + result.getQuotaUsed() + ",\"requestNo\":"
-                    + jsonEscape(result.getRequestNo() == null ? "" : result.getRequestNo()) + "}";
+                    + jsonEscape(result.getRequestNo() == null ? "" : result.getRequestNo())
+                    + ",\"truncated\":" + result.isTruncated() + "}";
         });
     }
 
