@@ -10,6 +10,9 @@
         <result property="adType"         column="ad_type"         />
         <result property="adSource"       column="ad_source"       />
         <result property="adUnitId"       column="ad_unit_id"      />
+        <result property="imageUrl" column="image_url" />
+        <result property="linkUrl" column="link_url" />
+        <result property="durationSeconds" column="duration_seconds" />
         <result property="isEnabled"      column="is_enabled"      />
         <result property="frequencyLimit" column="frequency_limit" />
         <result property="dailyCap"       column="daily_cap"       />
@@ -27,11 +30,20 @@
     </resultMap>
 
     <sql id="selectAdConfigVo">
-        SELECT ad_id, category, ad_name, ad_position, ad_type, ad_source, ad_unit_id, is_enabled,
+        SELECT ad_id, category, ad_name, ad_position, ad_type, ad_source, ad_unit_id, image_url, link_url, duration_seconds, is_enabled,
                frequency_limit, daily_cap, target_audience, watch_limit, reward_points, sort,
                start_date, end_date, create_by, created_at, update_by, update_time, remark
         FROM sys_ad_config
     </sql>
+
+    <select id="selectActiveSplash" resultMap="AdConfigResult">
+        <include refid="selectAdConfigVo"/>
+        WHERE category = 'PLACEMENT' AND ad_position = 'splash' AND ad_source = 'self'
+          AND is_enabled = 1 AND image_url IS NOT NULL AND image_url != ''
+          AND (start_date IS NULL OR start_date &lt;= CURRENT_DATE())
+          AND (end_date IS NULL OR end_date &gt;= CURRENT_DATE())
+        ORDER BY sort ASC, created_at DESC, ad_id DESC LIMIT 1
+    </select>
 
     <select id="selectAdConfigList" parameterType="com.smartscript.platform.review.domain.AdConfig" resultMap="AdConfigResult">
         <include refid="selectAdConfigVo"/>
@@ -72,6 +84,9 @@
             <if test="adType != null and adType != ''">ad_type,</if>
             <if test="adSource != null and adSource != ''">ad_source,</if>
             <if test="adUnitId != null">ad_unit_id,</if>
+            <if test="imageUrl != null">image_url,</if>
+            <if test="linkUrl != null">link_url,</if>
+            <if test="durationSeconds != null">duration_seconds,</if>
             <if test="isEnabled != null">is_enabled,</if>
             <if test="frequencyLimit != null">frequency_limit,</if>
             <if test="dailyCap != null">daily_cap,</if>
@@ -92,6 +107,9 @@
             <if test="adType != null and adType != ''">#{adType},</if>
             <if test="adSource != null and adSource != ''">#{adSource},</if>
             <if test="adUnitId != null">#{adUnitId},</if>
+            <if test="imageUrl != null">#{imageUrl},</if>
+            <if test="linkUrl != null">#{linkUrl},</if>
+            <if test="durationSeconds != null">#{durationSeconds},</if>
             <if test="isEnabled != null">#{isEnabled},</if>
             <if test="frequencyLimit != null">#{frequencyLimit},</if>
             <if test="dailyCap != null">#{dailyCap},</if>
@@ -116,6 +134,9 @@
             <if test="adType != null and adType != ''">ad_type = #{adType},</if>
             <if test="adSource != null and adSource != ''">ad_source = #{adSource},</if>
             <if test="adUnitId != null">ad_unit_id = #{adUnitId},</if>
+            <if test="imageUrl != null">image_url = #{imageUrl},</if>
+            <if test="linkUrl != null">link_url = #{linkUrl},</if>
+            <if test="durationSeconds != null">duration_seconds = #{durationSeconds},</if>
             <if test="isEnabled != null">is_enabled = #{isEnabled},</if>
             <if test="frequencyLimit != null">frequency_limit = #{frequencyLimit},</if>
             <if test="dailyCap != null">daily_cap = #{dailyCap},</if>

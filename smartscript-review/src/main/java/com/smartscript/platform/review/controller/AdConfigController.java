@@ -58,6 +58,8 @@ public class AdConfigController {
     @PostMapping
     public Map<String, Object> add(@RequestBody AdConfig adConfig) {
         Map<String, Object> result = new HashMap<>();
+        String invalid = validateMedia(adConfig);
+        if (invalid != null) return Map.of("code", 400, "msg", invalid);
         if (adConfig.getSort() == null) {
             adConfig.setSort(0);
         }
@@ -88,6 +90,8 @@ public class AdConfigController {
     @PutMapping
     public Map<String, Object> edit(@RequestBody AdConfig adConfig) {
         Map<String, Object> result = new HashMap<>();
+        String invalid = validateMedia(adConfig);
+        if (invalid != null) return Map.of("code", 400, "msg", invalid);
         adConfigService.updateAdConfig(adConfig);
         result.put("code", 200);
         result.put("msg", "操作成功");
@@ -104,5 +108,22 @@ public class AdConfigController {
         result.put("code", 200);
         result.put("msg", "操作成功");
         return result;
+    }
+    private String validateMedia(AdConfig ad) {
+        String image = ad.getImageUrl();
+        String link = ad.getLinkUrl();
+        if (image != null && !image.isBlank() && !image.startsWith("/profile/") && !validHttpUrl(image)) return "图片地址无效";
+        if (link != null && !link.isBlank() && !validHttpUrl(link)) return "跳转地址必须是 HTTP 或 HTTPS 链接";
+        Integer seconds = ad.getDurationSeconds();
+        if (seconds != null && (seconds < 1 || seconds > 10)) return "展示时长须为 1 到 10 秒";
+        return null;
+    }
+
+    private boolean validHttpUrl(String raw) {
+        try {
+            java.net.URI uri = java.net.URI.create(raw);
+            return ("http".equalsIgnoreCase(uri.getScheme()) || "https".equalsIgnoreCase(uri.getScheme()))
+                && uri.getHost() != null && uri.getUserInfo() == null;
+        } catch (IllegalArgumentException e) { return false; }
     }
 }

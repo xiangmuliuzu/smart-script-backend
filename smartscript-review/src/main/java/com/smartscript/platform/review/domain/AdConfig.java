@@ -21,6 +21,9 @@ public class AdConfig {
     private String adType;
     private String adSource;
     private String adUnitId;
+    private String imageUrl;
+    private String linkUrl;
+    private Integer durationSeconds;
     /** 是否启用 1-启用 0-停用 */
     private Integer isEnabled;
     /** 频次限制/天 */
@@ -60,6 +63,12 @@ public class AdConfig {
     public void setAdSource(String adSource) { this.adSource = adSource; }
     public String getAdUnitId() { return adUnitId; }
     public void setAdUnitId(String adUnitId) { this.adUnitId = adUnitId; }
+    public String getImageUrl() { return imageUrl; }
+    public void setImageUrl(String imageUrl) { this.imageUrl = imageUrl; }
+    public String getLinkUrl() { return linkUrl; }
+    public void setLinkUrl(String linkUrl) { this.linkUrl = linkUrl; }
+    public Integer getDurationSeconds() { return durationSeconds; }
+    public void setDurationSeconds(Integer durationSeconds) { this.durationSeconds = durationSeconds; }
     public Integer getIsEnabled() { return isEnabled; }
     public void setIsEnabled(Integer isEnabled) { this.isEnabled = isEnabled; }
     public Integer getFrequencyLimit() { return frequencyLimit; }
