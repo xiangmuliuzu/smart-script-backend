@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.trade.mapper.SysDeliveryMapper">
+
+    <resultMap type="com.smartscript.platform.trade.domain.SysDelivery" id="SysDeliveryResult">
+        <result property="deliveryId"       column="delivery_id" />
+        <result property="deliveryNo"       column="delivery_no" />
+        <result property="orderId"          column="order_id" />
+        <result property="workId"           column="work_id" />
+        <result property="buyerId"          column="buyer_id" />
+        <result property="sellerId"         column="seller_id" />
+        <result property="amount"           column="amount" />
+        <result property="licenseType"      column="license_type" />
+        <result property="status"           column="status" />
+        <result property="contractNo"       column="contract_no" />
+        <result property="contractSignTime" column="contract_sign_time" />
+        <result property="certNo"           column="cert_no" />
+        <result property="remark"           column="remark" />
+        <result property="uploadTime"       column="upload_time" />
+        <result property="confirmTime"      column="confirm_time" />
+        <result property="completedTime"    column="completed_time" />
+        <result property="createdAt"        column="created_at" />
+        <result property="updatedAt"        column="updated_at" />
+        <result property="orderNo"          column="order_no" />
+        <result property="workTitle"        column="work_title" />
+        <result property="workCover"        column="work_cover" />
+        <result property="buyerName"        column="buyer_name" />
+        <result property="sellerName"       column="seller_name" />
+    </resultMap>
+
+    <sql id="selectDeliveryVo">
+        select d.delivery_id, d.delivery_no, d.order_id, d.work_id, d.buyer_id, d.seller_id,
+               d.amount, d.license_type, d.status, d.contract_no, d.contract_sign_time, d.cert_no,
+               d.remark, d.upload_time, d.confirm_time, d.completed_time, d.created_at, d.updated_at,
+               o.order_no,
+               w.title as work_title,
+               w.cover as work_cover,
+               ub.nick_name as buyer_name,
+               us.nick_name as seller_name
+        from sys_delivery d
+        left join sys_order o on d.order_id = o.order_id
+        left join sys_work w on d.work_id = w.work_id
+        left join sys_user ub on d.buyer_id = ub.user_id
+        left join sys_user us on d.seller_id = us.user_id
+    </sql>
+
+    <select id="selectDeliveryList" parameterType="com.smartscript.platform.trade.domain.SysDelivery" resultMap="SysDeliveryResult">
+        <include refid="selectDeliveryVo"/>
+        <where>
+            <if test="status != null and status != ''">AND d.status = #{status}</if>
+            <if test="deliveryNo != null and deliveryNo != ''">AND d.delivery_no like concat('%', #{deliveryNo}, '%')</if>
+            <if test="orderId != null">AND d.order_id = #{orderId}</if>
+            <if test="buyerId != null and sellerId == null">AND d.buyer_id = #{buyerId}</if>
+            <if test="sellerId != null and buyerId == null">AND d.seller_id = #{sellerId}</if>
+            <if test="buyerId != null and sellerId != null">
+                AND (d.buyer_id = #{buyerId} OR d.seller_id = #{sellerId})
+            </if>
+            <if test="params != null and params.userId != null">
+                AND (d.buyer_id = #{params.userId} OR d.seller_id = #{params.userId})
+            </if>
+        </where>
+        order by d.created_at desc
+    </select>
+
+    <select id="selectDeliveryById" parameterType="Long" resultMap="SysDeliveryResult">
+        <include refid="selectDeliveryVo"/>
+        where d.delivery_id = #{deliveryId}
+    </select>
+
+    <select id="selectDeliveryByOrderId" parameterType="Long" resultMap="SysDeliveryResult">
+        <include refid="selectDeliveryVo"/>
+        where d.order_id = #{orderId}
+        limit 1
+    </select>
+
+    <insert id="insertDelivery" parameterType="com.smartscript.platform.trade.domain.SysDelivery" useGeneratedKeys="true" keyProperty="deliveryId">
+        insert into sys_delivery (
+            delivery_no, order_id, work_id, buyer_id, seller_id, amount, license_type, status,
+            contract_no, contract_sign_time, cert_no, remark, create_by, create_time
+        ) values (
+            #{deliveryNo}, #{orderId}, #{workId}, #{buyerId}, #{sellerId}, #{amount}, #{licenseType}, #{status},
+            #{contractNo}, #{contractSignTime}, #{certNo}, #{remark}, #{createBy}, #{createTime}
+        )
+    </insert>
+
+    <update id="updateDelivery" parameterType="com.smartscript.platform.trade.domain.SysDelivery">
+        update sys_delivery
+        <set>
+            <if test="status != null">status = #{status},</if>
+            <if test="certNo != null">cert_no = #{certNo},</if>
+            <if test="remark != null">remark = #{remark},</if>
+            <if test="uploadTime != null">upload_time = #{uploadTime},</if>
+            <if test="confirmTime != null">confirm_time = #{confirmTime},</if>
+            <if test="completedTime != null">completed_time = #{completedTime},</if>
+            <if test="updateBy != null">update_by = #{updateBy},</if>
+            <if test="updateTime != null">update_time = #{updateTime},</if>
+        </set>
+        where delivery_id = #{deliveryId}
+    </update>
+
+</mapper>

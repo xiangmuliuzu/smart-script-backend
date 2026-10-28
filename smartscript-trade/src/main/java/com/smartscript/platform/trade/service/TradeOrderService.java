@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.util.Date;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -60,6 +61,11 @@ public class TradeOrderService
     /** 交易全生命周期站内通知统一出口。 */
     @Autowired
     private TradeNotifyService notifyService;
+
+    /** 版权交割：付款进入交割中后建单；确认收货前校验材料。 */
+    @Autowired
+    @Lazy
+    private TradeDeliveryService deliveryService;
 
     public List<SysOrder> selectOrderList(SysOrder order)
     {
@@ -236,6 +242,9 @@ public class TradeOrderService
         log.setCreateTime(new Date());
         logMapper.insertLog(log);
 
+        SysOrder refreshed = orderMapper.selectOrderById(orderId);
+        deliveryService.createDeliveryForOrder(refreshed != null ? refreshed : order);
+
         // 买方付款 → 通知卖方订单进入交割
         notifyService.notifyOrderPaid(orderId, order.getOrderNo(), order.getSellerId());
     }
@@ -260,6 +269,8 @@ public class TradeOrderService
         {
             throw new RuntimeException("只有买方可以确认收货");
         }
+
+        deliveryService.prepareForComplete(orderId);
 
         // CAS 落库：仅 delivering 可完成，并发重复调用（双击/重试）在此拦截，
         // 确保后续收益入账仅执行一次
