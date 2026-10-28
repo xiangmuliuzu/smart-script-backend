@@ -17,6 +17,9 @@
                    (r.read_at IS NOT NULL) AS is_read, r.read_at
             FROM user_notification n JOIN user_notification_receiver r ON r.notification_id = n.id
             WHERE r.user_id = #{userId} AND r.deleted_flag = 0
+            <if test="portalRole != null and portalRole != ''">
+                AND (n.audience IS NULL OR n.audience = 'BOTH' OR n.audience = #{portalRole})
+            </if>
             UNION ALL
             SELECT 'ANNOUNCEMENT' AS source, n.notice_id AS message_id,
                    CONVERT('SYSTEM' USING utf8mb4) COLLATE utf8mb4_unicode_ci AS type,

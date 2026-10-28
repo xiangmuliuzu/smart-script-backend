@@ -253,6 +253,9 @@
         <if test="type != null and type != ''">
             AND n.type = #{type}
         </if>
+        <if test="portalRole != null and portalRole != ''">
+            AND (n.audience IS NULL OR n.audience = 'BOTH' OR n.audience = #{portalRole})
+        </if>
         ORDER BY n.create_time DESC, n.id DESC
     </select>
 

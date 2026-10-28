@@ -28,7 +28,7 @@ class UserInboxServiceTest
             row.setType("SYSTEM"); row.setTitle("服务升级");
             row.setContent("<p>升级正文</p><script>alert(1)</script>"); rows.add(row);
         }
-        when(mapper.selectInbox(12L, "SYSTEM")).thenReturn(rows);
+        when(mapper.selectInbox(12L, "SYSTEM", null)).thenReturn(rows);
         try
         {
             var result = service.page(12L, "01", "SYSTEM", 1, 2);

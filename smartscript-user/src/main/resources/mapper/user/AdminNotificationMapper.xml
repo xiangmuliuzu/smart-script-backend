@@ -34,6 +34,7 @@
         <result property="content" column="content"/>
         <result property="businessType" column="business_type"/>
         <result property="businessId" column="business_id"/>
+        <result property="audience" column="audience"/>
         <result property="receiverCount" column="receiver_count"/>
         <result property="createdBy" column="created_by"/>
         <result property="createdAt" column="created_at"/>
@@ -48,6 +49,7 @@
         n.business_type,
         <!-- 历史行双列为空时回落到 biz_ref，仅作为 businessId 使用 -->
         COALESCE(n.business_id, n.biz_ref) AS business_id,
+        n.audience,
         n.create_by AS created_by,
         n.create_time AS created_at
     </sql>
@@ -152,9 +154,9 @@
     <insert id="insertNotification" parameterType="com.smartscript.platform.user.domain.admin.AdminNotification"
             useGeneratedKeys="true" keyProperty="notificationId">
         INSERT INTO user_notification
-            (request_id, type, title, body, business_type, business_id, create_by, create_time)
+            (request_id, type, title, body, business_type, business_id, audience, create_by, create_time)
         VALUES
-            (#{requestId}, #{type}, #{title}, #{content}, #{businessType}, #{businessId},
+            (#{requestId}, #{type}, #{title}, #{content}, #{businessType}, #{businessId}, #{audience},
              #{createdBy}, NOW())
     </insert>
 

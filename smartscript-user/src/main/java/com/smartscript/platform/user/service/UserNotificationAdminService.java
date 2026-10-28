@@ -119,6 +119,23 @@ public class UserNotificationAdminService
     public CreateResult create(String requestId, String type, String title, String content,
             String businessType, String businessId, List<Long> userIds, String operator)
     {
+        // 兼容旧调用方（A4 管理端/实名/创作者审核等）：不带受众，等价 audience=null 全端可见。
+        return create(requestId, type, title, content, businessType, businessId, userIds, operator, null);
+    }
+
+    /**
+     * 创建消息（契约 §5.4），带交易受众角色 audience。
+     *
+     * audience 取值 BUYER/SELLER/BOTH/null：供各门户按角色过滤收件箱
+     * （企业端=BUYER、创作者端=SELLER、APP端不过滤即全量）；
+     * null 表示通用/非交易通知（如公告/审核结果），全端可见。
+     * 幂等语义与旧方法一致：audience 不计入幂等签名，
+     * 保证存量行的等价重试判定不受本次扩展影响。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public CreateResult create(String requestId, String type, String title, String content,
+            String businessType, String businessId, List<Long> userIds, String operator, String audience)
+    {
         validateCreateInput(requestId, type, title, content, businessType, businessId, userIds);
 
         List<Long> distinct = new ArrayList<>(new LinkedHashSet<>(userIds));
@@ -150,6 +167,7 @@ public class UserNotificationAdminService
         entity.setContent(content);
         entity.setBusinessType(businessType);
         entity.setBusinessId(businessId);
+        entity.setAudience(audience);
         entity.setCreatedBy(operator);
         try
         {

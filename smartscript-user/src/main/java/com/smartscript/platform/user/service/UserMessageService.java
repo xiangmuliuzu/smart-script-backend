@@ -70,9 +70,19 @@ public class UserMessageService
      */
     public PageResult<Map<String, Object>> page(Long userId, String type, int pageNum, int pageSize)
     {
+        return page(userId, type, null, pageNum, pageSize);
+    }
+
+    /** portalRole 为门户受众（BUYER/SELLER），只展示通用/BOTH/本角色通知；空则不过滤（APP 端全量）。 */
+    public PageResult<Map<String, Object>> page(Long userId, String type, String portalRole, int pageNum, int pageSize)
+    {
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("userId", userId);
         params.put("type", normalizeType(type, true));
+        if ("BUYER".equals(portalRole) || "SELLER".equals(portalRole))
+        {
+            params.put("portalRole", portalRole);
+        }
         PageHelper.startPage(pageNum, pageSize);
         List<UserMessage> rows = centerMapper.selectMyMessages(params);
         long total = new PageInfo<>(rows).getTotal();

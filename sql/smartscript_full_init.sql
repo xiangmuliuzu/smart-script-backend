@@ -950,6 +950,7 @@ CREATE TABLE IF NOT EXISTS user_notification (
   biz_ref VARCHAR(64) NULL,
   business_type VARCHAR(64) NULL COMMENT 'A4 业务类型；历史行 NULL',
   business_id VARCHAR(64) NULL COMMENT 'A4 业务标识；历史行 NULL',
+  audience VARCHAR(16) DEFAULT NULL COMMENT '交易通知受众: BUYER买方/SELLER卖方/BOTH双方; NULL=通用全端可见',
   create_by VARCHAR(64) NOT NULL DEFAULT 'system',
   create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   update_by VARCHAR(64) NOT NULL DEFAULT '',

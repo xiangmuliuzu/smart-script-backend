@@ -9,10 +9,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import com.ruoyi.common.utils.SecurityUtils;
 import com.ruoyi.common.utils.uuid.Seq;
+import com.smartscript.platform.trade.domain.SysEscrow;
 import com.smartscript.platform.trade.domain.SysInquiry;
 import com.smartscript.platform.trade.domain.SysOrder;
 import com.smartscript.platform.trade.domain.SysOrderStatusLog;
-import com.smartscript.platform.trade.domain.SysEscrow;
 import com.smartscript.platform.trade.mapper.SysOrderMapper;
 import com.smartscript.platform.trade.mapper.SysOrderStatusLogMapper;
 import com.smartscript.platform.trade.mapper.SysEscrowMapper;
@@ -43,6 +43,7 @@ public class TradeOrderService
     @Autowired
     private SysOrderStatusLogMapper logMapper;
 
+    /** 确认收货时释放托管资金（D 域托管表，远程待结算模型依赖） */
     @Autowired
     private SysEscrowMapper escrowMapper;
 

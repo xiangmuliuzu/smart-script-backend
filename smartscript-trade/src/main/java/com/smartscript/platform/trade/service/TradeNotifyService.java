@@ -25,6 +25,9 @@ import com.smartscript.platform.user.service.UserNotificationAdminService;
  *       同一事件重复触发只落一条通知，避免并发/重试刷屏。</li>
  *   <li><b>集中收口</b>：所有交易通知文案在此拼装，调用方只传业务主键与收件人，
  *       规避「多写端点各自调通知、漏接导致同类操作时有时缺」的老问题。</li>
+ *   <li><b>受众标注</b>：每条通知携带 audience（BUYER/SELLER/BOTH），PC 企业端(买方门户)
+ *       与创作者端(卖方门户)按受众过滤收件箱，APP 端不过滤；同一账号身兼买卖两侧时
+ *       各门户只看到自己角色视角的通知。</li>
  * </ul>
  */
 @Service
@@ -49,7 +52,7 @@ public class TradeNotifyService
     {
         push("TRD-INQ-CRT-" + inquiryId, "新的合作询盘",
                 "您收到一条新的合作询盘" + noSuffix(inquiryNo) + "，请及时前往「收到的询盘」处理。",
-                "INQUIRY", str(inquiryId), one(sellerId));
+                "INQUIRY", str(inquiryId), one(sellerId), "SELLER");
     }
 
     /** 卖方接受询盘 → 通知买方进入会话洽谈。 */
@@ -57,7 +60,7 @@ public class TradeNotifyService
     {
         push("TRD-INQ-ACC-" + inquiryId, "询盘已被接受",
                 "卖方已接受您的询盘" + noSuffix(inquiryNo) + "，请进入交易会话开始洽谈报价。",
-                "INQUIRY", str(inquiryId), one(buyerId));
+                "INQUIRY", str(inquiryId), one(buyerId), "BUYER");
     }
 
     /** 一方接受报价 → 通知另一方订单已生成，进入订单流程。 */
@@ -65,7 +68,7 @@ public class TradeNotifyService
     {
         push("TRD-QTE-ACC-" + orderId, "报价已接受，订单已生成",
                 "对方已接受报价，授权订单" + noSuffix(orderNo) + "已生成，请前往「我的订单」查看并推进后续流程。",
-                "ORDER", str(orderId), one(counterpartUserId));
+                "ORDER", str(orderId), one(counterpartUserId), "BOTH");
     }
 
     /** 一方签署合同 → 通知另一方及时完成签署。 */
@@ -73,7 +76,7 @@ public class TradeNotifyService
     {
         push("TRD-CTC-SGN-" + contractId, "对方已签署合同",
                 "订单" + noSuffix(orderNo) + "的合同对方已完成签署，请您及时完成签署。",
-                "CONTRACT", str(contractId), one(counterpartUserId));
+                "CONTRACT", str(contractId), one(counterpartUserId), "BOTH");
     }
 
     /** 双方签署完成 → 通知买方付款至托管。 */
@@ -81,7 +84,7 @@ public class TradeNotifyService
     {
         push("TRD-CTC-CMP-" + orderId, "合同签署完成，待付款",
                 "订单" + noSuffix(orderNo) + "的合同已双方签署完成，请买方尽快付款以推进交割。",
-                "ORDER", str(orderId), one(buyerId));
+                "ORDER", str(orderId), one(buyerId), "BUYER");
     }
 
     /** 买方付款 → 通知卖方订单进入交割。 */
@@ -89,7 +92,7 @@ public class TradeNotifyService
     {
         push("TRD-ORD-PAY-" + orderId, "买方已付款，请交割",
                 "订单" + noSuffix(orderNo) + "买方已付款，订单进入交割，请尽快交付作品。",
-                "ORDER", str(orderId), one(sellerId));
+                "ORDER", str(orderId), one(sellerId), "SELLER");
     }
 
     /** 买方确认收货、订单完成 → 通知买卖双方订单已完成。 */
@@ -97,7 +100,7 @@ public class TradeNotifyService
     {
         push("TRD-ORD-CMP-" + orderId, "订单已完成",
                 "订单" + noSuffix(orderNo) + "已完成，感谢本次交易。",
-                "ORDER", str(orderId), two(buyerId, sellerId));
+                "ORDER", str(orderId), two(buyerId, sellerId), "BOTH");
     }
 
     /** 合同签署前任一方取消订单 → 通知对方。 */
@@ -105,14 +108,14 @@ public class TradeNotifyService
     {
         push("TRD-ORD-CXL-" + orderId, "订单已取消",
                 "订单" + noSuffix(orderNo) + "已在合同签署完成前被对方取消，如有疑问可与对方沟通。",
-                "ORDER", str(orderId), one(counterpartUserId));
+                "ORDER", str(orderId), one(counterpartUserId), "BOTH");
     }
 
     // ===== 内部工具 =====
 
-    /** 统一投递：过滤空收件人、REQUIRES_NEW 独立事务、吞异常。 */
+    /** 统一投递：过滤空收件人、REQUIRES_NEW 独立事务、吞异常。audience 标注受众门户。 */
     private void push(String requestId, String title, String content,
-            String businessType, String businessId, List<Long> userIds)
+            String businessType, String businessId, List<Long> userIds, String audience)
     {
         List<Long> receivers = normalize(userIds);
         if (receivers.isEmpty())
@@ -123,7 +126,7 @@ public class TradeNotifyService
         {
             newTx.executeWithoutResult(status -> notificationService.create(
                     requestId, AppAdminConstants.NOTIFICATION_TRANSACTION, title, content,
-                    businessType, businessId, receivers, "system"));
+                    businessType, businessId, receivers, "system", audience));
         }
         catch (Exception e)
         {

@@ -36,10 +36,17 @@ public class UserInboxService
 
     public PageResult<Map<String, Object>> page(Long userId, String userType, String type, int pageNum, int pageSize)
     {
+        return page(userId, userType, type, null, pageNum, pageSize);
+    }
+
+    /** portalRole 为门户受众（BUYER=企业端/SELLER=创作者端），只过滤通知；公告与 audience 为 NULL/BOTH 的通知全端可见。 */
+    public PageResult<Map<String, Object>> page(Long userId, String userType, String type, String portalRole, int pageNum, int pageSize)
+    {
         requireUser(userType);
         String filter = UserMessageService.normalizeType(type, true);
+        String role = normalizeRole(portalRole);
         PageHelper.startPage(pageNum, pageSize);
-        var rows = mapper.selectInbox(userId, filter);
+        var rows = mapper.selectInbox(userId, filter, role);
         long total = new PageInfo<>(rows).getTotal();
         List<Map<String, Object>> items = new ArrayList<>();
         for (var row : rows)
@@ -50,6 +57,12 @@ public class UserInboxService
             items.add(item);
         }
         return PageResult.of(total, items);
+    }
+
+    /** 只认 BUYER/SELLER 两个门户受众，其他值（含 BOTH/非法值）视为不过滤。 */
+    private String normalizeRole(String portalRole)
+    {
+        return "BUYER".equals(portalRole) || "SELLER".equals(portalRole) ? portalRole : null;
     }
 
     public Map<String, Object> unreadCount(Long userId, String userType)
