@@ -1,6 +1,6 @@
 # smart-script-backend（整体后端）
 
-智能剧本创作平台 **整体后端** 仓库。旧 A 模块共享文档已清理；共享 SQL、验证脚本与回归记录见 [`../shared/README.md`](../shared/README.md)。
+智能剧本创作平台 **整体后端** 仓库。数据库初始化与迁移位于 `sql/`，维护脚本位于 `scripts/`。
 
 ## 仓库边界
 
@@ -68,7 +68,7 @@
 | `APP_TOKEN_SECRET` | App 凭证域密钥，≥32 字符，且**必须与 `TOKEN_SECRET` 不同** |
 | `APP_TOKEN_ISSUER` / `APP_TOKEN_AUDIENCE` | App JWT 签发者与受众，不得为空 |
 | `APP_REDIS_KEY_PREFIX` | App 凭证域 Redis 前缀，例：`smartscript:dev:app-auth:` |
-| `APP_ADMIN_MATERIAL_STORAGE_PATH` | A4 材料文件根目录，不得位于 `ruoyi.profile` 之下 |
+| `APP_ADMIN_MATERIAL_STORAGE_PATH` | 私有材料目录，本地建议设置后端根目录 `private-materials/`，不得位于 `ruoyi.profile` 之下；已加入 Git 忽略规则 |
 | `APP_AUTH_ENV` | `local` / `test` 才允许 `SMS_PROVIDER=mock` |
 | `APP_SMS_MOCK_CODE` | mock 短信固定验证码。本地联调时可设为 `123456`，App 端即用该码通过短信验证；也可临时修改 `application.yml` 中 `app.sms.mock-fixed-code` 的默认值（勿提交） |
 

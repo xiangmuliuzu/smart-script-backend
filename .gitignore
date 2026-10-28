@@ -40,6 +40,7 @@ nbdist/
 # Others
 # 本地凭据加载与启动脚本，含数据库/密钥注入逻辑，禁止入库
 /.local/
+/private-materials/
 *.log
 *.xml.versionsBackup
 *.swp
