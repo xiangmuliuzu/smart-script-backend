@@ -45,6 +45,7 @@ class AiOutlineDualWriteTest
     private IdentityProvider identityProvider;
     private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
     private AiWriteServiceImpl service;
+    private com.smartscript.platform.review.service.RiskCheckService riskCheckService;
 
     @BeforeEach
     void setUp() throws Exception
@@ -55,6 +56,8 @@ class AiOutlineDualWriteTest
         identityProvider = mock(IdentityProvider.class);
         jdbcTemplate = mock(org.springframework.jdbc.core.JdbcTemplate.class);
         service = new AiWriteServiceImpl();
+        riskCheckService = mock(com.smartscript.platform.review.service.RiskCheckService.class);
+        setField(service, "riskCheckService", riskCheckService);
         setField(service, "aiRequestMapper", aiRequestMapper);
         setField(service, "writeRecordMapper", writeRecordMapper);
         setField(service, "aiServiceClient", aiServiceClient);
@@ -81,6 +84,7 @@ class AiOutlineDualWriteTest
         request.setStyle("爽文");
 
         AppAiOutlineResult result = service.outline(request);
+        verify(riskCheckService).checkContentOrThrow(USER_ID, "都市青年逆袭");
 
         // 元信息表照旧落一条
         verify(aiRequestMapper, times(1)).insertAiRequest(

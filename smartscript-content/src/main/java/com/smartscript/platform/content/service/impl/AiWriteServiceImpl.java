@@ -127,7 +127,7 @@ public class AiWriteServiceImpl implements IAiWriteService
     {
         if (riskCheckService != null && text != null && !text.isBlank())
         {
-            checkContent(userId, text);
+            riskCheckService.checkContentOrThrow(userId, text);
         }
     }
 

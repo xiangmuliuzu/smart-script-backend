@@ -5,6 +5,8 @@ import java.nio.charset.StandardCharsets;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.web.context.RequestAttributeSecurityContextRepository;
+import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.web.filter.OncePerRequestFilter;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -35,6 +37,7 @@ public class AppAuthAuthenticationFilter extends OncePerRequestFilter
      * 本过滤器直接短路写响应，不进入 MVC，故必须在此处回调审计。
      */
     private final AuthenticationFailureAuditor authFailureAuditor;
+    private final SecurityContextRepository securityContextRepository;
 
     /**
      * 完全公开端点（与 AppAuthSecurityConfig 的 permitAll 规则一致）：
@@ -93,8 +96,15 @@ public class AppAuthAuthenticationFilter extends OncePerRequestFilter
 
     public AppAuthAuthenticationFilter(AppRuoYiSessionService accessTokenService, AuthenticationFailureAuditor authFailureAuditor)
     {
+        this(accessTokenService, authFailureAuditor, new RequestAttributeSecurityContextRepository());
+    }
+
+    public AppAuthAuthenticationFilter(AppRuoYiSessionService accessTokenService, AuthenticationFailureAuditor authFailureAuditor,
+            SecurityContextRepository securityContextRepository)
+    {
         this.accessTokenService = accessTokenService;
         this.authFailureAuditor = authFailureAuditor;
+        this.securityContextRepository = securityContextRepository;
     }
 
     @Override
@@ -133,6 +143,7 @@ public class AppAuthAuthenticationFilter extends OncePerRequestFilter
         {
             AppIdentityContext identity = accessTokenService.parseAndValidate(token);
             SecurityContextHolder.getContext().setAuthentication(identity);
+            securityContextRepository.saveContext(SecurityContextHolder.getContext(), request, response);
             filterChain.doFilter(request, response);
         }
         catch (AppAuthException e)

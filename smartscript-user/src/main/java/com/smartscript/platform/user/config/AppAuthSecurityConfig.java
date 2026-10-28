@@ -8,6 +8,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.context.RequestAttributeSecurityContextRepository;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import com.ruoyi.framework.security.handle.AuthenticationFailureAuditor;
 import com.smartscript.platform.user.security.AppRuoYiSessionService;
@@ -54,9 +55,12 @@ public class AppAuthSecurityConfig
             AppRuoYiSessionService accessTokenService,
             AppAuthEntryPoint appAuthEntryPoint) throws Exception
     {
-        AppAuthAuthenticationFilter appFilter = new AppAuthAuthenticationFilter(accessTokenService, authenticationFailureAuditor);
+        // 仅保存在本次请求属性中，让异步派发继续使用已认证身份；不创建 HTTP session。
+        RequestAttributeSecurityContextRepository securityContextRepository = new RequestAttributeSecurityContextRepository();
+        AppAuthAuthenticationFilter appFilter = new AppAuthAuthenticationFilter(accessTokenService, authenticationFailureAuditor, securityContextRepository);
         http.securityMatcher(APP_PATH_PREFIXES)
                 .csrf(csrf -> csrf.disable())
+                .securityContext(context -> context.securityContextRepository(securityContextRepository))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .exceptionHandling(ex -> ex.authenticationEntryPoint(appAuthEntryPoint))
                 .authorizeHttpRequests(auth -> auth
