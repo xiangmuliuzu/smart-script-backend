@@ -83,18 +83,70 @@ class AiReviewServiceTest {
     }
 
     @Test
-    void mockScore_含暴力词_扣分转中风险() {
+    void mockScore_返回AI侧基线100_词库扣分由score处理() {
+        // 新逻辑：mockScore 仅返回 AI 侧基线，词库命中确定性扣分在 score() 中处理，避免重复扣分
         Map<String, Object> r = aiReviewService.mockScore("他拿起刀，用暴力解决了一切", Collections.singletonList(contentRule));
-        assertTrue(((Number) r.get("score")).intValue() < 100);
-        assertEquals("medium", r.get("level"));
-        assertTrue(((java.util.List<?>) r.get("keywords")).contains("暴力"));
+        assertEquals(100, r.get("score"));
+        assertEquals("low", r.get("level"));
+        assertTrue(((java.util.List<?>) r.get("keywords")).isEmpty());
     }
 
     @Test
-    void mockScore_命中敏感词规则_扣分并记录() {
-        Map<String, Object> r = aiReviewService.mockScore("内容里出现了违禁词汇", Collections.singletonList(sensitiveRule));
-        assertTrue(((Number) r.get("score")).intValue() < 100);
-        assertTrue(((java.util.List<?>) r.get("keywords")).contains("违禁"));
+    void mockScore_无违规_issues为空() {
+        Map<String, Object> r = aiReviewService.mockScore("这是一篇优秀的悬疑小说，情节紧凑", Collections.singletonList(contentRule));
+        assertEquals(100, r.get("score"));
+        java.util.List<Map<String, Object>> issues = (java.util.List<Map<String, Object>>) r.get("issues");
+        assertTrue(issues == null || issues.isEmpty());
+    }
+
+    @Test
+    void score_词库命中_确定性扣分_不依赖AI分() {
+        // 核心新逻辑：规则配置违禁词词库后，命中词库即确定性扣分（暴力2字-15、血腥2字-15 -> 70分），不再全凭AI自主判断
+        contentRule.setRuleValue("{\"words\":[\"暴力\",\"血腥\"]}");
+        ReviewRecord record = new ReviewRecord();
+        record.setReviewId(50L);
+        record.setStatus("ai_reviewing");
+        when(reviewRecordMapper.selectReviewRecordById(50L)).thenReturn(record);
+        when(aiReviewRuleMapper.selectActiveAiReviewRules()).thenReturn(Collections.singletonList(contentRule));
+
+        Map<String, Object> r = aiReviewService.score(50L, "他拿起刀，用暴力解决了一切，场面血腥");
+        assertEquals(200, r.get("code"));
+        assertEquals(70, ((Number) r.get("aiScore")).intValue());
+        assertTrue(((java.util.List<?>) r.get("keywords")).contains("暴力"));
+        assertTrue(((java.util.List<?>) r.get("keywords")).contains("血腥"));
+    }
+
+    @Test
+    void score_词库命中_生成原句引用() {
+        // 词库命中的问题引用必须是正文原句（供审核工作台/用户定位）
+        contentRule.setRuleValue("{\"words\":[\"暴力\"]}");
+        ReviewRecord record = new ReviewRecord();
+        record.setReviewId(51L);
+        record.setStatus("ai_reviewing");
+        when(reviewRecordMapper.selectReviewRecordById(51L)).thenReturn(record);
+        when(aiReviewRuleMapper.selectActiveAiReviewRules()).thenReturn(Collections.singletonList(contentRule));
+
+        Map<String, Object> r = aiReviewService.score(51L, "他拿起刀，用暴力解决了一切。大家都吓坏了");
+        org.mockito.ArgumentCaptor<ReviewRecord> captor = org.mockito.ArgumentCaptor.forClass(ReviewRecord.class);
+        verify(reviewRecordMapper).updateReviewRecord(captor.capture());
+        assertTrue(captor.getValue().getAiResult().contains("他拿起刀，用暴力解决了一切"));
+        assertTrue(captor.getValue().getAiResult().contains("命中违禁词词库"));
+    }
+
+    @Test
+    void decideAction_有词库_命中词即触发() {
+        // 词库命中即触发该规则（即使AI综合分为100），不再依赖AI自主判断
+        contentRule.setRuleValue("{\"words\":[\"暴力\"]}");
+        assertEquals("auto_reject", aiReviewService.decideAction(100, "他使用暴力解决问题", Collections.singletonList(contentRule)));
+        assertNull(aiReviewService.decideAction(0, "这是一篇正常的武侠小说", Collections.singletonList(contentRule)));
+    }
+
+    @Test
+    void decideAction_无词库_按AI分阈值判定() {
+        // 版权查重等无词库规则（rule_value 为非JSON占位值）：仍按 AI 综合分 < 阈值 判定
+        contentRule.setRuleValue("plagiarism_check");
+        assertEquals("auto_reject", aiReviewService.decideAction(60, "内容", Collections.singletonList(contentRule)));
+        assertNull(aiReviewService.decideAction(90, "内容", Collections.singletonList(contentRule)));
     }
 
     @Test
@@ -187,9 +239,10 @@ class AiReviewServiceTest {
         record.setReviewId(31L);
         record.setStatus("ai_reviewing");
         when(reviewRecordMapper.selectReviewRecordById(31L)).thenReturn(record);
-        when(aiReviewRuleMapper.selectActiveAiReviewRules()).thenReturn(Collections.emptyList());
+        contentRule.setRuleValue("{\"words\":[\"暴力\",\"血腥\",\"色情\",\"毒品\",\"赌博\"]}");
+        when(aiReviewRuleMapper.selectActiveAiReviewRules()).thenReturn(Collections.singletonList(contentRule));
 
-        // 内容含暴力词，mockScore 扣到 low 分以下 -> high
+        // 内容命中词库5个词：100-15*5=25 -> high -> 自动驳回
         Map<String, Object> r = aiReviewService.score(31L, "他拿起刀，用暴力血腥的色情毒品赌博手段解决一切");
         assertEquals("rejected", r.get("nextStatus"));
         org.mockito.ArgumentCaptor<ReviewRecord> captor = org.mockito.ArgumentCaptor.forClass(ReviewRecord.class);
@@ -249,8 +302,9 @@ class AiReviewServiceTest {
     }
 
     @Test
-    void score_规则处理方式自动驳回_命中阈值_流转rejected() {
+    void score_规则处理方式自动驳回_词库命中_流转rejected() {
         contentRule.setAction("auto_reject");
+        contentRule.setRuleValue("{\"words\":[\"暴力\"]}");
         ReviewRecord record = new ReviewRecord();
         record.setReviewId(42L);
         record.setStatus("ai_reviewing");
@@ -309,19 +363,9 @@ class AiReviewServiceTest {
     }
 
     @Test
-    void mockScore_含暴力词_生成引用句quote() {
+    void mockScore_基线100_无issues() {
+        // mockScore 仅提供AI侧基线，词库扣分在 score() 中处理
         Map<String, Object> r = aiReviewService.mockScore("他拿起刀，用暴力解决了一切。大家都吓坏了", Collections.singletonList(contentRule));
-        assertTrue(((Number) r.get("score")).intValue() < 100);
-        java.util.List<Map<String, Object>> issues = (java.util.List<Map<String, Object>>) r.get("issues");
-        assertNotNull(issues);
-        assertTrue(issues.size() >= 1);
-        // 引用句必须是正文原句（含命中词）
-        assertTrue(issues.stream().anyMatch(i -> "他拿起刀，用暴力解决了一切".equals(i.get("quote"))));
-    }
-
-    @Test
-    void mockScore_无违规_issues为空() {
-        Map<String, Object> r = aiReviewService.mockScore("这是一篇优秀的悬疑小说，情节紧凑", Collections.singletonList(contentRule));
         assertEquals(100, r.get("score"));
         java.util.List<Map<String, Object>> issues = (java.util.List<Map<String, Object>>) r.get("issues");
         assertTrue(issues == null || issues.isEmpty());

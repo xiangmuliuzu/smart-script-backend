@@ -14,9 +14,11 @@ import org.springframework.web.client.RestTemplate;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 
@@ -79,9 +81,13 @@ public class AiReviewService {
         }
         // 1) 读取启用中的AI审核规则
         List<AiReviewRule> rules = aiReviewRuleMapper.selectActiveAiReviewRules();
-        // 2) 根据规则拼提示词（规则即审核标准）
+        // 2) 违禁词词库确定性打分：命中词库中的词即扣分，不依赖AI自主判断
+        String text = content == null ? "" : content;
+        List<String> wordHits = collectKeywordHits(rules, text);
+        int wordScore = calcWordScore(wordHits);
+        // 3) 根据规则拼提示词（规则即审核标准，词库随提示词下发给AI辅助判断）
         String prompt = buildPrompt(rules);
-        // 3) 调用AI：配置了 api-key 则真调 DeepSeek，否则走确定性 Mock
+        // 4) 调用AI：配置了 api-key 则真调 DeepSeek（版权查重等无词库规则依赖其语义判断），否则走确定性基线
         boolean usingMock = !StringUtils.hasText(aiApiKey);
         Map<String, Object> aiResp;
         if (usingMock) {
@@ -90,16 +96,38 @@ public class AiReviewService {
             try {
                 aiResp = callExternalAi(prompt, content);
             } catch (Exception e) {
-                log.warn("AI审核调用失败，回退Mock: {}", e.getMessage());
+                log.warn("AI审核调用失败，回退基线: {}", e.getMessage());
                 aiResp = mockScore(content, rules);
             }
         }
-        int score = ((Number) aiResp.get("score")).intValue();
-        String riskLevel = (String) aiResp.get("level");
-        List<String> keywords = (List<String>) aiResp.get("keywords");
-        List<Map<String, Object>> issues = (List<Map<String, Object>>) aiResp.get("issues");
-        if (issues == null) {
-            issues = new ArrayList<>();
+        int aiScore = ((Number) aiResp.get("score")).intValue();
+        // 5) 最终分数：词库命中分与AI分取最严（min），词库未命中时版权等无词库规则由AI分决定
+        int score = Math.min(wordScore, aiScore);
+        String riskLevel = score >= 85 ? "low" : (score >= 60 ? "medium" : "high");
+        // 合并命中词与问题引用：词库命中优先，AI 补充
+        List<String> keywords = new ArrayList<>(wordHits);
+        List<?> aiKeywords = (List<?>) aiResp.get("keywords");
+        if (aiKeywords != null) {
+            for (Object k : aiKeywords) {
+                if (k != null && !k.toString().isBlank() && !keywords.contains(k.toString())) {
+                    keywords.add(k.toString());
+                }
+            }
+        }
+        List<Map<String, Object>> issues = new ArrayList<>();
+        for (String kw : wordHits) {
+            Map<String, Object> issue = new HashMap<>();
+            issue.put("reason", "命中违禁词词库");
+            issue.put("quote", sentenceContaining(text, kw));
+            issues.add(issue);
+        }
+        List<?> aiIssues = (List<?>) aiResp.get("issues");
+        if (aiIssues != null) {
+            for (Object o : aiIssues) {
+                if (o instanceof Map) {
+                    issues.add((Map<String, Object>) o);
+                }
+            }
         }
         String sensitiveWords = String.join(",", keywords);
 
@@ -124,7 +152,7 @@ public class AiReviewService {
         upd.setAiEndTime(now);
 
         // 5) 自动流转状态：仅当当前仍为 ai_reviewing 时按规则处理方式/AI结果推进
-        //    优先按「启用规则」判定：规则命中（content_safety 按 AI 综合分 < 阈值，sensitive_word 按词表命中）
+        //    优先按「启用规则」判定：配了违禁词词库的规则按词库命中判定；版权等无词库规则按 AI 综合分 < 阈值判定
         //    取最严拦截动作：auto_reject(驳回) > manual_review(进人工复审)，auto_pass 视为放行不拦截；
         //    无规则拦截时按 AI 风险等级兜底：high -> rejected（自动驳回），否则 -> pending（进人工复审）。
         String nextStatus;
@@ -192,10 +220,25 @@ public class AiReviewService {
         return strictest;
     }
 
+    /**
+     * 规则命中判定（按优先级）：
+     * 1) 配置了违禁词词库（rule_value）的规则：正文命中词库任一词即触发，不依赖AI自主判断；
+     * 2) 无词库的 sensitive_word 规则：按 rule_key 旧词表命中；
+     * 3) 其余规则（如版权查重）：按 AI 综合分 score < 阈值 判定。
+     */
     private boolean isRuleTriggered(AiReviewRule rule, int score, String text) {
-        if ("sensitive_word".equals(rule.getRuleType()) && StringUtils.hasText(rule.getRuleContent())) {
-            String[] words = rule.getRuleContent().split("[,，;；|]+");
+        List<String> words = parseRuleWords(rule);
+        if (!words.isEmpty()) {
             for (String w : words) {
+                if (w.length() > 0 && text.contains(w)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        if ("sensitive_word".equals(rule.getRuleType()) && StringUtils.hasText(rule.getRuleContent())) {
+            String[] oldWords = rule.getRuleContent().split("[,，;；|]+");
+            for (String w : oldWords) {
                 String word = w.trim();
                 if (word.length() > 0 && text.contains(word)) {
                     return true;
@@ -220,7 +263,7 @@ public class AiReviewService {
     }
 
     /**
-     * 根据启用规则生成审核提示词
+     * 根据启用规则生成审核提示词（词库随规则下发，供AI参考；版权查重等无词库规则依赖AI语义判断）
      */
     public String buildPrompt(List<AiReviewRule> rules) {
         StringBuilder sb = new StringBuilder("你是内容安全审核员。请根据以下审核标准对作品内容逐项判定并打分（0-100分，分数越高越安全合规）：\n");
@@ -232,80 +275,107 @@ public class AiReviewService {
             sb.append("- 规则「").append(rule.getRuleName() == null ? "" : rule.getRuleName())
                     .append("」类型:").append(rule.getRuleType() == null ? "" : rule.getRuleType())
                     .append(" 阈值:").append(rule.getThreshold() == null ? "" : rule.getThreshold())
-                    .append(" 违规处置:").append(rule.getAction() == null ? "" : rule.getAction())
-                    .append("\n");
+                    .append(" 违规处置:").append(rule.getAction() == null ? "" : rule.getAction());
+            List<String> words = parseRuleWords(rule);
+            if (!words.isEmpty()) {
+                sb.append(" 违禁词词库:").append(String.join("、", words));
+            }
+            sb.append("\n");
         }
         return sb.toString();
     }
 
     /**
-     * Mock打分（无外部AI配置时的确定性实现，可测试）
-     * 基础100分：命中 content_safety 特征词每条-20；命中 sensitive_word 规则词每个-15；低于阈值线自动调整等级
+     * Mock打分（无外部AI配置时的基线实现，可测试）：
+     * 词库命中扣分已由 collectKeywordHits + calcWordScore 在 score() 中确定性计算，
+     * 此处仅返回 AI 侧基线（100分/低风险），避免与词库分重复扣分。
      */
     public Map<String, Object> mockScore(String content, List<AiReviewRule> rules) {
-        List<String> keywords = new ArrayList<>();
-        String text = content == null ? "" : content;
-        // 内置内容安全特征词（对应 content_safety 类规则）
-        String[] safetyWords = {"暴力", "血腥", "色情", "低俗", "赌博", "毒品"};
-        if (text.length() > 0) {
-            for (String w : safetyWords) {
-                if (text.contains(w)) {
-                    keywords.add(w);
+        Map<String, Object> resp = new HashMap<>();
+        resp.put("score", 100);
+        resp.put("level", "low");
+        resp.put("keywords", new ArrayList<String>());
+        resp.put("issues", new ArrayList<Map<String, Object>>());
+        return resp;
+    }
+
+    /**
+     * 收集所有启用规则在正文中的违禁词命中（去重）。
+     * 词库来源：rule_value JSON {"words":[...]} 优先；无词库且为 sensitive_word 时回退 rule_key 旧词表。
+     */
+    private List<String> collectKeywordHits(List<AiReviewRule> rules, String text) {
+        List<String> hits = new ArrayList<>();
+        if (rules == null || text == null || text.isEmpty()) {
+            return hits;
+        }
+        for (AiReviewRule rule : rules) {
+            if (rule == null) {
+                continue;
+            }
+            for (String word : parseRuleWords(rule)) {
+                if (word.length() > 0 && text.contains(word)) {
+                    hits.add(word);
                 }
             }
         }
-        // sensitive_word 类规则的词（ruleContent 映射 rule_key，词表放在 rule_value 列，此处用关键词匹配兜底）
-        if (rules != null) {
-            for (AiReviewRule rule : rules) {
-                if ("sensitive_word".equals(rule.getRuleType()) && StringUtils.hasText(rule.getRuleContent())) {
-                    String[] words = rule.getRuleContent().split("[,，;；|]+");
-                    for (String w : words) {
-                        String word = w.trim();
-                        if (word.length() > 0 && text.contains(word)) {
-                            keywords.add(word);
+        return new ArrayList<>(new LinkedHashSet<>(hits));
+    }
+
+    /**
+     * 解析规则违禁词词库：
+     * 仅当 rule_value 为合法 JSON 且含 {"words":[...]} 数组时视为词库；
+     * 非 JSON（如旧数据 "plagiarism_check"）视为无词库，回退旧逻辑；
+     * 词库为空且为敏感词规则时回退 rule_key 旧词表。去空去重。
+     */
+    private List<String> parseRuleWords(AiReviewRule rule) {
+        List<String> words = new ArrayList<>();
+        if (rule == null) {
+            return words;
+        }
+        if (StringUtils.hasText(rule.getRuleValue())) {
+            try {
+                com.fasterxml.jackson.databind.JsonNode node = objectMapper.readTree(rule.getRuleValue());
+                com.fasterxml.jackson.databind.JsonNode arr = node.path("words");
+                if (arr.isArray()) {
+                    for (com.fasterxml.jackson.databind.JsonNode w : arr) {
+                        if (w.isTextual() && StringUtils.hasText(w.asText())) {
+                            words.add(w.asText().trim());
                         }
                     }
                 }
+                // 合法 JSON 但无 words 数组 → 无词库
+            } catch (Exception e) {
+                // 非 JSON（旧数据占位值）→ 无词库
             }
         }
-        // 去重
-        java.util.LinkedHashSet<String> set = new java.util.LinkedHashSet<>(keywords);
-        keywords = new ArrayList<>(set);
+        if (words.isEmpty() && "sensitive_word".equals(rule.getRuleType()) && StringUtils.hasText(rule.getRuleContent())) {
+            words.addAll(Arrays.asList(rule.getRuleContent().split("[,，;；|]+")));
+        }
+        List<String> cleaned = new ArrayList<>();
+        for (String w : words) {
+            String t = w.trim();
+            if (t.length() > 0 && !cleaned.contains(t)) {
+                cleaned.add(t);
+            }
+        }
+        return cleaned;
+    }
 
+    /**
+     * 词库命中确定性打分：基础100分，命中1字词-10、2字词-15、3字及以上词-20，下限0分。
+     */
+    private int calcWordScore(List<String> hits) {
         int score = 100;
-        for (String kw : keywords) {
-            if (kw.length() == 1) {
+        for (String w : hits) {
+            if (w.length() == 1) {
                 score -= 10;
-            } else if (kw.length() == 2) {
+            } else if (w.length() == 2) {
                 score -= 15;
             } else {
                 score -= 20;
             }
         }
-        // 命中暴力/血腥/色情/赌博/毒品 等重级特征再扣
-        for (String heavy : new String[]{"暴力", "血腥", "色情", "赌博", "毒品"}) {
-            if (keywords.contains(heavy)) {
-                score -= 10;
-            }
-        }
-        if (score < 0) {
-            score = 0;
-        }
-        String level = score >= 85 ? "low" : (score >= 60 ? "medium" : "high");
-        // 引用句：对每个命中词，取正文中含该词的原句作为 quote（供定位/展示）
-        java.util.List<Map<String, Object>> issues = new ArrayList<>();
-        for (String kw : keywords) {
-            Map<String, Object> issue = new HashMap<>();
-            issue.put("reason", "命中违规词/特征词");
-            issue.put("quote", sentenceContaining(text, kw));
-            issues.add(issue);
-        }
-        Map<String, Object> resp = new HashMap<>();
-        resp.put("score", score);
-        resp.put("level", level);
-        resp.put("keywords", keywords);
-        resp.put("issues", issues);
-        return resp;
+        return Math.max(score, 0);
     }
 
     /** 取正文中包含指定词的整句（按句号/叹号/问号/换行切句），找不到时回退该词本身 */
