@@ -267,7 +267,7 @@ class AdminMapperSqlTest
         params.put("type", "REVIEW");
         String sql = normalize(ms.getBoundSql(params).getSql());
         assertTrue(sql.contains("channel = 'inbox'"), "must scope to INBOX channel: " + sql);
-        assertTrue(sql.contains("enabled = 0"), "must return only explicitly disabled rows: " + sql);
+        assertTrue(sql.contains("coalesce(p.enabled, legacy.enabled, 1) = 0"), "must respect specific and legacy preferences: " + sql);
         assertTrue(sql.contains("p.type = ?"), "type must be bound as parameter: " + sql);
         assertTrue(ms.getBoundSql(params).getParameterMappings().size() >= 3,
                 "type and userIds must be bound parameters");

@@ -51,6 +51,10 @@ public class UserMessageService
             AppAdminConstants.NOTIFICATION_TRANSACTION,
             AppAdminConstants.NOTIFICATION_BENEFIT);
 
+    private static final List<String> PREFERENCE_TYPES = List.of(
+            "INQUIRY", "ORDER", "CONTRACT", "SYSTEM", "REVIEW", "BENEFIT", "TRANSACTION");
+    private static final Set<String> TRADE_PREFERENCE_TYPES = Set.of("INQUIRY", "ORDER", "CONTRACT");
+
     /** 列表摘要长度：列表只展示摘要，正文在详情返回。 */
     private static final int SUMMARY_LENGTH = 80;
 
@@ -181,9 +185,13 @@ public class UserMessageService
         List<Map<String, Object>> matrix = new ArrayList<>();
         for (String channel : CHANNELS)
         {
-            for (String type : TYPES)
+            for (String type : PREFERENCE_TYPES)
             {
                 Boolean storedValue = storedMap.get(channel + "/" + type);
+                if (storedValue == null && TRADE_PREFERENCE_TYPES.contains(type))
+                {
+                    storedValue = storedMap.get(channel + "/TRANSACTION");
+                }
                 Map<String, Object> item = new LinkedHashMap<>();
                 item.put("channel", channel);
                 item.put("type", type);
@@ -216,20 +224,20 @@ public class UserMessageService
                 throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "preference item invalid");
             }
             String channel = normalizeChannel(item.getChannel());
-            String type = normalizeType(item.getType(), false);
+            String type = normalizePreferenceType(item.getType());
             String key = channel + "/" + type;
             if (!seen.add(key))
             {
                 throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "duplicate preference item");
             }
-            if (item.isEnabled())
+            if (item.isEnabled() && !TRADE_PREFERENCE_TYPES.contains(type))
             {
                 // 默认开启：删除落库行即可表达同一语义
                 centerMapper.deletePreference(userId, channel, type);
             }
             else
             {
-                centerMapper.upsertPreference(userId, channel, type, false);
+                centerMapper.upsertPreference(userId, channel, type, item.isEnabled());
             }
             changed++;
         }
@@ -242,6 +250,16 @@ public class UserMessageService
         if (!CHANNELS.contains(value))
         {
             throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "invalid channel");
+        }
+        return value;
+    }
+
+    static String normalizePreferenceType(String type)
+    {
+        String value = type == null ? "" : type.trim().toUpperCase();
+        if (!PREFERENCE_TYPES.contains(value))
+        {
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "invalid type");
         }
         return value;
     }

@@ -201,12 +201,16 @@
       渠道固定 INBOX：注册「推送」渠道的开关不拦截站内消息投递。
     -->
     <select id="selectInboxDisabledUserIds" resultType="java.lang.Long">
-        SELECT p.user_id
-        FROM user_notification_preference p
-        WHERE p.channel = 'INBOX'
-          AND p.type = #{type}
-          AND p.enabled = 0
-          AND p.user_id IN
+        SELECT u.user_id
+        FROM sys_user u
+        LEFT JOIN user_notification_preference p
+          ON p.user_id = u.user_id AND p.channel = 'INBOX' AND p.type = #{type}
+        LEFT JOIN user_notification_preference legacy
+          ON legacy.user_id = u.user_id AND legacy.channel = 'INBOX'
+          AND legacy.type = 'TRANSACTION'
+          AND #{type} IN ('INQUIRY', 'ORDER', 'CONTRACT')
+        WHERE COALESCE(p.enabled, legacy.enabled, 1) = 0
+          AND u.user_id IN
         <foreach collection="userIds" item="userId" open="(" separator="," close=")">
             #{userId}
         </foreach>

@@ -158,7 +158,13 @@ public class UserNotificationAdminService
         // 投递过滤（规格 §8.6）：剔除已关闭「站内信 × 本消息类型」的用户。
         // 必须在幂等签名与合法性校验之后：签名按请求收件人集合计算，
         // 若按过滤后的集合计算，用户在两次等价请求之间改偏好就会被误判为同键不同内容（409）。
-        List<Long> delivered = filterInboxDisabled(distinct, type);
+        String preferenceType = type;
+        if (AppAdminConstants.NOTIFICATION_TRANSACTION.equals(type)
+                && List.of("INQUIRY", "ORDER", "CONTRACT").contains(businessType == null ? "" : businessType))
+        {
+            preferenceType = requestId.startsWith("TRD-CTC-") ? "CONTRACT" : businessType;
+        }
+        List<Long> delivered = filterInboxDisabled(distinct, preferenceType);
 
         AdminNotification entity = new AdminNotification();
         entity.setRequestId(requestId);

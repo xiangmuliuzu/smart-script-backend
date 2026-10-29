@@ -113,6 +113,19 @@ class UserNotificationDeliveryFilterTest
         verify(mapper).selectInboxDisabledUserIds(eq(List.of(10L)), eq("TRANSACTION"));
     }
 
+    @Test
+    void transactionEventsUseTheirSpecificPreference()
+    {
+        stubValidCreation();
+        when(mapper.selectInboxDisabledUserIds(anyList(), anyString())).thenReturn(List.of());
+        service.create("TRD-INQ-CRT-1", "TRANSACTION", "标题", "正文", "INQUIRY", "1", List.of(10L), "system");
+        service.create("TRD-ORD-PAY-2", "TRANSACTION", "标题", "正文", "ORDER", "2", List.of(10L), "system");
+        service.create("TRD-CTC-CMP-2", "TRANSACTION", "标题", "正文", "ORDER", "2", List.of(10L), "system");
+        verify(mapper).selectInboxDisabledUserIds(List.of(10L), "INQUIRY");
+        verify(mapper).selectInboxDisabledUserIds(List.of(10L), "ORDER");
+        verify(mapper).selectInboxDisabledUserIds(List.of(10L), "CONTRACT");
+    }
+
     /** 非法收件人整体失败，且不进入投递过滤：校验先于过滤。 */
     @Test
     void invalidReceiverFailsBeforeFiltering()

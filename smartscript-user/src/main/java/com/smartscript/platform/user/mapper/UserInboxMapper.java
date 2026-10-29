@@ -9,4 +9,5 @@ public interface UserInboxMapper
 {
     List<UserMessage> selectInbox(@Param("userId") Long userId, @Param("type") String type,
             @Param("portalRole") String portalRole);
+    int countUnreadAnnouncements(@Param("userId") Long userId);
 }

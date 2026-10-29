@@ -45,7 +45,7 @@ class UserInboxServiceTest
     {
         var original = Map.of("SYSTEM", 2, "REVIEW", 1);
         when(messages.unreadCount(12L)).thenReturn(Map.of("total", 3, "byType", original));
-        when(notices.unreadCount(12L, "03")).thenReturn(4);
+        when(mapper.countUnreadAnnouncements(12L)).thenReturn(4);
         var combined = service.unreadCount(12L, "03");
         assertEquals(7, combined.get("total"));
         assertEquals(Map.of("SYSTEM", 6, "REVIEW", 1), combined.get("byType"));

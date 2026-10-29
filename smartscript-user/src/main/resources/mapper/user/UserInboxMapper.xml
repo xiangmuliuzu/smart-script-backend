@@ -31,8 +31,21 @@
             WHERE n.status = '0' AND n.audience IN ('USER', 'ALL')
               AND EXISTS (SELECT 1 FROM sys_user u WHERE u.user_id = #{userId}
                   AND u.status = '0' AND u.del_flag = '0' AND u.user_type IN ('01', '02', '03'))
+              AND NOT EXISTS (SELECT 1 FROM user_notification_preference p
+                  WHERE p.user_id = #{userId} AND p.channel = 'INBOX' AND p.type = 'SYSTEM'
+                    AND p.enabled = 0 AND n.create_time >= COALESCE(p.update_time, p.create_time))
         ) inbox
         <if test="type != null and type != ''">WHERE inbox.type = #{type}</if>
         ORDER BY inbox.created_at DESC, inbox.source DESC, inbox.message_id DESC
+    </select>
+    <select id="countUnreadAnnouncements" resultType="int">
+        SELECT COUNT(*) FROM sys_notice n
+        LEFT JOIN sys_notice_read r ON r.notice_id = n.notice_id AND r.user_id = #{userId}
+        WHERE n.status = '0' AND n.audience IN ('USER', 'ALL') AND r.notice_id IS NULL
+          AND EXISTS (SELECT 1 FROM sys_user u WHERE u.user_id = #{userId}
+              AND u.status = '0' AND u.del_flag = '0' AND u.user_type IN ('01', '02', '03'))
+          AND NOT EXISTS (SELECT 1 FROM user_notification_preference p
+              WHERE p.user_id = #{userId} AND p.channel = 'INBOX' AND p.type = 'SYSTEM'
+                AND p.enabled = 0 AND n.create_time >= COALESCE(p.update_time, p.create_time))
     </select>
 </mapper>
