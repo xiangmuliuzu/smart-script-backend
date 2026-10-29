@@ -129,13 +129,14 @@ public class QuotaBusinessController {
     }
 
     /**
-     * 查询当前兑换比例（App 端实时展示；管理员改后立即生效）
+     * 【去次数化】兑换已停用；返回当前「1积分=N token」配置供 App 端展示消耗口径
      */
     @GetMapping("/exchange-rate")
     public Map<String, Object> exchangeRate() {
         Map<String, Object> r = new HashMap<>();
         r.put("code", 200);
-        r.put("rate", aiQuotaService.getExchangeRate());
+        r.put("msg", "AI次数兑换已停用，AI创作按实际token消耗直接扣积分");
+        r.put("tokenPerPoint", aiQuotaService.getTokenPerPoint());
         return wrap(r);
     }
 

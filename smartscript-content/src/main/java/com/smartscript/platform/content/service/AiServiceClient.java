@@ -75,39 +75,38 @@ public class AiServiceClient
 
     /**
      * AI 写作：直接产出小说正文。
+     *
+     * @return 结果对象：content=正文全文，totalTokens=本次消耗 token（usage.total_tokens），model=实际模型
      */
-    public JsonNode write(String prompt, String type)
+    public AiCallResult write(String prompt, String type)
     {
         String typeHint = (type == null || type.isBlank()) ? "" : "\n写作类型：" + type;
         String system = "你是一名资深网络小说写手，擅长创作节奏紧凑、画面感强、对话自然的小说正文。"
                 + "请根据用户的要求直接创作小说正文，不要解释、不要标题、不要任何前后缀。";
-        String content = chat(system, prompt + typeHint);
-        ObjectNode out = objectMapper.createObjectNode();
-        out.put("content", content);
-        out.put("model", model);
-        return out;
+        return chat(system, prompt + typeHint);
     }
 
     /**
      * AI 润色：保持原意，按指定风格优化。
+     *
+     * @return 结果对象：content=润色全文，totalTokens=本次消耗 token，model=实际模型
      */
-    public JsonNode polish(String content, String style)
+    public AiCallResult polish(String content, String style)
     {
         String styleHint = (style == null || style.isBlank()) ? "自然流畅" : style;
         String system = "你是一名资深文字编辑。请润色用户提供的文本，保持原意、人物关系与关键情节，"
                 + "提升表达、节奏与画面感，目标风格：" + styleHint + "。"
                 + "直接输出润色后的正文，不要解释、不要标注修改说明。";
-        String result = chat(system, content);
-        ObjectNode out = objectMapper.createObjectNode();
-        out.put("content", result);
-        out.put("model", model);
-        return out;
+        return chat(system, content);
     }
 
     /**
      * AI 大纲：生成结构化大纲 JSON。
+     *
+     * @return 结果对象：content=模型返回的原始大纲文本（JSON 或兜底文本），
+     *                   totalTokens=本次消耗 token，model=实际模型
      */
-    public JsonNode outline(String inspiration, String genre, String style)
+    public AiCallResult outline(String inspiration, String genre, String style)
     {
         String genreHint = (genre == null || genre.isBlank()) ? "不限" : genre;
         String styleHint = (style == null || style.isBlank()) ? "不限" : style;
@@ -119,24 +118,20 @@ public class AiServiceClient
                 + "\"characters\":[{\"name\":\"角色名\",\"role\":\"身份或定位\"}],"
                 + "\"acts\":[{\"name\":\"第一幕\",\"summary\":\"本幕概述\",\"beats\":[\"关键情节1\",\"关键情节2\"]}]}";
         String user = "故事灵感：" + insp + "\n题材：" + genreHint + "\n风格：" + styleHint;
-        String raw = chat(system, user);
-        ObjectNode out = objectMapper.createObjectNode();
-        out.set("outline", parseJson(raw));
-        out.put("model", model);
-        return out;
+        return chat(system, user);
     }
 
     // ================================================================
     // 流式创作（SSE）：逐块回调内容增量，供 App/PC 端打字机式展示。
-    // 返回完整内容（调用方用于落库/扣次数）；中途失败抛异常，绝不编造。
+    // 返回完整内容与本次 token 消耗（调用方用于落库/按 token 扣积分）；中途失败抛异常，绝不编造。
     // ================================================================
 
     /**
      * AI 写作（流式）。[onDelta] 每收到一个内容增量回调一次（含空格/换行）。
      *
-     * @return 完整正文
+     * @return 结果对象：content=完整正文，totalTokens=本次消耗 token，model=实际模型
      */
-    public String writeStream(String prompt, String type, Consumer<String> onDelta)
+    public AiCallResult writeStream(String prompt, String type, Consumer<String> onDelta)
     {
         String typeHint = (type == null || type.isBlank()) ? "" : "\n写作类型：" + type;
         String system = "你是一名资深网络小说写手，擅长创作节奏紧凑、画面感强、对话自然的小说正文。"
@@ -147,9 +142,9 @@ public class AiServiceClient
     /**
      * AI 润色（流式）。[onDelta] 每收到一个内容增量回调一次。
      *
-     * @return 完整润色结果
+     * @return 结果对象：content=完整润色结果，totalTokens=本次消耗 token，model=实际模型
      */
-    public String polishStream(String content, String style, Consumer<String> onDelta)
+    public AiCallResult polishStream(String content, String style, Consumer<String> onDelta)
     {
         String styleHint = (style == null || style.isBlank()) ? "自然流畅" : style;
         String system = "你是一名资深文字编辑。请润色用户提供的文本，保持原意、人物关系与关键情节，"
@@ -161,9 +156,9 @@ public class AiServiceClient
     /**
      * AI 大纲（流式）。[onDelta] 每收到一个内容增量回调一次（可读大纲文本）。
      *
-     * @return 完整可读大纲文本（调用方保留兼容的 outline 结果对象）
+     * @return 结果对象：content=完整可读大纲文本，totalTokens=本次消耗 token，model=实际模型
      */
-    public String outlineStream(String inspiration, String genre, String style, Consumer<String> onDelta)
+    public AiCallResult outlineStream(String inspiration, String genre, String style, Consumer<String> onDelta)
     {
         String genreHint = (genre == null || genre.isBlank()) ? "不限" : genre;
         String styleHint = (style == null || style.isBlank()) ? "不限" : style;
@@ -179,10 +174,11 @@ public class AiServiceClient
      * 流式调用 Chat Completions（stream=true），逐块解析 SSE 的 delta.content 并回调 [onDelta]。
      *
      * SSE 约定：每行 {@code data: {...}}，choices[0].delta.content 为增量；{@code data: [DONE]} 结束。
-     * 逐行累积完整内容，结束时整体返回；非 2xx / 无有效内容 / 网络异常抛
-     * {@link AiServiceUnavailableException}。
+     * 逐行累积完整内容，结束时整体返回；DeepSeek 在最后一个 data 块携带 usage（total_tokens），
+     * 逐块捕获，作为本次调用的精确 token 消耗用于按 token 扣积分。
+     * 非 2xx / 无有效内容 / 网络异常抛 {@link AiServiceUnavailableException}。
      */
-    private String streamChat(String system, String user, Consumer<String> onDelta)
+    private AiCallResult streamChat(String system, String user, Consumer<String> onDelta)
     {
         if (apiKey.isBlank())
         {
@@ -217,6 +213,8 @@ public class AiServiceClient
             StringBuilder full = new StringBuilder();
             boolean completed = false;
             String errorMessage = "AI 未返回有效内容，请稍后重试";
+            int totalTokens = 0;
+            String modelName = model;
             try (BufferedReader reader = new BufferedReader(
                     new InputStreamReader(response.body(), StandardCharsets.UTF_8)))
             {
@@ -236,6 +234,16 @@ public class AiServiceClient
                     {
                         completed = true;
                         break;
+                    }
+                    int usage = parseSseUsage(data);
+                    if (usage > 0)
+                    {
+                        totalTokens = usage; // 最后一个带 usage 的块为准（DeepSeek 流式最后一条）
+                    }
+                    String m = parseSseModel(data);
+                    if (m != null && !m.isBlank())
+                    {
+                        modelName = m;
                     }
                     String delta = parseSseDelta(data);
                     if (delta != null && !delta.isEmpty())
@@ -259,7 +267,7 @@ public class AiServiceClient
             {
                 throw new AiServiceUnavailableException(errorMessage);
             }
-            return content;
+            return new AiCallResult(content, totalTokens, modelName);
         }
         catch (AiServiceUnavailableException e)
         {
@@ -314,9 +322,50 @@ public class AiServiceClient
     }
 
     /**
-     * 调用 Chat Completions，返回 message.content。
+     * 从单条 SSE data 解析本次调用的 usage.total_tokens（DeepSeek 流式在最后一个 data 块携带 usage）。
+     * 无 usage / 无法解析返回 0。
      */
-    private String chat(String system, String user)
+    static int parseSseUsage(String data)
+    {
+        if (data == null || data.isEmpty() || data.equals("[DONE]"))
+        {
+            return 0;
+        }
+        try
+        {
+            JsonNode root = new ObjectMapper().readTree(data);
+            int total = root.path("usage").path("total_tokens").asInt(0);
+            return total > 0 ? total : 0;
+        }
+        catch (Exception e)
+        {
+            return 0;
+        }
+    }
+
+    /** 从单条 SSE data 解析模型名；缺失/无法解析返回 null。 */
+    static String parseSseModel(String data)
+    {
+        if (data == null || data.isEmpty() || data.equals("[DONE]"))
+        {
+            return null;
+        }
+        try
+        {
+            JsonNode root = new ObjectMapper().readTree(data);
+            String m = root.path("model").asText(null);
+            return (m == null || m.isBlank()) ? null : m;
+        }
+        catch (Exception e)
+        {
+            return null;
+        }
+    }
+
+    /**
+     * 调用 Chat Completions（非流式），返回完整内容与本次 token 消耗。
+     */
+    private AiCallResult chat(String system, String user)
     {
         if (apiKey.isBlank())
         {
@@ -350,7 +399,9 @@ public class AiServiceClient
             {
                 throw new AiServiceUnavailableException("AI 未返回有效内容，请稍后重试");
             }
-            return content.trim();
+            int totalTokens = root.path("usage").path("total_tokens").asInt(0);
+            String modelName = root.path("model").asText(model);
+            return new AiCallResult(content.trim(), totalTokens, modelName);
         }
         catch (AiServiceUnavailableException e)
         {

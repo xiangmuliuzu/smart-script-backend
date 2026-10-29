@@ -73,10 +73,9 @@ class AiOutlineDualWriteTest
     @DisplayName("大纲生成：除请求元信息外，同步写一条 write_type=outline 的可回看记录（含输入/输出）")
     void outlineWritesDualRecord() throws Exception
     {
-        ObjectMapper mapper = new ObjectMapper();
-        JsonNode data = mapper.readTree(
-            "{\"outline\":{\"title\":\"都市逆袭\",\"logline\":\"平凡青年逆袭登顶\",\"acts\":[\"跌入谷底\",\"登顶巅峰\"]},\"model\":\"deepseek-flash\"}");
-        when(aiServiceClient.outline("都市青年逆袭", "都市", "爽文")).thenReturn(data);
+        String outlineJson = "{\"outline\":{\"title\":\"都市逆袭\",\"logline\":\"平凡青年逆袭登顶\",\"acts\":[\"跌入谷底\",\"登顶巅峰\"]},\"model\":\"deepseek-flash\"}";
+        when(aiServiceClient.outline("都市青年逆袭", "都市", "爽文"))
+                .thenReturn(new AiCallResult(outlineJson, 500, "deepseek-flash"));
 
         AppAiOutlineRequest request = new AppAiOutlineRequest();
         request.setInspiration("都市青年逆袭");

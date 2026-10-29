@@ -61,148 +61,50 @@ public class AiQuotaService {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
-    /** 积分兑换AI次数比例（默认10积分=1次；存 sys_config key=ai.exchange.rate，管理员可调） */
-    private static final int DEFAULT_EXCHANGE_RATE = 10;
+    /** 【去次数化】1积分对应token数（默认1000 token=1积分；存 sys_config key=ai.token.per.point，管理员可调） */
+    private static final int DEFAULT_TOKEN_PER_POINT = 1000;
 
-    /** 读取兑换比例：优先 sys_config(ai.exchange.rate)，异常/缺失回退默认值 */
-    public int getExchangeRate() {
+    /** 读取「1积分=N token」配置：优先 sys_config(ai.token.per.point)，异常/缺失回退默认值 */
+    public int getTokenPerPoint() {
         try {
             List<Map<String, Object>> rows = jdbcTemplate.queryForList(
-                "SELECT config_value FROM sys_config WHERE config_key = 'ai.exchange.rate' LIMIT 1");
+                "SELECT config_value FROM sys_config WHERE config_key = 'ai.token.per.point' LIMIT 1");
             if (!rows.isEmpty() && rows.get(0).get("config_value") != null) {
                 int v = Integer.parseInt(String.valueOf(rows.get(0).get("config_value")).trim());
                 if (v >= 1) return v;
             }
         } catch (Exception e) {
-            log.warn("读取兑换比例配置失败，使用默认值: {}", e.getMessage());
+            log.warn("读取 ai.token.per.point 配置失败，使用默认值: {}", e.getMessage());
         }
-        return DEFAULT_EXCHANGE_RATE;
+        return DEFAULT_TOKEN_PER_POINT;
     }
 
-    /** 管理员更新兑换比例（sys_config upsert） */
-    public Map<String, Object> updateExchangeRate(int rate) {
+    /** 管理员更新「1积分=N token」（sys_config upsert） */
+    public Map<String, Object> updateTokenPerPoint(int tokenPerPoint) {
         Map<String, Object> result = new HashMap<>();
-        if (rate < 1) {
+        if (tokenPerPoint < 1) {
             result.put("code", 400);
-            result.put("msg", "兑换比例必须 >= 1");
+            result.put("msg", "token/积分 必须 >= 1");
             return result;
         }
         try {
             int rows = jdbcTemplate.update(
-                "UPDATE sys_config SET config_value = ?, update_time = NOW() WHERE config_key = 'ai.exchange.rate'",
-                String.valueOf(rate));
+                "UPDATE sys_config SET config_value = ?, update_time = NOW() WHERE config_key = 'ai.token.per.point'",
+                String.valueOf(tokenPerPoint));
             if (rows == 0) {
                 jdbcTemplate.update(
                     "INSERT INTO sys_config (config_name, config_key, config_value, config_type, create_time, remark) "
-                    + "VALUES ('AI次数兑换比例(积分/次)', 'ai.exchange.rate', ?, 'Y', NOW(), '积分兑换AI次数比例')",
-                    String.valueOf(rate));
+                    + "VALUES ('AI创作token/积分配置', 'ai.token.per.point', ?, 'Y', NOW(), '1积分可消耗的token数，AI创作按实际token扣积分')",
+                    String.valueOf(tokenPerPoint));
             }
             result.put("code", 200);
-            result.put("msg", "兑换比例已更新为 " + rate + " 积分=1次");
-            result.put("rate", rate);
+            result.put("msg", "已更新为 1 积分 = " + tokenPerPoint + " token");
+            result.put("tokenPerPoint", tokenPerPoint);
             return result;
         } catch (Exception e) {
             result.put("code", 500);
-            result.put("msg", "更新兑换比例失败: " + e.getMessage());
+            result.put("msg", "更新 token/积分 配置失败: " + e.getMessage());
             return result;
-        }
-    }
-
-    /** AI 生成字数上限默认值（未配置时）：大纲1000 / 写作2000 / 润色2000 */
-    private static final int DEFAULT_GEN_LIMIT_WRITE = 2000;
-    private static final int DEFAULT_GEN_LIMIT_POLISH = 2000;
-    private static final int DEFAULT_GEN_LIMIT_OUTLINE = 1000;
-
-    /** 生成字数上限配置 key 前缀（与 smartscript-content 模块 AiGenLimitConfig 一致） */
-    private static final String GEN_LIMIT_KEY_PREFIX = "ai.gen.max.";
-
-    /** 读取单条 sys_config 配置值；缺失/非法返回 null */
-    private Integer readConfigInt(String key) {
-        try {
-            List<Map<String, Object>> rows = jdbcTemplate.queryForList(
-                "SELECT config_value FROM sys_config WHERE config_key = ? LIMIT 1", key);
-            if (!rows.isEmpty() && rows.get(0).get("config_value") != null) {
-                return Integer.parseInt(String.valueOf(rows.get(0).get("config_value")).trim());
-            }
-        } catch (Exception e) {
-            log.warn("读取配置 {} 失败: {}", key, e.getMessage());
-        }
-        return null;
-    }
-
-    /** 管理员查询 AI 生成字数上限（write/polish/outline；未配置回退默认值，0=不限） */
-    public Map<String, Object> getGenLimitConfig() {
-        Map<String, Object> data = new HashMap<>();
-        Integer write = readConfigInt(GEN_LIMIT_KEY_PREFIX + "write");
-        Integer polish = readConfigInt(GEN_LIMIT_KEY_PREFIX + "polish");
-        Integer outline = readConfigInt(GEN_LIMIT_KEY_PREFIX + "outline");
-        data.put("write", write == null ? DEFAULT_GEN_LIMIT_WRITE : write);
-        data.put("polish", polish == null ? DEFAULT_GEN_LIMIT_POLISH : polish);
-        data.put("outline", outline == null ? DEFAULT_GEN_LIMIT_OUTLINE : outline);
-        Map<String, Object> result = new HashMap<>();
-        result.put("code", 200);
-        result.put("msg", "操作成功");
-        result.put("data", data);
-        return result;
-    }
-
-    /** 管理员更新 AI 生成字数上限（三个值均可配置；0=不限，负数非法） */
-    public Map<String, Object> updateGenLimitConfig(Map<String, Object> body) {
-        Map<String, Object> result = new HashMap<>();
-        String[] keys = {"write", "polish", "outline"};
-        int[] values = new int[keys.length];
-        for (int i = 0; i < keys.length; i++) {
-            Object v = body.get(keys[i]);
-            if (v == null) {
-                result.put("code", 400);
-                result.put("msg", keys[i] + " 必填");
-                return result;
-            }
-            try {
-                int n = Integer.parseInt(String.valueOf(v).trim());
-                if (n < 0) {
-                    result.put("code", 400);
-                    result.put("msg", keys[i] + " 不能为负数");
-                    return result;
-                }
-                values[i] = n;
-            } catch (NumberFormatException e) {
-                result.put("code", 400);
-                result.put("msg", keys[i] + " 必须为整数");
-                return result;
-            }
-        }
-        String[] names = {"AI写作单次生成字数上限", "AI润色单次生成字数上限", "AI大纲单次生成字数上限"};
-        String[] remarks = {"单次AI写作调用输出字数上限，0=不限", "单次AI润色调用输出字数上限，0=不限", "单次AI大纲调用输出字数上限，0=不限"};
-        try {
-            for (int i = 0; i < keys.length; i++) {
-                upsertConfig(GEN_LIMIT_KEY_PREFIX + keys[i], names[i], String.valueOf(values[i]), remarks[i]);
-            }
-            Map<String, Object> data = new HashMap<>();
-            data.put("write", values[0]);
-            data.put("polish", values[1]);
-            data.put("outline", values[2]);
-            result.put("code", 200);
-            result.put("msg", "生成字数上限已更新");
-            result.put("data", data);
-            return result;
-        } catch (Exception e) {
-            result.put("code", 500);
-            result.put("msg", "更新生成字数上限失败: " + e.getClass().getSimpleName() + ": " + e.getMessage());
-            return result;
-        }
-    }
-
-    /** sys_config upsert（通用） */
-    private void upsertConfig(String key, String name, String value, String remark) {
-        int rows = jdbcTemplate.update(
-            "UPDATE sys_config SET config_value = ?, update_time = NOW() WHERE config_key = ?",
-            value, key);
-        if (rows == 0) {
-            jdbcTemplate.update(
-                "INSERT INTO sys_config (config_name, config_key, config_value, config_type, create_time, remark) "
-                + "VALUES (?, ?, ?, 'Y', NOW(), ?)",
-                name, key, value, remark);
         }
     }
 
@@ -374,7 +276,7 @@ public class AiQuotaService {
             result.put("totalEarned", 0);
             result.put("totalConsumed", 0);
             result.put("totalRefunded", 0);
-            result.put("rate", getExchangeRate());
+            result.put("tokenPerPoint", getTokenPerPoint());
             result.put("records", new ArrayList<>());
             return result;
         }
@@ -663,113 +565,20 @@ public class AiQuotaService {
         result.put("totalEarned", account.getTotalEarned().intValue());
         result.put("totalConsumed", account.getTotalConsumed().intValue());
         result.put("totalRefunded", account.getTotalRefunded().intValue());
-        result.put("rate", getExchangeRate());
+        result.put("tokenPerPoint", getTokenPerPoint());
         result.put("records", records.size() > 10 ? records.subList(0, 10) : records);
         return result;
     }
 
     /**
-     * 积分兑换AI次数（只能积分换次数，不能反向）。
-     * 幂等：以 idempotencyKey 唯一；事务保证积分扣减与AI次数增加原子。
-     *
-     * @param userId         用户ID
-     * @param points         消耗积分数
-     * @param idempotencyKey 幂等键
-     * @return 兑换结果
+     * 【去次数化】积分兑换 AI 次数已停用：AI 创作直接消耗积分（按实际 token 换算）。
+     * 保留方法签名与幂等键参数，统一返回停用提示，App/PC 端不再提供兑换入口。
      */
     @Transactional(rollbackFor = Exception.class)
     public Map<String, Object> exchange(Long userId, Integer points, String idempotencyKey) {
         Map<String, Object> result = new HashMap<>();
-        if (userId == null || points == null || points <= 0 || !StringUtils.hasText(idempotencyKey)) {
-            result.put("code", 400);
-            result.put("msg", "参数不完整：userId/points/idempotencyKey 必填，points>0");
-            return result;
-        }
-        int rate = getExchangeRate();
-        int quota = points / rate;
-        if (quota <= 0) {
-            result.put("code", 400);
-            result.put("msg", "积分不足兑换，当前比例 " + rate + " 积分=1次，至少需 " + rate + " 积分");
-            return result;
-        }
-        // 实际扣款按整数倍：rate=10、输入15 → 兑换1次、只扣10分，多出5分不扣
-        int spent = quota * rate;
-        // 1) 积分账户校验
-        PointsAccount pointsAccount = pointsAccountMapper.selectByUserId(userId);
-        if (pointsAccount == null) {
-            result.put("code", 404);
-            result.put("msg", "积分账户不存在: " + userId);
-            return result;
-        }
-        if (pointsAccount.getBalance() < spent) {
-            result.put("code", 400);
-            result.put("msg", "积分不足，当前可用: " + pointsAccount.getBalance() + "，本次需 " + spent + " 积分");
-            return result;
-        }
-        // 2) AI账户（无则自动建，初始0次）
-        AiQuotaAccount account = aiQuotaAccountMapper.selectAiQuotaAccountByUserId(userId);
-        if (account == null) {
-            account = new AiQuotaAccount();
-            account.setUserId(userId);
-            account.setAvailableQuota(BigDecimal.ZERO);
-            account.setReservedQuota(BigDecimal.ZERO);
-            account.setTotalEarned(BigDecimal.ZERO);
-            account.setTotalConsumed(BigDecimal.ZERO);
-            account.setTotalRefunded(BigDecimal.ZERO);
-            account.setVersion(0L);
-            aiQuotaAccountMapper.insertAiQuotaAccount(account);
-            account.setVersion(0L);
-        }
-        Long version = account.getVersion() == null ? 0L : account.getVersion();
-        BigDecimal earnAmount = BigDecimal.valueOf(quota);
-        // 3) 先插AI获得流水（幂等键唯一，重复请求在此回滚，防重复兑换）
-        AiQuotaRecord record = new AiQuotaRecord();
-        record.setRecordNo(genNo("EX"));
-        record.setUserId(userId);
-        record.setType("earn");
-        record.setAmount(earnAmount);
-        record.setBeforeBalance(account.getAvailableQuota());
-        record.setBalance(account.getAvailableQuota().add(earnAmount));
-        record.setBusinessType("exchange");
-        record.setIdempotencyKey(idempotencyKey);
-        record.setCreateTime(new Date());
-        record.setRemark("积分兑换AI次数: " + spent + "积分=" + quota + "次");
-        try {
-            aiQuotaRecordMapper.insertAiQuotaRecord(record);
-        } catch (DuplicateKeyException e) {
-            result.put("code", 200);
-            result.put("msg", "重复请求（幂等已兑换），未重复兑换");
-            result.put("quotaBalance", account.getAvailableQuota().intValue());
-            result.put("pointsBalance", pointsAccount.getBalance());
-            return result;
-        }
-        // 4) 扣积分
-        int spentRows = pointsAccountMapper.decreaseBalance(userId, spent);
-        if (spentRows == 0) {
-            throw new IllegalStateException("积分扣减失败（余额不足或并发）");
-        }
-        // 5) AI次数增加（乐观锁）
-        int earnRows = aiQuotaAccountMapper.updateEarn(userId, earnAmount, version);
-        if (earnRows == 0) {
-            throw new IllegalStateException("AI次数增加失败（并发冲突）");
-        }
-        // 6) 写积分流水
-        PointsRecord pr = new PointsRecord();
-        pr.setUserId(userId);
-        pr.setChangeType("SPEND");
-        pr.setPoints(spent);
-        pr.setBalanceAfter(pointsAccount.getBalance() - spent);
-        pr.setSource("EXCHANGE");
-        pr.setRemark("积分兑换AI次数");
-        pointsRecordMapper.insertPointsRecord(pr);
-        logOperation("ai_quota", "exchange", "user", String.valueOf(userId), null, userId, "积分兑换AI次数: " + spent + "积分=" + quota + "次");
-        result.put("code", 200);
-        result.put("msg", "兑换成功");
-        result.put("pointsSpent", spent);
-        result.put("quotaEarned", quota);
-        result.put("rate", rate);
-        result.put("pointsBalance", pointsAccount.getBalance() - spent);
-        result.put("quotaBalance", account.getAvailableQuota().add(earnAmount).intValue());
+        result.put("code", 400);
+        result.put("msg", "AI次数兑换已停用，AI创作按实际token消耗直接扣积分");
         return result;
     }
 
