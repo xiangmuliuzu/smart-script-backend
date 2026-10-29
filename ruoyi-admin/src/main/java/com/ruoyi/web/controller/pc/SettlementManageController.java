@@ -13,6 +13,10 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * 结算管理（与 App 同源 sys_income_settle）。
+ * 列表 / 明细 / 处理作者异议；确认入账由作者在 App 完成。
+ */
 @RestController
 @RequestMapping("/api/v1/admin/copyright/settlement")
 public class SettlementManageController extends BaseController {
@@ -50,39 +54,22 @@ public class SettlementManageController extends BaseController {
         }
     }
 
-    @PreAuthorize("@ss.hasPermi('smartscript:copyright:settlement:calculate')")
-    @Log(title = "批量核算", businessType = BusinessType.INSERT)
-    @PostMapping("/calculate")
-    public AjaxResult calculate(@RequestBody Map<String, Object> params) {
-        try {
-            settlementService.calculate(params);
-            return success("核算任务已提交");
-        } catch (IllegalArgumentException e) {
-            return error(e.getMessage());
-        }
-    }
-
+    /**
+     * 处理作者异议：须填处理说明，状态回到 pending，由作者在 App 再次确认。
+     */
     @PreAuthorize("@ss.hasPermi('smartscript:copyright:settlement:handle')")
-    @Log(title = "处理异常", businessType = BusinessType.UPDATE)
+    @Log(title = "结算异议处理", businessType = BusinessType.UPDATE)
     @PostMapping("/{settlementId}/handle")
     public AjaxResult handleAbnormal(@PathVariable Long settlementId, @RequestBody Map<String, Object> params) {
         try {
-            String remark = (String) params.get("remark");
-            Boolean markAsAbnormal = params.containsKey("markAsAbnormal") ? (Boolean) params.get("markAsAbnormal") : null;
+            String remark = params != null && params.get("remark") != null
+                    ? String.valueOf(params.get("remark")) : null;
+            Boolean markAsAbnormal = null;
+            if (params != null && params.get("markAsAbnormal") instanceof Boolean) {
+                markAsAbnormal = (Boolean) params.get("markAsAbnormal");
+            }
             settlementService.handleAbnormal(settlementId, remark, markAsAbnormal);
-            return success("处理成功");
-        } catch (IllegalArgumentException | IllegalStateException e) {
-            return error(e.getMessage());
-        }
-    }
-
-    @PreAuthorize("@ss.hasPermi('smartscript:copyright:settlement:handle')")
-    @Log(title = "确认结算", businessType = BusinessType.UPDATE)
-    @PostMapping("/{settlementId}/settle")
-    public AjaxResult confirmSettle(@PathVariable Long settlementId) {
-        try {
-            settlementService.confirmSettle(settlementId);
-            return success("确认成功");
+            return success("处理成功，已回到待确认，请作者在 App 再次确认入账");
         } catch (IllegalArgumentException | IllegalStateException e) {
             return error(e.getMessage());
         }
