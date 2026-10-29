@@ -120,16 +120,27 @@ public class AppUserController
         return AppApiResponse.ok(realNameService.getStatus(currentUserId()));
     }
 
-    @PostMapping("/me/real-name")
+    @PostMapping(value = "/me/real-name", consumes = "application/json")
     public AppApiResponse<RealNameStatusDto> submitRealName(@Valid @RequestBody RealNameSubmitRequest request)
     {
         return AppApiResponse.ok(realNameService.submit(currentUserId(), request));
     }
 
-    @PostMapping("/me/real-name/resubmit")
+    @PostMapping(value = "/me/real-name/resubmit", consumes = "application/json")
     public AppApiResponse<RealNameStatusDto> resubmitRealName(@Valid @RequestBody RealNameSubmitRequest request)
     {
         return AppApiResponse.ok(realNameService.resubmit(currentUserId(), request));
+    }
+
+    @PostMapping(value = {"/me/real-name", "/me/real-name/resubmit"}, consumes = "multipart/form-data")
+    public AppApiResponse<RealNameStatusDto> submitRealNameMaterials(@RequestParam("realName") String name,
+            @RequestParam("idNumber") String idNumber, @RequestParam("front") MultipartFile front,
+            @RequestParam("back") MultipartFile back)
+    {
+        RealNameSubmitRequest request = new RealNameSubmitRequest();
+        request.setRealName(name);
+        request.setIdNumber(idNumber);
+        return AppApiResponse.ok(realNameService.submitWithMaterials(currentUserId(), request, front, back));
     }
 
     // ------------------------------------------------------------------

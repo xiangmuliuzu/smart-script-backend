@@ -72,6 +72,7 @@ public final class AppAdminConstants
     public static final String PERM_APP_STATUS = "user:app:status";
     public static final String PERM_APP_GRANT = "user:app:grant";
     public static final String PERM_REALNAME_LIST = "user:realname:list";
+    public static final String PERM_REALNAME_AUDIT = "user:realname:audit";
     public static final String PERM_REALNAME_QUERY = "user:realname:query";
     public static final String PERM_CREATOR_LIST = "user:creator:list";
     public static final String PERM_CREATOR_UPDATE = "user:creator:update";

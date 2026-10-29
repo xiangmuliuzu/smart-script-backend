@@ -1,6 +1,7 @@
 package com.smartscript.platform.user.service;
 
 import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.transaction.annotation.Transactional;
 import com.smartscript.platform.user.constant.AppUserErrorCodes;
 import com.smartscript.platform.user.domain.UserRealNameAuth;
@@ -17,12 +18,12 @@ import com.smartscript.platform.user.util.AppMasks;
  * 状态机（与《A用户与认证开发规格》一致，与 A4 常量同集合）：
  *   NOT_SUBMITTED -> PENDING -> APPROVED
  *   PENDING -> REJECTED -> PENDING（驳回后重新提交）
- *   提交内通过阿里云二要素接口完成 PENDING -> APPROVED/REJECTED；通道未启用时拒绝提交。
+ *   提交时先进行阿里云二要素核验，核验成功进入人工审核；通道未启用时拒绝提交。
  *
  * 强制边界：
  *   - 审核中（PENDING）不可重复提交，已通过（APPROVED）不可由用户自行覆盖，两者返回 409。
  *   - 只有 REJECTED 或 NOT_SUBMITTED 允许提交；重提走新增行，保留完整审计链。
- *   - 申请记录只保存姓名和证件号掩码，核验通过后姓名快照写入用户表用于合同。
+ *   - 证件号只保存掩码；待审核姓名仅用于审核通过后写入合同姓名快照，审核后清除。
  *   - 日志不记录姓名和证件号。
  */
 @Service
@@ -45,13 +46,13 @@ public class AppRealNameService
 
     private final AppUserCenterMapper centerMapper;
     private final AliyunRealNameVerifier verifier;
-    private final RealNameReviewService reviewService;
+    private final RealNameMaterialStorage materialStorage;
 
-    public AppRealNameService(AppUserCenterMapper centerMapper, AliyunRealNameVerifier verifier, RealNameReviewService reviewService)
+    public AppRealNameService(AppUserCenterMapper centerMapper, AliyunRealNameVerifier verifier, RealNameMaterialStorage materialStorage)
     {
         this.centerMapper = centerMapper;
         this.verifier = verifier;
-        this.reviewService = reviewService;
+        this.materialStorage = materialStorage;
     }
 
     /** 查询实名状态；从未提交过时返回 NOT_SUBMITTED 占位而不是 404。 */
@@ -77,17 +78,23 @@ public class AppRealNameService
     @Transactional
     public RealNameStatusDto submit(Long userId, RealNameSubmitRequest request)
     {
-        return doSubmit(userId, request);
+        return doSubmit(userId, request, null, null);
     }
 
     /** 驳回后重新提交。状态不符时与 submit 一样被状态机拒绝。 */
     @Transactional
     public RealNameStatusDto resubmit(Long userId, RealNameSubmitRequest request)
     {
-        return doSubmit(userId, request);
+        return doSubmit(userId, request, null, null);
     }
 
-    private RealNameStatusDto doSubmit(Long userId, RealNameSubmitRequest request)
+    @Transactional
+    public RealNameStatusDto submitWithMaterials(Long userId, RealNameSubmitRequest request, MultipartFile front, MultipartFile back)
+    {
+        return doSubmit(userId, request, front, back);
+    }
+
+    private RealNameStatusDto doSubmit(Long userId, RealNameSubmitRequest request, MultipartFile front, MultipartFile back)
     {
         if (request == null)
         {
@@ -95,6 +102,9 @@ public class AppRealNameService
         }
         String realName = normalizeRealName(request.getRealName());
         String idNumber = normalizeIdNumber(request.getIdNumber());
+
+        byte[] frontBytes = materialStorage.validate(front);
+        byte[] backBytes = materialStorage.validate(back);
 
         // 串行处理该用户的并发提交，避免同时多次调用计费接口。
         centerMapper.lockRealNameApplicant(userId);
@@ -104,22 +114,17 @@ public class AppRealNameService
         // 本地校验全部通过后才调用；网络异常中止申请，不伪造核验结果。
         String rejectReason = verifier.verify(realName, idNumber);
 
+        if (rejectReason != null) throw new AppAuthException(AppUserErrorCodes.PARAM, 400, rejectReason);
         UserRealNameAuth record = new UserRealNameAuth();
         record.setUserId(userId);
         // 申请记录只保存掩码；核验通过后另存合同所需的姓名快照。
         record.setRealNameMask(AppMasks.maskRealName(realName));
         record.setIdNumberMask(AppMasks.maskIdNumber(idNumber));
         record.setStatus(STATUS_PENDING);
+        record.setMaterialRef(materialStorage.save(userId, frontBytes));
+        record.setMaterialBackRef(materialStorage.save(userId, backBytes));
+        record.setPendingRealName(realName);
         centerMapper.insertRealName(record);
-        // 复用状态流转与提交后通知；运维端不再提供人工审核入口。
-        reviewService.decide(record.getApplicationId(), rejectReason == null ? "APPROVE" : "REJECT",
-                rejectReason, null, STATUS_PENDING);
-        // 核验通过时把明文姓名快照写入 sys_user，供合同签署域渲染甲乙方真实姓名；
-        // 证件号仍不落明文，user_real_name_auth 掩码链保持不变
-        if (rejectReason == null)
-        {
-            centerMapper.markRealNameVerified(userId, realName);
-        }
         return getStatus(userId);
     }
 

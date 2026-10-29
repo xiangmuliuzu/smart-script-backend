@@ -42,6 +42,7 @@
           这里映射为标量，由服务层封装成数组；列表查询不选择该列，故其值为 null。
         -->
         <result property="materialRef" column="material_ref"/>
+        <result property="materialBackRef" column="material_back_ref"/>
     </resultMap>
 
     <!--
@@ -97,6 +98,7 @@
             rna.real_name_mask AS real_name_masked,
             rna.id_number_mask AS id_number_masked,
             rna.material_ref AS material_ref,
+            rna.material_back_ref AS material_back_ref,
             rna.reject_reason,
             au.nick_name AS reviewer_name,
             rna.create_time AS submitted_at,
@@ -135,6 +137,15 @@
             rna.update_time = NOW()
         WHERE rna.id = #{applicationId}
           AND rna.status = #{expectedStatus}
+    </update>
+
+    <update id="applyVerifiedName">
+        UPDATE sys_user u JOIN user_real_name_auth rna ON rna.user_id = u.user_id
+        SET u.real_name = rna.pending_real_name
+        WHERE rna.id = #{applicationId} AND rna.pending_real_name IS NOT NULL
+    </update>
+    <update id="clearPendingName">
+        UPDATE user_real_name_auth SET pending_real_name = NULL WHERE id = #{applicationId}
     </update>
 
     <select id="countPendingByUser" resultType="int">

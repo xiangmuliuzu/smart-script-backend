@@ -151,9 +151,9 @@
     <insert id="insertRealName" parameterType="com.smartscript.platform.user.domain.UserRealNameAuth"
             useGeneratedKeys="true" keyProperty="applicationId">
         INSERT INTO user_real_name_auth
-            (user_id, real_name_mask, id_number_mask, material_ref, status, create_by, create_time)
+            (user_id, real_name_mask, id_number_mask, material_ref, material_back_ref, pending_real_name, status, create_by, create_time)
         VALUES
-            (#{userId}, #{realNameMask}, #{idNumberMask}, #{materialRef}, #{status},
+            (#{userId}, #{realNameMask}, #{idNumberMask}, #{materialRef}, #{materialBackRef}, #{pendingRealName}, #{status},
              'app-user-center', NOW())
     </insert>
 
