@@ -101,7 +101,8 @@ public class AiReviewService {
             }
         }
         int aiScore = ((Number) aiResp.get("score")).intValue();
-        // 5) 最终分数：词库命中分与AI分取最严（min），词库未命中时版权等无词库规则由AI分决定
+        // 5) 最终分数：词库命中确定性扣分（wordScore）与 AI 自主打分取最严 min。
+        //    词库是辅助：命中即扣分，防止AI漏判；AI 是必要判定：即使词库未命中，AI 低分仍会拉低最终分。
         int score = Math.min(wordScore, aiScore);
         String riskLevel = score >= 85 ? "low" : (score >= 60 ? "medium" : "high");
         // 合并命中词与问题引用：词库命中优先，AI 补充
@@ -158,7 +159,10 @@ public class AiReviewService {
         String nextStatus;
         if ("ai_reviewing".equals(record.getStatus())) {
             String ruleAction = decideAction(score, content, rules);
-            if ("auto_reject".equals(ruleAction)) {
+            // AI 打分 >=90：直接通过审核，不再人工复审；auto_reject 规则命中仍优先驳回（安全兜底）
+            if (score >= 90 && !"auto_reject".equals(ruleAction)) {
+                nextStatus = "approved";
+            } else if ("auto_reject".equals(ruleAction)) {
                 nextStatus = "rejected";
             } else if ("manual_review".equals(ruleAction)) {
                 nextStatus = "pending";
@@ -175,6 +179,11 @@ public class AiReviewService {
             log.info("AI初审完成但状态已非ai_reviewing({})，不自动流转 reviewId={}", record.getStatus(), reviewId);
         }
         reviewRecordMapper.updateReviewRecord(upd);
+        // AI 高分直接通过 -> 与人工通过一致，作品自动上架
+        if ("approved".equals(nextStatus) && "work".equals(record.getTargetType()) && record.getTargetId() != null) {
+            reviewRecordMapper.markWorkOnShelf(record.getTargetId(), null);
+            log.info("AI高分直通: 作品自动上架 workId={}", record.getTargetId());
+        }
 
         result.put("code", 200);
         result.put("msg", "AI初筛完成");
@@ -221,8 +230,9 @@ public class AiReviewService {
     }
 
     /**
-     * 规则命中判定（按优先级）：
-     * 1) 配置了违禁词词库（rule_value）的规则：正文命中词库任一词即触发，不依赖AI自主判断；
+     * 规则命中判定（词库辅助 + AI 必要）：
+     * 1) 配置了违禁词词库的规则：正文命中词库任一词即触发（确定性，辅助AI防漏判）；
+     *    词库未命中时不直接放行，继续按 AI 综合分 score < 阈值 判定（AI 自主判断是必要判定）。
      * 2) 无词库的 sensitive_word 规则：按 rule_key 旧词表命中；
      * 3) 其余规则（如版权查重）：按 AI 综合分 score < 阈值 判定。
      */
@@ -234,7 +244,8 @@ public class AiReviewService {
                     return true;
                 }
             }
-            return false;
+            // 词库未命中：AI 综合分 < 阈值 时仍判定触发（AI 打分是必要判定）
+            return rule.getThreshold() != null && score < rule.getThreshold();
         }
         if ("sensitive_word".equals(rule.getRuleType()) && StringUtils.hasText(rule.getRuleContent())) {
             String[] oldWords = rule.getRuleContent().split("[,，;；|]+");

@@ -282,7 +282,7 @@ public class ReviewService {
 
     /**
      * 审核状态机：合法流转表（状态不能跳跃）。
-     * ai_reviewing(AI初筛中) -> pending(待人工) / revision(发回修改) / rejected(驳回)
+     * ai_reviewing(AI初筛中) -> approved(AI高分直接通过) / pending(待人工) / revision(发回修改) / rejected(驳回)
      * pending -> approved(通过) / rejected(驳回) / revision(发回修改)
      * revision(发回修改) -> ai_reviewing(重新初筛) / pending
      * rejected(驳回) -> ai_reviewing(重新提交重审)
@@ -290,7 +290,7 @@ public class ReviewService {
      */
     private static final java.util.Map<String, java.util.List<String>> STATUS_FLOW = new java.util.HashMap<>();
     static {
-        STATUS_FLOW.put("ai_reviewing", java.util.Arrays.asList("pending", "revision", "rejected"));
+        STATUS_FLOW.put("ai_reviewing", java.util.Arrays.asList("approved", "pending", "revision", "rejected"));
         STATUS_FLOW.put("pending", java.util.Arrays.asList("approved", "rejected", "revision"));
         STATUS_FLOW.put("revision", java.util.Arrays.asList("ai_reviewing", "pending"));
         STATUS_FLOW.put("rejected", java.util.Arrays.asList("ai_reviewing"));

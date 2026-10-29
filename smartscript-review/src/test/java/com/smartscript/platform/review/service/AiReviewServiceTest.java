@@ -134,11 +134,12 @@ class AiReviewServiceTest {
     }
 
     @Test
-    void decideAction_有词库_命中词即触发() {
-        // 词库命中即触发该规则（即使AI综合分为100），不再依赖AI自主判断
+    void decideAction_有词库_命中词或AI低分_均触发() {
+        // 词库是辅助：命中词库词即触发（即使AI综合分100）；AI是必要：词库未命中但AI分<阈值也触发
         contentRule.setRuleValue("{\"words\":[\"暴力\"]}");
         assertEquals("auto_reject", aiReviewService.decideAction(100, "他使用暴力解决问题", Collections.singletonList(contentRule)));
-        assertNull(aiReviewService.decideAction(0, "这是一篇正常的武侠小说", Collections.singletonList(contentRule)));
+        assertEquals("auto_reject", aiReviewService.decideAction(0, "这是一篇正常的武侠小说", Collections.singletonList(contentRule)));
+        assertNull(aiReviewService.decideAction(90, "这是一篇正常的武侠小说", Collections.singletonList(contentRule)));
     }
 
     @Test
@@ -147,6 +148,68 @@ class AiReviewServiceTest {
         contentRule.setRuleValue("plagiarism_check");
         assertEquals("auto_reject", aiReviewService.decideAction(60, "内容", Collections.singletonList(contentRule)));
         assertNull(aiReviewService.decideAction(90, "内容", Collections.singletonList(contentRule)));
+    }
+
+    @Test
+    void score_词库未命中_AI低分仍按AI判定触发() {
+        // 词库是辅助、AI是必要：规则配词库但正文未命中词库词时，
+        // AI 自主打低分（40分 < 阈值80）仍会拉低最终分并触发规则 -> 自动驳回
+        contentRule.setRuleValue("{\"words\":[\"暴力\",\"血腥\"]}");
+        ReflectionTestUtils.setField(aiReviewService, "aiApiKey", "sk-test");
+        ReflectionTestUtils.setField(aiReviewService, "aiBaseUrl", "https://api.deepseek.com");
+        ReflectionTestUtils.setField(aiReviewService, "aiModel", "deepseek-chat");
+        RestTemplate mockRest = mock(RestTemplate.class);
+        ReflectionTestUtils.setField(aiReviewService, "restTemplate", mockRest);
+        String aiResp = "{\"choices\":[{\"message\":{\"content\":\"{\\\"score\\\":40,\\\"level\\\":\\\"high\\\","
+                + "\\\"keywords\\\":[\\\"疑似暴力描写\\\"]}\"}}]}";
+        when(mockRest.postForEntity(any(String.class), any(), eq(String.class)))
+                .thenReturn(new ResponseEntity<>(aiResp, HttpStatus.OK));
+
+        ReviewRecord record = new ReviewRecord();
+        record.setReviewId(60L);
+        record.setStatus("ai_reviewing");
+        when(reviewRecordMapper.selectReviewRecordById(60L)).thenReturn(record);
+        when(aiReviewRuleMapper.selectActiveAiReviewRules()).thenReturn(Collections.singletonList(contentRule));
+
+        Map<String, Object> r = aiReviewService.score(60L, "这是一篇优秀的悬疑小说，情节紧凑引人入胜");
+        // 词库未命中 wordScore=100；min(100,40)=40 -> high -> 40<80 触发 contentRule(auto_reject) -> rejected
+        assertEquals(40, ((Number) r.get("aiScore")).intValue());
+        assertEquals("high", r.get("riskLevel"));
+        assertEquals("rejected", r.get("nextStatus"));
+    }
+
+    @Test
+    void score_存在无词库规则_AI低分参与取最严_版权规则触发() {
+        // 版权查重（无词库）在场时，AI 语义判定仍参与：AI 40分 < 版权阈值80 -> 触发 -> 按处理方式拦截
+        contentRule.setRuleValue("{\"words\":[\"暴力\",\"血腥\"]}");        AiReviewRule copyright = new AiReviewRule();
+        copyright.setRuleId(2L);
+        copyright.setRuleName("版权查重");
+        copyright.setRuleType("copyright");
+        copyright.setRuleContent("plagiarism_check");
+        copyright.setRuleValue("plagiarism_check");
+        copyright.setThreshold(80);
+        copyright.setAction("auto_reject");
+        ReflectionTestUtils.setField(aiReviewService, "aiApiKey", "sk-test");
+        ReflectionTestUtils.setField(aiReviewService, "aiBaseUrl", "https://api.deepseek.com");
+        ReflectionTestUtils.setField(aiReviewService, "aiModel", "deepseek-chat");
+        RestTemplate mockRest = mock(RestTemplate.class);
+        ReflectionTestUtils.setField(aiReviewService, "restTemplate", mockRest);
+        String aiResp = "{\"choices\":[{\"message\":{\"content\":\"{\\\"score\\\":40,\\\"level\\\":\\\"high\\\","
+                + "\\\"keywords\\\":[\\\"疑似抄袭\\\"]}\"}}]}";
+        when(mockRest.postForEntity(any(String.class), any(), eq(String.class)))
+                .thenReturn(new ResponseEntity<>(aiResp, HttpStatus.OK));
+
+        ReviewRecord record = new ReviewRecord();
+        record.setReviewId(61L);
+        record.setStatus("ai_reviewing");
+        when(reviewRecordMapper.selectReviewRecordById(61L)).thenReturn(record);
+        when(aiReviewRuleMapper.selectActiveAiReviewRules()).thenReturn(Arrays.asList(contentRule, copyright));
+
+        Map<String, Object> r = aiReviewService.score(61L, "这是一篇优秀的悬疑小说，情节紧凑引人入胜");
+        // 词库未命中 wordScore=100；有版权规则 -> min(100,40)=40 -> high -> 版权 auto_reject -> rejected
+        assertEquals(40, ((Number) r.get("aiScore")).intValue());
+        assertEquals("high", r.get("riskLevel"));
+        assertEquals("rejected", r.get("nextStatus"));
     }
 
     @Test
@@ -187,7 +250,16 @@ class AiReviewServiceTest {
         ReviewRecord record = new ReviewRecord();
         record.setReviewId(20L);
         when(reviewRecordMapper.selectReviewRecordById(20L)).thenReturn(record);
-        when(aiReviewRuleMapper.selectActiveAiReviewRules()).thenReturn(Collections.emptyList());
+        // 存在无词库规则（版权查重，AI分92>=阈值90不触发），AI分参与最终分 -> min(100,92)=92
+        AiReviewRule copyright = new AiReviewRule();
+        copyright.setRuleId(2L);
+        copyright.setRuleName("版权查重");
+        copyright.setRuleType("copyright");
+        copyright.setRuleContent("plagiarism_check");
+        copyright.setRuleValue("plagiarism_check");
+        copyright.setThreshold(90);
+        copyright.setAction("auto_reject");
+        when(aiReviewRuleMapper.selectActiveAiReviewRules()).thenReturn(Collections.singletonList(copyright));
 
         Map<String, Object> r = aiReviewService.score(20L, "正常内容");
         assertEquals(200, r.get("code"));
@@ -219,18 +291,22 @@ class AiReviewServiceTest {
     }
 
     @Test
-    void score_低风险_自动流转pending() {
+    void score_低风险高分_直接通过审核_不再人工复审() {
+        // AI打分 >=90：直接 approved（不再进人工复审 pending），并触发作品自动上架
         ReviewRecord record = new ReviewRecord();
         record.setReviewId(30L);
         record.setStatus("ai_reviewing");
+        record.setTargetType("work");
+        record.setTargetId(301L);
         when(reviewRecordMapper.selectReviewRecordById(30L)).thenReturn(record);
         when(aiReviewRuleMapper.selectActiveAiReviewRules()).thenReturn(Collections.emptyList());
 
         Map<String, Object> r = aiReviewService.score(30L, "这是一篇优秀的悬疑小说，情节紧凑");
-        assertEquals("pending", r.get("nextStatus"));
+        assertEquals("approved", r.get("nextStatus"));
         org.mockito.ArgumentCaptor<ReviewRecord> captor = org.mockito.ArgumentCaptor.forClass(ReviewRecord.class);
         verify(reviewRecordMapper).updateReviewRecord(captor.capture());
-        assertEquals("pending", captor.getValue().getStatus());
+        assertEquals("approved", captor.getValue().getStatus());
+        verify(reviewRecordMapper).markWorkOnShelf(301L, null);
     }
 
     @Test
@@ -269,16 +345,17 @@ class AiReviewServiceTest {
     // ===== 处理方式（action）生效验证 =====
 
     @Test
-    void score_规则处理方式人工复审_命中阈值_流转pending() {
-        // 核心修复：规则全部选「人工复审」，AI 判高风险（score<threshold 命中）也必须进人工复审，不得直接驳回
+    void score_规则处理方式人工复审_词库命中_流转pending() {
+        // 核心修复：规则处理方式选「人工复审」，词库命中扣到90分以下（85<90），必须进人工复审，不得高分直通
         contentRule.setAction("manual_review");
+        contentRule.setRuleValue("{\"words\":[\"暴力\"]}");
         ReviewRecord record = new ReviewRecord();
         record.setReviewId(40L);
         record.setStatus("ai_reviewing");
         when(reviewRecordMapper.selectReviewRecordById(40L)).thenReturn(record);
         when(aiReviewRuleMapper.selectActiveAiReviewRules()).thenReturn(Collections.singletonList(contentRule));
 
-        // 含暴力词：mockScore 扣分 score=75 < threshold=80 -> 命中 -> manual_review -> pending
+        // 含暴力词：词库命中 wordScore=85 < 90 -> 不直通，manual_review -> pending
         Map<String, Object> r = aiReviewService.score(40L, "他拿起刀，用暴力解决了一切");
         assertEquals("pending", r.get("nextStatus"));
         org.mockito.ArgumentCaptor<ReviewRecord> captor = org.mockito.ArgumentCaptor.forClass(ReviewRecord.class);
@@ -287,9 +364,8 @@ class AiReviewServiceTest {
     }
 
     @Test
-    void score_规则处理方式人工复审_未命中阈值_默认流转() {
-        // 内容安全未命中（score>=threshold）：不按规则拦截，仍走默认兜底（此处含暴力词 score=75<80 会命中，
-        // 换用正常内容 score=100>=80 未命中 -> 默认 pending）
+    void score_规则处理方式人工复审_未命中_高分直通approved() {
+        // 未命中规则且 AI 高分（100>=90）：直接通过审核，不再进人工复审
         contentRule.setAction("manual_review");
         ReviewRecord record = new ReviewRecord();
         record.setReviewId(41L);
@@ -298,7 +374,7 @@ class AiReviewServiceTest {
         when(aiReviewRuleMapper.selectActiveAiReviewRules()).thenReturn(Collections.singletonList(contentRule));
 
         Map<String, Object> r = aiReviewService.score(41L, "这是一篇优秀的悬疑小说，情节紧凑");
-        assertEquals("pending", r.get("nextStatus"));
+        assertEquals("approved", r.get("nextStatus"));
     }
 
     @Test
@@ -319,8 +395,8 @@ class AiReviewServiceTest {
     }
 
     @Test
-    void score_规则处理方式自动通过_命中阈值_视为放行走默认() {
-        // auto_pass 命中=放行（不拦截），状态机不允许 ai_reviewing 直跳 approved，故走默认兜底
+    void score_规则处理方式自动通过_高分直通approved() {
+        // auto_pass 命中=放行（不拦截）；AI 高分100>=90 -> 直接通过审核
         contentRule.setAction("auto_pass");
         ReviewRecord record = new ReviewRecord();
         record.setReviewId(43L);
@@ -329,7 +405,7 @@ class AiReviewServiceTest {
         when(aiReviewRuleMapper.selectActiveAiReviewRules()).thenReturn(Collections.singletonList(contentRule));
 
         Map<String, Object> r = aiReviewService.score(43L, "他拿起刀，用暴力解决了一切");
-        assertEquals("pending", r.get("nextStatus"));
+        assertEquals("approved", r.get("nextStatus"));
     }
 
     @Test
@@ -390,7 +466,16 @@ class AiReviewServiceTest {
         ReviewRecord record = new ReviewRecord();
         record.setReviewId(22L);
         when(reviewRecordMapper.selectReviewRecordById(22L)).thenReturn(record);
-        when(aiReviewRuleMapper.selectActiveAiReviewRules()).thenReturn(Collections.emptyList());
+        // 存在无词库规则（版权查重）时 AI 分参与最终分：min(词库100, AI35)=35
+        AiReviewRule copyright = new AiReviewRule();
+        copyright.setRuleId(2L);
+        copyright.setRuleName("版权查重");
+        copyright.setRuleType("copyright");
+        copyright.setRuleContent("plagiarism_check");
+        copyright.setRuleValue("plagiarism_check");
+        copyright.setThreshold(90);
+        copyright.setAction("auto_reject");
+        when(aiReviewRuleMapper.selectActiveAiReviewRules()).thenReturn(Collections.singletonList(copyright));
 
         Map<String, Object> r = aiReviewService.score(22L, "他拿起刀，用暴力解决了一切");
         assertEquals(200, r.get("code"));
@@ -411,5 +496,33 @@ class AiReviewServiceTest {
         // auto_pass 命中阈值但视为放行 -> null
         assertNull(aiReviewService.decideAction(60, "他拿起刀，用暴力解决了一切", Collections.singletonList(contentRule)));
         assertNull(aiReviewService.decideAction(50, "内容", null));
+    }
+
+    @Test
+    void score_AI高分_但auto_reject规则命中_仍驳回() {
+        // 高分直通的安全兜底：score>=90 但命中 auto_reject 规则（阈值>90 时 AI 分仍低于阈值）-> 优先驳回
+        contentRule.setAction("auto_reject");
+        contentRule.setRuleValue("plagiarism_check");
+        contentRule.setThreshold(95);
+        ReflectionTestUtils.setField(aiReviewService, "aiApiKey", "sk-test");
+        ReflectionTestUtils.setField(aiReviewService, "aiBaseUrl", "https://api.deepseek.com");
+        ReflectionTestUtils.setField(aiReviewService, "aiModel", "deepseek-chat");
+        RestTemplate mockRest = mock(RestTemplate.class);
+        ReflectionTestUtils.setField(aiReviewService, "restTemplate", mockRest);
+        String aiResp = "{\"choices\":[{\"message\":{\"content\":\"{\\\"score\\\":92,\\\"level\\\":\\\"low\\\","
+                + "\\\"keywords\\\":[\\\"疑似抄袭\\\"]}\"}}]}";
+        when(mockRest.postForEntity(any(String.class), any(), eq(String.class)))
+                .thenReturn(new ResponseEntity<>(aiResp, HttpStatus.OK));
+
+        ReviewRecord record = new ReviewRecord();
+        record.setReviewId(70L);
+        record.setStatus("ai_reviewing");
+        when(reviewRecordMapper.selectReviewRecordById(70L)).thenReturn(record);
+        when(aiReviewRuleMapper.selectActiveAiReviewRules()).thenReturn(Collections.singletonList(contentRule));
+
+        Map<String, Object> r = aiReviewService.score(70L, "正常内容");
+        // 92>=90 但 92<95 命中 auto_reject -> 仍驳回
+        assertEquals(92, ((Number) r.get("aiScore")).intValue());
+        assertEquals("rejected", r.get("nextStatus"));
     }
 }
