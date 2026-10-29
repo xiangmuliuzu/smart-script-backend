@@ -7,11 +7,12 @@ import java.math.BigDecimal;
  *
  * 数据来源：sys_work 指标列 + 互动表时间窗口实时聚合，不依赖 sys_ranking_snapshot 快照是否已重算。
  * type 与主指标的对应关系（score 即该榜主指标取值）：
- *   view     热门榜      最近 7 天阅读量（sys_read_record 计数；无数据回退累计 view_count）
+ *   view     热门榜      累计浏览量（sys_work.view_count）
  *   favorite 收藏榜      最近 7 天收藏数（sys_favorite 计数）
  *   sale     交易热度榜  最近 7 天已支付订单数（sys_order 计数）
  *   rating   评分榜      平均评分（sys_work.rating = ROUND(AVG(score),1)，无评分不进榜）
- *   new      新书榜      最近 30 天上架，按累计阅读量排序（score = view_count）
+ *   new      新书榜      最近 30 天上架，按上架时间倒序（shelfTime 下发上架时间，
+ *                         score 仍为 view_count，仅作兼容保留，前端不展示）
  * 其余 viewCount/favoriteCount/saleCount/rating 均为作品累计指标原值，供前端展示用。
  *
  * @author xiangsipeng
@@ -62,6 +63,9 @@ public class AppRankingItem
 
     /** 是否免费（0=否 1=是） */
     private String isFree;
+
+    /** 上架时间（新书榜用，格式 yyyy-MM-dd HH:mm:ss） */
+    private String shelfTime;
 
     public Integer getRankNo()
     {
@@ -211,5 +215,15 @@ public class AppRankingItem
     public void setIsFree(String isFree)
     {
         this.isFree = isFree;
+    }
+
+    public String getShelfTime()
+    {
+        return shelfTime;
+    }
+
+    public void setShelfTime(String shelfTime)
+    {
+        this.shelfTime = shelfTime;
     }
 }

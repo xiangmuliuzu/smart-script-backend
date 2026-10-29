@@ -14,13 +14,13 @@ import com.smartscript.platform.content.service.IAppBookstoreService;
  * 鉴权：公开接口，游客可读。
  * 返回：App 信封 {code, message, data:{list, updatedAt}}。
  *
- * 数据来源（方案 A：时间窗口 + 分级），均由 sys_work / 互动表实时取数，
+ * 数据来源：均由 sys_work / 互动表实时取数，
  * 不依赖 sys_ranking_snapshot 快照是否已重算：
- *   view     热门榜 最近 7 天阅读量
+ *   view     热门榜 累计浏览量
  *   favorite 收藏榜 最近 7 天收藏数
  *   sale     交易热度榜 最近 7 天已支付订单数
  *   rating   评分榜 平均评分（无评分作品不进榜）
- *   new      新书榜 最近 30 天上架、按阅读量排序
+ *   new      新书榜 最近 30 天上架、按上架时间倒序
  *
  * @author xiangsipeng
  */

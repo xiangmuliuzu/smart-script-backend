@@ -266,6 +266,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		<result property="price"           column="price"            />
 		<result property="isFree"          column="is_free"          />
 		<result property="score"           column="rank_score"       />
+		<result property="shelfTime"       column="shelf_time"       />
 	</resultMap>
 
 	<!-- 读者可见作品统一判定（书城/榜单/统计同口径，等价于 WorkStatusDeriver.isReaderVisible）：
@@ -361,14 +362,14 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		</where>
 	</select>
 
-	<!-- 榜单：type 由控制层收敛为 view/favorite/sale/rating/new，此处按类型取「时间窗口 / 平均分」指标并排序。
-	     指标口径（方案 A，均以 rank_score 列承载 AppRankingItem.score）：
-	       view     热门榜：sys_read_record 近 7 天阅读条数；无数据时以累计 view_count 兜底
+	<!-- 榜单：type 由控制层收敛为 view/favorite/sale/rating/new，此处按类型取对应指标并排序。
+	     指标口径：
+	       view     热门榜：按累计浏览量 view_count 排序
 	       favorite 收藏榜：sys_favorite 近 7 天收藏条数（非 sys_bookshelf_record）
 	       sale     交易热度榜：sys_order 近 7 天已支付订单条数（pay_time 已落地即视为已支付）
 	       rating   评分榜：平均评分 sys_work.rating（由 AppWorkRatingMapper.refreshWorkRating
 	               在每次评分后回写为 ROUND(AVG(score),1)）；无评分（rating=0）的作品不进榜
-	       new      新书榜：首次审核通过（即上架）在近 30 天内，按累计阅读量排序。
+	       new      新书榜：首次审核通过（即上架）在近 30 天内，按上架时间倒序排列。
 	               上架时间取 sys_review_record 中该作品最早一条 approved 记录的
 	               coalesce(review_end_time, updated_at, created_at)。
 	               不用 sys_work.review_time：该列仅种子脚本写入过，审核通过流程不会回写，
@@ -443,6 +444,9 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 				       w.sale_count, w.rating,
 				       u.nick_name as author_name,
 				       c.category_name as genre_name,
+				       (select min(coalesce(r.review_end_time, r.updated_at, r.created_at))
+				        from sys_review_record r
+				        where r.target_type = 'work' and r.target_id = w.work_id and r.status = 'approved') as shelf_time,
 				       w.view_count as rank_score
 				from sys_work w
 				left join sys_user u on u.user_id = w.author_id
@@ -457,7 +461,9 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 						  and r.status = 'approved'
 					) &gt;= date_sub(now(), interval 30 day)
 				</where>
-				order by w.view_count desc, w.work_id desc
+				order by (select min(coalesce(r.review_end_time, r.updated_at, r.created_at))
+				          from sys_review_record r
+				          where r.target_type = 'work' and r.target_id = w.work_id and r.status = 'approved') desc, w.work_id desc
 				limit #{limit}
 			</when>
 			<otherwise>
@@ -466,20 +472,14 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 				       w.sale_count, w.rating,
 				       u.nick_name as author_name,
 				       c.category_name as genre_name,
-				       coalesce(rc.cnt_7d, 0) as rank_score
+				       w.view_count as rank_score
 				from sys_work w
 				left join sys_user u on u.user_id = w.author_id
 				left join sys_category c on c.category_id = w.genre_id
-				left join (
-					select rr.work_id, count(1) as cnt_7d
-					from sys_read_record rr
-					where rr.created_at &gt;= date_sub(now(), interval 7 day)
-					group by rr.work_id
-				) rc on rc.work_id = w.work_id
 				<where>
 					<include refid="readerVisibleWork"><property name="alias" value="w"/></include>
 				</where>
-				order by coalesce(rc.cnt_7d, 0) desc, w.view_count desc, w.work_id desc
+				order by w.view_count desc, w.work_id desc
 				limit #{limit}
 			</otherwise>
 		</choose>

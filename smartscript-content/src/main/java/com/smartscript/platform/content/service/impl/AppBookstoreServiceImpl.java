@@ -265,7 +265,7 @@ public class AppBookstoreServiceImpl implements IAppBookstoreService
         }
         // 可读 = 在试读范围内 或 作者标记的免费章节 或 当前身份已获授权
         boolean readable = isChapterReadable(work, chapter);
-        // 阅读埋点：正文实际下发（可读）时记一条，供热门榜「最近 7 天阅读量」取数；
+        // 阅读埋点：正文实际下发（可读）时记一条阅读事件，供阅读行为统计使用；
         // 仅登录用户写入，游客不写，写失败不影响正文返回（见 recordRead）
         if (readable)
         {
@@ -366,7 +366,8 @@ public class AppBookstoreServiceImpl implements IAppBookstoreService
     /**
      * 阅读埋点：为当前登录用户补写一条 sys_read_record（幂等，同一用户当天同一章节一条）。
      *
-     * 依据：附件5.1 表3-31；该表为「热门榜最近 7 天阅读量」的唯一带时间戳数据源。
+     * 依据：附件5.1 表3-31；该表为阅读行为的带时间戳数据源
+     * （热门榜已改为累计 view_count 排序，不再依赖此表取数）。
      * 边界：游客（无身份）不写，不伪造用户 ID；埋点属旁路统计，
      * 任何写入异常只记 warn 日志，绝不向上抛出影响正文下发。
      */
