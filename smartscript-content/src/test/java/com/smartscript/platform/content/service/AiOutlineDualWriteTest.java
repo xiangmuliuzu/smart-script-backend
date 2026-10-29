@@ -85,10 +85,10 @@ class AiOutlineDualWriteTest
         AppAiOutlineResult result = service.outline(request);
         verify(riskCheckService).checkContentOrThrow(USER_ID, "都市青年逆袭");
 
-        // 元信息表照旧落一条
+        // 元信息表照旧落一条（去次数化：quota_cost 存真实 token）
         verify(aiRequestMapper, times(1)).insertAiRequest(
             any(String.class), eq(USER_ID), nullable(Long.class),
-            eq("outline"), eq(1), eq("success"), eq("deepseek"), any(String.class),
+            eq("outline"), eq(500), eq("success"), eq("deepseek"), any(String.class),
             any(java.util.Date.class), any(java.util.Date.class));
 
         // 可回看记录落一条，字段按契约
@@ -111,6 +111,7 @@ class AiOutlineDualWriteTest
         assertNotNull(result.getRequestNo());
         assertTrue(!result.getRequestNo().isEmpty());
         assertNotNull(result.getOutline());
+        assertEquals(500, result.getQuotaUsed());
     }
 
     private static void setField(Object target, String name, Object value) throws Exception

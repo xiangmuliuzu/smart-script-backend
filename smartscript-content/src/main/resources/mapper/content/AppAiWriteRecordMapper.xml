@@ -34,13 +34,14 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		<result property="outputContent" column="output_content" />
 		<result property="wordCount"     column="word_count"     />
 		<result property="aiModel"       column="ai_model"       />
+		<result property="tokensUsed"    column="tokens_used"    />
 		<result property="status"        column="status"         />
 		<result property="createdAt"     column="created_at"     />
 	</resultMap>
 
 	<select id="selectWriteRecordsByUser" resultMap="AppAiWriteRecordItemResult">
 		select record_id, title, write_type, input_prompt, output_content,
-		       word_count, ai_model, status, created_at
+		       word_count, ai_model, tokens_used, status, created_at
 		from sys_ai_write_record
 		where user_id = #{userId}
 		order by created_at desc, record_id desc
