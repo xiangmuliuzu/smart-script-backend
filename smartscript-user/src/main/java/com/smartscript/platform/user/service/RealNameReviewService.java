@@ -86,7 +86,9 @@ public class RealNameReviewService
         }
         if (includeMaterial)
         {
-            detail.setMaterialRefs(toShortLivedRefs(detail.getMaterialRef()));
+            List<String> refs = toShortLivedRefs(detail.getMaterialRef());
+            refs.addAll(toShortLivedRefs(detail.getMaterialBackRef()));
+            detail.setMaterialRefs(refs);
         }
         else
         {
@@ -161,6 +163,8 @@ public class RealNameReviewService
             throw AppAdminException.conflict(AppAdminErrorCodes.STATE_CONFLICT);
         }
 
+        if (!reject) mapper.applyVerifiedName(applicationId);
+        mapper.clearPendingName(applicationId);
         RealNameApplication updated = new RealNameApplication();
         updated.setApplicationId(applicationId);
         updated.setStatus(target);

@@ -19,12 +19,10 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.util.ReflectionTestUtils;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smartscript.platform.content.dto.AppAiWriteRecordInsert;
 import com.smartscript.platform.content.dto.AppAiWriteRequest;
 import com.smartscript.platform.content.mapper.AppAiRequestMapper;
 import com.smartscript.platform.content.mapper.AppAiWriteRecordMapper;
-import com.smartscript.platform.content.service.AiGenLimitConfig;
 import com.smartscript.platform.content.service.impl.AiWriteServiceImpl;
 import com.smartscript.platform.identity.IdentityProvider;
 
@@ -36,7 +34,6 @@ class AiContinuationIsolationTest
     private final JdbcTemplate jdbc = mock(JdbcTemplate.class);
     private final AppAiWriteRecordMapper records = mock(AppAiWriteRecordMapper.class);
     private final AppAiRequestMapper requests = mock(AppAiRequestMapper.class);
-    private final AiGenLimitConfig genLimit = mock(AiGenLimitConfig.class);
 
     @BeforeEach
     void setUp() throws Exception
@@ -47,14 +44,12 @@ class AiContinuationIsolationTest
         ReflectionTestUtils.setField(service, "writeRecordMapper", records);
         ReflectionTestUtils.setField(service, "aiRequestMapper", requests);
         ReflectionTestUtils.setField(service, "aiModel", "test-model");
-        ReflectionTestUtils.setField(service, "genLimitConfig", genLimit);
-        when(genLimit.maxChars(anyString())).thenReturn(10000);
         when(identity.currentUserId()).thenReturn(101L);
-        when(jdbc.queryForObject(anyString(), eq(Integer.class), any(Long.class))).thenReturn(5);
+        when(jdbc.queryForObject(anyString(), eq(Integer.class), any(Long.class))).thenReturn(100);
         when(client.write(anyString(), nullable(String.class)))
-                .thenReturn(new ObjectMapper().readTree("{\"content\":\"synthetic story\"}"));
+                .thenReturn(new AiCallResult("synthetic story", 100, "test-model"));
         when(client.writeStream(anyString(), nullable(String.class), any()))
-                .thenReturn("synthetic story");
+                .thenReturn(new AiCallResult("synthetic story", 100, "test-model"));
     }
 
     @ParameterizedTest

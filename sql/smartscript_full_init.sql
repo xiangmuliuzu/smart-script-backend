@@ -876,6 +876,8 @@ CREATE TABLE IF NOT EXISTS user_real_name_auth (
   real_name_mask VARCHAR(64) NULL,
   id_number_mask VARCHAR(64) NULL,
   material_ref VARCHAR(255) NULL,
+  material_back_ref VARCHAR(255) NULL,
+  pending_real_name VARCHAR(64) NULL,
   status VARCHAR(32) NOT NULL DEFAULT 'PENDING',
   auditor_id BIGINT NULL,
   audited_at DATETIME NULL,
@@ -2009,12 +2011,6 @@ DELETE FROM sys_role_menu WHERE menu_id IN (
 DELETE FROM sys_menu WHERE menu_id IN (107,108) OR parent_id IN (107,108);
 DELETE FROM sys_role_menu WHERE role_id = 2 AND (menu_id IN (107,108) OR menu_id BETWEEN 1035 AND 1038);
 
--- 实名认证结果由接口自动判定：移除旧人工审核按钮及角色授权，保留认证记录。
-DELETE rm FROM sys_role_menu rm
-JOIN sys_menu m ON m.menu_id = rm.menu_id
-WHERE m.perms = 'user:realname:audit';
-DELETE FROM sys_menu WHERE perms = 'user:realname:audit';
-
 -- 4) 删除 A1 种子遗留的 5001 内容与作品树（幂等）
 --    第 4 部分只把 5001 那行改写为 2000，对从 A1 基线升级上来的库不会移除旧行，
 --    于是 5001 与 2000 两个目录都写 path='content'。前端按 path 作 el-sub-menu 的
@@ -2380,3 +2376,10 @@ SELECT
     WHERE menu_type IN ('M','C') AND status = '0'
     GROUP BY parent_id, path HAVING COUNT(*) > 1
   ) dup) AS duplicate_sibling_path_should_be_0;
+
+-- 实名人工审核权限（已有角色需按需授权）。
+UPDATE sys_menu SET menu_name = '实名审核' WHERE perms = 'user:realname:list';
+INSERT INTO sys_menu (menu_name,parent_id,order_num,path,menu_type,visible,status,perms,icon,create_by)
+SELECT '实名审核决定',m.menu_id,2,'#','F','0','0','user:realname:audit','#','migration' FROM sys_menu m
+WHERE m.perms = 'user:realname:list' AND NOT EXISTS (SELECT 1 FROM (SELECT perms FROM sys_menu) x WHERE x.perms = 'user:realname:audit');
+INSERT IGNORE INTO sys_role_menu (role_id,menu_id) SELECT 1,menu_id FROM sys_menu WHERE perms='user:realname:audit';

@@ -105,84 +105,42 @@ public class AiQuotaController {
     }
 
     /**
-     * 查询积分兑换AI次数比例（sys_config）
+     * 查询「1积分=N token」配置（AI创作按实际token扣积分）
      */
-    @GetMapping("/exchange-rate")
-    public Map<String, Object> exchangeRate() {
+    @GetMapping("/token-per-point")
+    public Map<String, Object> tokenPerPoint() {
         Map<String, Object> result = new HashMap<>();
         result.put("code", 200);
         result.put("msg", "操作成功");
-        result.put("data", aiQuotaService.getExchangeRate());
+        result.put("data", aiQuotaService.getTokenPerPoint());
         return result;
     }
 
     /**
-     * 更新积分兑换AI次数比例
-     * PUT /api/v1/admin/ai/quota/exchange-rate {"rate":5}
+     * 更新「1积分=N token」配置
+     * PUT /api/v1/admin/ai/quota/token-per-point {"tokenPerPoint":1000}
      */
-    @PutMapping("/exchange-rate")
-    public Map<String, Object> updateExchangeRate(@RequestBody Map<String, Object> body) {
+    @PutMapping("/token-per-point")
+    public Map<String, Object> updateTokenPerPoint(@RequestBody Map<String, Object> body) {
         Map<String, Object> result = new HashMap<>();
-        Object r = body.get("rate");
+        Object r = body.get("tokenPerPoint");
         if (r == null) {
             result.put("code", 400);
-            result.put("msg", "rate 必填");
+            result.put("msg", "tokenPerPoint 必填");
             return result;
         }
         try {
-            int rate = Integer.parseInt(String.valueOf(r).trim());
-            Map<String, Object> r2 = aiQuotaService.updateExchangeRate(rate);
+            int tokenPerPoint = Integer.parseInt(String.valueOf(r).trim());
+            Map<String, Object> r2 = aiQuotaService.updateTokenPerPoint(tokenPerPoint);
             result.put("code", r2.get("code"));
             result.put("msg", r2.get("msg"));
-            result.put("data", r2.get("rate"));
+            result.put("data", r2.get("tokenPerPoint"));
             return result;
         } catch (NumberFormatException e) {
             result.put("code", 400);
-            result.put("msg", "rate 必须为整数");
+            result.put("msg", "tokenPerPoint 必须为整数");
             return result;
         }
-    }
-
-    /**
-     * 查询 AI 生成字数上限（write/polish/outline；未配置回退默认值，0=不限）
-     * GET /api/v1/admin/ai/quota/limit-config
-     */
-    @GetMapping("/limit-config")
-    public Map<String, Object> getGenLimitConfig() {
-        return aiQuotaService.getGenLimitConfig();
-    }
-
-    /**
-     * 更新 AI 生成字数上限（防平台亏损）
-     * PUT /api/v1/admin/ai/quota/limit-config {"write":2000,"polish":2000,"outline":1000}
-     */
-    @PutMapping("/limit-config")
-    public Map<String, Object> updateGenLimitConfig(@RequestBody Map<String, Object> body) {
-        String[] keys = {"write", "polish", "outline"};
-        for (String key : keys) {
-            Object v = body == null ? null : body.get(key);
-            if (v == null) {
-                Map<String, Object> result = new HashMap<>();
-                result.put("code", 400);
-                result.put("msg", key + " 必填");
-                return result;
-            }
-            try {
-                int n = Integer.parseInt(String.valueOf(v).trim());
-                if (n < 0) {
-                    Map<String, Object> result = new HashMap<>();
-                    result.put("code", 400);
-                    result.put("msg", key + " 不能为负数");
-                    return result;
-                }
-            } catch (NumberFormatException e) {
-                Map<String, Object> result = new HashMap<>();
-                result.put("code", 400);
-                result.put("msg", key + " 必须为整数");
-                return result;
-            }
-        }
-        return aiQuotaService.updateGenLimitConfig(body);
     }
 
     /**

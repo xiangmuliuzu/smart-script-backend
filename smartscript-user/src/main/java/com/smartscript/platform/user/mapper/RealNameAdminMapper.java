@@ -47,6 +47,9 @@ public interface RealNameAdminMapper
                         @Param("auditorId") Long auditorId,
                         @Param("rejectReason") String rejectReason);
 
+    int applyVerifiedName(@Param("applicationId") Long applicationId);
+    int clearPendingName(@Param("applicationId") Long applicationId);
+
     /** 同一用户是否存在 PENDING 申请，用于提交侧冲突判定。 */
     int countPendingByUser(@Param("userId") Long userId);
 }

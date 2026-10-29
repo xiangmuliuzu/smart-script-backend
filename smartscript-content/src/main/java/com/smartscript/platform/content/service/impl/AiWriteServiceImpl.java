@@ -30,7 +30,7 @@ import com.smartscript.platform.content.dto.AppPageResult;
 import com.smartscript.platform.content.mapper.AppAiRequestMapper;
 import com.smartscript.platform.content.mapper.AppAiWriteRecordMapper;
 import com.smartscript.platform.content.exception.AiQuotaInsufficientException;
-import com.smartscript.platform.content.service.AiGenLimitConfig;
+import com.smartscript.platform.content.service.AiCallResult;
 import com.smartscript.platform.content.service.AiServiceClient;
 import com.smartscript.platform.content.service.IAiWriteService;
 import com.smartscript.platform.identity.IdentityProvider;
@@ -46,14 +46,18 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * 1. 内容来源：写作/润色/大纲一律转发到外部 AI 服务（{@link AiServiceClient}），
  *    失败即抛异常由控制器转 503，**不返回任何编造内容**。
  * 2. sys_ai_write_record 多个 NOT NULL 列契约未提供入参，落库时空缺列填空串：
- *    pov / language_style / pace 填空串，title 取输入前 50 字，tokens_used=0，
- *    ai_model 取 AI 返回（缺省取配置），status='success'；write_type：写作取入参 type（缺省 write），
- *    润色固定 'polish'；input_prompt：写作取 prompt，润色取待润色原文；output_content 取 AI 返回。
+ *    pov / language_style / pace 填空串，title 取输入前 50 字，tokens_used 取 AI 返回的
+ *    usage.total_tokens，ai_model 取 AI 返回（缺省取配置），status='success'；
+ *    write_type：写作取入参 type（缺省 write），润色固定 'polish'；input_prompt：
+ *    写作取 prompt，润色取待润色原文；output_content 取 AI 返回。
  * 3. 大纲落 sys_ai_request：capability='outline'、quota_cost=1、provider 取配置、
  *    request_no 由本层唯一生成；status='success'，started_at/finished_at 显式写入。
- * 4. AI 调用成功即扣减 1 次：写 sys_ai_quota_account 扣减（乐观锁）与
- *    sys_ai_quota_record 流水（change_type='consume'，幂等键 ai-consume-{capability}-{businessId}）；
- *    校验与扣减均在本服务内用 JdbcTemplate 直写，不跨模块依赖 review 的 AiQuotaService。
+ * 4. 【去次数化】AI 调用成功即按本次实际 token 消耗扣减积分：读取配置
+ *    ai.token.per.point（1 积分 = N token，管理员可调，默认 1000），换算
+ *    消耗积分 = max(1, ceil(totalTokens / N))；乐观锁扣 sys_points_account.balance，
+ *    并写 sys_points_record 流水（change_type='SPEND'，source='AI'，related_id=记录ID，
+ *    remark 记录 token 与积分）。校验与扣减均在本服务内用 JdbcTemplate 直写，
+ *    不跨模块依赖 review 的 AiQuotaService。
  * 5. 身份不做空值兜底：四接口均未登记 App 凭证域白名单，过滤器已保证非游客，currentUserId() 不会为 null。
  *
  * @author xiangsipeng
@@ -61,6 +65,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 @Service
 public class AiWriteServiceImpl implements IAiWriteService
 {
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(AiWriteServiceImpl.class);
+
     /** 默认页码 */
     private static final int DEFAULT_PAGE_NUM = 1;
 
@@ -89,6 +95,12 @@ public class AiWriteServiceImpl implements IAiWriteService
     /** 大纲消耗额度（本批固定 1） */
     private static final int QUOTA_COST_OUTLINE = 1;
 
+    /** 去次数化：1 积分默认对应 token 数（sys_config key=ai.token.per.point，管理员可调，默认 1000） */
+    private static final int DEFAULT_TOKEN_PER_POINT = 1000;
+
+    /** 每次 AI 调用最低扣 1 积分（防止 0 积分调用） */
+    private static final int MIN_POINTS_COST = 1;
+
     /** 标题长度上限（sys_ai_write_record.title 为 varchar(100)，按业务约定收紧到 50） */
     private static final int TITLE_MAX_LENGTH = 50;
 
@@ -109,9 +121,6 @@ public class AiWriteServiceImpl implements IAiWriteService
 
     @Autowired
     private AiServiceClient aiServiceClient;
-
-    @Autowired
-    private AiGenLimitConfig genLimitConfig;
 
     @Autowired
     private IdentityProvider identityProvider;
@@ -144,28 +153,28 @@ public class AiWriteServiceImpl implements IAiWriteService
     {
         requireContinuationContext(request.getPrompt());
         checkContent(identityProvider.currentUserId(), request.getPrompt());
-        checkQuota(identityProvider.currentUserId());
-        JsonNode data = aiServiceClient.write(request.getPrompt(), request.getType());
-        int maxChars = genLimitConfig.maxChars("write");
-        String content = DeltaLimitTruncator.truncate(text(data, "content"), maxChars);
+        checkPoints(identityProvider.currentUserId());
+        AiCallResult data = aiServiceClient.write(request.getPrompt(), request.getType());
+        String content = data.getContent();
         Long recordId = saveRecord(identityProvider.currentUserId(), request.getWorkId(),
-                resolveWriteType(request.getType()), request.getPrompt(), content, resolveModel(data));
-        consumeQuota(identityProvider.currentUserId(), "write", recordId);
-        return new AppAiWriteResult(content, recordId, maxChars != 0 && content.length() >= maxChars);
+                resolveWriteType(request.getType()), request.getPrompt(), content,
+                resolveModel(data), data.getTotalTokens());
+        consumePoints(identityProvider.currentUserId(), "write", recordId, data.getTotalTokens());
+        return new AppAiWriteResult(content, recordId, false);
     }
 
     @Override
     public AppAiWriteResult polish(AppAiPolishRequest request)
     {
-        checkQuota(identityProvider.currentUserId());
+        checkPoints(identityProvider.currentUserId());
         checkContent(identityProvider.currentUserId(), request.getContent());
-        JsonNode data = aiServiceClient.polish(request.getContent(), request.getStyle());
-        int maxChars = genLimitConfig.maxChars("polish");
-        String content = DeltaLimitTruncator.truncate(text(data, "content"), maxChars);
+        AiCallResult data = aiServiceClient.polish(request.getContent(), request.getStyle());
+        String content = data.getContent();
         Long recordId = saveRecord(identityProvider.currentUserId(), null,
-                WRITE_TYPE_POLISH, request.getContent(), content, resolveModel(data));
-        consumeQuota(identityProvider.currentUserId(), "polish", recordId);
-        return new AppAiWriteResult(content, recordId, maxChars != 0 && content.length() >= maxChars);
+                WRITE_TYPE_POLISH, request.getContent(), content,
+                resolveModel(data), data.getTotalTokens());
+        consumePoints(identityProvider.currentUserId(), "polish", recordId, data.getTotalTokens());
+        return new AppAiWriteResult(content, recordId, false);
     }
 
     @Override
@@ -197,44 +206,40 @@ public class AiWriteServiceImpl implements IAiWriteService
     {
         requireContinuationContext(request.getPrompt());
         checkContent(identityProvider.currentUserId(), request.getPrompt());
-        checkQuota(identityProvider.currentUserId());
-        int maxChars = genLimitConfig.maxChars("write");
-        DeltaLimitTruncator limiter = new DeltaLimitTruncator(onDelta, maxChars);
-        String raw = aiServiceClient.writeStream(request.getPrompt(), request.getType(), limiter::accept);
-        String content = DeltaLimitTruncator.truncate(raw, maxChars);
+        checkPoints(identityProvider.currentUserId());
+        AiCallResult r = aiServiceClient.writeStream(request.getPrompt(), request.getType(), onDelta);
+        String content = r.getContent();
         Long recordId = saveRecord(identityProvider.currentUserId(), request.getWorkId(),
-                resolveWriteType(request.getType()), request.getPrompt(), content, aiModel);
-        consumeQuota(identityProvider.currentUserId(), "write", recordId);
-        return new AppAiWriteResult(content, recordId, limiter.isTruncated());
+                resolveWriteType(request.getType()), request.getPrompt(), content,
+                resolveModel(r), r.getTotalTokens());
+        consumePoints(identityProvider.currentUserId(), "write", recordId, r.getTotalTokens());
+        return new AppAiWriteResult(content, recordId, false);
     }
 
     @Override
     public AppAiWriteResult polishStream(AppAiPolishRequest request, java.util.function.Consumer<String> onDelta)
     {
-        checkQuota(identityProvider.currentUserId());
+        checkPoints(identityProvider.currentUserId());
         checkContent(identityProvider.currentUserId(), request.getContent());
-        int maxChars = genLimitConfig.maxChars("polish");
-        DeltaLimitTruncator limiter = new DeltaLimitTruncator(onDelta, maxChars);
-        String raw = aiServiceClient.polishStream(request.getContent(), request.getStyle(), limiter::accept);
-        String content = DeltaLimitTruncator.truncate(raw, maxChars);
+        AiCallResult r = aiServiceClient.polishStream(request.getContent(), request.getStyle(), onDelta);
+        String content = r.getContent();
         Long recordId = saveRecord(identityProvider.currentUserId(), null,
-                WRITE_TYPE_POLISH, request.getContent(), content, aiModel);
-        consumeQuota(identityProvider.currentUserId(), "polish", recordId);
-        return new AppAiWriteResult(content, recordId, limiter.isTruncated());
+                WRITE_TYPE_POLISH, request.getContent(), content,
+                resolveModel(r), r.getTotalTokens());
+        consumePoints(identityProvider.currentUserId(), "polish", recordId, r.getTotalTokens());
+        return new AppAiWriteResult(content, recordId, false);
     }
 
     @Override
     public AppAiOutlineResult outlineStream(AppAiOutlineRequest request, java.util.function.Consumer<String> onDelta)
     {
-        checkQuota(identityProvider.currentUserId());
+        checkPoints(identityProvider.currentUserId());
         checkContent(identityProvider.currentUserId(),
                 (request.getInspiration() == null ? "" : request.getInspiration()));
         Date startedAt = new Date();
-        int maxChars = genLimitConfig.maxChars("outline");
-        DeltaLimitTruncator limiter = new DeltaLimitTruncator(onDelta, maxChars);
-        String raw = aiServiceClient.outlineStream(request.getInspiration(), request.getGenre(), request.getStyle(), limiter::accept);
+        AiCallResult r = aiServiceClient.outlineStream(request.getInspiration(), request.getGenre(), request.getStyle(), onDelta);
         Date finishedAt = new Date();
-        JsonNode outlineNode = parseOutlineJson(raw);
+        JsonNode outlineNode = parseOutlineJson(r.getContent());
         Object outline = outlineNode.isMissingNode() || outlineNode.isNull()
                 ? null : OUTLINE_MAPPER.convertValue(outlineNode, Object.class);
         String requestNo = generateRequestNo();
@@ -242,9 +247,10 @@ public class AiWriteServiceImpl implements IAiWriteService
                 CAPABILITY_OUTLINE, QUOTA_COST_OUTLINE, STATUS_SUCCESS, resolveProvider(),
                 sha256(buildOutlinePrompt(request)), startedAt, finishedAt);
         Long recordId = saveRecord(identityProvider.currentUserId(), request.getWorkId(),
-                CAPABILITY_OUTLINE, buildOutlineInputText(request), outlineToText(outline), resolveModel(outlineNode));
-        consumeQuota(identityProvider.currentUserId(), "outline", recordId);
-        return new AppAiOutlineResult(outline, requestNo, QUOTA_COST_OUTLINE, limiter.isTruncated());
+                CAPABILITY_OUTLINE, buildOutlineInputText(request), outlineToText(outline),
+                resolveModel(r), r.getTotalTokens());
+        consumePoints(identityProvider.currentUserId(), "outline", recordId, r.getTotalTokens());
+        return new AppAiOutlineResult(outline, requestNo, QUOTA_COST_OUTLINE, false);
     }
 
     /** 把 AI 流式返回的完整大纲文本解析为 JsonNode（与同步路径共用 parseJson 语义）。 */
@@ -284,13 +290,13 @@ public class AiWriteServiceImpl implements IAiWriteService
     @Override
     public AppAiOutlineResult outline(AppAiOutlineRequest request)
     {
-        checkQuota(identityProvider.currentUserId());
+        checkPoints(identityProvider.currentUserId());
         checkContent(identityProvider.currentUserId(),
                 (request.getInspiration() == null ? "" : request.getInspiration()));
         Date startedAt = new Date();
-        JsonNode data = aiServiceClient.outline(request.getInspiration(), request.getGenre(), request.getStyle());
+        AiCallResult r = aiServiceClient.outline(request.getInspiration(), request.getGenre(), request.getStyle());
         Date finishedAt = new Date();
-        JsonNode outlineNode = data.path("outline");
+        JsonNode outlineNode = parseOutlineJson(r.getContent()).path("outline");
         Object outline = outlineNode.isMissingNode() || outlineNode.isNull()
                 ? null : OUTLINE_MAPPER.convertValue(outlineNode, Object.class);
         String requestNo = generateRequestNo();
@@ -300,8 +306,9 @@ public class AiWriteServiceImpl implements IAiWriteService
         // 同步写一条可回看记录（write_type='outline'）：输入（灵感/类型/风格）与大纲结果
         // 完整落 sys_ai_write_record，供 AI 记录页按写作/润色同款「输入/输出」样式展示。
         Long recordId = saveRecord(identityProvider.currentUserId(), request.getWorkId(),
-                CAPABILITY_OUTLINE, buildOutlineInputText(request), outlineToText(outline), resolveModel(data));
-        consumeQuota(identityProvider.currentUserId(), "outline", recordId);
+                CAPABILITY_OUTLINE, buildOutlineInputText(request), outlineToText(outline),
+                resolveModel(r), r.getTotalTokens());
+        consumePoints(identityProvider.currentUserId(), "outline", recordId, r.getTotalTokens());
         return new AppAiOutlineResult(outline, requestNo, QUOTA_COST_OUTLINE, false);
     }
 
@@ -315,84 +322,109 @@ public class AiWriteServiceImpl implements IAiWriteService
     }
 
     /**
-     * 校验用户 AI 可用次数：读取 sys_ai_quota_account.available_quota，
-     * 无账户或不足 1 次即抛 {@link AiQuotaInsufficientException}，由控制器转 400。
-     * 本方法只校验；实际扣减在 AI 调用成功后由 {@link #consumeQuota} 完成。
+     * 【去次数化】校验用户积分余额：读取 sys_points_account.balance，
+     * 无账户或不足 1 积分即抛 {@link AiQuotaInsufficientException}（消息为积分文案），由控制器转 400。
+     * 本方法只校验；实际扣减在 AI 调用成功后由 {@link #consumePoints} 完成。
      */
-    private void checkQuota(Long userId)
+    private void checkPoints(Long userId)
     {
-        Integer available;
+        Integer balance;
         try
         {
-            available = jdbcTemplate.queryForObject(
-                    "SELECT available_quota FROM sys_ai_quota_account WHERE user_id = ?",
+            balance = jdbcTemplate.queryForObject(
+                    "SELECT balance FROM sys_points_account WHERE user_id = ?",
                     Integer.class, userId);
         }
         catch (org.springframework.dao.EmptyResultDataAccessException e)
         {
-            available = null;
+            balance = null;
         }
-        int balance = available == null ? 0 : available;
-        if (balance < 1)
+        int b = balance == null ? 0 : balance;
+        if (b < MIN_POINTS_COST)
         {
-            throw new AiQuotaInsufficientException("AI次数不足，当前可用: " + balance + " 次");
+            throw new AiQuotaInsufficientException("积分不足，当前余额: " + b + " 积分，请先完成任务或观看广告获取积分");
         }
     }
 
     /**
-     * AI 调用成功后扣减 1 次可用额度并写额度流水（App / E 模块）。
+     * 【去次数化】AI 调用成功后按本次实际 token 消耗扣减积分并写积分流水。
      *
-     * 幂等键 = ai-consume-{capability}-{businessId}（businessId 为该次调用的记录ID，
-     * 每次调用唯一），重复请求因 uk_idempotency_key 唯一约束被忽略，不重复扣减。
-     * 并发兜底：扣减 UPDATE 带 available_quota >= 1 条件，行数为 0 时不写流水直接返回。
+     * 换算：读取配置 ai.token.per.point（1 积分 = N token，默认 1000），
+     * 消耗积分 = max(1, ceil(totalTokens / N))；响应无 usage 时按最低 1 积分计。
+     * 乐观锁：UPDATE 带 balance >= 需扣积分条件，行数为 0 时不写流水直接返回（并发兜底）。
+     * 流水：写 sys_points_record（change_type='SPEND'，source='AI'，related_id=本次记录ID，
+     * remark 记录 token 与积分），同一次调用 recordId 唯一，天然幂等。
      */
-    private void consumeQuota(Long userId, String capability, Long businessId)
+    private void consumePoints(Long userId, String capability, Long businessId, int totalTokens)
     {
-        Integer before;
+        int tokenPerPoint = readTokenPerPoint();
+        int points = totalTokens <= 0 ? MIN_POINTS_COST
+                : Math.max(MIN_POINTS_COST, (totalTokens + tokenPerPoint - 1) / tokenPerPoint);
+        int rows = jdbcTemplate.update(
+                "UPDATE sys_points_account SET balance = balance - ?, last_update_date = NOW() "
+                        + "WHERE user_id = ? AND balance >= ?",
+                points, userId, points);
+        if (rows == 0)
+        {
+            return; // checkPoints 已前置拦截，此处并发兜底
+        }
+        Integer after;
         try
         {
-            before = jdbcTemplate.queryForObject(
-                    "SELECT available_quota FROM sys_ai_quota_account WHERE user_id = ?",
+            after = jdbcTemplate.queryForObject(
+                    "SELECT balance FROM sys_points_account WHERE user_id = ?",
                     Integer.class, userId);
         }
         catch (org.springframework.dao.EmptyResultDataAccessException e)
         {
-            before = null;
+            after = null;
         }
-        if (before == null || before < 1)
-        {
-            return; // checkQuota 已前置拦截，此处兜底
-        }
-        int rows = jdbcTemplate.update(
-                "UPDATE sys_ai_quota_account SET available_quota = available_quota - 1, "
-                        + "total_consumed = total_consumed + 1, version = version + 1 "
-                        + "WHERE user_id = ? AND available_quota >= 1",
-                userId);
-        if (rows == 0)
-        {
-            return; // 并发兜底：余额已被扣光，不落流水
-        }
-        String idemKey = "ai-consume-" + capability + "-" + businessId;
+        int before = (after == null ? points : after) + points;
         try
         {
             jdbcTemplate.update(
-                    "INSERT INTO sys_ai_quota_record (record_no, user_id, change_type, change_amount, "
-                            + "before_balance, after_balance, business_type, business_id, "
-                            + "idempotency_key, remark, created_at) "
-                            + "VALUES (?, ?, 'consume', 1, ?, ?, ?, ?, ?, ?, NOW())",
-                    generateRecordNo("QR"), userId, before, before - 1, capability,
-                    businessId, idemKey, "AI调用扣减: " + capability);
+                    "INSERT INTO sys_points_record (user_id, change_type, points, balance_after, "
+                            + "source, related_id, remark, created_at) "
+                            + "VALUES (?, 'SPEND', ?, ?, 'AI', ?, ?, NOW())",
+                    userId, points, after == null ? before : after, businessId,
+                    "AI创作消耗(" + capability + "): " + totalTokens + " token = " + points + " 积分");
         }
-        catch (org.springframework.dao.DuplicateKeyException e)
+        catch (Exception e)
         {
-            // 幂等：同一次调用不重复扣减
+            // 流水失败不回滚积分（主业务已完成）；日志留痕便于对账
+            log.error("写积分流水失败 userId={} businessId={}: {}", userId, businessId, e.getMessage());
         }
+    }
+
+    /** 读取「1 积分 = N token」配置（sys_config key=ai.token.per.point）；缺失/非法回退默认 1000。 */
+    private int readTokenPerPoint()
+    {
+        try
+        {
+            List<Map<String, Object>> rows = jdbcTemplate.queryForList(
+                    "SELECT config_value FROM sys_config WHERE config_key = 'ai.token.per.point' LIMIT 1");
+            if (!rows.isEmpty() && rows.get(0).get("config_value") != null)
+            {
+                int v = Integer.parseInt(String.valueOf(rows.get(0).get("config_value")).trim());
+                if (v >= 1)
+                {
+                    return v;
+                }
+            }
+        }
+        catch (Exception e)
+        {
+            log.warn("读取 ai.token.per.point 配置失败，使用默认值: {}", e.getMessage());
+        }
+        return DEFAULT_TOKEN_PER_POINT;
     }
 
     /**
      * 落一条 AI 写作记录并回填记录ID。
+     *
+     * @param tokens 本次调用实际消耗 token 数（usage.total_tokens，落 tokens_used）
      */
-    private Long saveRecord(Long userId, Long workId, String writeType, String inputPrompt, String outputContent, String model)
+    private Long saveRecord(Long userId, Long workId, String writeType, String inputPrompt, String outputContent, String model, int tokens)
     {
         AppAiWriteRecordInsert row = new AppAiWriteRecordInsert();
         row.setUserId(userId);
@@ -406,7 +438,7 @@ public class AiWriteServiceImpl implements IAiWriteService
         row.setOutputContent(outputContent == null ? BLANK : outputContent);
         row.setWordCount(outputContent == null ? 0 : outputContent.length());
         row.setAiModel(model);
-        row.setTokensUsed(0);
+        row.setTokensUsed(tokens);
         row.setStatus(STATUS_SUCCESS);
         writeRecordMapper.insertWriteRecord(row);
         return row.getRecordId();
@@ -419,12 +451,11 @@ public class AiWriteServiceImpl implements IAiWriteService
     }
 
     /** 模型名：优先 AI 返回，其次配置，最后兜底 */
-    private String resolveModel(JsonNode data)
+    private String resolveModel(AiCallResult r)
     {
-        String fromAi = text(data, "model");
-        if (fromAi != null && !fromAi.isBlank())
+        if (r.getModel() != null && !r.getModel().isBlank())
         {
-            return fromAi;
+            return r.getModel();
         }
         return aiModel == null || aiModel.isBlank() ? DEFAULT_MODEL : aiModel;
     }
@@ -433,13 +464,6 @@ public class AiWriteServiceImpl implements IAiWriteService
     private String resolveProvider()
     {
         return aiProvider == null || aiProvider.isBlank() ? DEFAULT_MODEL : aiProvider;
-    }
-
-    /** 取 JSON 文本字段；缺失返回 null */
-    private static String text(JsonNode node, String field)
-    {
-        JsonNode value = node.path(field);
-        return value.isMissingNode() || value.isNull() ? null : value.asText();
     }
 
     /** 生成大纲提示词摘要原文（用于 prompt_hash，不含敏感信息） */

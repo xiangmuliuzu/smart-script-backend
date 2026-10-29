@@ -7,6 +7,7 @@
         <result property="ruleName"     column="rule_name"     />
         <result property="ruleType"    column="rule_type"      />
         <result property="ruleContent" column="rule_key"   />
+        <result property="ruleValue"  column="rule_value"  />
         <result property="action"     column="action"          />
         <result property="threshold"   column="threshold"       />
         <result property="status"      column="status"          />
@@ -19,7 +20,7 @@
     </resultMap>
 
     <sql id="selectAiReviewRuleVo">
-        SELECT rule_id, rule_name, rule_type, rule_key, action, threshold,
+        SELECT rule_id, rule_name, rule_type, rule_key, rule_value, action, threshold,
                CASE WHEN status = 1 THEN 'enabled' ELSE 'disabled' END AS status, sort,
                create_by, created_at, update_by, update_time, remark
         FROM sys_ai_review_rule
@@ -58,6 +59,7 @@
             <if test="ruleName != null and ruleName != ''">rule_name,</if>
             <if test="ruleType != null and ruleType != ''">rule_type,</if>
             <if test="ruleContent != null">rule_key,</if>
+            <if test="ruleValue != null">rule_value,</if>
             <if test="action != null and action != ''">action,</if>
             <if test="threshold != null">threshold,</if>
             rule_value,
@@ -73,9 +75,10 @@
             <if test="ruleName != null and ruleName != ''">#{ruleName},</if>
             <if test="ruleType != null and ruleType != ''">#{ruleType},</if>
             <if test="ruleContent != null">#{ruleContent},</if>
+            <if test="ruleValue != null">#{ruleValue},</if>
             <if test="action != null and action != ''">#{action},</if>
             <if test="threshold != null">#{threshold},</if>
-            '{}',
+            <if test="ruleValue == null">'{}',</if>
             <if test="status != null and status != ''">CASE #{status} WHEN 'enabled' THEN 1 ELSE 0 END,</if>
             <if test="sort != null">#{sort},</if>
             <if test="createBy != null">#{createBy},</if>
@@ -92,6 +95,7 @@
             <if test="ruleName != null and ruleName != ''">rule_name = #{ruleName},</if>
             <if test="ruleType != null and ruleType != ''">rule_type = #{ruleType},</if>
             <if test="ruleContent != null">rule_key = #{ruleContent},</if>
+            <if test="ruleValue != null">rule_value = #{ruleValue},</if>
             <if test="action != null and action != ''">action = #{action},</if>
             <if test="threshold != null">threshold = #{threshold},</if>
             <if test="status != null and status != ''">status = CASE #{status} WHEN 'enabled' THEN 1 ELSE 0 END,</if>

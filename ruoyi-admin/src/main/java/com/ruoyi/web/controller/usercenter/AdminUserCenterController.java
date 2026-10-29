@@ -331,6 +331,22 @@ public class AdminUserCenterController extends BaseController
         return AjaxResult.success(detail);
     }
 
+    @PreAuthorize("@ss.hasPermi('" + AppAdminConstants.PERM_REALNAME_AUDIT + "')")
+    @Log(title = "实名审核", businessType = BusinessType.UPDATE, isSaveResponseData = false,
+         excludeParamNames = { AppAdminAuditParams.REJECT_REASON, AppAdminAuditParams.TOKEN, AppAdminAuditParams.ACCESS_TOKEN,
+             AppAdminAuditParams.REFRESH_TOKEN, AppAdminAuditParams.CODE, AppAdminAuditParams.SMS_CODE,
+             AppAdminAuditParams.CAPTCHA, AppAdminAuditParams.PHONE, AppAdminAuditParams.ID_NUMBER })
+    @PutMapping("/real-name-applications/{applicationId}/decision")
+    public AjaxResult decideRealName(@PathVariable Long applicationId, @RequestBody Map<String, Object> body)
+    {
+        AdminAuditParamProjection.retain(body, AdminAuditParamProjection.CREATOR_APPLY_DECISION);
+        String decision = str(body.get("decision"));
+        String reason = str(body.get("rejectReason"));
+        String expected = str(body.get("expectedStatus"));
+        AdminAuditParamProjection.sanitizeCreatorApplyDecisionLog(body);
+        return AjaxResult.success(realNameReviewService.decide(applicationId, decision, reason, SecurityUtils.getUserId(), expected));
+    }
+
     // ------------------------------------------------------------------
     // 创作者申请审核
     // ------------------------------------------------------------------

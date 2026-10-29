@@ -46,6 +46,10 @@ public class RealNameApplication
      */
     @JsonIgnore
     private String materialRef;
+    @JsonIgnore
+    private String materialBackRef;
+    public String getMaterialBackRef() { return materialBackRef; }
+    public void setMaterialBackRef(String value) { materialBackRef = value; }
 
     public Long getApplicationId()
     {

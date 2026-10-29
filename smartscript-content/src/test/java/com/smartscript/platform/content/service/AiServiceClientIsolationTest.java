@@ -105,7 +105,8 @@ class AiServiceClientIsolationTest
     void streamingOutlineRequestsReadableTextRatherThanWaitingForJson()
     {
         StringBuilder received = new StringBuilder();
-        String result = client.outlineStream("雨夜故事", "悬疑", "紧凑", received::append);
+        AiCallResult r = client.outlineStream("雨夜故事", "悬疑", "紧凑", received::append);
+        String result = r.getContent();
         assertEquals(result, received.toString());
         assertTrue(captured.get(0).path("messages").path(0).path("content").asText().contains("分段输出可读文本"));
     }
@@ -114,8 +115,8 @@ class AiServiceClientIsolationTest
     void subsequentRequestDoesNotContainAnotherRequestsPromptOrResponse()
     {
         String privateStory = "SYNTHETIC-ALPHA-101-secret-story";
-        assertEquals(privateStory, client.write(privateStory, null).path("content").asText());
-        assertEquals("继续", client.write("继续", null).path("content").asText());
+        assertEquals(privateStory, client.write(privateStory, null).getContent());
+        assertEquals("继续", client.write("继续", null).getContent());
         assertEquals(2, captured.size());
         assertFalse(captured.get(1).toString().contains(privateStory));
         assertEquals(2, captured.get(1).path("messages").size());
@@ -128,13 +129,13 @@ class AiServiceClientIsolationTest
         String privateStory = "SYNTHETIC-ALPHA-101-secret-story";
         StringBuilder firstDeltas = new StringBuilder();
         StringBuilder secondDeltas = new StringBuilder();
-        CompletableFuture<String> first = CompletableFuture.supplyAsync(
+        CompletableFuture<AiCallResult> first = CompletableFuture.supplyAsync(
                 () -> client.writeStream(privateStory, null, firstDeltas::append), executor);
-        CompletableFuture<String> second = CompletableFuture.supplyAsync(
+        CompletableFuture<AiCallResult> second = CompletableFuture.supplyAsync(
                 () -> client.writeStream("继续", null, secondDeltas::append), executor);
 
-        assertEquals(privateStory, first.get(10, TimeUnit.SECONDS));
-        assertEquals("继续", second.get(10, TimeUnit.SECONDS));
+        assertEquals(privateStory, first.get(10, TimeUnit.SECONDS).getContent());
+        assertEquals("继续", second.get(10, TimeUnit.SECONDS).getContent());
         assertEquals(privateStory, firstDeltas.toString());
         assertEquals("继续", secondDeltas.toString());
         assertEquals(2, captured.size());

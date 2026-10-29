@@ -258,6 +258,7 @@ class AdminReviewFindingsRegressionTest
             "@PutMapping(\"/app-users/{userId}/roles\")",
             "@GetMapping(\"/real-name-applications\")",
             "@GetMapping(\"/real-name-applications/{applicationId}\")",
+            "@PutMapping(\"/real-name-applications/{applicationId}/decision\")",
             "@GetMapping(\"/author-capabilities\")",
             "@PutMapping(\"/author-capabilities/{userId}\")",
             "@GetMapping(\"/notifications\")",
@@ -277,8 +278,8 @@ class AdminReviewFindingsRegressionTest
             }
         }
         assertTrue(missing.isEmpty(), "missing A4 endpoints: " + missing);
-        assertFalse(controller.contains("/real-name-applications/{applicationId}/decision"),
-                "real-name records must not expose a manual decision endpoint");
+        assertTrue(controller.contains("AppAdminConstants.PERM_REALNAME_AUDIT"),
+                "real-name decisions must require audit permission");
     }
 
     private String readController(String name) throws Exception

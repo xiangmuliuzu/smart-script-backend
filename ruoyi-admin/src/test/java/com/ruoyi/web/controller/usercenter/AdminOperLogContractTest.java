@@ -97,10 +97,10 @@ class AdminOperLogContractTest
     }
 
     @Test
-    void realNameRecordsDoNotExposeManualDecision()
+    void realNameRecordsExposeManualDecision()
     {
         assertTrue(java.util.Arrays.stream(AdminUserCenterController.class.getDeclaredMethods())
-                .noneMatch(method -> method.getName().equals("decideRealName")));
+                .anyMatch(method -> method.getName().equals("decideRealName")));
     }
 
     @Test
