@@ -131,18 +131,6 @@ class AppUserCenterUnitTest
     }
 
     @Test
-    void realNameMaterialIsOptionalButSuppliedRefsMustBeUsable()
-    {
-        assertEquals("/profile/upload/a.png",
-                AppRealNameService.normalizeMaterialRefs(List.of(" /profile/upload/a.png ")));
-        assertNull(AppRealNameService.normalizeMaterialRefs(null));
-        assertNull(AppRealNameService.normalizeMaterialRefs(List.of()));
-        assertThrows(AppAuthException.class, () -> AppRealNameService.normalizeMaterialRefs(List.of("  ", "")));
-        assertThrows(AppAuthException.class,
-                () -> AppRealNameService.normalizeMaterialRefs(List.of("a", "b", "c", "d")));
-    }
-
-    @Test
     void realNameStateMachineBlocksPendingAndApproved()
     {
         // PENDING 与 APPROVED 不允许再次提交

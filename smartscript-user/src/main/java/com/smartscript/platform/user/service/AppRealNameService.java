@@ -1,6 +1,5 @@
 package com.smartscript.platform.user.service;
 
-import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import com.smartscript.platform.user.constant.AppUserErrorCodes;
@@ -23,11 +22,8 @@ import com.smartscript.platform.user.util.AppMasks;
  * 强制边界：
  *   - 审核中（PENDING）不可重复提交，已通过（APPROVED）不可由用户自行覆盖，两者返回 409。
  *   - 只有 REJECTED 或 NOT_SUBMITTED 允许提交；重提走新增行，保留完整审计链。
- *   - 明文姓名与证件号**不落库**：只写 {real_name_mask, id_number_mask}，
- *     与 A4 审核端读取的掩码列一致（A4 不改列名、不解析明文）。
- *   - 材料引用来自用户实名材料上传接口，校验归属与文件存在性；本服务不签发对外地址，
- *     审核端读取材料仍走 A4 的短时授权链路。
- *   - 日志不记录姓名、证件号与材料地址。
+ *   - 申请记录只保存姓名和证件号掩码，核验通过后姓名快照写入用户表用于合同。
+ *   - 日志不记录姓名和证件号。
  */
 @Service
 public class AppRealNameService
@@ -43,22 +39,17 @@ public class AppRealNameService
 
     private static final int REAL_NAME_MIN = 2;
     private static final int REAL_NAME_MAX = 32;
-    private static final int MATERIAL_REFS_MAX = 3;
-    private static final int MATERIAL_REF_MAX_LENGTH = 255;
 
     /** 身份证号形态：18 位，前 17 位为数字，末位可为 X/x。 */
     private static final String ID_NUMBER_PATTERN = "^[0-9]{17}[0-9Xx]$";
 
     private final AppUserCenterMapper centerMapper;
-    private final AppRealNameMaterialService materialService;
     private final AliyunRealNameVerifier verifier;
     private final RealNameReviewService reviewService;
 
-    public AppRealNameService(AppUserCenterMapper centerMapper, AppRealNameMaterialService materialService,
-            AliyunRealNameVerifier verifier, RealNameReviewService reviewService)
+    public AppRealNameService(AppUserCenterMapper centerMapper, AliyunRealNameVerifier verifier, RealNameReviewService reviewService)
     {
         this.centerMapper = centerMapper;
-        this.materialService = materialService;
         this.verifier = verifier;
         this.reviewService = reviewService;
     }
@@ -104,26 +95,20 @@ public class AppRealNameService
         }
         String realName = normalizeRealName(request.getRealName());
         String idNumber = normalizeIdNumber(request.getIdNumber());
-        String materialRef = normalizeMaterialRefs(request.getMaterialRefs());
 
         // 串行处理该用户的并发提交，避免同时多次调用计费接口。
         centerMapper.lockRealNameApplicant(userId);
         String current = centerMapper.selectLatestRealNameStatus(userId);
         requireSubmittable(current);
-        if (materialRef != null)
-        {
-            materialService.requireOwnedMaterial(userId, materialRef);
-        }
 
         // 本地校验全部通过后才调用；网络异常中止申请，不伪造核验结果。
         String rejectReason = verifier.verify(realName, idNumber);
 
         UserRealNameAuth record = new UserRealNameAuth();
         record.setUserId(userId);
-        // 只落掩码：明文姓名与证件号不进入数据库
+        // 申请记录只保存掩码；核验通过后另存合同所需的姓名快照。
         record.setRealNameMask(AppMasks.maskRealName(realName));
         record.setIdNumberMask(AppMasks.maskIdNumber(idNumber));
-        record.setMaterialRef(materialRef);
         record.setStatus(STATUS_PENDING);
         centerMapper.insertRealName(record);
         // 复用状态流转与提交后通知；运维端不再提供人工审核入口。
@@ -173,44 +158,4 @@ public class AppRealNameService
         return value;
     }
 
-    /**
-     * 材料可不提供；兼容旧客户端提交的 1–3 项引用，去空、限长。
-     * 单值列 user_real_name_auth.material_ref 与 A4 一致按「零或单元素」语义存储，
-     * 因此多项时取首项（不解析分隔符拼接，避免 A4 侧按分隔符误拆）。
-     */
-    static String normalizeMaterialRefs(List<String> refs)
-    {
-        if (refs == null || refs.isEmpty())
-        {
-            return null;
-        }
-        String first = null;
-        int count = 0;
-        for (String ref : refs)
-        {
-            if (ref == null || ref.isBlank())
-            {
-                continue;
-            }
-            String value = ref.trim();
-            if (value.length() > MATERIAL_REF_MAX_LENGTH)
-            {
-                throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "material ref too long");
-            }
-            if (first == null)
-            {
-                first = value;
-            }
-            count++;
-            if (count > MATERIAL_REFS_MAX)
-            {
-                throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "too many material refs");
-            }
-        }
-        if (first == null)
-        {
-            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "material required");
-        }
-        return first;
-    }
 }
