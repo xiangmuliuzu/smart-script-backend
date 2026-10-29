@@ -43,6 +43,10 @@
 所有敏感值只从环境变量或初始化脚本参数读入，**禁止写入仓库**。模板见 `.env.example`，
 复制为本机私有的 `.env.local`（已被 `.gitignore` 忽略）。
 
+### 邮箱注册验证码
+
+邮箱注册使用 163 邮箱 SMTP SSL（`smtp.163.com:465`）。运行后端前，设置环境变量 `APP_AUTH_EMAIL_USERNAME`（默认发件人为 `eyhereal@163.com`）和 `APP_AUTH_EMAIL_PASSWORD`（邮箱 SMTP 授权码）。授权码仅保存在部署环境的密钥配置中，不要提交至仓库。已有数据库需先执行 `sql/migrations/a/A_20261029_002__email_registration.sql`，再发布后端及客户端。验证码沿用现有的一次性使用、有效期及频率限制规则。
+
 ### 数据库与 Redis
 
 | 变量 | 必需 | 说明 |

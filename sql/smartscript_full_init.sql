@@ -796,7 +796,7 @@ PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 -- =====================================================================
 CREATE TABLE IF NOT EXISTS app_sms_code (
   id              BIGINT        NOT NULL AUTO_INCREMENT,
-  phone           VARCHAR(20)   NOT NULL COMMENT '手机号',
+  phone           VARCHAR(64)   NOT NULL COMMENT '手机号或邮箱验证码标识',
   scene           VARCHAR(32)   NOT NULL,
   code_hash       VARCHAR(64)   NOT NULL,
   request_ip      VARCHAR(45)   NULL,
@@ -812,6 +812,13 @@ CREATE TABLE IF NOT EXISTS app_sms_code (
   KEY idx_app_sms_phone_scene_created (phone, scene, create_time),
   KEY idx_app_sms_ip_created (request_ip, create_time)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='短信验证码';
+
+CREATE TABLE IF NOT EXISTS app_user_email (
+  user_id BIGINT NOT NULL,
+  email VARCHAR(50) NOT NULL,
+  PRIMARY KEY (user_id),
+  UNIQUE KEY uk_app_user_email (email)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='邮箱注册账号唯一绑定';
 
 CREATE TABLE IF NOT EXISTS app_refresh_session (
   id BIGINT NOT NULL AUTO_INCREMENT,

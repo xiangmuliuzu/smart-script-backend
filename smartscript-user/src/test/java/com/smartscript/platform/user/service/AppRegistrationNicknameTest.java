@@ -58,6 +58,73 @@ class AppRegistrationNicknameTest
     }
 
     @Test
+    void emailRegistrationUsesVerifiedNormalizedAddressAndUniqueBinding()
+    {
+        RegisterRequest request = registerRequest();
+        request.setPhone(null);
+        request.setEmail("Writer@Example.com");
+        var result = service.register(request, "127.0.0.1");
+        assertGeneratedName(result.getUser().getNickname());
+        verify(sms).consumeEmailCode("writer@example.com", "123456");
+        verify(users).insertEmailBinding(7L, "writer@example.com");
+        var captor = org.mockito.ArgumentCaptor.forClass(AppUserRecord.class);
+        verify(users).insertAppUser(captor.capture());
+        assertEquals("writer@example.com", captor.getValue().getEmail());
+        assertNull(captor.getValue().getPhonenumber());
+    }
+
+    @Test
+    void emailRegistrationRejectsExistingOrConflictingIdentifiers()
+    {
+        RegisterRequest request = registerRequest();
+        request.setEmail("writer@example.com");
+        assertThrows(AppAuthException.class, () -> service.register(request, "127.0.0.1"));
+        request.setPhone(null);
+        when(users.selectByEmail("writer@example.com")).thenReturn(existingUser());
+        assertThrows(AppAuthException.class, () -> service.register(request, "127.0.0.1"));
+        verify(users, never()).insertAppUser(any());
+        verifyNoInteractions(sessions);
+    }
+
+    @Test
+    void concurrentEmailRegistrationDoesNotIssueSession()
+    {
+        RegisterRequest request = registerRequest();
+        request.setPhone(null);
+        request.setEmail("writer@example.com");
+        doThrow(new DuplicateKeyException("duplicate")).when(users).insertEmailBinding(7L, "writer@example.com");
+        assertThrows(AppAuthException.class, () -> service.register(request, "127.0.0.1"));
+        verifyNoInteractions(sessions);
+    }
+
+    @Test
+    void emailCodeLoginCreatesVerifiedAccountAndUsesDedicatedScene()
+    {
+        SmsLoginRequest request = smsRequest();
+        request.setPhone(null);
+        request.setEmail("Writer@Example.com");
+        var result = service.smsLogin(request, "127.0.0.1");
+        assertGeneratedName(result.getUser().getNickname());
+        assertNull(result.getUser().getPhoneMasked());
+        verify(sms).consumeEmailCode("writer@example.com", "LOGIN", "123456");
+        verify(users).insertEmailBinding(7L, "writer@example.com");
+    }
+
+    @Test
+    void emailPasswordResetOnlyUsesVerifiedBinding()
+    {
+        var request = new com.smartscript.platform.user.dto.PasswordResetRequest();
+        request.setEmail("Writer@Example.com");
+        request.setCode("123456");
+        request.setNewPassword("Passw0rd123");
+        when(users.selectByVerifiedEmail("writer@example.com")).thenReturn(existingUser());
+        service.resetPassword(request);
+        verify(sms).consumeEmailCode("writer@example.com", "RESET_PASSWORD", "123456");
+        verify(users).updatePassword(anyLong(), eq("test-only-password-hash"));
+        verify(users, never()).selectByEmail(anyString());
+    }
+
+    @Test
     void firstSmsLoginUsesTheSameRandomNamingRuleForEveryNewAccount()
     {
         Set<String> generated = new HashSet<>();

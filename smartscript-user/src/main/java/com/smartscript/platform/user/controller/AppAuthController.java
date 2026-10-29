@@ -75,6 +75,19 @@ public class AppAuthController
                 "expiresIn", properties.getSms().getCodeTtlSeconds()));
     }
 
+    @PostMapping("/email/send")
+    public AjaxResult sendEmail(@Valid @RequestBody com.smartscript.platform.user.dto.EmailCodeRequest request,
+            HttpServletRequest http, @RequestHeader(value = "X-Request-Id", required = false) String requestId)
+    {
+        riskCheckService.checkFrequencyOrThrow(null, clientIp(http), "login");
+        String scene = request.getScene() == null ? "REGISTER" : request.getScene();
+        if (!java.util.Set.of("REGISTER", "LOGIN", "RESET_PASSWORD").contains(scene))
+            throw new AppAuthException(40000, 400, "invalid scene");
+        smsCodeService.sendEmailCode(request.getEmail(), scene, clientIp(http), requestId);
+        return AjaxResult.success(Map.of("cooldownSeconds", properties.getSms().getCooldownSeconds(),
+                "expiresIn", properties.getSms().getCodeTtlSeconds()));
+    }
+
     @PostMapping("/sms/login")
     public AjaxResult smsLogin(@Valid @RequestBody SmsLoginRequest request, HttpServletRequest http)
     {

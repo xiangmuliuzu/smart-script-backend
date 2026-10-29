@@ -246,7 +246,7 @@ public class AppWorkManageServiceImpl implements IAppWorkManageService
         }
         if (code == null || !code.matches("\\d{4,8}"))
         {
-            throw new ServiceException("请输入正确格式的短信验证码", 40000);
+            throw new ServiceException("请输入正确格式的验证码", 40000);
         }
         deletionVerification.consumeCode(userId, code);
         SysWork update = new SysWork();

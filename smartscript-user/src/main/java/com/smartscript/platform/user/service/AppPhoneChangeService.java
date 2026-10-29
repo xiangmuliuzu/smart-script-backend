@@ -75,10 +75,16 @@ public class AppPhoneChangeService
     public Map<String, Object> sendOldPhoneCode(AppIdentityContext identity, String ip, String requestId)
     {
         AppUserRecord user = requireUser(identity.getUserId());
-        smsCodeService.sendCode(user.getPhonenumber(), SCENE_CHANGE_PHONE_OLD, ip, requestId);
-        return Map.of(
-                "sent", true,
-                "phoneMasked", AppHashes.maskPhone(user.getPhonenumber()));
+        String email = userMapper.selectVerifiedEmailByUserId(user.getUserId());
+        if (email != null) {
+            smsCodeService.sendEmailCode(email, SCENE_CHANGE_PHONE_OLD, ip, requestId);
+            return Map.of("sent", true, "phoneMasked", "***@" + email.substring(email.indexOf('@') + 1));
+        }
+        String phone = user.getPhonenumber();
+        if (phone == null || !phone.matches("^1\\d{10}$"))
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "请先绑定手机号或邮箱");
+        smsCodeService.sendCode(phone, SCENE_CHANGE_PHONE_OLD, ip, requestId);
+        return Map.of("sent", true, "phoneMasked", AppHashes.maskPhone(phone));
     }
 
     /**
@@ -95,7 +101,11 @@ public class AppPhoneChangeService
             throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "code required");
         }
         AppUserRecord user = requireUser(identity.getUserId());
-        smsCodeService.consumeOnce(user.getPhonenumber(), SCENE_CHANGE_PHONE_OLD, request.getCode());
+        String email = userMapper.selectVerifiedEmailByUserId(user.getUserId());
+        if (email != null) smsCodeService.consumeEmailCode(email, SCENE_CHANGE_PHONE_OLD, request.getCode());
+        else if (user.getPhonenumber() != null && user.getPhonenumber().matches("^1\\d{10}$"))
+            smsCodeService.consumeOnce(user.getPhonenumber(), SCENE_CHANGE_PHONE_OLD, request.getCode());
+        else throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "请先绑定手机号或邮箱");
         String stepUpToken = tokenStore.issue(user.getUserId(), request.getDeviceId());
         return new PhoneStepUpResult(stepUpToken, PhoneChangeTokenStore.TTL_SECONDS);
     }
@@ -174,7 +184,7 @@ public class AppPhoneChangeService
 
         UserPhoneChangeLog changeLog = new UserPhoneChangeLog();
         changeLog.setUserId(userId);
-        changeLog.setOldPhoneMask(AppHashes.maskPhone(oldPhone));
+        changeLog.setOldPhoneMask(oldPhone == null ? "-" : AppHashes.maskPhone(oldPhone));
         changeLog.setNewPhoneMask(AppHashes.maskPhone(newPhone));
         changeLog.setResult(RESULT_SUCCESS);
         changeLog.setClientIp(ip);
@@ -185,6 +195,50 @@ public class AppPhoneChangeService
         revocationService.revokeAllForUser(userId, "PHONE_CHANGE");
         log.info("a5-phone change completed userId={}", userId);
         return Map.of("changed", true, "phoneMasked", AppHashes.maskPhone(newPhone));
+    }
+
+    public Map<String, Object> sendNewEmailCode(AppIdentityContext identity,
+            com.smartscript.platform.user.dto.EmailChangeRequest request, String ip, String requestId)
+    {
+        AppUserRecord user = requireUser(identity.getUserId());
+        String email = validateNewEmail(user, request.getNewEmail());
+        smsCodeService.sendEmailCode(email, "CHANGE_EMAIL_NEW", ip, requestId);
+        return Map.of("sent", true);
+    }
+
+    @Transactional
+    public Map<String, Object> confirmEmailChange(AppIdentityContext identity,
+            com.smartscript.platform.user.dto.EmailChangeRequest request)
+    {
+        AppUserRecord user = requireUser(identity.getUserId());
+        String email = validateNewEmail(user, request.getNewEmail());
+        if (request.getCode() == null || !request.getCode().matches("\\d{4,8}")
+                || !tokenStore.consume(request.getStepUpToken(), user.getUserId(), request.getDeviceId()))
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "请先完成账号验证并输入新邮箱验证码");
+        smsCodeService.consumeEmailCode(email, "CHANGE_EMAIL_NEW", request.getCode());
+        try {
+            if (userMapper.selectVerifiedEmailByUserId(user.getUserId()) == null)
+                userMapper.insertEmailBinding(user.getUserId(), email);
+            else userMapper.updateEmailBinding(user.getUserId(), email);
+            userMapper.updateEmail(user.getUserId(), email);
+        } catch (DataIntegrityViolationException e) {
+            throw new AppAuthException(AppUserErrorCodes.PHONE_TAKEN, 409, "邮箱已被使用");
+        }
+        revocationService.revokeAllForUser(user.getUserId(), "EMAIL_CHANGE");
+        return Map.of("changed", true, "emailMasked", "***@" + email.substring(email.indexOf('@') + 1));
+    }
+
+    private String validateNewEmail(AppUserRecord user, String rawEmail)
+    {
+        String email = SmsCodeService.normalizeEmail(rawEmail);
+        String oldEmail = userMapper.selectVerifiedEmailByUserId(user.getUserId());
+        if (email.equals(oldEmail)) throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "新邮箱与当前邮箱相同");
+        AppUserRecord existing = userMapper.selectByEmail(email);
+        AppUserRecord login = userMapper.selectByLoginIdentifier(email);
+        if ((existing != null && !user.getUserId().equals(existing.getUserId())) ||
+                (login != null && !user.getUserId().equals(login.getUserId())))
+            throw new AppAuthException(AppUserErrorCodes.PHONE_TAKEN, 409, "邮箱已被使用");
+        return email;
     }
 
     private AppUserRecord requireUser(Long userId)

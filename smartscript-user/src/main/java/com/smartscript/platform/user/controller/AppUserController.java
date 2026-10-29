@@ -245,6 +245,21 @@ public class AppUserController
                 phoneChangeService.confirm(currentIdentity(), request, AppClientIp.resolve(http)));
     }
 
+    @PostMapping("/me/email/change/new/send")
+    public AppApiResponse<Map<String, Object>> sendNewEmailCode(
+            @Valid @RequestBody com.smartscript.platform.user.dto.EmailChangeRequest request,
+            HttpServletRequest http, @RequestHeader(value = "X-Request-Id", required = false) String requestId)
+    {
+        return AppApiResponse.ok(phoneChangeService.sendNewEmailCode(currentIdentity(), request, AppClientIp.resolve(http), requestId));
+    }
+
+    @PostMapping("/me/email/change/confirm")
+    public AppApiResponse<Map<String, Object>> confirmEmailChange(
+            @Valid @RequestBody com.smartscript.platform.user.dto.EmailChangeRequest request)
+    {
+        return AppApiResponse.ok(phoneChangeService.confirmEmailChange(currentIdentity(), request));
+    }
+
     // ------------------------------------------------------------------
     // 通知偏好（§1.5）
     // ------------------------------------------------------------------

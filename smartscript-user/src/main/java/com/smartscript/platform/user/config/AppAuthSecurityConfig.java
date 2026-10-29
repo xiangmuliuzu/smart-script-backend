@@ -66,6 +66,7 @@ public class AppAuthSecurityConfig
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.POST,
                                 "/api/v1/auth/sms/send",
+                                "/api/v1/auth/email/send",
                                 "/api/v1/auth/login",
                                 "/api/v1/auth/sms/login",
                                 "/api/v1/auth/password/login",

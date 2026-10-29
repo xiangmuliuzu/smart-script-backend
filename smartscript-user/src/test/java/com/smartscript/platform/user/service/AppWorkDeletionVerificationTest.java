@@ -112,6 +112,37 @@ class AppWorkDeletionVerificationTest
         assertFalse(result.containsKey("code"));
     }
 
+    @Test
+    void emailOnlyUserCanVerifyDeletionWithoutExposingAddress()
+    {
+        AppUserRecord user = new AppUserRecord();
+        user.setUserId(12L);
+        user.setStatus("0");
+        when(users.selectById(12L)).thenReturn(user);
+        when(users.selectVerifiedEmailByUserId(12L)).thenReturn("author@example.com");
+        SmsCodeService sender = mock(SmsCodeService.class);
+        var verifier = new AppWorkDeletionVerification(users, sender, properties);
+        var result = verifier.sendCode(12L, "127.0.0.1", "request");
+        assertEquals("***@example.com", result.get("phoneMasked"));
+        verify(sender).sendEmailCode("author@example.com", "DELETE_WORK", "127.0.0.1", "request");
+        verifier.consumeCode(12L, "123456");
+        verify(sender).consumeEmailCode("author@example.com", "DELETE_WORK", "123456");
+    }
+
+    @Test
+    void publicEmailEndpointCannotIssueDeletionCode()
+    {
+        SmsCodeService sender = mock(SmsCodeService.class);
+        var controller = new com.smartscript.platform.user.controller.AppAuthController(null, sender, properties,
+                mock(com.smartscript.platform.review.service.RiskCheckService.class));
+        var request = new com.smartscript.platform.user.dto.EmailCodeRequest();
+        request.setEmail("author@example.com");
+        request.setScene("DELETE_WORK");
+        var http = mock(jakarta.servlet.http.HttpServletRequest.class);
+        assertThrows(com.smartscript.platform.user.exception.AppAuthException.class, () -> controller.sendEmail(request, http, null));
+        verifyNoInteractions(sender);
+    }
+
     private static AppSmsCode freshCode()
     {
         AppSmsCode code = new AppSmsCode();

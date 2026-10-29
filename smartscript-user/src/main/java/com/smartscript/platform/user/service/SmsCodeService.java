@@ -22,7 +22,43 @@ public class SmsCodeService
 {
     private static final Set<String> ALLOWED_SCENES = Set.of(
             "LOGIN", "REGISTER", "SET_PASSWORD", "RESET_PASSWORD",
-            "CHANGE_PHONE_OLD", "CHANGE_PHONE_NEW", "DELETE_WORK");
+            "CHANGE_PHONE_OLD", "CHANGE_PHONE_NEW", "DELETE_WORK", "EMAIL_REGISTER", "EMAIL_LOGIN", "EMAIL_RESET_PASSWORD", "EMAIL_DELETE_WORK", "EMAIL_CHANGE_PHONE_OLD", "EMAIL_CHANGE_EMAIL_NEW");
+
+    private RegistrationEmailSender emailSender;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setEmailSender(RegistrationEmailSender emailSender) { this.emailSender = emailSender; }
+
+    public static String normalizeEmail(String email)
+    {
+        String value = email == null ? "" : email.trim().toLowerCase(java.util.Locale.ROOT);
+        if (value.length() > 50 || !value.matches("^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$"))
+            throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "请输入有效邮箱地址");
+        return value;
+    }
+
+    public void sendEmailCode(String email, String ip, String requestId)
+    {
+        sendEmailCode(email, "REGISTER", ip, requestId);
+    }
+
+    public void sendEmailCode(String email, String scene, String ip, String requestId)
+    {
+        if (!Set.of("REGISTER", "LOGIN", "RESET_PASSWORD", "DELETE_WORK", "CHANGE_PHONE_OLD", "CHANGE_EMAIL_NEW").contains(scene))
+            throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "invalid scene");
+        String normalized = normalizeEmail(email);
+        sendCodeInternal("email:" + normalized, "EMAIL_" + scene, ip, requestId, normalized);
+    }
+
+    public void consumeEmailCode(String email, String code)
+    {
+        consumeEmailCode(email, "REGISTER", code);
+    }
+
+    public void consumeEmailCode(String email, String scene, String code)
+    {
+        consumeOnce("email:" + normalizeEmail(email), "EMAIL_" + scene, code);
+    }
 
     private final AppAuthProperties properties;
     private final AppSmsCodeMapper mapper;
@@ -58,7 +94,7 @@ public class SmsCodeService
     {
         if (securityEvents != null)
         {
-            securityEvents.record(AppHashes.maskPhone(phone), ip, event,
+            securityEvents.record(phone.startsWith("email:") ? "***@" + phone.substring(phone.indexOf('@') + 1) : AppHashes.maskPhone(phone), ip, event,
                     "scene limit observed=" + observed);
         }
     }
@@ -69,6 +105,13 @@ public class SmsCodeService
         {
             throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "invalid phone");
         }
+        if (scene != null && scene.startsWith("EMAIL_"))
+            throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "invalid scene");
+        sendCodeInternal(phone, scene, ip, requestId, null);
+    }
+
+    private void sendCodeInternal(String phone, String scene, String ip, String requestId, String email)
+    {
         if (scene == null || !ALLOWED_SCENES.contains(scene))
         {
             throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "invalid scene");
@@ -113,7 +156,7 @@ public class SmsCodeService
         }
 
         String code = AppHashes.randomNumericCode(properties.getSms().getCodeLength());
-        if (smsProvider instanceof MockSmsProvider mock)
+        if (email == null && smsProvider instanceof MockSmsProvider mock)
         {
             code = mock.resolveCode(phone, scene, code);
         }
@@ -127,7 +170,9 @@ public class SmsCodeService
         record.setFailedAttempts(0);
         record.setExpiresAt(expiresAt);
         mapper.insertSmsCode(record);
-        smsProvider.send(phone, scene, code);
+        if (email == null) smsProvider.send(phone, scene, code);
+        else if (emailSender != null) emailSender.send(email, code, properties.getSms().getCodeTtlSeconds());
+        else throw new AppAuthException(AppAuthErrorCodes.SYSTEM_ERROR, 503, "邮箱验证码服务暂不可用");
         redisCache.setCacheObject(cooldownKey, "1", properties.getSms().getCooldownSeconds(), TimeUnit.SECONDS);
     }
 

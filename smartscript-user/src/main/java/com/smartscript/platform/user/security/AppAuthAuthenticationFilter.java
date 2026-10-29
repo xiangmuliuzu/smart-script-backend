@@ -45,6 +45,7 @@ public class AppAuthAuthenticationFilter extends OncePerRequestFilter
      */
     private static final String[] PUBLIC_PATHS = {
             "/auth/sms/send",
+            "/auth/email/send",
             "/auth/login",
             "/auth/captchaImage",
             "/auth/sms/login",

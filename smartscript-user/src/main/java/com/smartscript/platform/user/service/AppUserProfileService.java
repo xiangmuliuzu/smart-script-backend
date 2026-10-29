@@ -336,7 +336,9 @@ public class AppUserProfileService
         dto.setNickname(user.getNickName());
         dto.setAvatar(emptyToNull(user.getAvatar()));
         dto.setBio(emptyToNull(user.getBio()));
-        dto.setPhoneMasked(AppHashes.maskPhone(user.getPhonenumber()));
+        dto.setPhoneMasked(user.getPhonenumber() == null || user.getPhonenumber().isBlank() ? null : AppHashes.maskPhone(user.getPhonenumber()));
+        String email = userMapper.selectVerifiedEmailByUserId(user.getUserId());
+        dto.setEmailMasked(email == null ? null : "***@" + email.substring(email.indexOf('@') + 1));
         dto.setUserType(AppAuthenticationService.normalizeUserType(user.getUserType()));
         dto.setRealNameStatus(realNameStatus(user.getUserId()));
         // A4 增量：注册时间、账号状态原始代码与创作者资料投影

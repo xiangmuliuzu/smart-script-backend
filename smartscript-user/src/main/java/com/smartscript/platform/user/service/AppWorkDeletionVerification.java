@@ -32,30 +32,32 @@ public class AppWorkDeletionVerification implements WorkDeletionVerification
     @Override
     public Map<String, Object> sendCode(Long userId, String ip, String requestId)
     {
-        String phone = requirePhone(userId);
+        String phone = requireContact(userId);
         try
         {
-            smsCodeService.sendCode(phone, SCENE, ip, requestId);
+            if (phone.contains("@")) smsCodeService.sendEmailCode(phone, SCENE, ip, requestId);
+            else smsCodeService.sendCode(phone, SCENE, ip, requestId);
         }
         catch (AppAuthException e)
         {
             throw translate(e);
         }
-        return Map.of("sent", true, "phoneMasked", AppHashes.maskPhone(phone),
+        return Map.of("sent", true, "phoneMasked", phone.contains("@") ? "***@" + phone.substring(phone.indexOf('@') + 1) : AppHashes.maskPhone(phone),
                 "cooldownSeconds", properties.getSms().getCooldownSeconds());
     }
 
     @Override
     public void consumeCode(Long userId, String code)
     {
-        String phone = requirePhone(userId);
+        String phone = requireContact(userId);
         if (code == null || !code.matches("\\d{4,8}"))
         {
-            throw new ServiceException("请输入正确格式的短信验证码", AppAuthErrorCodes.PARAM);
+            throw new ServiceException("请输入正确格式的验证码", AppAuthErrorCodes.PARAM);
         }
         try
         {
-            smsCodeService.consumeOnce(phone, SCENE, code);
+            if (phone.contains("@")) smsCodeService.consumeEmailCode(phone, SCENE, code);
+            else smsCodeService.consumeOnce(phone, SCENE, code);
         }
         catch (AppAuthException e)
         {
@@ -63,7 +65,7 @@ public class AppWorkDeletionVerification implements WorkDeletionVerification
         }
     }
 
-    private String requirePhone(Long userId)
+    private String requireContact(Long userId)
     {
         if (userId == null)
         {
@@ -74,11 +76,11 @@ public class AppWorkDeletionVerification implements WorkDeletionVerification
         {
             throw new ServiceException("账号不可用", AppAuthErrorCodes.ACCOUNT_DISABLED);
         }
+        String email = userMapper.selectVerifiedEmailByUserId(userId);
+        if (email != null) return email;
         String phone = user.getPhonenumber();
         if (phone == null || !phone.matches("^1\\d{10}$"))
-        {
-            throw new ServiceException("请先绑定手机号后再删除作品", AppAuthErrorCodes.PARAM);
-        }
+            throw new ServiceException("请先绑定手机号或邮箱后再删除作品", AppAuthErrorCodes.PARAM);
         return phone;
     }
 
