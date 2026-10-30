@@ -74,6 +74,7 @@ public class AiSkillAdminController extends BaseController
     @PostMapping
     public AjaxResult add(@RequestParam("skillName") String skillName,
                           @RequestParam("file") MultipartFile file,
+                          @RequestParam(value = "skillType", required = false) String skillType,
                           @RequestParam(value = "status", required = false) String status,
                           @RequestParam(value = "remark", required = false) String remark)
     {
@@ -85,11 +86,17 @@ public class AiSkillAdminController extends BaseController
         {
             return AjaxResult.error("请上传 skill 文件");
         }
+        String type = normalizeSkillType(skillType);
+        if (type == null)
+        {
+            return AjaxResult.error("skill 类型不正确，应为 write（剧本/写作/润色）或 storyboard（分镜）");
+        }
         try
         {
             String content = readFileContent(file);
             AiSkill skill = new AiSkill();
             skill.setSkillName(skillName.trim());
+            skill.setSkillType(type);
             skill.setFileName(file.getOriginalFilename());
             skill.setFileContent(content);
             skill.setStatus(status == null || status.isBlank() ? "0" : status.trim());
@@ -108,12 +115,13 @@ public class AiSkillAdminController extends BaseController
     }
 
     /**
-     * 修改 skill（file 不传时保留原内容；可用于改名/启停用）
+     * 修改 skill（file 不传时保留原内容；可用于改名/改类型/启停用）
      */
     @PutMapping
     public AjaxResult edit(@RequestParam("id") Long id,
                            @RequestParam("skillName") String skillName,
                            @RequestParam(value = "file", required = false) MultipartFile file,
+                           @RequestParam(value = "skillType", required = false) String skillType,
                            @RequestParam(value = "status", required = false) String status,
                            @RequestParam(value = "remark", required = false) String remark)
     {
@@ -121,11 +129,20 @@ public class AiSkillAdminController extends BaseController
         {
             return AjaxResult.error("skill ID 与名称不能为空");
         }
+        String type = normalizeSkillType(skillType);
+        if (skillType != null && !skillType.isBlank() && type == null)
+        {
+            return AjaxResult.error("skill 类型不正确，应为 write（剧本/写作/润色）或 storyboard（分镜）");
+        }
         try
         {
             AiSkill skill = new AiSkill();
             skill.setId(id);
             skill.setSkillName(skillName.trim());
+            if (type != null)
+            {
+                skill.setSkillType(type);
+            }
             if (file != null && !file.isEmpty())
             {
                 skill.setFileName(file.getOriginalFilename());
@@ -167,5 +184,16 @@ public class AiSkillAdminController extends BaseController
             throw new IllegalArgumentException("skill 文件过大，请控制在 200KB 以内");
         }
         return new String(file.getBytes(), StandardCharsets.UTF_8);
+    }
+
+    /** 归一化 skill 类型：空 → 默认 write；非法值 → null */
+    private String normalizeSkillType(String skillType)
+    {
+        if (skillType == null || skillType.isBlank())
+        {
+            return "write";
+        }
+        String t = skillType.trim();
+        return "storyboard".equals(t) ? "storyboard" : "write".equals(t) ? "write" : null;
     }
 }

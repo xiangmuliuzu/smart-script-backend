@@ -156,12 +156,13 @@ class AiSkillServiceTest
     }
 
     @Test
-    @DisplayName("listEnabledSkills：正常 skill 转为 {id, skillName, fileName}（无 fileContent）")
+    @DisplayName("listEnabledSkills：正常 skill 转为 {id, skillName, skillType, fileName}（无 fileContent）")
     void briefMapping_ok() throws Exception
     {
         AiSkill a = new AiSkill();
         a.setId(1L);
         a.setSkillName("悬疑烧脑导演");
+        a.setSkillType("write");
         a.setFileName("悬疑烧脑导演.skill.md");
         com.smartscript.platform.content.service.IAiSkillService skillService =
                 mock(com.smartscript.platform.content.service.IAiSkillService.class);
@@ -173,8 +174,28 @@ class AiSkillServiceTest
         assertEquals(1, list.size());
         assertEquals(1L, list.get(0).get("id"));
         assertEquals("悬疑烧脑导演", list.get(0).get("skillName"));
+        assertEquals("write", list.get(0).get("skillType"));
         assertEquals("悬疑烧脑导演.skill.md", list.get(0).get("fileName"));
         assertTrue(!list.get(0).containsKey("fileContent"));
+    }
+
+    @Test
+    @DisplayName("listEnabledSkills：skillType 为空时兜底为 write")
+    void briefMapping_typeFallback_ok() throws Exception
+    {
+        AiSkill a = new AiSkill();
+        a.setId(2L);
+        a.setSkillName("分镜导演");
+        a.setSkillType(null);
+        a.setFileName("分镜.skill.md");
+        com.smartscript.platform.content.service.IAiSkillService skillService =
+                mock(com.smartscript.platform.content.service.IAiSkillService.class);
+        when(skillService.selectEnabledSkillBrief()).thenReturn(List.of(a));
+        AiWriteServiceImpl writeService = new AiWriteServiceImpl();
+        setField(writeService, "aiSkillService", skillService);
+
+        java.util.List<java.util.Map<String, Object>> list = writeService.listEnabledSkills();
+        assertEquals("write", list.get(0).get("skillType"));
     }
 
     private static void setField(Object target, String name, Object value) throws Exception

@@ -5,6 +5,7 @@
     <resultMap type="com.smartscript.platform.content.domain.AiSkill" id="AiSkillResult">
         <id     property="id"          column="id" />
         <result property="skillName"   column="skill_name" />
+        <result property="skillType"   column="skill_type" />
         <result property="fileName"    column="file_name" />
         <result property="fileContent" column="file_content" />
         <result property="status"      column="status" />
@@ -16,13 +17,13 @@
     </resultMap>
 
     <sql id="selectAiSkillVo">
-        select id, skill_name, file_name, file_content, status,
+        select id, skill_name, skill_type, file_name, file_content, status,
                create_by, create_time, update_by, update_time, remark
         from sys_ai_skill
     </sql>
 
     <sql id="selectAiSkillBriefVo">
-        select id, skill_name, file_name, status,
+        select id, skill_name, skill_type, file_name, status,
                create_by, create_time, update_by, update_time, remark
         from sys_ai_skill
     </sql>
@@ -32,6 +33,9 @@
         <where>
             <if test="skillName != null and skillName != ''">
                 and skill_name like concat('%', #{skillName}, '%')
+            </if>
+            <if test="skillType != null and skillType != ''">
+                and skill_type = #{skillType}
             </if>
             <if test="status != null and status != ''">
                 and status = #{status}
@@ -65,6 +69,7 @@
         insert into sys_ai_skill
         <trim prefix="(" suffix=")" suffixOverrides=",">
             <if test="skillName != null">skill_name,</if>
+            <if test="skillType != null">skill_type,</if>
             <if test="fileName != null">file_name,</if>
             <if test="fileContent != null">file_content,</if>
             <if test="status != null">status,</if>
@@ -74,6 +79,7 @@
         </trim>
         <trim prefix="values (" suffix=")" suffixOverrides=",">
             <if test="skillName != null">#{skillName},</if>
+            <if test="skillType != null">#{skillType},</if>
             <if test="fileName != null">#{fileName},</if>
             <if test="fileContent != null">#{fileContent},</if>
             <if test="status != null">#{status},</if>
@@ -87,6 +93,7 @@
         update sys_ai_skill
         <trim prefix="SET" suffixOverrides=",">
             <if test="skillName != null">skill_name = #{skillName},</if>
+            <if test="skillType != null">skill_type = #{skillType},</if>
             <if test="fileName != null">file_name = #{fileName},</if>
             <if test="fileContent != null">file_content = #{fileContent},</if>
             <if test="status != null">status = #{status},</if>

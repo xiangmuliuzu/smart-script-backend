@@ -687,6 +687,7 @@ public class AiWriteServiceImpl implements IAiWriteService
             Map<String, Object> item = new java.util.LinkedHashMap<>();
             item.put("id", skill.getId());
             item.put("skillName", skill.getSkillName());
+            item.put("skillType", skill.getSkillType() == null || skill.getSkillType().isBlank() ? "write" : skill.getSkillType());
             item.put("fileName", skill.getFileName());
             return item;
         }).collect(Collectors.toList());

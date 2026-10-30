@@ -19,6 +19,9 @@ public class AiSkill
     /** skill 名称（唯一） */
     private String skillName;
 
+    /** skill 类型：write（剧本/写作/润色用） / storyboard（分镜用） */
+    private String skillType;
+
     /** 上传的原始文件名 */
     private String fileName;
 
@@ -61,6 +64,16 @@ public class AiSkill
     public void setSkillName(String skillName)
     {
         this.skillName = skillName;
+    }
+
+    public String getSkillType()
+    {
+        return skillType;
+    }
+
+    public void setSkillType(String skillType)
+    {
+        this.skillType = skillType;
     }
 
     public String getFileName()
