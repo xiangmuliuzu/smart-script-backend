@@ -173,63 +173,32 @@ class AiQuotaServiceTest {
     }
 
     @Test
-    void exchange_正常兑换() {
-        when(pointsAccountMapper.selectByUserId(106L)).thenReturn(pointsAccount());
-        when(aiQuotaAccountMapper.selectAiQuotaAccountByUserId(106L)).thenReturn(account);
-        when(pointsAccountMapper.decreaseBalance(106L, 20)).thenReturn(1);
-        when(aiQuotaAccountMapper.updateEarn(106L, BigDecimal.valueOf(2), 1L)).thenReturn(1);
-
+    void exchange_已停用_统一返回提示且不动余额() {
         Map<String, Object> r = aiQuotaService.exchange(106L, 20, "idem_ex_1");
 
-        assertEquals(200, r.get("code"));
-        assertEquals(2, r.get("quotaEarned"));
-        assertEquals(20, r.get("pointsSpent"));
-        assertEquals(80, r.get("pointsBalance"));
-        assertEquals(52, r.get("quotaBalance"));
-        assertEquals(10, r.get("rate"));
-        verify(pointsRecordMapper, times(1)).insertPointsRecord(any());
+        assertEquals(400, r.get("code"));
+        assertTrue(r.get("msg").toString().contains("已停用"));
+        verifyNoInteractions(pointsAccountMapper, pointsRecordMapper, aiQuotaAccountMapper, aiQuotaRecordMapper);
     }
 
     @Test
-    void exchange_非整数倍积分_只扣整数倍部分() {
-        when(pointsAccountMapper.selectByUserId(106L)).thenReturn(pointsAccount());
-        when(aiQuotaAccountMapper.selectAiQuotaAccountByUserId(106L)).thenReturn(account);
-        when(pointsAccountMapper.decreaseBalance(106L, 10)).thenReturn(1);
-        when(aiQuotaAccountMapper.updateEarn(106L, BigDecimal.valueOf(1), 1L)).thenReturn(1);
-
+    void exchange_非整数倍积分_同样停用() {
         Map<String, Object> r = aiQuotaService.exchange(106L, 15, "idem_ex_15");
 
-        assertEquals(200, r.get("code"));
-        assertEquals(1, r.get("quotaEarned"));
-        assertEquals(10, r.get("pointsSpent"));
-        assertEquals(90, r.get("pointsBalance"));
-        assertEquals(51, r.get("quotaBalance"));
-        verify(pointsAccountMapper, times(1)).decreaseBalance(106L, 10);
-        verify(aiQuotaAccountMapper, times(1)).updateEarn(106L, BigDecimal.valueOf(1), 1L);
-        // 积分流水：points=实际扣款10（非输入15），balanceAfter=100-10，changeType=SPEND
-        ArgumentCaptor<PointsRecord> cap = ArgumentCaptor.forClass(PointsRecord.class);
-        verify(pointsRecordMapper, times(1)).insertPointsRecord(cap.capture());
-        PointsRecord pr = cap.getValue();
-        assertEquals(10, pr.getPoints());
-        assertEquals(90, pr.getBalanceAfter());
-        assertEquals("SPEND", pr.getChangeType());
-    }
-
-    @Test
-    void exchange_积分不足_拒绝() {
-        PointsAccount pa = pointsAccount();
-        pa.setBalance(5);
-        when(pointsAccountMapper.selectByUserId(106L)).thenReturn(pa);
-
-        Map<String, Object> r = aiQuotaService.exchange(106L, 20, "idem_ex_2");
-
         assertEquals(400, r.get("code"));
-        assertTrue(r.get("msg").toString().contains("积分不足"));
         verify(pointsAccountMapper, never()).decreaseBalance(anyLong(), anyInt());
     }
 
     @Test
-    void exchange_积分不够最低兑换比例_拒绝() {
+    void exchange_积分不足_同样停用() {
+        Map<String, Object> r = aiQuotaService.exchange(106L, 20, "idem_ex_2");
+
+        assertEquals(400, r.get("code"));
+        verify(pointsAccountMapper, never()).decreaseBalance(anyLong(), anyInt());
+    }
+
+    @Test
+    void exchange_低于原最低比例_同样停用() {
         Map<String, Object> r = aiQuotaService.exchange(106L, 9, "idem_ex_3");
 
         assertEquals(400, r.get("code"));
@@ -237,31 +206,19 @@ class AiQuotaServiceTest {
     }
 
     @Test
-    void exchange_幂等键重复_不重复兑换() {
-        when(pointsAccountMapper.selectByUserId(106L)).thenReturn(pointsAccount());
-        when(aiQuotaAccountMapper.selectAiQuotaAccountByUserId(106L)).thenReturn(account);
-        doThrow(new DuplicateKeyException("uk_idempotency_key")).when(aiQuotaRecordMapper).insertAiQuotaRecord(any());
-
+    void exchange_幂等键重复_同样停用不重复兑换() {
         Map<String, Object> r = aiQuotaService.exchange(106L, 20, "idem_same_ex");
 
-        assertEquals(200, r.get("code"));
-        assertTrue(r.get("msg").toString().contains("已兑换"));
+        assertEquals(400, r.get("code"));
         verify(pointsAccountMapper, never()).decreaseBalance(anyLong(), anyInt());
     }
 
     @Test
-    void exchange_无AI账户_自动创建后兑换() {
-        when(pointsAccountMapper.selectByUserId(106L)).thenReturn(pointsAccount());
-        when(aiQuotaAccountMapper.selectAiQuotaAccountByUserId(106L)).thenReturn(null);
-        when(aiQuotaAccountMapper.insertAiQuotaAccount(any())).thenReturn(1);
-        when(pointsAccountMapper.decreaseBalance(106L, 20)).thenReturn(1);
-        when(aiQuotaAccountMapper.updateEarn(106L, BigDecimal.valueOf(2), 0L)).thenReturn(1);
-
+    void exchange_无AI账户_不自动创建() {
         Map<String, Object> r = aiQuotaService.exchange(106L, 20, "idem_ex_4");
 
-        assertEquals(200, r.get("code"));
-        assertEquals(2, r.get("quotaEarned"));
-        verify(aiQuotaAccountMapper, times(1)).insertAiQuotaAccount(any());
+        assertEquals(400, r.get("code"));
+        verify(aiQuotaAccountMapper, never()).insertAiQuotaAccount(any());
     }
 
     /* ============ 预留锁定业务：reserve / confirm / release ============ */
