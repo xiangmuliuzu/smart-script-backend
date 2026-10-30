@@ -4,10 +4,14 @@ import com.smartscript.platform.content.dto.AppAiOutlineRequest;
 import com.smartscript.platform.content.dto.AppAiOutlineRecordItem;
 import com.smartscript.platform.content.dto.AppAiOutlineResult;
 import com.smartscript.platform.content.dto.AppAiPolishRequest;
+import com.smartscript.platform.content.dto.AppAiStoryboardRequest;
+import com.smartscript.platform.content.dto.AppAiStoryboardResult;
 import com.smartscript.platform.content.dto.AppAiWriteRecordItem;
 import com.smartscript.platform.content.dto.AppAiWriteRequest;
 import com.smartscript.platform.content.dto.AppAiWriteResult;
 import com.smartscript.platform.content.dto.AppPageResult;
+import java.util.List;
+import java.util.Map;
 
 /**
  * AI 辅助创作服务（App 2.9.10 写作 / 2.9.11 润色 / 2.9.12 记录 / 2.9.13 大纲）。
@@ -101,4 +105,36 @@ public interface IAiWriteService
      * @return {outline, requestNo, quotaUsed}
      */
     public AppAiOutlineResult outlineStream(AppAiOutlineRequest request, java.util.function.Consumer<String> onDelta);
+
+    /**
+     * AI 分镜（E 模块）：把剧本文本拆解为可直接用于拍摄/出售的分镜脚本。
+     *
+     * 剧本→分镜一条龙：可作为「AI 剧本」的下一步，产出可直接出售的分镜剧本；
+     * 支持导演(skill) 注入（skillId → skill 内容追加到 system prompt）。
+     *
+     * @param request 分镜请求（script 必填，调用方已校验）
+     * @return {content, requestNo, quotaUsed}（分镜来自 AI 服务，并落 sys_ai_request + sys_ai_write_record）
+     */
+    public AppAiStoryboardResult storyboard(AppAiStoryboardRequest request);
+
+    /**
+     * AI 分镜（流式，SSE 打字机输出）。
+     *
+     * 流程与 {@link #writeStream} 一致：成功才落库扣积分。
+     *
+     * @param request  分镜请求（script 必填）
+     * @param onDelta  内容增量回调（可为空操作）
+     * @return {content, requestNo, quotaUsed}
+     */
+    public AppAiStoryboardResult storyboardStream(AppAiStoryboardRequest request, java.util.function.Consumer<String> onDelta);
+
+    /**
+     * 导演(skill) 轻量列表（E 模块）
+     *
+     * 返回全部正常状态 skill 的 {id, skillName, fileName}，供 PC/App 端
+     * 「导演(skill)选择」下拉使用。
+     *
+     * @return skill 轻量列表
+     */
+    public List<Map<String, Object>> listEnabledSkills();
 }

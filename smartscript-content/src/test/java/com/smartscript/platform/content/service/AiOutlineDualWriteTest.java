@@ -58,6 +58,8 @@ class AiOutlineDualWriteTest
         service = new AiWriteServiceImpl();
         riskCheckService = mock(com.smartscript.platform.review.service.RiskCheckService.class);
         setField(service, "riskCheckService", riskCheckService);
+        setField(service, "aiSkillService",
+                mock(com.smartscript.platform.content.service.IAiSkillService.class));
         setField(service, "aiRequestMapper", aiRequestMapper);
         setField(service, "writeRecordMapper", writeRecordMapper);
         setField(service, "aiServiceClient", aiServiceClient);
@@ -74,7 +76,7 @@ class AiOutlineDualWriteTest
     void outlineWritesDualRecord() throws Exception
     {
         String outlineJson = "{\"outline\":{\"title\":\"都市逆袭\",\"logline\":\"平凡青年逆袭登顶\",\"acts\":[\"跌入谷底\",\"登顶巅峰\"]},\"model\":\"deepseek-flash\"}";
-        when(aiServiceClient.outline("都市青年逆袭", "都市", "爽文"))
+        when(aiServiceClient.outline(eq("都市青年逆袭"), eq("都市"), eq("爽文"), nullable(String.class)))
                 .thenReturn(new AiCallResult(outlineJson, 500, "deepseek-flash"));
 
         AppAiOutlineRequest request = new AppAiOutlineRequest();

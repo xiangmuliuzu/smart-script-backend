@@ -76,49 +76,81 @@ public class AiServiceClient
     /**
      * AI 写作：直接产出小说正文。
      *
+     * @param skillContent 导演(skill) 指令（可选；命中时追加到 system prompt）
      * @return 结果对象：content=正文全文，totalTokens=本次消耗 token（usage.total_tokens），model=实际模型
      */
-    public AiCallResult write(String prompt, String type)
+    public AiCallResult write(String prompt, String type, String skillContent)
     {
         String typeHint = (type == null || type.isBlank()) ? "" : "\n写作类型：" + type;
         String system = "你是一名资深网络小说写手，擅长创作节奏紧凑、画面感强、对话自然的小说正文。"
                 + "请根据用户的要求直接创作小说正文，不要解释、不要标题、不要任何前后缀。";
-        return chat(system, prompt + typeHint);
+        return chat(appendSkill(system, skillContent), prompt + typeHint);
     }
 
     /**
      * AI 润色：保持原意，按指定风格优化。
      *
+     * @param skillContent 导演(skill) 指令（可选）
      * @return 结果对象：content=润色全文，totalTokens=本次消耗 token，model=实际模型
      */
-    public AiCallResult polish(String content, String style)
+    public AiCallResult polish(String content, String style, String skillContent)
     {
         String styleHint = (style == null || style.isBlank()) ? "自然流畅" : style;
         String system = "你是一名资深文字编辑。请润色用户提供的文本，保持原意、人物关系与关键情节，"
                 + "提升表达、节奏与画面感，目标风格：" + styleHint + "。"
                 + "直接输出润色后的正文，不要解释、不要标注修改说明。";
-        return chat(system, content);
+        return chat(appendSkill(system, skillContent), content);
     }
 
     /**
-     * AI 大纲：生成结构化大纲 JSON。
+     * AI 剧本（原"大纲"）：面向完全不懂创作的新手，生成结构完整的剧本大纲。
      *
+     * 定位：让没有创作经验的人也能得到一份「可直接展开成剧本」的完整大纲，
+     * 后续可继续走 AI 分镜做成可直接出售的分镜剧本。
+     *
+     * @param skillContent 导演(skill) 指令（可选）
      * @return 结果对象：content=模型返回的原始大纲文本（JSON 或兜底文本），
      *                   totalTokens=本次消耗 token，model=实际模型
      */
-    public AiCallResult outline(String inspiration, String genre, String style)
+    public AiCallResult outline(String inspiration, String genre, String style, String skillContent)
     {
         String genreHint = (genre == null || genre.isBlank()) ? "不限" : genre;
         String styleHint = (style == null || style.isBlank()) ? "不限" : style;
         String insp = (inspiration == null || inspiration.isBlank()) ? "" : inspiration;
-        String system = "你是一名资深网文策划编辑。请根据用户的故事灵感、题材与风格，生成一份结构化的小说大纲。"
+        String system = "你是一名资深网文策划编辑，擅长帮完全不懂创作的普通人快速产出专业级剧本大纲。"
+                + "请根据用户给出的灵感、题材与风格，生成一份结构完整、可直接展开成剧本的小说大纲；"
+                + "要求用通俗易懂的语言，每个分幕写清推进逻辑与关键冲突，让新手照着写也能写成不错的故事。"
                 + "必须只输出一个合法 JSON 对象，不要输出任何解释，也不要使用 Markdown 代码块。"
                 + "JSON 结构如下："
                 + "{\"title\":\"作品名\",\"logline\":\"一句话故事\","
                 + "\"characters\":[{\"name\":\"角色名\",\"role\":\"身份或定位\"}],"
                 + "\"acts\":[{\"name\":\"第一幕\",\"summary\":\"本幕概述\",\"beats\":[\"关键情节1\",\"关键情节2\"]}]}";
         String user = "故事灵感：" + insp + "\n题材：" + genreHint + "\n风格：" + styleHint;
-        return chat(system, user);
+        return chat(appendSkill(system, skillContent), user);
+    }
+
+    /**
+     * AI 分镜：把剧本文本拆解为可直接用于拍摄/出售的分镜脚本。
+     *
+     * 输出为中文可读文本，按场景分镜：每个镜头给出 镜号/景别/运镜/时长/画面内容/台词/音效配乐/转场。
+     * 分镜输出规范与「AI Skill 配置」内置 seed skill（悬疑/甜宠导演）中的分镜章节保持一致，
+     * 供后续接入视频制作或直接作为成品分镜剧本出售。
+     *
+     * @param script       剧本文本（必填；可以是 AI 剧本产出）
+     * @param style        分镜风格（可选：电影感/短剧竖屏/动漫风等）
+     * @param skillContent 导演(skill) 指令（可选）
+     * @return 结果对象：content=分镜脚本全文，totalTokens=本次消耗 token，model=实际模型
+     */
+    public AiCallResult storyboard(String script, String style, String skillContent)
+    {
+        String styleHint = (style == null || style.isBlank()) ? "电影感" : style;
+        String system = "你是一名资深影视分镜师，擅长把剧本转化为可直接用于拍摄或出售的专业分镜脚本。"
+                + "请根据用户提供的剧本文本，按场景拆解为完整分镜；每场戏开头写清场次与场景地点，"
+                + "每个镜头依次给出：镜号、景别、运镜、时长、画面内容、台词、音效/配乐、转场。"
+                + "画面内容要具体到人物动作、表情与构图；台词直接引用或精简改写剧本对白；"
+                + "整体风格：" + styleHint + "。直接用中文输出分镜正文，不要解释、不要前后缀。";
+        String user = "剧本文本：\n" + script;
+        return chat(appendSkill(system, skillContent), user);
     }
 
     // ================================================================
@@ -129,45 +161,77 @@ public class AiServiceClient
     /**
      * AI 写作（流式）。[onDelta] 每收到一个内容增量回调一次（含空格/换行）。
      *
+     * @param skillContent 导演(skill) 指令（可选）
      * @return 结果对象：content=完整正文，totalTokens=本次消耗 token，model=实际模型
      */
-    public AiCallResult writeStream(String prompt, String type, Consumer<String> onDelta)
+    public AiCallResult writeStream(String prompt, String type, String skillContent, Consumer<String> onDelta)
     {
         String typeHint = (type == null || type.isBlank()) ? "" : "\n写作类型：" + type;
         String system = "你是一名资深网络小说写手，擅长创作节奏紧凑、画面感强、对话自然的小说正文。"
                 + "请根据用户的要求直接创作小说正文，不要解释、不要标题、不要任何前后缀。";
-        return streamChat(system, prompt + typeHint, onDelta);
+        return streamChat(appendSkill(system, skillContent), prompt + typeHint, onDelta);
     }
 
     /**
      * AI 润色（流式）。[onDelta] 每收到一个内容增量回调一次。
      *
+     * @param skillContent 导演(skill) 指令（可选）
      * @return 结果对象：content=完整润色结果，totalTokens=本次消耗 token，model=实际模型
      */
-    public AiCallResult polishStream(String content, String style, Consumer<String> onDelta)
+    public AiCallResult polishStream(String content, String style, String skillContent, Consumer<String> onDelta)
     {
         String styleHint = (style == null || style.isBlank()) ? "自然流畅" : style;
         String system = "你是一名资深文字编辑。请润色用户提供的文本，保持原意、人物关系与关键情节，"
                 + "提升表达、节奏与画面感，目标风格：" + styleHint + "。"
                 + "直接输出润色后的正文，不要解释、不要标注修改说明。";
-        return streamChat(system, content, onDelta);
+        return streamChat(appendSkill(system, skillContent), content, onDelta);
     }
 
     /**
-     * AI 大纲（流式）。[onDelta] 每收到一个内容增量回调一次（可读大纲文本）。
+     * AI 剧本（原"大纲"，流式）。[onDelta] 每收到一个内容增量回调一次（可读剧本大纲文本）。
      *
-     * @return 结果对象：content=完整可读大纲文本，totalTokens=本次消耗 token，model=实际模型
+     * @param skillContent 导演(skill) 指令（可选）
+     * @return 结果对象：content=完整可读剧本大纲文本，totalTokens=本次消耗 token，model=实际模型
      */
-    public AiCallResult outlineStream(String inspiration, String genre, String style, Consumer<String> onDelta)
+    public AiCallResult outlineStream(String inspiration, String genre, String style, String skillContent, Consumer<String> onDelta)
     {
         String genreHint = (genre == null || genre.isBlank()) ? "不限" : genre;
         String styleHint = (style == null || style.isBlank()) ? "不限" : style;
         String insp = (inspiration == null || inspiration.isBlank()) ? "" : inspiration;
-        String system = "你是一名资深网文策划编辑。请根据故事灵感、题材与风格生成小说大纲。"
-                + "依次包含书名、一句话简介、角色、分幕剧情和关键情节，以中文标题分段输出可读文本。"
+        String system = "你是一名资深网文策划编辑，擅长帮完全不懂创作的普通人快速产出专业级剧本大纲。"
+                + "请根据故事灵感、题材与风格生成小说剧本大纲，依次包含书名、一句话简介、角色、分幕剧情和关键情节，"
+                + "用通俗易懂的语言，让新手照着写也能写成不错的故事。以中文标题分段输出可读文本。"
                 + "直接从书名开始，不要解释，不要 JSON，不要 Markdown 代码块。";
         String user = "故事灵感：" + insp + "\n题材：" + genreHint + "\n风格：" + styleHint;
-        return streamChat(system, user, onDelta);
+        return streamChat(appendSkill(system, skillContent), user, onDelta);
+    }
+
+    /**
+     * AI 分镜（流式）。[onDelta] 每收到一个内容增量回调一次（可读分镜文本）。
+     *
+     * @param skillContent 导演(skill) 指令（可选）
+     * @return 结果对象：content=完整分镜脚本，totalTokens=本次消耗 token，model=实际模型
+     */
+    public AiCallResult storyboardStream(String script, String style, String skillContent, Consumer<String> onDelta)
+    {
+        String styleHint = (style == null || style.isBlank()) ? "电影感" : style;
+        String system = "你是一名资深影视分镜师，擅长把剧本转化为可直接用于拍摄或出售的专业分镜脚本。"
+                + "请根据用户提供的剧本文本，按场景拆解为完整分镜；每场戏开头写清场次与场景地点，"
+                + "每个镜头依次给出：镜号、景别、运镜、时长、画面内容、台词、音效/配乐、转场。"
+                + "画面内容要具体到人物动作、表情与构图；台词直接引用或精简改写剧本对白；"
+                + "整体风格：" + styleHint + "。直接用中文输出分镜正文，不要解释、不要前后缀。";
+        String user = "剧本文本：\n" + script;
+        return streamChat(appendSkill(system, skillContent), user, onDelta);
+    }
+
+    /** 导演(skill) 指令追加到 system prompt 末尾（skill 内容非空时生效）。 */
+    private static String appendSkill(String system, String skillContent)
+    {
+        if (skillContent == null || skillContent.isBlank())
+        {
+            return system;
+        }
+        return system + "\n\n【导演 skill 指令（最高优先级，必须严格遵守）】\n" + skillContent.trim();
     }
 
     /**

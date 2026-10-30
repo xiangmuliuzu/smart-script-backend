@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.content.mapper.AiSkillMapper">
+
+    <resultMap type="com.smartscript.platform.content.domain.AiSkill" id="AiSkillResult">
+        <id     property="id"          column="id" />
+        <result property="skillName"   column="skill_name" />
+        <result property="fileName"    column="file_name" />
+        <result property="fileContent" column="file_content" />
+        <result property="status"      column="status" />
+        <result property="createBy"    column="create_by" />
+        <result property="createTime"  column="create_time" />
+        <result property="updateBy"    column="update_by" />
+        <result property="updateTime"  column="update_time" />
+        <result property="remark"      column="remark" />
+    </resultMap>
+
+    <sql id="selectAiSkillVo">
+        select id, skill_name, file_name, file_content, status,
+               create_by, create_time, update_by, update_time, remark
+        from sys_ai_skill
+    </sql>
+
+    <sql id="selectAiSkillBriefVo">
+        select id, skill_name, file_name, status,
+               create_by, create_time, update_by, update_time, remark
+        from sys_ai_skill
+    </sql>
+
+    <select id="selectSkillList" parameterType="com.smartscript.platform.content.domain.AiSkill" resultMap="AiSkillResult">
+        <include refid="selectAiSkillBriefVo" />
+        <where>
+            <if test="skillName != null and skillName != ''">
+                and skill_name like concat('%', #{skillName}, '%')
+            </if>
+            <if test="status != null and status != ''">
+                and status = #{status}
+            </if>
+        </where>
+        order by id desc
+    </select>
+
+    <select id="selectSkillById" parameterType="Long" resultMap="AiSkillResult">
+        <include refid="selectAiSkillVo" />
+        where id = #{id}
+    </select>
+
+    <select id="checkSkillNameUnique" resultMap="AiSkillResult">
+        <include refid="selectAiSkillBriefVo" />
+        where skill_name = #{skillName}
+        <if test="excludeId != null">
+            and id != #{excludeId}
+        </if>
+        limit 1
+    </select>
+
+    <select id="selectEnabledSkillBrief" resultMap="AiSkillResult">
+        <include refid="selectAiSkillBriefVo" />
+        where status = '0'
+        order by id asc
+    </select>
+
+    <insert id="insertSkill" parameterType="com.smartscript.platform.content.domain.AiSkill"
+            useGeneratedKeys="true" keyProperty="id">
+        insert into sys_ai_skill
+        <trim prefix="(" suffix=")" suffixOverrides=",">
+            <if test="skillName != null">skill_name,</if>
+            <if test="fileName != null">file_name,</if>
+            <if test="fileContent != null">file_content,</if>
+            <if test="status != null">status,</if>
+            <if test="createBy != null">create_by,</if>
+            <if test="remark != null">remark,</if>
+            create_time
+        </trim>
+        <trim prefix="values (" suffix=")" suffixOverrides=",">
+            <if test="skillName != null">#{skillName},</if>
+            <if test="fileName != null">#{fileName},</if>
+            <if test="fileContent != null">#{fileContent},</if>
+            <if test="status != null">#{status},</if>
+            <if test="createBy != null">#{createBy},</if>
+            <if test="remark != null">#{remark},</if>
+            NOW()
+        </trim>
+    </insert>
+
+    <update id="updateSkill" parameterType="com.smartscript.platform.content.domain.AiSkill">
+        update sys_ai_skill
+        <trim prefix="SET" suffixOverrides=",">
+            <if test="skillName != null">skill_name = #{skillName},</if>
+            <if test="fileName != null">file_name = #{fileName},</if>
+            <if test="fileContent != null">file_content = #{fileContent},</if>
+            <if test="status != null">status = #{status},</if>
+            <if test="updateBy != null">update_by = #{updateBy},</if>
+            <if test="remark != null">remark = #{remark},</if>
+            update_time = NOW()
+        </trim>
+        where id = #{id}
+    </update>
+
+    <delete id="deleteSkillById" parameterType="Long">
+        delete from sys_ai_skill where id = #{id}
+    </delete>
+
+</mapper>

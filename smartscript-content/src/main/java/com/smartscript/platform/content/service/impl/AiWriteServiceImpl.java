@@ -22,6 +22,8 @@ import com.smartscript.platform.content.dto.AppAiOutlineRequest;
 import com.smartscript.platform.content.dto.AppAiOutlineRecordItem;
 import com.smartscript.platform.content.dto.AppAiOutlineResult;
 import com.smartscript.platform.content.dto.AppAiPolishRequest;
+import com.smartscript.platform.content.dto.AppAiStoryboardRequest;
+import com.smartscript.platform.content.dto.AppAiStoryboardResult;
 import com.smartscript.platform.content.dto.AppAiWriteRecordInsert;
 import com.smartscript.platform.content.dto.AppAiWriteRecordItem;
 import com.smartscript.platform.content.dto.AppAiWriteRequest;
@@ -92,6 +94,9 @@ public class AiWriteServiceImpl implements IAiWriteService
     /** 大纲能力标识 */
     private static final String CAPABILITY_OUTLINE = "outline";
 
+    /** 分镜能力标识（E 模块：剧本→分镜一条龙） */
+    private static final String CAPABILITY_STORYBOARD = "storyboard";
+
     /** 大纲消耗额度（本批固定 1） */
     private static final int QUOTA_COST_OUTLINE = 1;
 
@@ -121,6 +126,9 @@ public class AiWriteServiceImpl implements IAiWriteService
 
     @Autowired
     private AiServiceClient aiServiceClient;
+
+    @Autowired
+    private com.smartscript.platform.content.service.IAiSkillService aiSkillService;
 
     @Autowired
     private IdentityProvider identityProvider;
@@ -154,7 +162,8 @@ public class AiWriteServiceImpl implements IAiWriteService
         requireContinuationContext(request.getPrompt());
         checkContent(identityProvider.currentUserId(), request.getPrompt());
         checkPoints(identityProvider.currentUserId());
-        AiCallResult data = aiServiceClient.write(request.getPrompt(), request.getType());
+        AiCallResult data = aiServiceClient.write(request.getPrompt(), request.getType(),
+                resolveSkillContent(request.getSkillId()));
         String content = data.getContent();
         Long recordId = saveRecord(identityProvider.currentUserId(), request.getWorkId(),
                 resolveWriteType(request.getType()), request.getPrompt(), content,
@@ -168,7 +177,8 @@ public class AiWriteServiceImpl implements IAiWriteService
     {
         checkPoints(identityProvider.currentUserId());
         checkContent(identityProvider.currentUserId(), request.getContent());
-        AiCallResult data = aiServiceClient.polish(request.getContent(), request.getStyle());
+        AiCallResult data = aiServiceClient.polish(request.getContent(), request.getStyle(),
+                resolveSkillContent(request.getSkillId()));
         String content = data.getContent();
         Long recordId = saveRecord(identityProvider.currentUserId(), null,
                 WRITE_TYPE_POLISH, request.getContent(), content,
@@ -207,7 +217,8 @@ public class AiWriteServiceImpl implements IAiWriteService
         requireContinuationContext(request.getPrompt());
         checkContent(identityProvider.currentUserId(), request.getPrompt());
         checkPoints(identityProvider.currentUserId());
-        AiCallResult r = aiServiceClient.writeStream(request.getPrompt(), request.getType(), onDelta);
+        AiCallResult r = aiServiceClient.writeStream(request.getPrompt(), request.getType(),
+                resolveSkillContent(request.getSkillId()), onDelta);
         String content = r.getContent();
         Long recordId = saveRecord(identityProvider.currentUserId(), request.getWorkId(),
                 resolveWriteType(request.getType()), request.getPrompt(), content,
@@ -221,7 +232,8 @@ public class AiWriteServiceImpl implements IAiWriteService
     {
         checkPoints(identityProvider.currentUserId());
         checkContent(identityProvider.currentUserId(), request.getContent());
-        AiCallResult r = aiServiceClient.polishStream(request.getContent(), request.getStyle(), onDelta);
+        AiCallResult r = aiServiceClient.polishStream(request.getContent(), request.getStyle(),
+                resolveSkillContent(request.getSkillId()), onDelta);
         String content = r.getContent();
         Long recordId = saveRecord(identityProvider.currentUserId(), null,
                 WRITE_TYPE_POLISH, request.getContent(), content,
@@ -237,7 +249,8 @@ public class AiWriteServiceImpl implements IAiWriteService
         checkContent(identityProvider.currentUserId(),
                 (request.getInspiration() == null ? "" : request.getInspiration()));
         Date startedAt = new Date();
-        AiCallResult r = aiServiceClient.outlineStream(request.getInspiration(), request.getGenre(), request.getStyle(), onDelta);
+        AiCallResult r = aiServiceClient.outlineStream(request.getInspiration(), request.getGenre(), request.getStyle(),
+                resolveSkillContent(request.getSkillId()), onDelta);
         Date finishedAt = new Date();
         JsonNode outlineNode = parseOutlineJson(r.getContent());
         Object outline = outlineNode.isMissingNode() || outlineNode.isNull()
@@ -294,7 +307,8 @@ public class AiWriteServiceImpl implements IAiWriteService
         checkContent(identityProvider.currentUserId(),
                 (request.getInspiration() == null ? "" : request.getInspiration()));
         Date startedAt = new Date();
-        AiCallResult r = aiServiceClient.outline(request.getInspiration(), request.getGenre(), request.getStyle());
+        AiCallResult r = aiServiceClient.outline(request.getInspiration(), request.getGenre(), request.getStyle(),
+                resolveSkillContent(request.getSkillId()));
         Date finishedAt = new Date();
         JsonNode outlineNode = parseOutlineJson(r.getContent()).path("outline");
         Object outline = outlineNode.isMissingNode() || outlineNode.isNull()
@@ -663,5 +677,91 @@ public class AiWriteServiceImpl implements IAiWriteService
             // SHA-256 是 JDK 必备算法，正常不会走到；返回 null 允许 prompt_hash 可空
             return null;
         }
+    }
+
+    /** 导演(skill) 轻量列表（E 模块，供端上「导演(skill)选择」下拉） */
+    @Override
+    public List<Map<String, Object>> listEnabledSkills()
+    {
+        return aiSkillService.selectEnabledSkillBrief().stream().map(skill -> {
+            Map<String, Object> item = new java.util.LinkedHashMap<>();
+            item.put("id", skill.getId());
+            item.put("skillName", skill.getSkillName());
+            item.put("fileName", skill.getFileName());
+            return item;
+        }).collect(Collectors.toList());
+    }
+
+    /**
+     * 导演(skill) 内容解析：skillId 为空/不存在/停用/内容为空 → null（不注入）；
+     * 正常则返回 skill 文件内容（trim），由 {@link AiServiceClient#appendSkill} 注入 system prompt。
+     */
+    private String resolveSkillContent(Long skillId)
+    {
+        return aiSkillService.resolveSkillContent(skillId);
+    }
+
+    // ================================================================
+    // AI 分镜（E 模块）：剧本 → 分镜 一条龙，产出可直接出售的分镜剧本
+    // ================================================================
+
+    @Override
+    public AppAiStoryboardResult storyboard(AppAiStoryboardRequest request)
+    {
+        checkPoints(identityProvider.currentUserId());
+        checkContent(identityProvider.currentUserId(),
+                (request.getScript() == null ? "" : request.getScript()));
+        Date startedAt = new Date();
+        AiCallResult r = aiServiceClient.storyboard(request.getScript(), request.getStyle(),
+                resolveSkillContent(request.getSkillId()));
+        Date finishedAt = new Date();
+        String content = r.getContent();
+        String requestNo = generateRequestNo();
+        aiRequestMapper.insertAiRequest(requestNo, identityProvider.currentUserId(), request.getWorkId(),
+                CAPABILITY_STORYBOARD, Math.max(1, r.getTotalTokens()), STATUS_SUCCESS, resolveProvider(),
+                sha256(buildStoryboardPrompt(request)), startedAt, finishedAt);
+        Long recordId = saveRecord(identityProvider.currentUserId(), request.getWorkId(),
+                CAPABILITY_STORYBOARD, buildStoryboardInputText(request), content,
+                resolveModel(r), r.getTotalTokens());
+        consumePoints(identityProvider.currentUserId(), "storyboard", recordId, r.getTotalTokens());
+        return new AppAiStoryboardResult(content, requestNo, Math.max(1, r.getTotalTokens()), false);
+    }
+
+    @Override
+    public AppAiStoryboardResult storyboardStream(AppAiStoryboardRequest request,
+            java.util.function.Consumer<String> onDelta)
+    {
+        checkPoints(identityProvider.currentUserId());
+        checkContent(identityProvider.currentUserId(),
+                (request.getScript() == null ? "" : request.getScript()));
+        Date startedAt = new Date();
+        AiCallResult r = aiServiceClient.storyboardStream(request.getScript(), request.getStyle(),
+                resolveSkillContent(request.getSkillId()), onDelta);
+        Date finishedAt = new Date();
+        String content = r.getContent();
+        String requestNo = generateRequestNo();
+        aiRequestMapper.insertAiRequest(requestNo, identityProvider.currentUserId(), request.getWorkId(),
+                CAPABILITY_STORYBOARD, Math.max(1, r.getTotalTokens()), STATUS_SUCCESS, resolveProvider(),
+                sha256(buildStoryboardPrompt(request)), startedAt, finishedAt);
+        Long recordId = saveRecord(identityProvider.currentUserId(), request.getWorkId(),
+                CAPABILITY_STORYBOARD, buildStoryboardInputText(request), content,
+                resolveModel(r), r.getTotalTokens());
+        consumePoints(identityProvider.currentUserId(), "storyboard", recordId, r.getTotalTokens());
+        return new AppAiStoryboardResult(content, requestNo, Math.max(1, r.getTotalTokens()), false);
+    }
+
+    /** 分镜提示词摘要原文（用于 prompt_hash，不含敏感信息） */
+    private static String buildStoryboardPrompt(AppAiStoryboardRequest request)
+    {
+        return "scriptLen=" + (request.getScript() == null ? 0 : request.getScript().length())
+                + ";style=" + safe(request.getStyle())
+                + ";skillId=" + (request.getSkillId() == null ? "" : request.getSkillId());
+    }
+
+    /** 分镜输入的展示文本（落 sys_ai_write_record.input_prompt，用户可见） */
+    private static String buildStoryboardInputText(AppAiStoryboardRequest request)
+    {
+        String styleLine = safe(request.getStyle()).isEmpty() ? "" : "\n风格：" + request.getStyle();
+        return "剧本文本：" + safe(request.getScript()) + styleLine;
     }
 }

@@ -55,6 +55,8 @@ class AiQuotaCheckTest
         setField(service, "aiRequestMapper", aiRequestMapper);
         setField(service, "writeRecordMapper", writeRecordMapper);
         setField(service, "aiServiceClient", aiServiceClient);
+        setField(service, "aiSkillService",
+                mock(com.smartscript.platform.content.service.IAiSkillService.class));
         setField(service, "identityProvider", identityProvider);
         setField(service, "aiModel", "deepseek-flash");
         setField(service, "aiProvider", "deepseek");
@@ -74,7 +76,7 @@ class AiQuotaCheckTest
                 () -> service.write(request));
         assertTrue(ex.getMessage().contains("积分不足"));
         assertTrue(ex.getMessage().contains("0"));
-        verify(aiServiceClient, never()).write(any(), any());
+        verify(aiServiceClient, never()).write(any(), any(), any());
         verify(writeRecordMapper, never()).insertWriteRecord(any());
     }
 
@@ -89,7 +91,7 @@ class AiQuotaCheckTest
         request.setPrompt("test");
 
         assertThrows(AiQuotaInsufficientException.class, () -> service.write(request));
-        verify(aiServiceClient, never()).write(any(), any());
+        verify(aiServiceClient, never()).write(any(), any(), any());
     }
 
     @Test
@@ -97,7 +99,8 @@ class AiQuotaCheckTest
     void write_quotaEnough_ok() throws Exception
     {
         when(jdbcTemplate.queryForObject(anyString(), eq(Integer.class), eq(USER_ID))).thenReturn(100);
-        when(aiServiceClient.write("test", null))
+        when(aiServiceClient.write(anyString(), org.mockito.ArgumentMatchers.nullable(String.class),
+                org.mockito.ArgumentMatchers.nullable(String.class)))
                 .thenReturn(new AiCallResult("生成的内容", 150, "deepseek-flash"));
 
         AppAiWriteRequest request = new AppAiWriteRequest();
@@ -105,7 +108,9 @@ class AiQuotaCheckTest
 
         AppAiWriteResult result = service.write(request);
         assertEquals("生成的内容", result.getContent());
-        verify(aiServiceClient, org.mockito.Mockito.times(1)).write("test", null);
+        verify(aiServiceClient, org.mockito.Mockito.times(1))
+                .write(anyString(), org.mockito.ArgumentMatchers.nullable(String.class),
+                        org.mockito.ArgumentMatchers.nullable(String.class));
         verify(writeRecordMapper, org.mockito.Mockito.times(1)).insertWriteRecord(any());
     }
 
@@ -118,7 +123,8 @@ class AiQuotaCheckTest
         // UPDATE（扣减，3个参数）与 INSERT（流水，5个参数）均成功
         when(jdbcTemplate.update(anyString(), any(), any(), any())).thenReturn(1);
         when(jdbcTemplate.update(anyString(), any(), any(), any(), any(), any())).thenReturn(1);
-        when(aiServiceClient.write("test", null))
+        when(aiServiceClient.write(anyString(), org.mockito.ArgumentMatchers.nullable(String.class),
+                org.mockito.ArgumentMatchers.nullable(String.class)))
                 .thenReturn(new AiCallResult("生成的内容", 1500, "deepseek-flash"));
 
         AppAiWriteRequest request = new AppAiWriteRequest();

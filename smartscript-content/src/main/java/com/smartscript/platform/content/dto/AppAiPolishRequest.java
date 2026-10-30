@@ -15,6 +15,19 @@ public class AppAiPolishRequest
     /** 润色风格（可选） */
     private String style;
 
+    /** 导演(skill) ID（可选；命中则把 skill 内容注入 system prompt） */
+    private Long skillId;
+
+    public Long getSkillId()
+    {
+        return skillId;
+    }
+
+    public void setSkillId(Long skillId)
+    {
+        this.skillId = skillId;
+    }
+
     public String getContent()
     {
         return content;

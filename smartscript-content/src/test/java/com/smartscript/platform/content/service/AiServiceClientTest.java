@@ -27,7 +27,7 @@ class AiServiceClientTest
     {
         AiServiceClient client = clientWithNoKey();
         assertThrows(AiServiceUnavailableException.class,
-                () -> client.write("写一段正文", null));
+                () -> client.write("写一段正文", null, null));
     }
 
     @Test
@@ -35,7 +35,7 @@ class AiServiceClientTest
     {
         AiServiceClient client = clientWithNoKey();
         assertThrows(AiServiceUnavailableException.class,
-                () -> client.polish("一段文本", "文学优美"));
+                () -> client.polish("一段文本", "文学优美", null));
     }
 
     @Test
@@ -43,7 +43,7 @@ class AiServiceClientTest
     {
         AiServiceClient client = clientWithNoKey();
         assertThrows(AiServiceUnavailableException.class,
-                () -> client.outline("一个故事灵感", "都市", "爽文"));
+                () -> client.outline("一个故事灵感", "都市", "爽文", null));
     }
 
     @Test
@@ -115,7 +115,7 @@ class AiServiceClientTest
     {
         AiServiceClient client = clientWithNoKey();
         assertThrows(AiServiceUnavailableException.class,
-                () -> client.writeStream("写一段正文", "write", ignored -> {}));
+                () -> client.writeStream("写一段正文", "write", null, ignored -> {}));
     }
 
     @Test
@@ -123,7 +123,7 @@ class AiServiceClientTest
     {
         AiServiceClient client = clientWithNoKey();
         assertThrows(AiServiceUnavailableException.class,
-                () -> client.polishStream("一段文本", "文学优美", ignored -> {}));
+                () -> client.polishStream("一段文本", "文学优美", null, ignored -> {}));
     }
 
     @Test
@@ -131,6 +131,22 @@ class AiServiceClientTest
     {
         AiServiceClient client = clientWithNoKey();
         assertThrows(AiServiceUnavailableException.class,
-                () -> client.outlineStream("一个故事灵感", "都市", "爽文", ignored -> {}));
+                () -> client.outlineStream("一个故事灵感", "都市", "爽文", null, ignored -> {}));
+    }
+
+    @Test
+    void missingApiKeyStoryboardThrows()
+    {
+        AiServiceClient client = clientWithNoKey();
+        assertThrows(AiServiceUnavailableException.class,
+                () -> client.storyboard("第一幕剧本", "电影感", null));
+    }
+
+    @Test
+    void missingApiKeyStoryboardStreamThrows()
+    {
+        AiServiceClient client = clientWithNoKey();
+        assertThrows(AiServiceUnavailableException.class,
+                () -> client.storyboardStream("第一幕剧本", "电影感", null, ignored -> {}));
     }
 }

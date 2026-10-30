@@ -97,7 +97,7 @@ class AiServiceClientIsolationTest
         truncateStream = true;
         StringBuilder received = new StringBuilder();
         assertThrows(AiServiceUnavailableException.class,
-                () -> client.writeStream("尚未完成的故事", null, received::append));
+                () -> client.writeStream("尚未完成的故事", null, null, received::append));
         assertFalse(received.isEmpty());
     }
 
@@ -105,7 +105,7 @@ class AiServiceClientIsolationTest
     void streamingOutlineRequestsReadableTextRatherThanWaitingForJson()
     {
         StringBuilder received = new StringBuilder();
-        AiCallResult r = client.outlineStream("雨夜故事", "悬疑", "紧凑", received::append);
+        AiCallResult r = client.outlineStream("雨夜故事", "悬疑", "紧凑", null, received::append);
         String result = r.getContent();
         assertEquals(result, received.toString());
         assertTrue(captured.get(0).path("messages").path(0).path("content").asText().contains("分段输出可读文本"));
@@ -115,8 +115,8 @@ class AiServiceClientIsolationTest
     void subsequentRequestDoesNotContainAnotherRequestsPromptOrResponse()
     {
         String privateStory = "SYNTHETIC-ALPHA-101-secret-story";
-        assertEquals(privateStory, client.write(privateStory, null).getContent());
-        assertEquals("继续", client.write("继续", null).getContent());
+        assertEquals(privateStory, client.write(privateStory, null, null).getContent());
+        assertEquals("继续", client.write("继续", null, null).getContent());
         assertEquals(2, captured.size());
         assertFalse(captured.get(1).toString().contains(privateStory));
         assertEquals(2, captured.get(1).path("messages").size());
@@ -130,9 +130,9 @@ class AiServiceClientIsolationTest
         StringBuilder firstDeltas = new StringBuilder();
         StringBuilder secondDeltas = new StringBuilder();
         CompletableFuture<AiCallResult> first = CompletableFuture.supplyAsync(
-                () -> client.writeStream(privateStory, null, firstDeltas::append), executor);
+                () -> client.writeStream(privateStory, null, null, firstDeltas::append), executor);
         CompletableFuture<AiCallResult> second = CompletableFuture.supplyAsync(
-                () -> client.writeStream("继续", null, secondDeltas::append), executor);
+                () -> client.writeStream("继续", null, null, secondDeltas::append), executor);
 
         assertEquals(privateStory, first.get(10, TimeUnit.SECONDS).getContent());
         assertEquals("继续", second.get(10, TimeUnit.SECONDS).getContent());

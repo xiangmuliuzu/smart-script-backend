@@ -20,6 +20,19 @@ public class AppAiWriteRequest
     /** 关联作品ID（可选） */
     private Long workId;
 
+    /** 导演(skill) ID（可选；命中则把 skill 内容注入 system prompt） */
+    private Long skillId;
+
+    public Long getSkillId()
+    {
+        return skillId;
+    }
+
+    public void setSkillId(Long skillId)
+    {
+        this.skillId = skillId;
+    }
+
     public String getPrompt()
     {
         return prompt;
