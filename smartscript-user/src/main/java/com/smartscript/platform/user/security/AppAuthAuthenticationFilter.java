@@ -46,6 +46,7 @@ public class AppAuthAuthenticationFilter extends OncePerRequestFilter
     private static final String[] PUBLIC_PATHS = {
             "/auth/sms/send",
             "/auth/email/send",
+            "/trade/alipay/sandbox/notify",
             "/auth/login",
             "/auth/captchaImage",
             "/auth/sms/login",
@@ -53,8 +54,6 @@ public class AppAuthAuthenticationFilter extends OncePerRequestFilter
             "/auth/password/reset",
             "/auth/register",
             "/auth/agreements",
-            "/auth/oauth/wechat/login",
-            "/auth/oauth/qq/login",
             "/pc-auth/login",
             // 运维端忘记密码：两个 POST 匿名可达，前缀匹配同时覆盖 sms/send 与 password/reset。
             "/pc-auth/admin",

@@ -210,3 +210,6 @@ java -jar ruoyi-admin/target/ruoyi-admin.jar
 ## 数据库密码配置
 
 数据库密码必须通过 `DB_PASSWORD` 环境变量注入，不再使用仓库内的默认值。本机开发仍可使用 `.env.local`；云端部署时也必须设置 `DB_PASSWORD`。
+
+
+支付宝测试支付的独立环境与密钥配置见 [支付宝沙箱支付配置](docs/alipay-sandbox.md)。

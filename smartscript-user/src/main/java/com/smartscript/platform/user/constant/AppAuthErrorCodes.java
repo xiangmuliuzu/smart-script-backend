@@ -23,6 +23,5 @@ public final class AppAuthErrorCodes
     public static final int ACCOUNT_DISABLED = 40301;
     public static final int SMS_COOLDOWN = 42901;
     public static final int SMS_RATE_LIMIT = 42902;
-    public static final int OAUTH_NOT_OPEN = 50101;
     public static final int SYSTEM_ERROR = 50000;
 }

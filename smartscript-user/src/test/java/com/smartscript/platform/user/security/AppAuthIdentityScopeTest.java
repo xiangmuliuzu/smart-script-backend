@@ -62,6 +62,8 @@ class AppAuthIdentityScopeTest
     {
         String[] publicPaths = {
                 "/api/v1/auth/sms/send",
+                "/api/v1/auth/email/send",
+                "/api/v1/trade/alipay/sandbox/notify",
                 "/api/v1/auth/sms/login",
                 "/api/v1/auth/password/login",
                 "/api/v1/auth/password/reset",
@@ -69,8 +71,6 @@ class AppAuthIdentityScopeTest
                 "/api/v1/auth/login",
                 "/api/v1/auth/captchaImage",
                 "/api/v1/auth/agreements",
-                "/api/v1/auth/oauth/wechat/login",
-                "/api/v1/auth/oauth/qq/login",
         };
         for (String path : publicPaths)
         {

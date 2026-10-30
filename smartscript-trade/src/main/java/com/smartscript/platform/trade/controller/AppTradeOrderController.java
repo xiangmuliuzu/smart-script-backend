@@ -34,6 +34,8 @@ import com.smartscript.platform.trade.service.TradeOrderService;
 public class AppTradeOrderController
 {
     private final TradeOrderService orderService;
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.smartscript.platform.trade.service.AlipaySandboxPaymentService sandboxPayment;
 
     public AppTradeOrderController(TradeOrderService orderService)
     {
@@ -117,31 +119,22 @@ public class AppTradeOrderController
         return AppApiResponse.ok(data);
     }
 
-    /**
-     * 买方付款。订单 paying → delivering。
-     */
+    /** 发起支付宝沙箱支付；不会直接推进订单状态。 */
     @PostMapping("/{orderId}/pay")
-    public AppApiResponse<Void> pay(@PathVariable Long orderId)
+    public AppApiResponse<Map<String, Object>> pay(@PathVariable Long orderId)
     {
-        Long currentUserId = currentUserId();
-        SysOrder order = orderService.selectOrderById(orderId);
-        if (order == null)
-        {
-            return AppApiResponse.fail(404, "订单不存在");
-        }
-        if (!currentUserId.equals(order.getBuyerId()))
-        {
-            return AppApiResponse.fail(403, "只有买方可以付款");
-        }
-        try
-        {
-            orderService.payOrder(orderId, currentUserId);
-            return AppApiResponse.ok(null);
-        }
-        catch (RuntimeException e)
-        {
-            return AppApiResponse.fail(400, e.getMessage());
-        }
+        try { return AppApiResponse.ok(sandboxPayment.create(orderId, currentUserId())); }
+        catch (IllegalArgumentException | IllegalStateException e) { return AppApiResponse.fail(400, e.getMessage()); }
+        catch (RuntimeException e) { return AppApiResponse.fail(500, "沙箱支付暂不可用"); }
+    }
+
+    /** 向支付宝查询并验证支付结果后，才推进订单。 */
+    @PostMapping("/{orderId}/pay/confirm")
+    public AppApiResponse<Map<String, Object>> confirmPayment(@PathVariable Long orderId)
+    {
+        try { return AppApiResponse.ok(sandboxPayment.confirm(orderId, currentUserId())); }
+        catch (IllegalArgumentException | IllegalStateException e) { return AppApiResponse.fail(400, e.getMessage()); }
+        catch (RuntimeException e) { return AppApiResponse.fail(500, "沙箱支付暂不可用"); }
     }
 
     /**

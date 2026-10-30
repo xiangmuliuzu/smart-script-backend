@@ -110,7 +110,6 @@ public class AppAuthExceptionHandler
             case AppAuthErrorCodes.ACCOUNT_DISABLED -> "account disabled";
             case AppAuthErrorCodes.SMS_COOLDOWN -> "sms cooldown";
             case AppAuthErrorCodes.SMS_RATE_LIMIT -> "rate limited";
-            case AppAuthErrorCodes.OAUTH_NOT_OPEN -> "oauth provider not open";
             default -> leakFree(fallback);
         };
     }

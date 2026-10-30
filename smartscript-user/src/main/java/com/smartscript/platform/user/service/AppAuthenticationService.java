@@ -349,15 +349,6 @@ public class AppAuthenticationService
         revocationService.revokeAllForUser(user.getUserId(), "PASSWORD_RESET");
     }
 
-    public void oauthNotOpen(String provider)
-    {
-        if (!"wechat".equals(provider) && !"qq".equals(provider))
-        {
-            throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "unsupported oauth provider");
-        }
-        throw new AppAuthException(AppAuthErrorCodes.OAUTH_NOT_OPEN, 501, "oauth provider not open");
-    }
-
     private AppUserRecord createAppUser(String phone, String encodedPassword)
     {
         return createAppUser(phone, null, encodedPassword);

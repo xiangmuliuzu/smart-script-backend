@@ -73,6 +73,7 @@ public class AppAuthSecurityConfig
                                 "/api/v1/auth/password/reset",
                                 "/api/v1/auth/register",
                                 "/api/v1/pc-auth/login").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/trade/alipay/sandbox/notify").permitAll()
                         // 运维端忘记密码（A 模块）：匿名可达，只处理 user_type='00' 账号，
                         // 验证码复用 App 域 SmsCodeService（scene=RESET_PASSWORD）。
                         .requestMatchers(HttpMethod.POST,
@@ -83,9 +84,6 @@ public class AppAuthSecurityConfig
                                 "/api/v1/auth/agreements").permitAll()
                         // 开屏素材在登录及会话恢复之前获取，仅公开此只读接口。
                         .requestMatchers(HttpMethod.GET, "/api/v1/ad/splash").permitAll()
-                        .requestMatchers(HttpMethod.POST,
-                                "/api/v1/auth/oauth/wechat/login",
-                                "/api/v1/auth/oauth/qq/login").permitAll()
                         // B 模块上传与创作私有 GET（2.9.5~2.9.9）：必须声明在 /works/** 白名单之前，
                         // 否则会被下面的游客 GET 规则误放为可匿名访问（Spring Security 首匹配优先）
                         .requestMatchers(HttpMethod.GET,
