@@ -1,4 +1,4 @@
--- Sandbox databases only; never apply or enable this feature against live business data.
+-- For isolated sandbox databases, or a development database explicitly authorized via APP_ALIPAY_SANDBOX_ALLOWED_DATABASES.
 CREATE TABLE IF NOT EXISTS sandbox_alipay_payment (
   order_id BIGINT NOT NULL,
   out_trade_no VARCHAR(64) NOT NULL,

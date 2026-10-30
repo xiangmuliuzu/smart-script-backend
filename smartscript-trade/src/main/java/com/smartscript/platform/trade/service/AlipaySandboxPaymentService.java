@@ -18,7 +18,7 @@ import com.alipay.api.response.AlipayTradePrecreateResponse;
 import com.alipay.api.response.AlipayTradeQueryResponse;
 import com.smartscript.platform.trade.domain.SysOrder;
 
-/** 官方支付宝沙箱：仅对独立的 _sandbox 数据库开放，查询验证后推进测试订单。 */
+/** 官方支付宝沙箱：仅对隔离数据库或显式授权的开发数据库开放。 */
 @Service
 public class AlipaySandboxPaymentService {
     static final String GATEWAY = "https://openapi-sandbox.dl.alipaydev.com/gateway.do";
@@ -28,6 +28,8 @@ public class AlipaySandboxPaymentService {
     private final String appId;
     private final String privateKey;
     private final String publicKey;
+    @Value("${APP_ALIPAY_SANDBOX_ALLOWED_DATABASES:}")
+    private String allowedDatabases;
     @Value("${APP_ALIPAY_SANDBOX_NOTIFY_URL:}")
     private String notifyUrl;
 
@@ -44,8 +46,13 @@ public class AlipaySandboxPaymentService {
         if (!enabled || appId.isBlank() || privateKey.isBlank() || publicKey.isBlank())
             throw new IllegalStateException("支付宝沙箱尚未配置");
         String database = jdbc.queryForObject("SELECT DATABASE()", String.class);
-        if (database == null || !database.toLowerCase(java.util.Locale.ROOT).endsWith("_sandbox"))
-            throw new IllegalStateException("支付宝沙箱仅允许使用独立测试数据库");
+        String normalized = database == null ? "" : database.trim().toLowerCase(java.util.Locale.ROOT);
+        boolean isolated = normalized.endsWith("_sandbox");
+        boolean explicitlyAllowed = allowedDatabases != null && java.util.Arrays.stream(allowedDatabases.split(","))
+                .map(name -> name.trim().toLowerCase(java.util.Locale.ROOT))
+                .anyMatch(normalized::equals);
+        if (normalized.isEmpty() || (!isolated && !explicitlyAllowed))
+            throw new IllegalStateException("支付宝沙箱仅允许使用隔离库或明确授权的开发库");
     }
 
     private SysOrder buyerOrder(Long orderId, Long buyerId) {
