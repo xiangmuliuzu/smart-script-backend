@@ -10,13 +10,13 @@ import java.util.Arrays;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
-import com.ruoyi.common.config.RuoYiConfig;
-import com.ruoyi.common.utils.file.FileUtils;
+import com.ruoyi.framework.storage.ProfileStorageService;
 import com.smartscript.platform.user.constant.AppAuthErrorCodes;
 import com.smartscript.platform.user.constant.AppUserErrorCodes;
 import com.smartscript.platform.user.constant.CreatorSpecialtyDictionary;
@@ -67,13 +67,23 @@ public class AppUserProfileService
     private final AppUserMapper userMapper;
     private final AppUserCenterMapper centerMapper;
     private final AuthorCapabilityAdminMapper capabilityMapper;
+    private final ProfileStorageService storage;
 
+    @Autowired
     public AppUserProfileService(AppUserMapper userMapper, AppUserCenterMapper centerMapper,
-            AuthorCapabilityAdminMapper capabilityMapper)
+            AuthorCapabilityAdminMapper capabilityMapper, ProfileStorageService storage)
     {
         this.userMapper = userMapper;
         this.centerMapper = centerMapper;
         this.capabilityMapper = capabilityMapper;
+        this.storage = storage;
+    }
+
+    /** 单元测试保持原构造签名：只清理本地文件。 */
+    public AppUserProfileService(AppUserMapper userMapper, AppUserCenterMapper centerMapper,
+            AuthorCapabilityAdminMapper capabilityMapper)
+    {
+        this(userMapper, centerMapper, capabilityMapper, ProfileStorageService.localOnly());
     }
 
     public UserProfileDto getProfile(Long userId)
@@ -244,9 +254,10 @@ public class AppUserProfileService
             {
                 return;
             }
-            java.io.File file = toManagedAvatarDiskPath(avatar);
-            if (file != null && FileUtils.deleteFile(file.getPath()))
+            String key = storage.keyOf(avatar);
+            if (!key.isEmpty())
             {
+                storage.delete(key);
                 log.info("a5-avatar replaced file removed userId={}", userId);
             }
         }
@@ -254,55 +265,6 @@ public class AppUserProfileService
         {
             log.warn("a5-avatar cleanup skipped: {}", e.getClass().getSimpleName());
         }
-    }
-
-    /**
-     * 把 /profile/upload/... 或 /profile/avatar/... 资源路径映射为上传根下的磁盘文件。
-     * 非本平台路径（如外部 http(s) 图片）返回 null，交由调用方跳过；normalizeAvatar
-     * 已保证路径不含反斜杠/控制字符，此处再按段校验，杜绝路径穿越（../）。
-     */
-    private static java.io.File toManagedAvatarDiskPath(String avatar)
-    {
-        if (avatar == null)
-        {
-            return null;
-        }
-        String value = avatar.trim();
-        int cut = value.indexOf('?');
-        if (cut >= 0)
-        {
-            value = value.substring(0, cut);
-        }
-        cut = value.indexOf('#');
-        if (cut >= 0)
-        {
-            value = value.substring(0, cut);
-        }
-        String relative;
-        if (value.startsWith("/profile/upload/"))
-        {
-            relative = value.substring("/profile/upload/".length());
-        }
-        else if (value.startsWith("/profile/avatar/"))
-        {
-            relative = value.substring("/profile/avatar/".length());
-        }
-        else
-        {
-            return null;
-        }
-        if (relative.isEmpty() || relative.indexOf('\\') >= 0)
-        {
-            return null;
-        }
-        for (String part : relative.split("/", -1))
-        {
-            if (part.isEmpty() || part.equals(".") || part.equals(".."))
-            {
-                return null;
-            }
-        }
-        return new java.io.File(RuoYiConfig.getProfile(), "upload" + java.io.File.separator + relative.replace('/', java.io.File.separatorChar));
     }
 
     /**

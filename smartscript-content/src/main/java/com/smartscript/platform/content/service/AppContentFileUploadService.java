@@ -11,6 +11,7 @@ import com.ruoyi.common.exception.file.FileSizeLimitExceededException;
 import com.ruoyi.common.exception.file.InvalidExtensionException;
 import com.ruoyi.common.utils.file.FileUploadUtils;
 import com.ruoyi.common.utils.file.MimeTypeUtils;
+import com.ruoyi.framework.storage.ProfileStorageService;
 import com.smartscript.platform.content.dto.AppUploadResult;
 import com.smartscript.platform.content.exception.AppContentUploadException;
 
@@ -29,7 +30,8 @@ import com.smartscript.platform.content.exception.AppContentUploadException;
  *   - 不把底层异常文案与原始文件名写入日志。
  *   - url 下发**相对路径**（`/profile/upload/...`），由客户端按自身 baseUrl 解析：
  *     返回绝对地址会把上传者所在机器（localhost / 模拟器 10.0.2.2 / 局域网 IP）写进数据库，
- *     其他开发共用云端库时取不到图。上传产物统一落在 ruoyi.profile（仓库内 uploadPath/）。
+ *     其他开发共用云端库时取不到图。上传产物统一落在 ruoyi.profile（仓库内 uploadPath/），
+ *     启用 MinIO 时同步到对象存储，其他机器/服务器按需回源。
  *
  * @author xiangsipeng
  */
@@ -63,6 +65,13 @@ public class AppContentFileUploadService
     private static final String[] DEFAULT_EXTENSION = {
             "bmp", "gif", "jpg", "jpeg", "png", "webp", "txt", "doc", "docx", "pdf" };
 
+    private final ProfileStorageService storage;
+
+    public AppContentFileUploadService(ProfileStorageService storage)
+    {
+        this.storage = storage;
+    }
+
     /**
      * 保存上传文件并返回可访问地址。
      *
@@ -85,6 +94,8 @@ public class AppContentFileUploadService
         {
             // 复用若依上传实现：同一上传目录 + 同一套扩展名/文件名长度校验
             storedPath = FileUploadUtils.upload(RuoYiConfig.getUploadPath(), file, extensionsOf(type));
+            // 同步到 MinIO，保证共享库中的记录在其他机器/服务器上也有文件
+            storage.publishUrl(storedPath);
         }
         catch (InvalidExtensionException | FileSizeLimitExceededException | FileNameLengthLimitExceededException e)
         {

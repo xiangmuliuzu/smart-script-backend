@@ -21,6 +21,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -29,6 +30,7 @@ import org.springframework.web.util.UriUtils;
 import com.ruoyi.common.config.RuoYiConfig;
 import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.common.utils.file.FileUtils;
+import com.ruoyi.framework.storage.ProfileStorageService;
 
 /**
  * Profile文件访问控制器
@@ -41,6 +43,20 @@ import com.ruoyi.common.utils.file.FileUtils;
 public class ProfileFileController
 {
     private static final Logger log = LoggerFactory.getLogger(ProfileFileController.class);
+
+    private final ProfileStorageService storage;
+
+    /** 单测/无 Spring 环境：只读本地 profile 目录。 */
+    public ProfileFileController()
+    {
+        this(ProfileStorageService.localOnly());
+    }
+
+    @Autowired
+    public ProfileFileController(ProfileStorageService storage)
+    {
+        this.storage = storage;
+    }
 
     /**
      * 访问上传的文件
@@ -60,28 +76,32 @@ public class ProfileFileController
                 return;
             }
 
-            // 移除 /profile 前缀
-            String filePath = requestPath.substring("/profile/".length());
-            // 统一分隔符，防止 Windows 下混用 / \
-            filePath = filePath.replace('\\', '/');
-            
+            // 统一为对象 key（upload/2026/...）；MinIO 开启时本地缺失会按需回源。
+            String filePath = storage.keyOf(requestPath);
+            if (StringUtils.isEmpty(filePath))
+            {
+                response.sendError(HttpServletResponse.SC_NOT_FOUND, "文件不存在");
+                return;
+            }
+
             // 安全检查
             if (!FileUtils.checkAllowDownload(filePath))
             {
                 response.sendError(HttpServletResponse.SC_FORBIDDEN, "文件访问被拒绝");
                 return;
             }
-            
-            // 构造完整的文件系统路径
-            String fullPath = RuoYiConfig.getProfile() + File.separator + filePath.replace('/', File.separatorChar);
-            File file = new File(fullPath);
-            
-            if (!file.exists() || !file.isFile())
+
+            File file;
+            try
+            {
+                file = storage.materialize(filePath);
+            }
+            catch (IOException e)
             {
                 response.sendError(HttpServletResponse.SC_NOT_FOUND, "文件不存在");
                 return;
             }
-            
+
             // 获取文件扩展名
             String fileName = file.getName();
             String extension = "";

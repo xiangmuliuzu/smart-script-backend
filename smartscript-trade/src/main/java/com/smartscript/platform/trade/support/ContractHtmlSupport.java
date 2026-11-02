@@ -3,6 +3,9 @@ package com.smartscript.platform.trade.support;
 import java.math.BigDecimal;
 import java.net.URI;
 import java.nio.file.Paths;
+import java.util.function.Function;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * 合同 HTML 统一支撑：模板生成、签名/印章注入、profile 图片路径解析。
@@ -283,13 +286,48 @@ public final class ContractHtmlSupport
      */
     public static String resolveProfileImages(String html)
     {
-        if (html == null || html.isEmpty())
+        return resolveProfileImages(html, url -> {
+            int index = url.indexOf("/profile/");
+            String key = index >= 0 ? url.substring(index + "/profile/".length()) : url;
+            return Paths.get(com.ruoyi.common.config.RuoYiConfig.getProfile(), key)
+                    .toAbsolutePath().normalize().toUri();
+        });
+    }
+
+    /**
+     * 远端对象存储场景：调用方先按 key 把对象物化到本地，再返回 file:// URI。
+     *
+     * @param resolver 输入 {@code /profile/...} 原始地址，返回可被渲染器读取的 URI；返回 null 表示保留原地址
+     */
+    public static String resolveProfileImages(String html, Function<String, URI> resolver)
+    {
+        if (html == null || html.isEmpty() || resolver == null)
         {
             return html;
         }
-        URI base = Paths.get(com.ruoyi.common.config.RuoYiConfig.getProfile())
-                .toAbsolutePath().normalize().toUri();
-        return html.replace("src=\"/profile/", "src=\"" + base + "/");
+        Pattern pattern = Pattern.compile("src=\"([^\"]*/profile/[^\"]*)\"");
+        Matcher matcher = pattern.matcher(html);
+        StringBuffer output = new StringBuffer();
+        while (matcher.find())
+        {
+            String original = matcher.group(0);
+            String replacement = original;
+            try
+            {
+                URI resolved = resolver.apply(matcher.group(1));
+                if (resolved != null)
+                {
+                    replacement = "src=\"" + resolved + "\"";
+                }
+            }
+            catch (Exception e)
+            {
+                // 图片缺失不应阻断整份合同渲染；保留原地址，由渲染器按缺图处理
+            }
+            matcher.appendReplacement(output, Matcher.quoteReplacement(replacement));
+        }
+        matcher.appendTail(output);
+        return output.toString();
     }
 
     private static String img(String url, int maxWidth, int maxHeight)

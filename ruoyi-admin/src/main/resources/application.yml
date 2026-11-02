@@ -146,6 +146,18 @@ app:
       user-title: ${APP_AGREEMENT_USER_TITLE:用户协议}
       privacy-title: ${APP_AGREEMENT_PRIVACY_TITLE:隐私政策}
 
+# MinIO 对象存储（可选）。启用后 /profile/** 资源会同步到对象存储，
+# 本地 ruoyi.profile 仅作为上传暂存与读取缓存；未启用时行为与历史版本一致。
+# 桶保持私有，公开读仍由后端 /profile/** 代理，避免向外暴露存储凭据。
+minio:
+  enabled: ${MINIO_ENABLED:false}
+  endpoint: ${MINIO_ENDPOINT:}
+  access-key: ${MINIO_ACCESS_KEY:}
+  secret-key: ${MINIO_SECRET_KEY:}
+  bucket: ${MINIO_BUCKET:smartscript-profile}
+  private-bucket: ${MINIO_PRIVATE_BUCKET:smartscript-private}
+  auto-create-bucket: ${MINIO_AUTO_CREATE_BUCKET:true}
+
 # MyBatis配置
 mybatis:
   # 搜索指定包别名

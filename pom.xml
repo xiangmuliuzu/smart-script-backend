@@ -30,6 +30,8 @@
         <commons.io.version>2.21.0</commons.io.version>
         <poi.version>4.1.2</poi.version>
         <velocity.version>2.3</velocity.version>
+        <!-- 对象存储：上传文件共享到 MinIO，避免文件只留在上传者本机 -->
+        <minio.version>8.5.17</minio.version>
         <jwt.version>0.9.1</jwt.version>
         <jaxb-api.version>2.3.1</jaxb-api.version>
         <springdoc.version>3.0.2</springdoc.version>
@@ -150,6 +152,13 @@
                 <groupId>org.apache.poi</groupId>
                 <artifactId>poi-ooxml</artifactId>
                 <version>${poi.version}</version>
+            </dependency>
+
+            <!-- 对象存储（MinIO / S3 兼容） -->
+            <dependency>
+                <groupId>io.minio</groupId>
+                <artifactId>minio</artifactId>
+                <version>${minio.version}</version>
             </dependency>
 
             <!-- velocity代码生成使用模板 -->

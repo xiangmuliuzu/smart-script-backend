@@ -158,6 +158,17 @@ class ContractHtmlSupportTest
                 ContractHtmlSupport.resolveProfileImages("<img src=\"http://x/y.png\" />"));
     }
 
+    @Test
+    @DisplayName("resolveProfileImages：历史绝对地址中的 /profile/ 也能转 file:///")
+    void resolveProfileImagesHandlesLegacyAbsoluteProfileUrl()
+    {
+        new com.ruoyi.common.config.RuoYiConfig().setProfile("uploadPath");
+        String html = "<img src=\"http://10.0.2.2:8080/profile/contract/1/a.png\" />";
+        String resolved = ContractHtmlSupport.resolveProfileImages(html);
+        assertTrue(resolved.startsWith("<img src=\"file:///"));
+        assertFalse(resolved.contains("/profile/"));
+    }
+
     /** 管理端历史旧模板样例：签名区有 strong 标记，无占位注释。 */
     private static String legacyTemplateHtml()
     {

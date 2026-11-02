@@ -10,23 +10,39 @@ import java.util.UUID;
 import javax.imageio.ImageIO;
 import javax.imageio.ImageReader;
 import javax.imageio.stream.ImageInputStream;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.multipart.MultipartFile;
+import com.ruoyi.framework.storage.ProfileStorageService;
 import com.smartscript.platform.user.exception.AppAuthException;
 
 /** Private identity material; never stored under the public profile directory. */
 @Service
 public class RealNameMaterialStorage {
     private final Path root;
+    private final ProfileStorageService storage;
+
+    @Autowired
     public RealNameMaterialStorage(@Value("${app.admin.material-storage-path:}") String root,
-            @Value("${ruoyi.profile:}") String publicPath) {
-        if (root == null || root.isBlank()) throw new IllegalStateException("material storage path required");
+            @Value("${ruoyi.profile:}") String publicPath, ProfileStorageService storage) {
+        this.storage = storage;
+        if (root == null || root.isBlank()) {
+            // 私有桶已配置时可只走 MinIO，不再要求本地材料目录
+            if (!storage.privateRemoteEnabled()) throw new IllegalStateException("material storage path required");
+            this.root = null;
+            return;
+        }
         this.root = Path.of(root).toAbsolutePath().normalize();
         if (publicPath != null && !publicPath.isBlank() && this.root.startsWith(Path.of(publicPath).toAbsolutePath().normalize()))
             throw new IllegalStateException("material storage must be private");
+    }
+
+    /** 单元测试保持原构造签名：只写本地私有目录。 */
+    public RealNameMaterialStorage(String root, String publicPath) {
+        this(root, publicPath, ProfileStorageService.localOnly());
     }
     public byte[] validate(MultipartFile file) {
         if (file == null || file.isEmpty()) throw new AppAuthException(40000, 400, "请上传身份证正反面");
@@ -54,16 +70,30 @@ public class RealNameMaterialStorage {
     }
     public String save(Long userId, byte[] bytes) {
         String ref = "realname/" + userId + "/" + UUID.randomUUID() + ".png";
-        Path file = root.resolve(ref).normalize();
-        if (!file.startsWith(root)) throw new IllegalStateException("invalid material path");
-        try {
-            Files.createDirectories(file.getParent());
-            Files.write(file, bytes, java.nio.file.StandardOpenOption.CREATE_NEW);
-        } catch (IOException e) { throw new AppAuthException(50000, 500, "材料保存失败，请重试"); }
+        final boolean remote = storage.privateRemoteEnabled();
+        final Path file;
+        if (remote) {
+            try {
+                storage.putPrivate(ref, bytes, "image/png");
+            } catch (IOException e) {
+                throw new AppAuthException(50000, 500, "材料保存失败，请重试");
+            }
+            file = null;
+        } else {
+            file = root.resolve(ref).normalize();
+            if (!file.startsWith(root)) throw new IllegalStateException("invalid material path");
+            try {
+                Files.createDirectories(file.getParent());
+                Files.write(file, bytes, java.nio.file.StandardOpenOption.CREATE_NEW);
+            } catch (IOException e) { throw new AppAuthException(50000, 500, "材料保存失败，请重试"); }
+        }
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override public void afterCompletion(int status) {
-                    if (status != STATUS_COMMITTED) try { Files.deleteIfExists(file); } catch (IOException ignored) { }
+                    if (status != STATUS_COMMITTED) {
+                        if (remote) storage.deletePrivate(ref);
+                        else try { Files.deleteIfExists(file); } catch (IOException ignored) { }
+                    }
                 }
             });
         }

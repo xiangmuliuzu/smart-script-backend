@@ -17,6 +17,7 @@ import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.common.utils.file.FileUploadUtils;
 import com.ruoyi.common.utils.file.FileUtils;
+import com.ruoyi.framework.storage.ProfileStorageService;
 
 /**
  * 通用请求处理
@@ -30,6 +31,13 @@ public class CommonController
     private static final Logger log = LoggerFactory.getLogger(CommonController.class);
 
     private static final String FILE_DELIMITER = ",";
+
+    private final ProfileStorageService storage;
+
+    public CommonController(ProfileStorageService storage)
+    {
+        this.storage = storage;
+    }
 
     /**
      * 通用下载请求
@@ -75,6 +83,8 @@ public class CommonController
             String filePath = RuoYiConfig.getUploadPath();
             // 上传并返回新文件名称
             String fileName = FileUploadUtils.upload(filePath, file);
+            // 同步到 MinIO（未启用时为空操作），避免文件只留在接收上传的机器上
+            storage.publishUrl(fileName);
             // 下发相对路径（/profile/upload/...），由前端按自身 baseUrl 解析。
             // 返回绝对地址会把上传那一刻的 host（localhost / 内网 IP）写进共享库，
             // 其他开发与服务器端都会取不到图。
@@ -110,6 +120,7 @@ public class CommonController
             {
                 // 上传并返回新文件名称
                 String fileName = FileUploadUtils.upload(filePath, file);
+                storage.publishUrl(fileName);
                 // 同 uploadFile：只下发相对路径，避免把上传者 host 写进库
                 String url = fileName;
                 urls.add(url);
@@ -143,15 +154,13 @@ public class CommonController
             {
                 throw new Exception(StringUtils.format("资源文件({})非法，不允许下载。 ", resource));
             }
-            // 本地资源路径
-            String localPath = RuoYiConfig.getProfile();
-            // 数据库资源地址
-            String downloadPath = localPath + FileUtils.stripPrefix(resource);
+            // 本地缺失时按需从 MinIO 回源
+            java.io.File file = storage.materialize(storage.keyOf(resource));
             // 下载名称
-            String downloadName = StringUtils.substringAfterLast(downloadPath, "/");
+            String downloadName = file.getName();
             response.setContentType(MediaType.APPLICATION_OCTET_STREAM_VALUE);
             FileUtils.setAttachmentResponseHeader(response, downloadName);
-            FileUtils.writeBytes(downloadPath, response.getOutputStream());
+            FileUtils.writeBytes(file.getPath(), response.getOutputStream());
         }
         catch (Exception e)
         {

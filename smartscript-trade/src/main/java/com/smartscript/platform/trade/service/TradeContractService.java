@@ -3,7 +3,7 @@ package com.smartscript.platform.trade.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ruoyi.common.constant.Constants;
-import com.ruoyi.common.config.RuoYiConfig;
+import com.ruoyi.framework.storage.ProfileStorageService;
 import com.ruoyi.common.utils.SecurityUtils;
 import com.ruoyi.common.utils.uuid.Seq;
 import com.smartscript.platform.trade.support.ContractHtmlSupport;
@@ -22,9 +22,6 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.LinkedHashMap;
@@ -111,6 +108,10 @@ public class TradeContractService
 
     @Autowired
     private SysOrderStatusLogMapper orderStatusLogMapper;
+
+    /** /profile 资源存储（本地 + 可选 MinIO）。 */
+    @Autowired
+    private ProfileStorageService storage;
 
     /**
      * 按订单 ID 取合同详情。
@@ -644,21 +645,13 @@ public class TradeContractService
         {
             throw new IllegalArgumentException("印章/签名图片仅支持 PNG/JPG/BMP/GIF/WebP 格式");
         }
-        // 保存到若依 profile 目录（uploadPath/contract/{id}），经 /profile/** 静态映射对外可访问
-        // 注意：MultipartFile.transferTo 对相对路径会基于 Tomcat 临时目录解析，必须转绝对路径
-        String uploadDir = RuoYiConfig.getProfile() + "/contract/" + contractId;
-        Path dirPath = Paths.get(uploadDir).toAbsolutePath().normalize();
-        if (!Files.exists(dirPath))
-        {
-            Files.createDirectories(dirPath);
-        }
-
+        // 保存到 profile 命名空间（contract/{id}），本地落盘后同步 MinIO，经 /profile/** 对外可访问
         // 文件名不使用用户提供的原始文件名，扩展名由魔数校验推导
         String fileName = prefix + "_" + System.currentTimeMillis() + ext;
-        Path filePath = dirPath.resolve(fileName);
-        file.transferTo(filePath.toFile());
+        String key = "contract/" + contractId + "/" + fileName;
+        storage.write(key, file.getBytes(), file.getContentType());
 
-        return Constants.RESOURCE_PREFIX + "/contract/" + contractId + "/" + fileName;
+        return Constants.RESOURCE_PREFIX + "/" + key;
     }
 
     /**
@@ -768,25 +761,19 @@ public class TradeContractService
 
         String html = String.valueOf(contract.get("content"));
 
-        // PDF 渲染无 baseUri，将 /profile/ 相对路径转换为本地文件绝对路径
-        html = ContractHtmlSupport.resolveProfileImages(html);
+        // PDF 渲染无 baseUri：先把 /profile 图片物化到本地，再转成 file:// URI
+        html = ContractHtmlSupport.resolveProfileImages(html, this::resolveProfileImage);
 
         // 使用 openhtmltopdf 生成 PDF
         byte[] pdfBytes = pdfRenderer.render(html);
 
-        // 保存 PDF
-        String uploadDir = RuoYiConfig.getProfile() + "/contract/" + contractId;
-        Path dirPath = Paths.get(uploadDir).toAbsolutePath().normalize();
-        if (!Files.exists(dirPath))
-        {
-            Files.createDirectories(dirPath);
-        }
+        // 保存 PDF（本地 + MinIO）
         String contractNo = String.valueOf(contract.get("contractNo"));
         String fileName = contractNo + "_signed.pdf";
-        Path pdfPath = dirPath.resolve(fileName);
-        Files.write(pdfPath, pdfBytes);
+        String key = "contract/" + contractId + "/" + fileName;
+        storage.write(key, pdfBytes, "application/pdf");
 
-        String pdfUrl = Constants.RESOURCE_PREFIX + "/contract/" + contractId + "/" + fileName;
+        String pdfUrl = Constants.RESOURCE_PREFIX + "/" + key;
         jdbc.update("UPDATE sys_contract SET signed_pdf_url = ?, update_time = NOW() WHERE contract_id = ?",
                 pdfUrl, contractId);
 
@@ -1069,16 +1056,15 @@ public class TradeContractService
             throw new IllegalArgumentException("PDF 页数过多（最多 " + MAX_PAGE_COUNT + " 页）");
         }
 
-        Path dirPath = contractDir(contractId);
-        cleanContractUploadArtifacts(dirPath);
+        cleanContractUploadArtifacts(contractId);
         String sourceFileName = "source_" + System.currentTimeMillis() + ".pdf";
         try
         {
-            Files.write(dirPath.resolve(sourceFileName), pdfBytes);
+            storage.write("contract/" + contractId + "/" + sourceFileName, pdfBytes, "application/pdf");
             List<byte[]> pagePngs = pdfRenderer.renderAllPagesToPng(pdfBytes, SOURCE_PAGE_DPI);
             for (int i = 0; i < pagePngs.size(); i++)
             {
-                Files.write(dirPath.resolve("page_" + i + ".png"), pagePngs.get(i));
+                storage.write("contract/" + contractId + "/page_" + i + ".png", pagePngs.get(i), "image/png");
             }
         }
         catch (IOException e)
@@ -1142,7 +1128,7 @@ public class TradeContractService
         }
         try
         {
-            cleanContractUploadArtifacts(contractDir(contractId));
+            cleanContractUploadArtifacts(contractId);
         }
         catch (Exception e)
         {
@@ -1295,9 +1281,8 @@ public class TradeContractService
         }
 
         byte[] stamped = pdfRenderer.stampImages(pdf, stamps);
-        Path dirPath = contractDir(contractId);
         String fileName = str(row.get("contractNo")) + "_signed.pdf";
-        Files.write(dirPath.resolve(fileName), stamped);
+        storage.write("contract/" + contractId + "/" + fileName, stamped, "application/pdf");
         String pdfUrl = Constants.RESOURCE_PREFIX + "/contract/" + contractId + "/" + fileName;
         jdbc.update("UPDATE sys_contract SET signed_pdf_url = ?, update_time = NOW() WHERE contract_id = ?",
                 pdfUrl, contractId);
@@ -1380,56 +1365,30 @@ public class TradeContractService
         return detail;
     }
 
-    /** 合同产物目录（profile/contract/{id}），确保存在并返回绝对路径。 */
-    private Path contractDir(Long contractId)
+    /** 删除合同目录下的源 PDF 与分页图（source_*.pdf / page_*.png），用于重新上传或切回模板前清场；保留最终 signed pdf。 */
+    private void cleanContractUploadArtifacts(Long contractId)
     {
-        Path dirPath = Paths.get(RuoYiConfig.getProfile() + "/contract/" + contractId).toAbsolutePath().normalize();
+        storage.deletePrefix("contract/" + contractId + "/page_");
+        storage.deletePrefix("contract/" + contractId + "/source_");
+    }
+
+    /** 把 /profile 图片物化到本地并转成渲染器可读取的 URI；图片缺失时保留原地址。 */
+    private java.net.URI resolveProfileImage(String url)
+    {
         try
         {
-            if (!Files.exists(dirPath))
-            {
-                Files.createDirectories(dirPath);
-            }
+            return storage.materializeUrl(url).toPath().toUri();
         }
-        catch (IOException e)
+        catch (Exception e)
         {
-            throw new RuntimeException("创建合同目录失败: " + e.getMessage());
-        }
-        return dirPath;
-    }
-
-    /** 删除合同目录下的源 PDF 与分页图（source_*.pdf / page_*.png），用于重新上传或切回模板前清场；保留最终 signed pdf。 */
-    private void cleanContractUploadArtifacts(Path dirPath)
-    {
-        java.io.File[] files = dirPath.toFile().listFiles();
-        if (files == null)
-        {
-            return;
-        }
-        for (java.io.File f : files)
-        {
-            String name = f.getName();
-            if (name.startsWith("page_") || name.startsWith("source_"))
-            {
-                if (!f.delete())
-                {
-                    log.warn("清理合同上传产物失败: {}", f.getAbsolutePath());
-                }
-            }
+            log.warn("合同资源无法读取，PDF 中保留原地址: {}", url);
+            return null;
         }
     }
 
-    /** 将 /profile 相对 URL 转为本地绝对文件路径（与静态资源映射一致）。 */
-    private String profileUrlToLocalPath(String url)
-    {
-        String prefix = Constants.RESOURCE_PREFIX;
-        String relative = url.startsWith(prefix) ? url.substring(prefix.length()) : url;
-        return RuoYiConfig.getProfile() + relative;
-    }
-
-    /** 读取 /profile 相对 URL 指向的本地文件字节。 */
+    /** 读取 /profile 相对 URL 指向的文件字节（本地缺失时从 MinIO 回源）。 */
     private byte[] readProfileBytes(String url) throws IOException
     {
-        return Files.readAllBytes(Paths.get(profileUrlToLocalPath(url)));
+        return storage.readBytes(url);
     }
 }

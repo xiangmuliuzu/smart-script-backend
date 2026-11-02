@@ -7,6 +7,7 @@ import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.common.core.page.TableDataInfo;
 import com.ruoyi.common.enums.BusinessType;
 import com.ruoyi.common.utils.file.FileUtils;
+import com.ruoyi.framework.storage.ProfileStorageService;
 import com.ruoyi.web.service.pc.ContractManageService;
 import com.smartscript.platform.trade.service.TradeContractService;
 import com.smartscript.platform.trade.support.ContractHtmlSupport;
@@ -25,12 +26,14 @@ public class ContractManageController extends BaseController {
     private final ContractManageService contractService;
     private final ContractPdfRenderer pdfRenderer;
     private final TradeContractService tradeContractService;
+    private final ProfileStorageService storage;
 
     public ContractManageController(ContractManageService contractService, ContractPdfRenderer pdfRenderer,
-                                    TradeContractService tradeContractService) {
+                                    TradeContractService tradeContractService, ProfileStorageService storage) {
         this.contractService = contractService;
         this.pdfRenderer = pdfRenderer;
         this.tradeContractService = tradeContractService;
+        this.storage = storage;
     }
 
     @PreAuthorize("@ss.hasPermi('smartscript:copyright:contract:list')")
@@ -113,13 +116,22 @@ public class ContractManageController extends BaseController {
             response.sendError(HttpStatus.NOT_FOUND, "合同正文缺失，无法下载");
             return;
         }
-        // 下载时合成包含签名/印章的 PDF，并将 /profile/ 图片路径转为本地文件路径供渲染读取
+        // 下载时合成包含签名/印章的 PDF，并先把 /profile 图片物化到本地供渲染读取
         String html = contractService.injectSignatureImages(String.valueOf(contentObj), contract);
-        byte[] pdf = pdfRenderer.render(ContractHtmlSupport.resolveProfileImages(html));
+        byte[] pdf = pdfRenderer.render(ContractHtmlSupport.resolveProfileImages(html, this::resolveImage));
         response.setContentType("application/pdf");
         response.setContentLength(pdf.length);
         FileUtils.setAttachmentResponseHeader(response, contractNo + ".pdf");
         response.getOutputStream().write(pdf);
+    }
+
+    /** 合同 PDF 渲染前物化 /profile 图片；缺失时保留原地址，不阻断下载。 */
+    private java.net.URI resolveImage(String url) {
+        try {
+            return storage.materializeUrl(url).toPath().toUri();
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     /**
