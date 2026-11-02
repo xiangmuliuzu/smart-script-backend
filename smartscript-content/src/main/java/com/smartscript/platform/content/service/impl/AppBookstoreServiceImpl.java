@@ -1,7 +1,9 @@
 package com.smartscript.platform.content.service.impl;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
@@ -16,6 +18,8 @@ import com.smartscript.platform.content.domain.SysCategory;
 import com.smartscript.platform.content.domain.SysTag;
 import com.smartscript.platform.content.domain.SysWorkChapter;
 import com.smartscript.platform.content.domain.SysWorkFile;
+import com.smartscript.platform.content.dto.AppCategoryNavDto;
+import com.smartscript.platform.content.dto.AppCategoryNodeDto;
 import com.smartscript.platform.content.dto.AppChapterDetailDto;
 import com.smartscript.platform.content.dto.AppChapterDto;
 import com.smartscript.platform.content.dto.AppChapterListDto;
@@ -67,6 +71,12 @@ public class AppBookstoreServiceImpl implements IAppBookstoreService
 
     /** 每页条数上限 */
     private static final int PAGE_SIZE_MAX = 50;
+
+    /** 热门标签维度最多下发的标签数 */
+    private static final int HOT_TAG_LIMIT = 12;
+
+    /** 热门题材维度最多下发的题材数 */
+    private static final int HOT_THEME_LIMIT = 8;
 
     /** 榜单默认条数 */
     private static final int DEFAULT_RANKING_LIMIT = 10;
@@ -142,9 +152,134 @@ public class AppBookstoreServiceImpl implements IAppBookstoreService
     }
 
     @Override
-    public List<SysTag> listTags(String tagType, Long categoryId)
+    public List<AppCategoryNodeDto> listCategoryTree()
     {
-        return tagMapper.selectAppTagList(tagType, categoryId);
+        SysCategory query = new SysCategory();
+        query.setStatus(STATUS_NORMAL);
+        // 一次查询全量正常分类（Mapper 已按 sort, category_id 升序），避免逐层查询
+        List<SysCategory> rows = categoryMapper.selectCategoryList(query);
+        Map<Long, AppCategoryNodeDto> nodes = new LinkedHashMap<>();
+        for (SysCategory row : rows)
+        {
+            nodes.put(row.getCategoryId(), toCategoryNode(row));
+        }
+        List<AppCategoryNodeDto> roots = new ArrayList<>();
+        for (SysCategory row : rows)
+        {
+            AppCategoryNodeDto node = nodes.get(row.getCategoryId());
+            AppCategoryNodeDto parent = row.getParentId() == null ? null : nodes.get(row.getParentId());
+            if (parent == null)
+            {
+                // 顶级分类；父级被停用/缺失时也提升为根，避免分类从树中消失
+                roots.add(node);
+            }
+            else
+            {
+                parent.getChildren().add(node);
+            }
+        }
+        return roots;
+    }
+
+    private static AppCategoryNodeDto toCategoryNode(SysCategory row)
+    {
+        AppCategoryNodeDto node = new AppCategoryNodeDto();
+        node.setCategoryId(row.getCategoryId());
+        node.setCategoryName(row.getCategoryName());
+        node.setCategoryType(row.getCategoryType());
+        node.setParentId(row.getParentId());
+        node.setSort(row.getSort());
+        return node;
+    }
+
+    @Override
+    public List<SysTag> listTags(String tagType, Long categoryId, Long channelId)
+    {
+        return tagMapper.selectAppTagList(tagType, categoryId, channelId);
+    }
+
+    @Override
+    public AppCategoryNavDto getCategoryNav(Long channelId)
+    {
+        AppCategoryNavDto nav = new AppCategoryNavDto();
+
+        SysCategory query = new SysCategory();
+        query.setStatus(STATUS_NORMAL);
+        List<SysCategory> rows = categoryMapper.selectCategoryList(query);
+
+        // 频道 Tab：只取频道类顶级分类，展示名去掉「频道」后缀
+        List<AppCategoryNavDto.Channel> channelDtos = new ArrayList<>();
+        for (SysCategory row : rows)
+        {
+            Long parentId = row.getParentId();
+            if (parentId == null || parentId == 0L)
+            {
+                if ("channel".equals(row.getCategoryType())
+                        || (row.getCategoryName() != null && row.getCategoryName().endsWith("频道")))
+                {
+                    String name = row.getCategoryName() == null ? "" : row.getCategoryName().replaceAll("频道$", "");
+                    channelDtos.add(new AppCategoryNavDto.Channel(row.getCategoryId(), name));
+                }
+            }
+        }
+        nav.setChannels(channelDtos);
+        if (channelDtos.isEmpty())
+        {
+            return nav;
+        }
+
+        final Long requestChannelId = channelId;
+        Long selectedId = requestChannelId;
+        if (requestChannelId == null
+                || channelDtos.stream().noneMatch(c -> c.getChannelId().equals(requestChannelId)))
+        {
+            selectedId = channelDtos.get(0).getChannelId();
+        }
+        nav.setChannelId(selectedId);
+
+        // 从 sys_tag 表读取当前频道的所有标签
+        List<SysTag> allTags = tagMapper.selectAppTagList(null, null, selectedId);
+
+        // 四个维度：热门标签 / 主题 / 角色 / 情节，按 tag_type 分组
+        nav.getDimensions().add(buildTagTypeDimension("hot", "热门标签", allTags));
+        nav.getDimensions().add(buildTagTypeDimension("theme", "主题", allTags));
+        nav.getDimensions().add(buildTagTypeDimension("role", "角色", allTags));
+        nav.getDimensions().add(buildTagTypeDimension("plot", "情节", allTags));
+
+        return nav;
+    }
+
+    /** 按 tag_type 构建维度：所有标签平铺，无分组标题 */
+    private static AppCategoryNavDto.Dimension buildTagTypeDimension(String tagType, String name, List<SysTag> allTags)
+    {
+        AppCategoryNavDto.Dimension dimension = new AppCategoryNavDto.Dimension(tagType, name);
+        AppCategoryNavDto.Group group = new AppCategoryNavDto.Group("");
+
+        for (SysTag tag : allTags)
+        {
+            if (tagType.equals(tag.getTagType()))
+            {
+                group.getItems().add(tagItem(tag));
+            }
+        }
+
+        if (!group.getItems().isEmpty())
+        {
+            dimension.getGroups().add(group);
+        }
+        return dimension;
+    }
+
+    private static AppCategoryNavDto.Item categoryItem(SysCategory category, int workCount)
+    {
+        return new AppCategoryNavDto.Item("category", category.getCategoryId(),
+                category.getCategoryName(), workCount);
+    }
+
+    private static AppCategoryNavDto.Item tagItem(SysTag tag)
+    {
+        return new AppCategoryNavDto.Item("tag", tag.getTagId(), tag.getTagName(),
+                tag.getUseCount() == null ? 0 : tag.getUseCount());
     }
 
     @Override

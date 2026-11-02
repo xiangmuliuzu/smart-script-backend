@@ -30,11 +30,13 @@ public interface SysTagMapper
      * 按 sort 升序（位次决定展示顺序，不再由 use_count 热度覆盖位次）。
      * categoryId 有值时只返回该分类下已上架作品关联过的标签（接口文档表 2-126 的 category_id）。
      *
-     * @param tagType    标签类型（可选）
+     * @param tagType    标签维度（可选，role/plot）
      * @param categoryId 分类ID（可选，按分类收敛标签）
+     * @param channelId  频道ID（可选；命中本频道标签 + 男女通用标签）
      * @return 标签集合
      */
-    public List<SysTag> selectAppTagList(@Param("tagType") String tagType, @Param("categoryId") Long categoryId);
+    public List<SysTag> selectAppTagList(@Param("tagType") String tagType, @Param("categoryId") Long categoryId,
+            @Param("channelId") Long channelId);
 
     /**
      * 按作品批量查询关联标签（App 侧只读）

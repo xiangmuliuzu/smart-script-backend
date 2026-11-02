@@ -313,7 +313,16 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 			AND w.author_id = #{authorId}
 		</if>
 		<if test="categoryId != null">
-			AND w.genre_id = #{categoryId}
+			<!-- 分类筛选取「自身 + 直接子级 + 孙级」，支持频道/题材点击后聚合整个子树的作品 -->
+			AND w.genre_id IN (
+				SELECT category_id FROM sys_category WHERE category_id = #{categoryId}
+				UNION ALL
+				SELECT category_id FROM sys_category WHERE parent_id = #{categoryId}
+				UNION ALL
+				SELECT c3.category_id FROM sys_category c3
+				JOIN sys_category c2 ON c2.category_id = c3.parent_id
+				WHERE c2.parent_id = #{categoryId}
+			)
 		</if>
 		<if test="tagId != null">
 			AND exists (select 1 from sys_work_tag wt where wt.work_id = w.work_id and wt.tag_id = #{tagId})

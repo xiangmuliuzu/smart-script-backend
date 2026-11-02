@@ -17,8 +17,17 @@ public class AppTagDto
     /** 标签名称 */
     private String tagName;
 
-    /** 标签类型 */
+    /** 标签维度（role 角色 / plot 情节） */
     private String tagType;
+
+    /** 标签分组 */
+    private String groupName;
+
+    /** 所属频道ID（NULL=通用） */
+    private Long channelId;
+
+    /** 使用数量 */
+    private Integer useCount;
 
     public Integer getTagId()
     {
@@ -48,5 +57,35 @@ public class AppTagDto
     public void setTagType(String tagType)
     {
         this.tagType = tagType;
+    }
+
+    public String getGroupName()
+    {
+        return groupName;
+    }
+
+    public void setGroupName(String groupName)
+    {
+        this.groupName = groupName;
+    }
+
+    public Long getChannelId()
+    {
+        return channelId;
+    }
+
+    public void setChannelId(Long channelId)
+    {
+        this.channelId = channelId;
+    }
+
+    public Integer getUseCount()
+    {
+        return useCount;
+    }
+
+    public void setUseCount(Integer useCount)
+    {
+        this.useCount = useCount;
     }
 }

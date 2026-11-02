@@ -32,8 +32,8 @@ public class SysTagServiceImpl implements ISysTagService
     /** 状态：正常 */
     private static final String STATUS_NORMAL = "0";
 
-    /** 标签类型：已收敛为单一值（情节标签），与前端 contentEnum.js TAG_TYPE 保持一致 */
-    private static final String TAG_TYPE_THEME = "theme";
+    /** 标签维度：缺省为情节标签 */
+    private static final String TAG_TYPE_DEFAULT = "plot";
 
     @Autowired
     private SysTagMapper tagMapper;
@@ -78,10 +78,10 @@ public class SysTagServiceImpl implements ISysTagService
         {
             tag.setStatus(STATUS_NORMAL);
         }
-        // tag_type 云端列 NOT NULL 无默认值，且类型已收敛为单一值，缺失时兜底（无文档依据，反推）
+        // tag_type 云端列 NOT NULL 无默认值；语义为维度，缺失时兜底为情节标签
         if (StringUtils.isEmpty(tag.getTagType()))
         {
-            tag.setTagType(TAG_TYPE_THEME);
+            tag.setTagType(TAG_TYPE_DEFAULT);
         }
 
         // 位次：未指定则追加到末尾；指定则占用该位次（已被占用时原 k..N 依次后移一位）

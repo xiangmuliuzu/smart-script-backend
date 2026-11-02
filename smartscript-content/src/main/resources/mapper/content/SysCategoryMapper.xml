@@ -110,6 +110,36 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		select count(1) from sys_category where parent_id = #{categoryId}
 	</select>
 
+	<!-- 分类层级（1=顶级 2=二级 3=三级）：沿 parent_id 向上递归；不存在返回 0 -->
+	<select id="selectCategoryLevel" resultType="int">
+		WITH RECURSIVE ancestors AS (
+			SELECT category_id, parent_id, 1 AS lvl
+			FROM sys_category
+			WHERE category_id = #{categoryId}
+			UNION ALL
+			SELECT c.category_id, c.parent_id, a.lvl + 1
+			FROM sys_category c
+			JOIN ancestors a ON c.category_id = a.parent_id
+			WHERE a.lvl &lt; 32
+		)
+		SELECT COALESCE(MAX(lvl), 0) FROM ancestors
+	</select>
+
+	<!-- 自身子树高度（含自身）：向下递归取最大深度；不存在返回 0 -->
+	<select id="selectSubtreeHeight" resultType="int">
+		WITH RECURSIVE subtree AS (
+			SELECT category_id, 1 AS height
+			FROM sys_category
+			WHERE category_id = #{categoryId}
+			UNION ALL
+			SELECT c.category_id, s.height + 1
+			FROM sys_category c
+			JOIN subtree s ON c.parent_id = s.category_id
+			WHERE s.height &lt; 32
+		)
+		SELECT COALESCE(MAX(height), 0) FROM subtree
+	</select>
+
 	<!-- 前移：当前分类从 oldSort 移到 newSort（newSort < oldSort），中间分类整体后移一位 -->
 	<update id="shiftSortForward">
 		update sys_category set sort = sort + 1
