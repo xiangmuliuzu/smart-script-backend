@@ -244,7 +244,19 @@ public class AiServiceClient
      */
     private AiCallResult streamChat(String system, String user, Consumer<String> onDelta)
     {
-        if (apiKey.isBlank())
+        return streamChat(system, user, onDelta, null, null, null);
+    }
+
+    /**
+     * 流式调用（可按渠道覆盖 baseUrl / apiKey / model；传 null 用构造默认）。
+     */
+    private AiCallResult streamChat(String system, String user, Consumer<String> onDelta,
+                                    String baseUrl, String apiKey, String model)
+    {
+        String url = resolveBaseUrl(baseUrl);
+        String key = resolveApiKey(apiKey);
+        String resolvedModel = resolveModel(model);
+        if (key.isBlank())
         {
             throw new AiServiceUnavailableException("AI 服务未配置，请联系管理员");
         }
@@ -252,7 +264,7 @@ public class AiServiceClient
         messages.add(message("system", system));
         messages.add(message("user", user));
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("model", model);
+        body.put("model", resolvedModel);
         body.put("messages", messages);
         body.put("max_tokens", 4096);
         body.put("temperature", 0.8);
@@ -261,10 +273,10 @@ public class AiServiceClient
         {
             String payload = objectMapper.writeValueAsString(body);
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(baseUrl + "/v1/chat/completions"))
+                    .uri(URI.create(url + "/v1/chat/completions"))
                     .timeout(java.time.Duration.ofSeconds(120))
                     .header("Content-Type", "application/json")
-                    .header("Authorization", "Bearer " + apiKey)
+                    .header("Authorization", "Bearer " + key)
                     .header("Accept", "text/event-stream")
                     .POST(HttpRequest.BodyPublishers.ofString(payload, StandardCharsets.UTF_8))
                     .build();
@@ -278,7 +290,7 @@ public class AiServiceClient
             boolean completed = false;
             String errorMessage = "AI 未返回有效内容，请稍后重试";
             int totalTokens = 0;
-            String modelName = model;
+            String modelName = resolvedModel;
             try (BufferedReader reader = new BufferedReader(
                     new InputStreamReader(response.body(), StandardCharsets.UTF_8)))
             {
@@ -304,11 +316,8 @@ public class AiServiceClient
                     {
                         totalTokens = usage; // 最后一个带 usage 的块为准（DeepSeek 流式最后一条）
                     }
-                    String m = parseSseModel(data);
-                    if (m != null && !m.isBlank())
-                    {
-                        modelName = m;
-                    }
+                    // 注意：不回填 SSE 响应里的 model（DeepSeek 会回显别名如 deepseek-flash），
+                    // 落库统一用请求模型名，保证记录展示与用户选择一致。
                     String delta = parseSseDelta(data);
                     if (delta != null && !delta.isEmpty())
                     {
@@ -431,7 +440,18 @@ public class AiServiceClient
      */
     private AiCallResult chat(String system, String user)
     {
-        if (apiKey.isBlank())
+        return chat(system, user, null, null, null);
+    }
+
+    /**
+     * 调用 Chat Completions（可按渠道覆盖 baseUrl / apiKey / model；传 null 用构造默认）。
+     */
+    private AiCallResult chat(String system, String user, String baseUrl, String apiKey, String model)
+    {
+        String url = resolveBaseUrl(baseUrl);
+        String key = resolveApiKey(apiKey);
+        String m = resolveModel(model);
+        if (key.isBlank())
         {
             throw new AiServiceUnavailableException("AI 服务未配置，请联系管理员");
         }
@@ -439,7 +459,7 @@ public class AiServiceClient
         messages.add(message("system", system));
         messages.add(message("user", user));
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("model", model);
+        body.put("model", m);
         body.put("messages", messages);
         body.put("max_tokens", 4096);
         body.put("temperature", 0.8);
@@ -448,9 +468,9 @@ public class AiServiceClient
         {
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
-            headers.setBearerAuth(apiKey);
+            headers.setBearerAuth(key);
             ResponseEntity<String> response = restTemplate.postForEntity(
-                    baseUrl + "/v1/chat/completions",
+                    url + "/v1/chat/completions",
                     new HttpEntity<>(body, headers), String.class);
             String raw = response.getBody();
             if (raw == null || raw.isBlank())
@@ -464,7 +484,8 @@ public class AiServiceClient
                 throw new AiServiceUnavailableException("AI 未返回有效内容，请稍后重试");
             }
             int totalTokens = root.path("usage").path("total_tokens").asInt(0);
-            String modelName = root.path("model").asText(model);
+            // 落库统一用请求模型名（DeepSeek 响应 model 会回显别名，如 deepseek-chat → deepseek-flash）
+            String modelName = m;
             return new AiCallResult(content.trim(), totalTokens, modelName);
         }
         catch (AiServiceUnavailableException e)
@@ -476,6 +497,121 @@ public class AiServiceClient
             log.error("AI chat call failed: {}", e.toString(), e);
             throw new AiServiceUnavailableException("AI 服务不可用，请稍后重试");
         }
+    }
+
+    // ================================================================
+    // 渠道参数覆盖：按管理员配置的 AI 渠道（baseUrl / apiKey / model）调用。
+    // 与无参版本语义一致，仅 URL / 密钥 / 模型取自渠道；传 null 时回退构造默认。
+    // ================================================================
+
+    public AiCallResult write(String prompt, String type, String skillContent, String baseUrl, String apiKey, String model)
+    {
+        String typeHint = (type == null || type.isBlank()) ? "" : "\n写作类型：" + type;
+        String system = "你是一名资深网络小说写手，擅长创作节奏紧凑、画面感强、对话自然的小说正文。"
+                + "请根据用户的要求直接创作小说正文，不要解释、不要标题、不要任何前后缀。";
+        return chat(appendSkill(system, skillContent), prompt + typeHint, baseUrl, apiKey, model);
+    }
+
+    public AiCallResult polish(String content, String style, String skillContent, String baseUrl, String apiKey, String model)
+    {
+        String styleHint = (style == null || style.isBlank()) ? "自然流畅" : style;
+        String system = "你是一名资深文字编辑。请润色用户提供的文本，保持原意、人物关系与关键情节，"
+                + "提升表达、节奏与画面感，目标风格：" + styleHint + "。"
+                + "直接输出润色后的正文，不要解释、不要标注修改说明。";
+        return chat(appendSkill(system, skillContent), content, baseUrl, apiKey, model);
+    }
+
+    public AiCallResult outline(String inspiration, String genre, String style, String skillContent, String baseUrl, String apiKey, String model)
+    {
+        String genreHint = (genre == null || genre.isBlank()) ? "不限" : genre;
+        String styleHint = (style == null || style.isBlank()) ? "不限" : style;
+        String insp = (inspiration == null || inspiration.isBlank()) ? "" : inspiration;
+        String system = "你是一名资深网文策划编辑，擅长帮完全不懂创作的普通人快速产出专业级剧本大纲。"
+                + "请根据用户给出的灵感、题材与风格，生成一份结构完整、可直接展开成剧本的小说大纲；"
+                + "要求用通俗易懂的语言，每个分幕写清推进逻辑与关键冲突，让新手照着写也能写成不错的故事。"
+                + "必须只输出一个合法 JSON 对象，不要输出任何解释，也不要使用 Markdown 代码块。"
+                + "JSON 结构如下："
+                + "{\"title\":\"作品名\",\"logline\":\"一句话故事\","
+                + "\"characters\":[{\"name\":\"角色名\",\"role\":\"身份或定位\"}],"
+                + "\"acts\":[{\"name\":\"第一幕\",\"summary\":\"本幕概述\",\"beats\":[\"关键情节1\",\"关键情节2\"]}]}";
+        String user = "故事灵感：" + insp + "\n题材：" + genreHint + "\n风格：" + styleHint;
+        return chat(appendSkill(system, skillContent), user, baseUrl, apiKey, model);
+    }
+
+    public AiCallResult storyboard(String script, String style, String skillContent, String baseUrl, String apiKey, String model)
+    {
+        String styleHint = (style == null || style.isBlank()) ? "电影感" : style;
+        String system = "你是一名资深影视分镜师，擅长把剧本转化为可直接用于拍摄或出售的专业分镜脚本。"
+                + "请根据用户提供的剧本文本，按场景拆解为完整分镜；每场戏开头写清场次与场景地点，"
+                + "每个镜头依次给出：镜号、景别、运镜、时长、画面内容、台词、音效/配乐、转场。"
+                + "画面内容要具体到人物动作、表情与构图；台词直接引用或精简改写剧本对白；"
+                + "整体风格：" + styleHint + "。直接用中文输出分镜正文，不要解释、不要前后缀。";
+        String user = "剧本文本：\n" + script;
+        return chat(appendSkill(system, skillContent), user, baseUrl, apiKey, model);
+    }
+
+    public AiCallResult writeStream(String prompt, String type, String skillContent, Consumer<String> onDelta,
+                                    String baseUrl, String apiKey, String model)
+    {
+        String typeHint = (type == null || type.isBlank()) ? "" : "\n写作类型：" + type;
+        String system = "你是一名资深网络小说写手，擅长创作节奏紧凑、画面感强、对话自然的小说正文。"
+                + "请根据用户的要求直接创作小说正文，不要解释、不要标题、不要任何前后缀。";
+        return streamChat(appendSkill(system, skillContent), prompt + typeHint, onDelta, baseUrl, apiKey, model);
+    }
+
+    public AiCallResult polishStream(String content, String style, String skillContent, Consumer<String> onDelta,
+                                     String baseUrl, String apiKey, String model)
+    {
+        String styleHint = (style == null || style.isBlank()) ? "自然流畅" : style;
+        String system = "你是一名资深文字编辑。请润色用户提供的文本，保持原意、人物关系与关键情节，"
+                + "提升表达、节奏与画面感，目标风格：" + styleHint + "。"
+                + "直接输出润色后的正文，不要解释、不要标注修改说明。";
+        return streamChat(appendSkill(system, skillContent), content, onDelta, baseUrl, apiKey, model);
+    }
+
+    public AiCallResult outlineStream(String inspiration, String genre, String style, String skillContent, Consumer<String> onDelta,
+                                      String baseUrl, String apiKey, String model)
+    {
+        String genreHint = (genre == null || genre.isBlank()) ? "不限" : genre;
+        String styleHint = (style == null || style.isBlank()) ? "不限" : style;
+        String insp = (inspiration == null || inspiration.isBlank()) ? "" : inspiration;
+        String system = "你是一名资深网文策划编辑，擅长帮完全不懂创作的普通人快速产出专业级剧本大纲。"
+                + "请根据故事灵感、题材与风格生成小说剧本大纲，依次包含书名、一句话简介、角色、分幕剧情和关键情节，"
+                + "用通俗易懂的语言，让新手照着写也能写成不错的故事。以中文标题分段输出可读文本。"
+                + "直接从书名开始，不要解释，不要 JSON，不要 Markdown 代码块。";
+        String user = "故事灵感：" + insp + "\n题材：" + genreHint + "\n风格：" + styleHint;
+        return streamChat(appendSkill(system, skillContent), user, onDelta, baseUrl, apiKey, model);
+    }
+
+    public AiCallResult storyboardStream(String script, String style, String skillContent, Consumer<String> onDelta,
+                                         String baseUrl, String apiKey, String model)
+    {
+        String styleHint = (style == null || style.isBlank()) ? "电影感" : style;
+        String system = "你是一名资深影视分镜师，擅长把剧本转化为可直接用于拍摄或出售的专业分镜脚本。"
+                + "请根据用户提供的剧本文本，按场景拆解为完整分镜；每场戏开头写清场次与场景地点，"
+                + "每个镜头依次给出：镜号、景别、运镜、时长、画面内容、台词、音效/配乐、转场。"
+                + "画面内容要具体到人物动作、表情与构图；台词直接引用或精简改写剧本对白；"
+                + "整体风格：" + styleHint + "。直接用中文输出分镜正文，不要解释、不要前后缀。";
+        String user = "剧本文本：\n" + script;
+        return streamChat(appendSkill(system, skillContent), user, onDelta, baseUrl, apiKey, model);
+    }
+
+    /** 渠道 baseUrl 覆盖（null/空白 → 构造默认） */
+    private String resolveBaseUrl(String baseUrl)
+    {
+        return (baseUrl == null || baseUrl.isBlank()) ? this.baseUrl : trimTrailingSlash(baseUrl);
+    }
+
+    /** 渠道 apiKey 覆盖（null/空白 → 构造默认） */
+    private String resolveApiKey(String apiKey)
+    {
+        return (apiKey == null || apiKey.isBlank()) ? this.apiKey : apiKey.trim();
+    }
+
+    /** 渠道 model 覆盖（null/空白 → 构造默认） */
+    private String resolveModel(String model)
+    {
+        return (model == null || model.isBlank()) ? this.model : model.trim();
     }
 
     /**

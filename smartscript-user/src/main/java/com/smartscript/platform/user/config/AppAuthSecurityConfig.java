@@ -105,6 +105,8 @@ public class AppAuthSecurityConfig
                         .requestMatchers(HttpMethod.GET,
                                 "/api/v1/content/banners",
                                 "/api/v1/content/categories",
+                                "/api/v1/content/categories/tree",
+                                "/api/v1/content/categories/nav",
                                 "/api/v1/content/tags",
                                 "/api/v1/content/works",
                                 "/api/v1/content/works/**",

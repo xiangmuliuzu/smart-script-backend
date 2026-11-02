@@ -51,7 +51,7 @@ class SysTagServiceSortTest
     }
 
     @Test
-    @DisplayName("新增未带类型：兜底为收敛后的单一类型（theme），避免 tag_type 非空约束报错")
+    @DisplayName("新增未带类型：兜底为情节维度（plot），避免 tag_type 非空约束报错")
     void insertDefaultsTagType()
     {
         when(tagMapper.selectMaxSort()).thenReturn(0);
@@ -59,7 +59,7 @@ class SysTagServiceSortTest
         SysTag tag = tag(null, null);
         service.insertTag(tag);
 
-        assertEquals("theme", tag.getTagType());
+        assertEquals("plot", tag.getTagType());
         verify(tagMapper).insertTag(tag);
     }
 

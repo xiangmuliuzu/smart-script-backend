@@ -35,6 +35,9 @@ public class SysCategoryServiceImpl implements ISysCategoryService
     /** 分类类型：已收敛为单一值（题材），与前端 contentEnum.js CATEGORY_TYPE 保持一致 */
     private static final String CATEGORY_TYPE_THEME = "theme";
 
+    /** 分类最大层级：频道 → 题材 → 细分 */
+    private static final int MAX_CATEGORY_LEVEL = 3;
+
     @Autowired
     private SysCategoryMapper categoryMapper;
 
@@ -84,6 +87,9 @@ public class SysCategoryServiceImpl implements ISysCategoryService
             category.setCategoryType(CATEGORY_TYPE_THEME);
         }
 
+        // 父级合法性：存在且启用，且新增后层级不超过三级
+        validateNewParent(category.getParentId());
+
         // 位次：未指定则追加到末尾；指定则占用该位次（已被占用时原 k..N 依次后移一位）
         int tail = nextTailSort();
         if (StringUtils.isNull(category.getSort()))
@@ -110,6 +116,12 @@ public class SysCategoryServiceImpl implements ISysCategoryService
     @Transactional
     public int updateCategory(SysCategory category)
     {
+        // 父级调整校验：父级存在且启用、不挂到自身/后代下、移动后层级不超过三级
+        if (category.getParentId() != null)
+        {
+            validateParentForUpdate(category.getCategoryId(), category.getParentId());
+        }
+
         if (category.getSort() != null)
         {
             // 位次维护前先串行化同类写入，避免并发下位次重复
@@ -175,6 +187,97 @@ public class SysCategoryServiceImpl implements ISysCategoryService
         int rows = categoryMapper.updateCategory(update);
         assertSortUnique(update.getSort(), update.getCategoryId());
         return rows;
+    }
+
+    /**
+     * 新增父级校验：父级存在且启用，且新增后不超过三级（频道 → 题材 → 细分）
+     */
+    private void validateNewParent(Long parentId)
+    {
+        if (parentId == null || parentId.longValue() == 0L)
+        {
+            return;
+        }
+        SysCategory parent = categoryMapper.selectCategoryById(parentId);
+        if (parent == null)
+        {
+            throw new ServiceException("父级分类不存在");
+        }
+        if (!STATUS_NORMAL.equals(parent.getStatus()))
+        {
+            throw new ServiceException("父级分类已停用，不能在其下新增分类");
+        }
+        int parentLevel = categoryMapper.selectCategoryLevel(parentId);
+        if (parentLevel >= MAX_CATEGORY_LEVEL)
+        {
+            throw new ServiceException("分类最多三级（频道→题材→细分），不能在第三级分类下新增子分类");
+        }
+    }
+
+    /**
+     * 修改父级校验：父级存在且启用；不得挂到自身或后代下（防环）；
+     * 且「父级层级 + 自身子树高度」不得超过 3，避免整棵子树被移动后超层。
+     */
+    private void validateParentForUpdate(Long categoryId, Long parentId)
+    {
+        if (categoryId == null)
+        {
+            throw new ServiceException("分类不存在，无法修改父级分类");
+        }
+        int subtreeHeight = categoryMapper.selectSubtreeHeight(categoryId);
+        if (subtreeHeight == 0)
+        {
+            throw new ServiceException("分类不存在，无法修改父级分类");
+        }
+        // 移到顶级：只需自身子树高度不超过三级
+        if (parentId.longValue() == 0L)
+        {
+            if (subtreeHeight > MAX_CATEGORY_LEVEL)
+            {
+                throw new ServiceException("分类最多三级（频道→题材→细分），不能移动到顶级");
+            }
+            return;
+        }
+        SysCategory parent = categoryMapper.selectCategoryById(parentId);
+        if (parent == null)
+        {
+            throw new ServiceException("父级分类不存在");
+        }
+        if (!STATUS_NORMAL.equals(parent.getStatus()))
+        {
+            throw new ServiceException("父级分类已停用，不能挂载到此分类下");
+        }
+        assertNoCycle(categoryId, parentId);
+        int parentLevel = categoryMapper.selectCategoryLevel(parentId);
+        if (parentLevel + subtreeHeight > MAX_CATEGORY_LEVEL)
+        {
+            throw new ServiceException("分类最多三级（频道→题材→细分），父级层级加自身子树高度超过限制");
+        }
+    }
+
+    /**
+     * 防环：沿候选父级向上回溯，命中自身即说明父级位于自身子树内
+     */
+    private void assertNoCycle(Long categoryId, Long parentId)
+    {
+        Long cursor = parentId;
+        for (int depth = 0; cursor != null && cursor.longValue() != 0L && depth < 32; depth++)
+        {
+            if (cursor.equals(categoryId))
+            {
+                throw new ServiceException("不能把分类挂到自身或自己的下级分类下");
+            }
+            SysCategory node = categoryMapper.selectCategoryById(cursor);
+            if (node == null)
+            {
+                return;
+            }
+            cursor = node.getParentId();
+        }
+        if (cursor != null && cursor.longValue() != 0L)
+        {
+            throw new ServiceException("分类层级数据异常，无法修改父级分类");
+        }
     }
 
     /**

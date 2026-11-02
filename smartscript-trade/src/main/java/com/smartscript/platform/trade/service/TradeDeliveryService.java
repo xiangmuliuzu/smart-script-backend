@@ -282,7 +282,9 @@ public class TradeDeliveryService
         {
             throw new RuntimeException("请至少上传 1 个交割文件");
         }
-        boolean hasCert = false;
+        // 必须含作品源文件（source）；版权证书 cert 可选（有无版权均可交易）。
+        // 无 cert 的交割可完成，但不会进入买方「版权」列表（见 TradeCopyrightService）。
+        boolean hasSource = false;
         for (Map<String, Object> item : files)
         {
             String fileName = str(item.get("fileName"));
@@ -296,14 +298,14 @@ public class TradeDeliveryService
             {
                 throw new RuntimeException("不支持的文件类型：" + fileType + "，允许 cert/source/doc/other");
             }
-            if (SysDeliveryFile.TYPE_CERT.equals(fileType))
+            if (SysDeliveryFile.TYPE_SOURCE.equals(fileType))
             {
-                hasCert = true;
+                hasSource = true;
             }
         }
-        if (!hasCert)
+        if (!hasSource)
         {
-            throw new RuntimeException("必须上传版权证书文件（fileType=cert）");
+            throw new RuntimeException("必须上传作品源文件（fileType=source）");
         }
     }
 
@@ -456,6 +458,7 @@ public class TradeDeliveryService
         {
             m.put("files", d.getFiles().stream().map(f -> {
                 Map<String, Object> fm = new HashMap<>();
+                fm.put("fileId", f.getFileId());
                 fm.put("fileName", f.getFileName());
                 fm.put("fileType", f.getFileType());
                 fm.put("fileUrl", f.getFileUrl());

@@ -353,4 +353,103 @@ class SysCategoryServiceTest
 
         verify(categoryMapper, times(1)).shiftSortAfterDelete(2);
     }
+
+    private SysCategory parent(Long categoryId, Long parentId, String status)
+    {
+        SysCategory category = new SysCategory();
+        category.setCategoryId(categoryId);
+        category.setParentId(parentId);
+        category.setStatus(status);
+        return category;
+    }
+
+    @Test
+    @DisplayName("新增在第三级分类下：拒绝，分类最多三级")
+    void insertUnderThirdLevelRejected()
+    {
+        when(categoryMapper.selectCategoryById(101L)).thenReturn(parent(101L, 25L, "0"));
+        when(categoryMapper.selectCategoryLevel(101L)).thenReturn(3);
+
+        SysCategory category = new SysCategory();
+        category.setCategoryName("新细分");
+        category.setParentId(101L);
+
+        assertThrows(ServiceException.class, () -> service.insertCategory(category));
+        verify(categoryMapper, never()).insertCategory(any());
+    }
+
+    @Test
+    @DisplayName("新增在停用的父级下：拒绝")
+    void insertUnderDisabledParentRejected()
+    {
+        when(categoryMapper.selectCategoryById(25L)).thenReturn(parent(25L, 146L, "1"));
+
+        SysCategory category = new SysCategory();
+        category.setCategoryName("新题材");
+        category.setParentId(25L);
+
+        assertThrows(ServiceException.class, () -> service.insertCategory(category));
+        verify(categoryMapper, never()).insertCategory(any());
+    }
+
+    @Test
+    @DisplayName("新增在第二级题材下：允许（成为第三级细分）")
+    void insertUnderSecondLevelAllowed()
+    {
+        when(categoryMapper.selectCategoryById(25L)).thenReturn(parent(25L, 146L, "0"));
+        when(categoryMapper.selectCategoryLevel(25L)).thenReturn(2);
+        when(categoryMapper.selectMaxSort()).thenReturn(69);
+
+        SysCategory category = new SysCategory();
+        category.setCategoryName("东方玄幻子类");
+        category.setParentId(25L);
+
+        service.insertCategory(category);
+
+        verify(categoryMapper).insertCategory(category);
+    }
+
+    @Test
+    @DisplayName("修改父级为自身：拒绝，防止成环")
+    void updateParentToSelfRejected()
+    {
+        when(categoryMapper.selectSubtreeHeight(9L)).thenReturn(1);
+        when(categoryMapper.selectCategoryById(9L)).thenReturn(parent(9L, 0L, "0"));
+
+        SysCategory category = category(9L, null);
+        category.setParentId(9L);
+
+        assertThrows(ServiceException.class, () -> service.updateCategory(category));
+        verify(categoryMapper, never()).updateCategory(any());
+    }
+
+    @Test
+    @DisplayName("修改父级为自身后代：拒绝，防止成环")
+    void updateParentToDescendantRejected()
+    {
+        when(categoryMapper.selectSubtreeHeight(146L)).thenReturn(2);
+        when(categoryMapper.selectCategoryById(25L)).thenReturn(parent(25L, 146L, "0"));
+
+        SysCategory category = category(146L, null);
+        category.setParentId(25L);
+
+        assertThrows(ServiceException.class, () -> service.updateCategory(category));
+        verify(categoryMapper, never()).updateCategory(any());
+    }
+
+    @Test
+    @DisplayName("移动子树后层级超过三级：拒绝")
+    void updateMovingSubtreeExceedLevelRejected()
+    {
+        when(categoryMapper.selectSubtreeHeight(25L)).thenReturn(2);
+        when(categoryMapper.selectCategoryById(32L)).thenReturn(parent(32L, 147L, "0"));
+        when(categoryMapper.selectCategoryById(147L)).thenReturn(parent(147L, 0L, "0"));
+        when(categoryMapper.selectCategoryLevel(32L)).thenReturn(2);
+
+        SysCategory category = category(25L, null);
+        category.setParentId(32L);
+
+        assertThrows(ServiceException.class, () -> service.updateCategory(category));
+        verify(categoryMapper, never()).updateCategory(any());
+    }
 }

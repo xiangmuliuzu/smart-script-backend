@@ -20,6 +20,59 @@
         order by file_id asc
     </select>
 
+    <select id="selectFileById" parameterType="Long" resultMap="SysDeliveryFileResult">
+        select file_id, delivery_id, file_name, file_type, file_url, file_size, create_by, create_time
+        from sys_delivery_file
+        where file_id = #{fileId}
+        limit 1
+    </select>
+
+    <resultMap type="com.smartscript.platform.trade.domain.BuyerCopyrightRecord" id="BuyerCopyrightResult">
+        <result property="fileId"        column="file_id" />
+        <result property="fileName"      column="file_name" />
+        <result property="fileUrl"       column="file_url" />
+        <result property="fileSize"      column="file_size" />
+        <result property="workId"        column="work_id" />
+        <result property="workTitle"     column="work_title" />
+        <result property="workCover"     column="work_cover" />
+        <result property="sellerId"      column="seller_id" />
+        <result property="sellerName"    column="seller_name" />
+        <result property="deliveryId"    column="delivery_id" />
+        <result property="deliveryNo"    column="delivery_no" />
+        <result property="orderId"       column="order_id" />
+        <result property="orderNo"       column="order_no" />
+        <result property="buyerId"       column="buyer_id" />
+        <result property="completedTime" column="completed_time" />
+        <result property="confirmTime"   column="confirm_time" />
+    </resultMap>
+
+    <!-- 买方版权台账：仅 completed 交割 + file_type=cert -->
+    <select id="selectBuyerCopyrightList" resultMap="BuyerCopyrightResult">
+        select f.file_id, f.file_name, f.file_url, f.file_size,
+               d.delivery_id, d.delivery_no, d.order_id, d.work_id, d.buyer_id, d.seller_id,
+               d.completed_time, d.confirm_time,
+               o.order_no,
+               w.title as work_title,
+               w.cover as work_cover,
+               us.nick_name as seller_name
+        from sys_delivery_file f
+        inner join sys_delivery d on f.delivery_id = d.delivery_id
+        left join sys_order o on d.order_id = o.order_id
+        left join sys_work w on d.work_id = w.work_id
+        left join sys_user us on d.seller_id = us.user_id
+        where d.buyer_id = #{buyerId}
+          and d.status = 'completed'
+          and f.file_type = 'cert'
+        <if test="keyword != null and keyword != ''">
+          and (
+            w.title like concat('%', #{keyword}, '%')
+            or us.nick_name like concat('%', #{keyword}, '%')
+            or f.file_name like concat('%', #{keyword}, '%')
+          )
+        </if>
+        order by ifnull(d.completed_time, d.confirm_time) desc, f.file_id desc
+    </select>
+
     <insert id="insertDeliveryFile" parameterType="com.smartscript.platform.trade.domain.SysDeliveryFile" useGeneratedKeys="true" keyProperty="fileId">
         insert into sys_delivery_file (
             delivery_id, file_name, file_type, file_url, file_size, create_by, create_time

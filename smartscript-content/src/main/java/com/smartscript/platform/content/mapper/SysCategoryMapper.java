@@ -132,6 +132,26 @@ public interface SysCategoryMapper
     public int countChildrenByParentId(@org.apache.ibatis.annotations.Param("categoryId") Long categoryId);
 
     /**
+     * 分类层级（1=频道/顶级，2=题材，3=细分；不存在返回 0）
+     *
+     * 沿 parent_id 向上递归，供 Service 层限制「最多三级」与父级合法性校验。
+     *
+     * @param categoryId 分类ID
+     * @return 层级；分类不存在返回 0
+     */
+    public int selectCategoryLevel(@org.apache.ibatis.annotations.Param("categoryId") Long categoryId);
+
+    /**
+     * 自身子树高度（含自身，叶节点为 1；不存在返回 0）
+     *
+     * 供 Service 层校验「父级层级 + 自身子树高度 <= 3」，防止移动子树时层级超限。
+     *
+     * @param categoryId 分类ID
+     * @return 子树最大层数；分类不存在返回 0
+     */
+    public int selectSubtreeHeight(@org.apache.ibatis.annotations.Param("categoryId") Long categoryId);
+
+    /**
      * 锁定位次写入作用域（串行化并发位次维护）
      *
      * 位次是整表共享的槽位序列，并发下「判占用 → 腾位 → 写入」的中间结果彼此不可见，

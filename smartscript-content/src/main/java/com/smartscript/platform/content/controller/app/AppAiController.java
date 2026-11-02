@@ -92,6 +92,7 @@ public class AppAiController
         request.setType(trimToNull(asString(body, "type")));
         request.setWorkId(asLong(body, "work_id", "workId"));
         request.setSkillId(asLong(body, "skill_id", "skillId"));
+        request.setModel(trimToNull(asString(body, "model")));
         try
         {
             return AppApiResponse.ok(aiWriteService.write(request));
@@ -128,6 +129,7 @@ public class AppAiController
         request.setContent(content);
         request.setStyle(trimToNull(asString(body, "style")));
         request.setSkillId(asLong(body, "skill_id", "skillId"));
+        request.setModel(trimToNull(asString(body, "model")));
         try
         {
             return AppApiResponse.ok(aiWriteService.polish(request));
@@ -175,6 +177,21 @@ public class AppAiController
     }
 
     /**
+     * 用户端可选模型列表（E 模块）
+     *
+     * 返回全部启用渠道的 {channelId, channelName, provider, models, defaultModel}
+     * （不含 apiKey），供 PC 用户端 / App 端 AI 调用页「模型选择」下拉使用。
+     *
+     * @return data = [{channelId, channelName, provider, models: [...], defaultModel}, ...]
+     */
+    @GetMapping("/models")
+    public AppApiResponse<List<Map<String, Object>>> models()
+    {
+        List<Map<String, Object>> list = aiWriteService.listEnabledModels();
+        return AppApiResponse.ok(list);
+    }
+
+    /**
      * AI 大纲请求记录（分页）
      *
      * @param page     页码（可选，默认 1）
@@ -210,6 +227,7 @@ public class AppAiController
         request.setType(trimToNull(asString(body, "type")));
         request.setWorkId(asLong(body, "work_id", "workId"));
         request.setSkillId(asLong(body, "skill_id", "skillId"));
+        request.setModel(trimToNull(asString(body, "model")));
         return streamResponse(servletRequest, delta -> {
             if (prompt == null) throw new IllegalArgumentException("prompt 不能为空");
             AppAiWriteResult result = aiWriteService.writeStream(request, delta);
@@ -227,6 +245,7 @@ public class AppAiController
         request.setContent(content);
         request.setStyle(trimToNull(asString(body, "style")));
         request.setSkillId(asLong(body, "skill_id", "skillId"));
+        request.setModel(trimToNull(asString(body, "model")));
         return streamResponse(servletRequest, delta -> {
             if (content == null) throw new IllegalArgumentException("content 不能为空");
             AppAiWriteResult result = aiWriteService.polishStream(request, delta);
@@ -245,6 +264,7 @@ public class AppAiController
         request.setStyle(trimToNull(asString(body, "style")));
         request.setWorkId(asLong(body, "work_id", "workId"));
         request.setSkillId(asLong(body, "skill_id", "skillId"));
+        request.setModel(trimToNull(asString(body, "model")));
         return streamResponse(servletRequest, delta -> {
             AppAiOutlineResult result = aiWriteService.outlineStream(request, delta);
             return "{\"done\":true,\"quotaUsed\":" + result.getQuotaUsed() + ",\"requestNo\":"
@@ -346,6 +366,7 @@ public class AppAiController
         request.setStyle(trimToNull(asString(body, "style")));
         request.setWorkId(asLong(body, "work_id", "workId"));
         request.setSkillId(asLong(body, "skill_id", "skillId"));
+        request.setModel(trimToNull(asString(body, "model")));
         try
         {
             return AppApiResponse.ok(aiWriteService.outline(request));
@@ -382,6 +403,7 @@ public class AppAiController
         request.setStyle(trimToNull(asString(body, "style")));
         request.setWorkId(asLong(body, "work_id", "workId"));
         request.setSkillId(asLong(body, "skill_id", "skillId"));
+        request.setModel(trimToNull(asString(body, "model")));
         try
         {
             return AppApiResponse.ok(aiWriteService.storyboard(request));
@@ -419,6 +441,7 @@ public class AppAiController
         request.setStyle(trimToNull(asString(body, "style")));
         request.setWorkId(asLong(body, "work_id", "workId"));
         request.setSkillId(asLong(body, "skill_id", "skillId"));
+        request.setModel(trimToNull(asString(body, "model")));
         return streamResponse(servletRequest, delta -> {
             if (script == null) throw new IllegalArgumentException("script 不能为空");
             AppAiStoryboardResult result = aiWriteService.storyboardStream(request, delta);

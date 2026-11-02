@@ -4,6 +4,8 @@ import java.util.List;
 import com.smartscript.platform.content.domain.SysBanner;
 import com.smartscript.platform.content.domain.SysCategory;
 import com.smartscript.platform.content.domain.SysTag;
+import com.smartscript.platform.content.dto.AppCategoryNavDto;
+import com.smartscript.platform.content.dto.AppCategoryNodeDto;
 import com.smartscript.platform.content.dto.AppChapterDetailDto;
 import com.smartscript.platform.content.dto.AppChapterListDto;
 import com.smartscript.platform.content.dto.AppContactDto;
@@ -46,13 +48,29 @@ public interface IAppBookstoreService
     public List<SysCategory> listCategories(String categoryType, Long parentId);
 
     /**
+     * 分类树（status 正常的全部分类，一次查询后在内存组三级树）
+     *
+     * @return 顶级频道集合，子分类按 sort 升序挂在 children 中
+     */
+    public List<AppCategoryNodeDto> listCategoryTree();
+
+    /**
      * 标签列表（status 正常的标签）
      *
-     * @param tagType    标签类型（可选）
+     * @param tagType    标签维度（可选，role/plot）
      * @param categoryId 分类ID（可选，按分类收敛标签，接口文档表 2-126）
-     * @return 标签集合（按 use_count 降序）
+     * @param channelId  频道ID（可选；命中本频道标签 + 男女通用标签）
+     * @return 标签集合（按 sort 升序）
      */
-    public List<SysTag> listTags(String tagType, Long categoryId);
+    public List<SysTag> listTags(String tagType, Long categoryId, Long channelId);
+
+    /**
+     * 分类页导航（频道 + 热门标签 / 主题 / 角色 / 情节 四维度）
+     *
+     * @param channelId 频道ID（可选，为空时回落第一个频道）
+     * @return 导航数据；无频道时 channels/dimensions 为空集合
+     */
+    public AppCategoryNavDto getCategoryNav(Long channelId);
 
     /**
      * 书城作品列表（分页）

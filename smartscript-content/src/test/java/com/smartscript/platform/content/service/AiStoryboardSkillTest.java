@@ -68,6 +68,8 @@ class AiStoryboardSkillTest
         setField(service, "writeRecordMapper", writeRecordMapper);
         setField(service, "aiServiceClient", aiServiceClient);
         setField(service, "aiSkillService", aiSkillService);
+        setField(service, "aiChannelService",
+                mock(com.smartscript.platform.content.service.IAiChannelService.class));
         setField(service, "riskCheckService", riskCheckService);
         setField(service, "identityProvider", identityProvider);
         setField(service, "jdbcTemplate", jdbcTemplate);

@@ -60,6 +60,8 @@ class AiOutlineDualWriteTest
         setField(service, "riskCheckService", riskCheckService);
         setField(service, "aiSkillService",
                 mock(com.smartscript.platform.content.service.IAiSkillService.class));
+        setField(service, "aiChannelService",
+                mock(com.smartscript.platform.content.service.IAiChannelService.class));
         setField(service, "aiRequestMapper", aiRequestMapper);
         setField(service, "writeRecordMapper", writeRecordMapper);
         setField(service, "aiServiceClient", aiServiceClient);
