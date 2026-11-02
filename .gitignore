@@ -62,3 +62,6 @@ nbdist/
 
 # Redis 本地产物
 dump.rdb
+
+# 下发缩略图缓存（ProfileFileController 按需生成，可从原图重建，不入仓）
+uploadPath/.thumbnails/
