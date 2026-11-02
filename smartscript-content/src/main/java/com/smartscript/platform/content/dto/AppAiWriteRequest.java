@@ -23,6 +23,19 @@ public class AppAiWriteRequest
     /** 导演(skill) ID（可选；命中则把 skill 内容注入 system prompt） */
     private Long skillId;
 
+    /** 用户选用的模型名（可选；命中启用渠道则按渠道调用，否则回退默认环境配置） */
+    private String model;
+
+    public String getModel()
+    {
+        return model;
+    }
+
+    public void setModel(String model)
+    {
+        this.model = model;
+    }
+
     public Long getSkillId()
     {
         return skillId;

@@ -137,4 +137,15 @@ public interface IAiWriteService
      * @return skill 轻量列表
      */
     public List<Map<String, Object>> listEnabledSkills();
+
+    /**
+     * 用户端可选模型列表（E 模块）
+     *
+     * 返回全部启用渠道的 {channelId, channelName, provider, models, defaultModel}
+     * （不含 apiKey），供 PC/App 端「模型选择」下拉使用；调用时把选中的模型名
+     * 随请求体 model 字段上传，后端按模型路由到对应渠道。
+     *
+     * @return 渠道 + 模型列表
+     */
+    public List<Map<String, Object>> listEnabledModels();
 }

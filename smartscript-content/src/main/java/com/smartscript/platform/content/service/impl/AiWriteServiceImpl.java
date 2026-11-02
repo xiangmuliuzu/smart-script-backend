@@ -32,8 +32,10 @@ import com.smartscript.platform.content.dto.AppPageResult;
 import com.smartscript.platform.content.mapper.AppAiRequestMapper;
 import com.smartscript.platform.content.mapper.AppAiWriteRecordMapper;
 import com.smartscript.platform.content.exception.AiQuotaInsufficientException;
+import com.smartscript.platform.content.domain.AiChannel;
 import com.smartscript.platform.content.service.AiCallResult;
 import com.smartscript.platform.content.service.AiServiceClient;
+import com.smartscript.platform.content.service.IAiChannelService;
 import com.smartscript.platform.content.service.IAiWriteService;
 import com.smartscript.platform.identity.IdentityProvider;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -128,6 +130,9 @@ public class AiWriteServiceImpl implements IAiWriteService
     private AiServiceClient aiServiceClient;
 
     @Autowired
+    private IAiChannelService aiChannelService;
+
+    @Autowired
     private com.smartscript.platform.content.service.IAiSkillService aiSkillService;
 
     @Autowired
@@ -162,8 +167,13 @@ public class AiWriteServiceImpl implements IAiWriteService
         requireContinuationContext(request.getPrompt());
         checkContent(identityProvider.currentUserId(), request.getPrompt());
         checkPoints(identityProvider.currentUserId());
-        AiCallResult data = aiServiceClient.write(request.getPrompt(), request.getType(),
-                resolveSkillContent(request.getSkillId()));
+        AiChannel channel = resolveChannel(request.getModel());
+        AiCallResult data = (channel == null)
+                ? aiServiceClient.write(request.getPrompt(), request.getType(),
+                        resolveSkillContent(request.getSkillId()))
+                : aiServiceClient.write(request.getPrompt(), request.getType(),
+                        resolveSkillContent(request.getSkillId()),
+                        channel.getBaseUrl(), channel.getApiKey(), request.getModel());
         String content = data.getContent();
         Long recordId = saveRecord(identityProvider.currentUserId(), request.getWorkId(),
                 resolveWriteType(request.getType()), request.getPrompt(), content,
@@ -177,8 +187,13 @@ public class AiWriteServiceImpl implements IAiWriteService
     {
         checkPoints(identityProvider.currentUserId());
         checkContent(identityProvider.currentUserId(), request.getContent());
-        AiCallResult data = aiServiceClient.polish(request.getContent(), request.getStyle(),
-                resolveSkillContent(request.getSkillId()));
+        AiChannel channel = resolveChannel(request.getModel());
+        AiCallResult data = (channel == null)
+                ? aiServiceClient.polish(request.getContent(), request.getStyle(),
+                        resolveSkillContent(request.getSkillId()))
+                : aiServiceClient.polish(request.getContent(), request.getStyle(),
+                        resolveSkillContent(request.getSkillId()),
+                        channel.getBaseUrl(), channel.getApiKey(), request.getModel());
         String content = data.getContent();
         Long recordId = saveRecord(identityProvider.currentUserId(), null,
                 WRITE_TYPE_POLISH, request.getContent(), content,
@@ -217,8 +232,13 @@ public class AiWriteServiceImpl implements IAiWriteService
         requireContinuationContext(request.getPrompt());
         checkContent(identityProvider.currentUserId(), request.getPrompt());
         checkPoints(identityProvider.currentUserId());
-        AiCallResult r = aiServiceClient.writeStream(request.getPrompt(), request.getType(),
-                resolveSkillContent(request.getSkillId()), onDelta);
+        AiChannel channel = resolveChannel(request.getModel());
+        AiCallResult r = (channel == null)
+                ? aiServiceClient.writeStream(request.getPrompt(), request.getType(),
+                        resolveSkillContent(request.getSkillId()), onDelta)
+                : aiServiceClient.writeStream(request.getPrompt(), request.getType(),
+                        resolveSkillContent(request.getSkillId()), onDelta,
+                        channel.getBaseUrl(), channel.getApiKey(), request.getModel());
         String content = r.getContent();
         Long recordId = saveRecord(identityProvider.currentUserId(), request.getWorkId(),
                 resolveWriteType(request.getType()), request.getPrompt(), content,
@@ -232,8 +252,13 @@ public class AiWriteServiceImpl implements IAiWriteService
     {
         checkPoints(identityProvider.currentUserId());
         checkContent(identityProvider.currentUserId(), request.getContent());
-        AiCallResult r = aiServiceClient.polishStream(request.getContent(), request.getStyle(),
-                resolveSkillContent(request.getSkillId()), onDelta);
+        AiChannel channel = resolveChannel(request.getModel());
+        AiCallResult r = (channel == null)
+                ? aiServiceClient.polishStream(request.getContent(), request.getStyle(),
+                        resolveSkillContent(request.getSkillId()), onDelta)
+                : aiServiceClient.polishStream(request.getContent(), request.getStyle(),
+                        resolveSkillContent(request.getSkillId()), onDelta,
+                        channel.getBaseUrl(), channel.getApiKey(), request.getModel());
         String content = r.getContent();
         Long recordId = saveRecord(identityProvider.currentUserId(), null,
                 WRITE_TYPE_POLISH, request.getContent(), content,
@@ -249,8 +274,13 @@ public class AiWriteServiceImpl implements IAiWriteService
         checkContent(identityProvider.currentUserId(),
                 (request.getInspiration() == null ? "" : request.getInspiration()));
         Date startedAt = new Date();
-        AiCallResult r = aiServiceClient.outlineStream(request.getInspiration(), request.getGenre(), request.getStyle(),
-                resolveSkillContent(request.getSkillId()), onDelta);
+        AiChannel channel = resolveChannel(request.getModel());
+        AiCallResult r = (channel == null)
+                ? aiServiceClient.outlineStream(request.getInspiration(), request.getGenre(), request.getStyle(),
+                        resolveSkillContent(request.getSkillId()), onDelta)
+                : aiServiceClient.outlineStream(request.getInspiration(), request.getGenre(), request.getStyle(),
+                        resolveSkillContent(request.getSkillId()), onDelta,
+                        channel.getBaseUrl(), channel.getApiKey(), request.getModel());
         Date finishedAt = new Date();
         JsonNode outlineNode = parseOutlineJson(r.getContent());
         Object outline = outlineNode.isMissingNode() || outlineNode.isNull()
@@ -307,8 +337,13 @@ public class AiWriteServiceImpl implements IAiWriteService
         checkContent(identityProvider.currentUserId(),
                 (request.getInspiration() == null ? "" : request.getInspiration()));
         Date startedAt = new Date();
-        AiCallResult r = aiServiceClient.outline(request.getInspiration(), request.getGenre(), request.getStyle(),
-                resolveSkillContent(request.getSkillId()));
+        AiChannel channel = resolveChannel(request.getModel());
+        AiCallResult r = (channel == null)
+                ? aiServiceClient.outline(request.getInspiration(), request.getGenre(), request.getStyle(),
+                        resolveSkillContent(request.getSkillId()))
+                : aiServiceClient.outline(request.getInspiration(), request.getGenre(), request.getStyle(),
+                        resolveSkillContent(request.getSkillId()),
+                        channel.getBaseUrl(), channel.getApiKey(), request.getModel());
         Date finishedAt = new Date();
         JsonNode outlineNode = parseOutlineJson(r.getContent()).path("outline");
         Object outline = outlineNode.isMissingNode() || outlineNode.isNull()
@@ -697,9 +732,35 @@ public class AiWriteServiceImpl implements IAiWriteService
      * 导演(skill) 内容解析：skillId 为空/不存在/停用/内容为空 → null（不注入）；
      * 正常则返回 skill 文件内容（trim），由 {@link AiServiceClient#appendSkill} 注入 system prompt。
      */
+    @Override
+    public List<Map<String, Object>> listEnabledModels()
+    {
+        return aiChannelService.listEnabledModels();
+    }
+
     private String resolveSkillContent(Long skillId)
     {
         return aiSkillService.resolveSkillContent(skillId);
+    }
+
+    /**
+     * 按用户选用的模型名解析调用渠道。
+     *
+     * model 非空 → 在启用渠道中按模型名匹配；model 为空 → 默认渠道（sort 最小）。
+     * 渠道存在但 apiKey 为空时视为未配置，返回 null（调用方回退默认环境配置），
+     * 避免用空密钥请求导致 401。
+     */
+    private AiChannel resolveChannel(String model)
+    {
+        AiChannel channel = (model == null || model.isBlank())
+                ? aiChannelService.resolveDefaultChannel()
+                : aiChannelService.resolveChannelByModel(model);
+        if (channel == null)
+        {
+            return null;
+        }
+        String key = channel.getApiKey();
+        return (key == null || key.isBlank()) ? null : channel;
     }
 
     // ================================================================
@@ -713,8 +774,13 @@ public class AiWriteServiceImpl implements IAiWriteService
         checkContent(identityProvider.currentUserId(),
                 (request.getScript() == null ? "" : request.getScript()));
         Date startedAt = new Date();
-        AiCallResult r = aiServiceClient.storyboard(request.getScript(), request.getStyle(),
-                resolveSkillContent(request.getSkillId()));
+        AiChannel channel = resolveChannel(request.getModel());
+        AiCallResult r = (channel == null)
+                ? aiServiceClient.storyboard(request.getScript(), request.getStyle(),
+                        resolveSkillContent(request.getSkillId()))
+                : aiServiceClient.storyboard(request.getScript(), request.getStyle(),
+                        resolveSkillContent(request.getSkillId()),
+                        channel.getBaseUrl(), channel.getApiKey(), request.getModel());
         Date finishedAt = new Date();
         String content = r.getContent();
         String requestNo = generateRequestNo();
@@ -736,8 +802,13 @@ public class AiWriteServiceImpl implements IAiWriteService
         checkContent(identityProvider.currentUserId(),
                 (request.getScript() == null ? "" : request.getScript()));
         Date startedAt = new Date();
-        AiCallResult r = aiServiceClient.storyboardStream(request.getScript(), request.getStyle(),
-                resolveSkillContent(request.getSkillId()), onDelta);
+        AiChannel channel = resolveChannel(request.getModel());
+        AiCallResult r = (channel == null)
+                ? aiServiceClient.storyboardStream(request.getScript(), request.getStyle(),
+                        resolveSkillContent(request.getSkillId()), onDelta)
+                : aiServiceClient.storyboardStream(request.getScript(), request.getStyle(),
+                        resolveSkillContent(request.getSkillId()), onDelta,
+                        channel.getBaseUrl(), channel.getApiKey(), request.getModel());
         Date finishedAt = new Date();
         String content = r.getContent();
         String requestNo = generateRequestNo();

@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.content.mapper.AiChannelMapper">
+
+    <resultMap type="com.smartscript.platform.content.domain.AiChannel" id="AiChannelResult">
+        <id     property="channelId"   column="channel_id" />
+        <result property="channelName" column="channel_name" />
+        <result property="provider"    column="provider" />
+        <result property="baseUrl"     column="base_url" />
+        <result property="apiKey"      column="api_key" />
+        <result property="models"      column="models" />
+        <result property="defaultModel" column="default_model" />
+        <result property="status"      column="status" />
+        <result property="sort"        column="sort" />
+        <result property="createBy"    column="create_by" />
+        <result property="createTime"  column="create_time" />
+        <result property="updateBy"    column="update_by" />
+        <result property="updateTime"  column="update_time" />
+        <result property="remark"      column="remark" />
+    </resultMap>
+
+    <sql id="selectAiChannelVo">
+        select channel_id, channel_name, provider, base_url, api_key, models, default_model,
+               status, sort, create_by, create_time, update_by, update_time, remark
+        from sys_ai_channel
+    </sql>
+
+    <sql id="selectAiChannelBriefVo">
+        select channel_id, channel_name, provider, base_url, models, default_model,
+               status, sort, create_by, create_time, update_by, update_time, remark
+        from sys_ai_channel
+    </sql>
+
+    <select id="selectChannelList" parameterType="com.smartscript.platform.content.domain.AiChannel" resultMap="AiChannelResult">
+        <include refid="selectAiChannelVo" />
+        <where>
+            <if test="channelName != null and channelName != ''">
+                and channel_name like concat('%', #{channelName}, '%')
+            </if>
+            <if test="status != null and status != ''">
+                and status = #{status}
+            </if>
+        </where>
+        order by sort asc, channel_id asc
+    </select>
+
+    <select id="selectChannelById" parameterType="Long" resultMap="AiChannelResult">
+        <include refid="selectAiChannelVo" />
+        where channel_id = #{channelId}
+    </select>
+
+    <select id="checkChannelNameUnique" resultMap="AiChannelResult">
+        <include refid="selectAiChannelBriefVo" />
+        where channel_name = #{channelName}
+        <if test="excludeId != null">
+            and channel_id != #{excludeId}
+        </if>
+        limit 1
+    </select>
+
+    <select id="selectEnabledChannelList" resultMap="AiChannelResult">
+        <include refid="selectAiChannelVo" />
+        where status = '0'
+        order by sort asc, channel_id asc
+    </select>
+
+    <insert id="insertChannel" parameterType="com.smartscript.platform.content.domain.AiChannel"
+            useGeneratedKeys="true" keyProperty="channelId">
+        insert into sys_ai_channel
+        <trim prefix="(" suffix=")" suffixOverrides=",">
+            <if test="channelName != null">channel_name,</if>
+            <if test="provider != null">provider,</if>
+            <if test="baseUrl != null">base_url,</if>
+            <if test="apiKey != null">api_key,</if>
+            <if test="models != null">models,</if>
+            <if test="defaultModel != null">default_model,</if>
+            <if test="status != null">status,</if>
+            <if test="sort != null">sort,</if>
+            <if test="createBy != null">create_by,</if>
+            <if test="remark != null">remark,</if>
+            create_time
+        </trim>
+        <trim prefix="values (" suffix=")" suffixOverrides=",">
+            <if test="channelName != null">#{channelName},</if>
+            <if test="provider != null">#{provider},</if>
+            <if test="baseUrl != null">#{baseUrl},</if>
+            <if test="apiKey != null">#{apiKey},</if>
+            <if test="models != null">#{models},</if>
+            <if test="defaultModel != null">#{defaultModel},</if>
+            <if test="status != null">#{status},</if>
+            <if test="sort != null">#{sort},</if>
+            <if test="createBy != null">#{createBy},</if>
+            <if test="remark != null">#{remark},</if>
+            NOW()
+        </trim>
+    </insert>
+
+    <update id="updateChannel" parameterType="com.smartscript.platform.content.domain.AiChannel">
+        update sys_ai_channel
+        <trim prefix="SET" suffixOverrides=",">
+            <if test="channelName != null">channel_name = #{channelName},</if>
+            <if test="provider != null">provider = #{provider},</if>
+            <if test="baseUrl != null">base_url = #{baseUrl},</if>
+            <if test="apiKey != null">api_key = #{apiKey},</if>
+            <if test="models != null">models = #{models},</if>
+            <if test="defaultModel != null">default_model = #{defaultModel},</if>
+            <if test="status != null">status = #{status},</if>
+            <if test="sort != null">sort = #{sort},</if>
+            <if test="updateBy != null">update_by = #{updateBy},</if>
+            <if test="remark != null">remark = #{remark},</if>
+            update_time = NOW()
+        </trim>
+        where channel_id = #{channelId}
+    </update>
+
+    <delete id="deleteChannelById" parameterType="Long">
+        delete from sys_ai_channel where channel_id = #{channelId}
+    </delete>
+
+</mapper>

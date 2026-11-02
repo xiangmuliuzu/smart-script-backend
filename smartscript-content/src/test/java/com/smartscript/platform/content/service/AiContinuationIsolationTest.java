@@ -41,6 +41,8 @@ class AiContinuationIsolationTest
         ReflectionTestUtils.setField(service, "aiServiceClient", client);
         ReflectionTestUtils.setField(service, "aiSkillService",
                 mock(com.smartscript.platform.content.service.IAiSkillService.class));
+        ReflectionTestUtils.setField(service, "aiChannelService",
+                mock(com.smartscript.platform.content.service.IAiChannelService.class));
         ReflectionTestUtils.setField(service, "identityProvider", identity);
         ReflectionTestUtils.setField(service, "jdbcTemplate", jdbc);
         ReflectionTestUtils.setField(service, "writeRecordMapper", records);

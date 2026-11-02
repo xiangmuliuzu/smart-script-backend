@@ -57,6 +57,8 @@ class AiQuotaCheckTest
         setField(service, "aiServiceClient", aiServiceClient);
         setField(service, "aiSkillService",
                 mock(com.smartscript.platform.content.service.IAiSkillService.class));
+        setField(service, "aiChannelService",
+                mock(com.smartscript.platform.content.service.IAiChannelService.class));
         setField(service, "identityProvider", identityProvider);
         setField(service, "aiModel", "deepseek-flash");
         setField(service, "aiProvider", "deepseek");
