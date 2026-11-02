@@ -18,15 +18,15 @@ import com.smartscript.platform.content.dto.CopyrightAssetQuery;
 public interface ISysWorkService
 {
     /**
-     * 查询作品列表（含 authorName/genreName）
+     * 查询作品列表（含 authorName/tags）
      *
-     * @param query 查询条件（title 模糊、authorId/genreId/status/workType/tradeType 精确，按需传入）
+     * @param query 查询条件（title 模糊、authorId/tagId/status/workType/tradeType 精确，按需传入）
      * @return 作品集合
      */
     public List<SysWork> selectWorkList(SysWork query);
 
     /**
-     * 通过作品ID查询详情（含 authorName/genreName）
+     * 通过作品ID查询详情（含 authorName/tags）
      *
      * @param workId 作品ID
      * @return 作品对象

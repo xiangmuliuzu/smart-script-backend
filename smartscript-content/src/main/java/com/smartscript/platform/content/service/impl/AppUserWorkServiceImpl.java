@@ -94,7 +94,7 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
 
     @Override
     @Transactional
-    public void updateWorkBase(Long userId, Long workId, String title, String summary, Integer genreId, String cover,
+    public void updateWorkBase(Long userId, Long workId, String title, String summary, String cover,
             List<Integer> tagIds, BigDecimal price, String tradeType)
     {
         requireOwnWork(userId, workId);
@@ -118,7 +118,6 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
         update.setWorkId(workId);
         update.setTitle(title);
         update.setSummary(summary);
-        update.setGenreId(genreId);
         update.setCover(cover);
         update.setUpdateBy(String.valueOf(userId));
         update.setUpdateTime(new Date());
@@ -439,8 +438,6 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
         item.put("title", work.getTitle());
         item.put("cover", work.getCover());
         item.put("summary", work.getSummary());
-        item.put("genreId", work.getGenreId());
-        item.put("genreName", work.getGenreName());
         item.put("workType", work.getWorkType());
         item.put("wordCount", work.getWordCount());
         item.put("status", derivedStatus);

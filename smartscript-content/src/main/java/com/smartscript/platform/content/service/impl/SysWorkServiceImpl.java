@@ -1,12 +1,17 @@
 package com.smartscript.platform.content.service.impl;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import com.smartscript.platform.content.domain.SysWork;
 import com.smartscript.platform.content.domain.SysWorkChapter;
+import com.smartscript.platform.content.dto.AppWorkTagDto;
 import com.smartscript.platform.content.dto.CopyrightAssetDto;
 import com.smartscript.platform.content.dto.CopyrightAssetQuery;
+import com.smartscript.platform.content.mapper.SysTagMapper;
 import com.smartscript.platform.content.mapper.SysWorkChapterMapper;
 import com.smartscript.platform.content.mapper.SysContentWorkMapper;
 import com.smartscript.platform.content.service.ISysWorkService;
@@ -29,16 +34,49 @@ public class SysWorkServiceImpl implements ISysWorkService
     @Autowired
     private SysWorkChapterMapper chapterMapper;
 
+    @Autowired
+    private SysTagMapper tagMapper;
+
     @Override
     public List<SysWork> selectWorkList(SysWork query)
     {
-        return workMapper.selectWorkList(query);
+        List<SysWork> works = workMapper.selectWorkList(query);
+        fillTags(works);
+        return works;
     }
 
     @Override
     public SysWork selectWorkById(Long workId)
     {
-        return workMapper.selectWorkById(workId);
+        SysWork work = workMapper.selectWorkById(workId);
+        if (work != null)
+        {
+            fillTags(List.of(work));
+        }
+        return work;
+    }
+
+    /** 批量回填作品标签，避免列表逐作品查询造成 N+1 */
+    private void fillTags(List<SysWork> works)
+    {
+        if (works == null || works.isEmpty())
+        {
+            return;
+        }
+        List<Long> workIds = works.stream()
+                .map(SysWork::getWorkId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+        if (workIds.isEmpty())
+        {
+            return;
+        }
+        Map<Long, List<AppWorkTagDto>> grouped = tagMapper.selectWorkTagRows(workIds).stream()
+                .collect(Collectors.groupingBy(AppWorkTagDto::getWorkId));
+        for (SysWork work : works)
+        {
+            work.setTags(grouped.getOrDefault(work.getWorkId(), List.of()));
+        }
     }
 
     @Override

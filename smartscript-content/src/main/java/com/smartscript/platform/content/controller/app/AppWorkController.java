@@ -43,7 +43,6 @@ public class AppWorkController
     /**
      * 作品列表（分页 + 筛选 + 排序）
      *
-     * @param categoryId 分类ID（可选）
      * @param tagId      标签ID（可选）
      * @param keyword    关键词（可选，按标题模糊）
      * @param sort       排序（可选：latest/view/favorite/sale/rating/price_asc/price_desc，非法值回落 latest）
@@ -57,7 +56,6 @@ public class AppWorkController
      */
     @GetMapping
     public AppApiResponse<AppPageResult<AppWorkDto>> list(
-            @RequestParam(required = false) Integer categoryId,
             @RequestParam(required = false) Long tagId,
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) String sort,
@@ -68,7 +66,6 @@ public class AppWorkController
             @RequestParam(required = false) Long authorId)
     {
         AppWorkQuery query = new AppWorkQuery();
-        query.setCategoryId(categoryId);
         query.setTagId(tagId);
         query.setKeyword(keyword);
         query.setSort(sort);

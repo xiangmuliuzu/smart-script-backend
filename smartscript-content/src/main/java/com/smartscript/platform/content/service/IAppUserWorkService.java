@@ -28,7 +28,7 @@ public interface IAppUserWorkService
     Map<String, Object> getWorkDetail(Long userId, Long workId);
 
     /**
-     * 修改作品基本信息（标题/简介/分类/封面/标签）
+     * 修改作品基本信息（标题/简介/封面/标签）
      *
      * 仅「审核中」锁定，其余状态（含已发布）均可修改。
      *
@@ -36,12 +36,11 @@ public interface IAppUserWorkService
      * @param workId  作品ID
      * @param title   作品标题（非空）
      * @param summary 作品简介
-     * @param genreId 分类ID
      * @param cover   封面地址（2.9.1 上传接口返回的 url；为空不更新）
      * @param tagIds  标签ID列表（接口文档 2.3.3：全量覆盖，最多 8 个；
      *                null = 不修改标签，空列表 = 清空标签）
      */
-    void updateWorkBase(Long userId, Long workId, String title, String summary, Integer genreId, String cover,
+    void updateWorkBase(Long userId, Long workId, String title, String summary, String cover,
             List<Integer> tagIds, BigDecimal price, String tradeType);
 
     /**

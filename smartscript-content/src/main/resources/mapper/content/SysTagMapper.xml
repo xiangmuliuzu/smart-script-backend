@@ -126,7 +126,6 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 	  固定条件：status = '0'（PC 端口径：'0'=正常 '1'=停用，见标签管理页）；
 	  按 sort 升序（位次决定展示顺序）。
 	  说明：use_count 有真实值后若仍按 use_count 降序，热度会完全覆盖位次，使 PC 端维护的位次在 App 端失效。
-	  categoryId 有值时收敛为该分类下已上架作品关联过的标签（接口文档表 2-126 的 category_id 入参）。
 	-->
 	<select id="selectAppTagList" resultMap="SysTagResult">
 		<include refid="selectTagVo"/>
@@ -137,17 +136,6 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 			</if>
 			<if test="channelId != null">
 				AND (channel_id = #{channelId} OR channel_id IS NULL)
-			</if>
-			<if test="categoryId != null">
-				AND exists (
-					select 1 from sys_work_tag wt
-					join sys_work w on w.work_id = wt.work_id
-					where wt.tag_id = sys_tag.tag_id
-					  and w.genre_id = #{categoryId}
-					<include refid="com.smartscript.platform.content.mapper.SysContentWorkMapper.readerVisibleWork">
-						<property name="alias" value="w"/>
-					</include>
-				)
 			</if>
 		</where>
 		order by sort, tag_id
@@ -193,34 +181,41 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		</foreach>
 	</insert>
 
-	<!-- 前移：当前标签从 oldSort 移到 newSort（newSort < oldSort），中间标签整体后移一位 -->
+	<!-- 前移：当前标签从 oldSort 移到 newSort（newSort < oldSort），中间标签整体后移一位；按 channel_id + tag_type 分区 -->
 	<update id="shiftTagSortForward">
 		update sys_tag set sort = sort + 1
-		where sort >= #{newSort} and sort &lt; #{oldSort} <if test="excludeId != null">and tag_id != #{excludeId}</if>
+		where sort >= #{newSort} and sort &lt; #{oldSort}
+		and channel_id = #{channelId} and tag_type = #{tagType}
+		<if test="excludeId != null">and tag_id != #{excludeId}</if>
 	</update>
 
-	<!-- 后移：当前标签从 oldSort 移到 newSort（newSort > oldSort），中间标签整体前移一位 -->
+	<!-- 后移：当前标签从 oldSort 移到 newSort（newSort > oldSort），中间标签整体前移一位；按 channel_id + tag_type 分区 -->
 	<update id="shiftTagSortBackward">
 		update sys_tag set sort = sort - 1
-		where sort > #{oldSort} and sort &lt;= #{newSort} <if test="excludeId != null">and tag_id != #{excludeId}</if>
+		where sort > #{oldSort} and sort &lt;= #{newSort}
+		and channel_id = #{channelId} and tag_type = #{tagType}
+		<if test="excludeId != null">and tag_id != #{excludeId}</if>
 	</update>
 
-	<!-- 当前最大位次（空表返回 null）：新增标签时用于追加到末尾，避免历史「兜底 0」造成的位次重复 -->
+	<!-- 当前分区最大位次（空分区返回 null）：新增标签时用于追加到末尾；按 channel_id + tag_type 分区 -->
 	<select id="selectMaxSort" resultType="java.lang.Integer">
 		select max(sort) from sys_tag
+		where channel_id = #{channelId} and tag_type = #{tagType}
 	</select>
 
-	<!-- 占用指定位次的其它标签数（excludeId 传自身ID时排除自己）：位次唯一性强校验用 -->
+	<!-- 占用指定位次的其它标签数（excludeId 传自身ID时排除自己）：位次唯一性强校验用；按 channel_id + tag_type 分区 -->
 	<select id="countBySort" resultType="int">
 		select count(*) from sys_tag
 		where sort = #{sort}
+		and channel_id = #{channelId} and tag_type = #{tagType}
 		<if test="excludeId != null">and tag_id != #{excludeId}</if>
 	</select>
 
-	<!-- 删除后紧缩：把 sort 大于被删位次的其它标签整体前移一位，消除删除留下的位次空洞 -->
+	<!-- 删除后紧缩：把分区内 sort 大于被删位次的其它标签整体前移一位，消除删除留下的位次空洞；按 channel_id + tag_type 分区 -->
 	<update id="shiftSortAfterDelete">
 		update sys_tag set sort = sort - 1
 		where sort > #{deletedSort}
+		and channel_id = #{channelId} and tag_type = #{tagType}
 	</update>
 
 	<!--

@@ -33,12 +33,6 @@ public class AppWorkDto
     /** 作者昵称（JOIN sys_user.nick_name） */
     private String authorName;
 
-    /** 题材ID */
-    private Integer genreId;
-
-    /** 题材名称（JOIN sys_category.category_name） */
-    private String genreName;
-
     /** 标签集合（sys_work_tag 关联 sys_tag，仅含启用标签，按 sort 排序） */
     private List<AppTagDto> tags;
 
@@ -167,26 +161,6 @@ public class AppWorkDto
     public void setAuthorName(String authorName)
     {
         this.authorName = authorName;
-    }
-
-    public Integer getGenreId()
-    {
-        return genreId;
-    }
-
-    public void setGenreId(Integer genreId)
-    {
-        this.genreId = genreId;
-    }
-
-    public String getGenreName()
-    {
-        return genreName;
-    }
-
-    public void setGenreName(String genreName)
-    {
-        this.genreName = genreName;
     }
 
     public List<AppTagDto> getTags()

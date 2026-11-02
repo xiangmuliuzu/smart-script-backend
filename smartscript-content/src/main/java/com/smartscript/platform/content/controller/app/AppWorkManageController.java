@@ -49,8 +49,8 @@ import com.smartscript.platform.content.service.IAppWorkManageService;
  *   2.9.8 POST   /api/v1/content/works/{workId}/versions
  *   2.9.9 GET    /api/v1/content/works/versions/{versionId}
  *
- * 字段口径：POST body 兼容文档的 snake_case（category_id / version_desc）与模块内既有 camelCase
- * （categoryId / versionDesc）两种写法；出参沿用 B 模块 App 契约的 camelCase（与 workId/accessScope 等一致）。
+ * 字段口径：POST body 兼容文档的 snake_case（version_desc）与模块内既有 camelCase（versionDesc）
+ * 两种写法；出参沿用 B 模块 App 契约的 camelCase（与 workId/accessScope 等一致）。
  *
  * 归属：一律由服务层取当前身份，不接收请求体 userId；非本人作品按「不存在」（404）处理，
  * 不区分「不存在」与「无权」，避免通过错误信息探测他人作品。
@@ -114,10 +114,10 @@ public class AppWorkManageController
     /**
      * 创建作品（2.9.2）
      *
-     * 校验：title 非空且不超过 100；category_id 必填正整数（落库 genre_id，该列 NOT NULL）；
-     * price 非负（缺省 0.00）。
+     * 校验：title 非空且不超过 100；price 非负（缺省 0.00）。
+     * 标签墙体系下作品不再设置分类，标签在作品工作台「设置」中维护。
      *
-     * @param request body（兼容 category_id / categoryId 两种写法）
+     * @param request body
      * @return data = {workId, message}
      */
     @PostMapping("/works")
@@ -137,15 +137,8 @@ public class AppWorkManageController
         {
             return AppApiResponse.fail(CODE_BAD_REQUEST, "price 不能为负数");
         }
-        // category_id（genre_id）NOT NULL：缺省则拒绝，不编造默认分类
-        Integer categoryId = asInteger(request, "category_id", "categoryId");
-        if (categoryId == null || categoryId <= 0)
-        {
-            return AppApiResponse.fail(CODE_BAD_REQUEST, "category_id 不能为空且必须为正整数");
-        }
         AppWorkCreateRequest createRequest = new AppWorkCreateRequest();
         createRequest.setTitle(title);
-        createRequest.setCategoryId(categoryId);
         createRequest.setDescription(trimToNull(asString(request, "description")));
         createRequest.setCover(trimToNull(asString(request, "cover")));
         createRequest.setPrice(price);
@@ -168,7 +161,7 @@ public class AppWorkManageController
      * 更新作品（2.9.3，仅 title/description/price）
      *
      * @param workId  作品ID
-     * @param request body（兼容 category_id 之外的 description 等；title/description/price 均可选）
+     * @param request body（title/description/price 均可选，为 null 的字段不更新）
      * @return data = {message}；非本人或不存在 404，price 为负 400
      */
     @PutMapping("/works/{workId}")

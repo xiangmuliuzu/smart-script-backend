@@ -177,12 +177,11 @@ public class ReviewController {
         try {
             List<ReviewRecord> list = reviewService.selectReviewRecordList(new ReviewRecord());
             StringBuilder sb = new StringBuilder();
-            sb.append("编号,作品名称,类型,题材,作者,提交时间,AI评分,状态\n");
+            sb.append("编号,作品名称,类型,作者,提交时间,AI评分,状态\n");
             for (ReviewRecord r : list) {
                 sb.append(r.getReviewId()).append(",")
                   .append(nullSafe(r.getWorkTitle())).append(",")
                   .append(nullSafe(r.getWorkType())).append(",")
-                  .append(nullSafe(r.getGenreName())).append(",")
                   .append(nullSafe(r.getAuthorName())).append(",")
                   .append(r.getCreateTime() == null ? "" : r.getCreateTime()).append(",")
                   .append(r.getAiScore() == null ? "" : r.getAiScore()).append(",")

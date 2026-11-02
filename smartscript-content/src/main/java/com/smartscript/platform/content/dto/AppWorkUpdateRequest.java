@@ -5,8 +5,9 @@ import java.math.BigDecimal;
 /**
  * 更新作品请求（App 接口文档 2.9.3 表 2-113）。
  *
- * 文档只定义 title / description / price 三项可改（无 category_id / cover），
+ * 文档只定义 title / description / price 三项可改（无 cover），
  * 故本批不扩展编辑字段；description 落库 sys_work.summary。
+ * 标签墙体系下作品不再设置分类，标签走作品工作台单独维护。
  *
  * @author xiangsipeng
  */

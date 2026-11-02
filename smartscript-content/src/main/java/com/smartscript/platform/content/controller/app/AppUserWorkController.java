@@ -137,9 +137,10 @@ public class AppUserWorkController
     }
 
     /**
-     * 修改作品基本信息（标题/简介/分类/封面/标签）
+     * 修改作品基本信息（标题/简介/封面/标签/价格/交易类型）
      *
-     * 依据：接口文档 2.3.3 修改剧本信息，入参含 tagIds（Array&lt;Int&gt;，全量覆盖，最多 8 个）。
+     * 依据：接口文档 2.3.3 修改剧本信息，入参含 tagIds（Array&lt;Int&gt;，全量覆盖，最多 8 个）；
+     * 标签墙体系下作品不再设置分类。
      */
     @PutMapping("/{workId}")
     public AppApiResponse<Void> update(@PathVariable Long workId, @RequestBody Map<String, Object> body)
@@ -148,7 +149,7 @@ public class AppUserWorkController
         try
         {
             userWorkService.updateWorkBase(userId, workId,
-                    str(body.get("title")), str(body.get("summary")), integer(body.get("genreId")),
+                    str(body.get("title")), str(body.get("summary")),
                     str(body.get("cover")), integerList(body.get("tagIds")), decimal(body.get("price")),
                     str(body.get("tradeType")));
             return AppApiResponse.ok();

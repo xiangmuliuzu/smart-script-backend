@@ -2,11 +2,13 @@ package com.smartscript.platform.content.domain;
 
 import java.math.BigDecimal;
 import java.util.Date;
+import java.util.List;
 import org.apache.commons.lang3.builder.ToStringBuilder;
 import org.apache.commons.lang3.builder.ToStringStyle;
 import org.apache.ibatis.type.Alias;
 import com.fasterxml.jackson.annotation.JsonFormat;
 import com.ruoyi.common.core.domain.BaseEntity;
+import com.smartscript.platform.content.dto.AppWorkTagDto;
 
 /**
  * 作品对象 sys_work
@@ -26,7 +28,7 @@ import com.ruoyi.common.core.domain.BaseEntity;
  * 3. trade_enabled/is_free/preview_enabled/is_copyrighted/is_deleted 为 tinyint，
  *    Entity 用 String（若依字典风格 "0"/"1"）。
  * 4. ext_json 为 json 类型，Entity 用 String 持有原文本，mapper xml 透传。
- * 5. authorName/genreName 为 JOIN 查询扩展字段（sys_user.nickname / sys_category.category_name）。
+ * 5. authorName 为 JOIN 查询扩展字段（sys_user.nick_name）；tags 由 Service 层批量回填。
  * 6. recommendStatus/showScope 为书城页从 ext_json 解析的扩展字段（JSON_EXTRACT）。
  * 7. 主键 work_id 为 bigint，Entity 用 Long。
  *
@@ -49,8 +51,8 @@ public class SysWork extends BaseEntity
     /** 作者ID */
     private Long authorId;
 
-    /** 题材ID（关联 sys_category.category_id） */
-    private Integer genreId;
+    /** 标签筛选条件（sys_work_tag.tag_id，仅查询用） */
+    private Long tagId;
 
     /** 作品类型 */
     private String workType;
@@ -142,8 +144,8 @@ public class SysWork extends BaseEntity
     /** 作者昵称（JOIN sys_user.nickname） */
     private String authorName;
 
-    /** 题材名称（JOIN sys_category.category_name） */
-    private String genreName;
+    /** 标签集合（列表/详情查询后批量回填，供 PC 管理端展示） */
+    private List<AppWorkTagDto> tags;
 
     // ---- 书城 ext_json 解析扩展字段 ----
 
@@ -209,14 +211,24 @@ public class SysWork extends BaseEntity
         this.authorId = authorId;
     }
 
-    public Integer getGenreId()
+    public Long getTagId()
     {
-        return genreId;
+        return tagId;
     }
 
-    public void setGenreId(Integer genreId)
+    public void setTagId(Long tagId)
     {
-        this.genreId = genreId;
+        this.tagId = tagId;
+    }
+
+    public List<AppWorkTagDto> getTags()
+    {
+        return tags;
+    }
+
+    public void setTags(List<AppWorkTagDto> tags)
+    {
+        this.tags = tags;
     }
 
     public String getWorkType()
@@ -509,16 +521,6 @@ public class SysWork extends BaseEntity
         this.authorName = authorName;
     }
 
-    public String getGenreName()
-    {
-        return genreName;
-    }
-
-    public void setGenreName(String genreName)
-    {
-        this.genreName = genreName;
-    }
-
     public String getRecommendStatus()
     {
         return recommendStatus;
@@ -587,8 +589,6 @@ public class SysWork extends BaseEntity
                 .append("title", getTitle())
                 .append("authorId", getAuthorId())
                 .append("authorName", getAuthorName())
-                .append("genreId", getGenreId())
-                .append("genreName", getGenreName())
                 .append("workType", getWorkType())
                 .append("status", getStatus())
                 .append("tradeEnabled", getTradeEnabled())

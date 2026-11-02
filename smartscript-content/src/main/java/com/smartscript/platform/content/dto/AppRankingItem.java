@@ -34,9 +34,6 @@ public class AppRankingItem
     /** 作者昵称（JOIN sys_user.nick_name） */
     private String authorName;
 
-    /** 题材名称（JOIN sys_category.category_name） */
-    private String genreName;
-
     /** 榜单分数 = 该榜主指标的取值（由 SQL 的 rank_score 列映射） */
     private BigDecimal score;
 
@@ -115,16 +112,6 @@ public class AppRankingItem
     public void setAuthorName(String authorName)
     {
         this.authorName = authorName;
-    }
-
-    public String getGenreName()
-    {
-        return genreName;
-    }
-
-    public void setGenreName(String genreName)
-    {
-        this.genreName = genreName;
     }
 
     public BigDecimal getScore()

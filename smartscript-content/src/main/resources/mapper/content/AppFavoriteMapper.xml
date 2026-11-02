@@ -42,17 +42,15 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 	     复用其 AppWorkDtoResult 结果映射，避免同一 DTO 出现两套映射产生口径漂移 -->
 	<select id="selectFavoriteWorks"
 	        resultMap="com.smartscript.platform.content.mapper.SysContentWorkMapper.AppWorkDtoResult">
-		select w.work_id, w.title, w.cover, w.author_id, w.genre_id, w.work_type, w.upload_type,
+		select w.work_id, w.title, w.cover, w.author_id, w.work_type, w.upload_type,
 		       w.length_type, w.summary, w.price, w.trade_type, w.trade_enabled,
 		       w.word_count, w.episode_count, w.duration, w.is_free, w.preview_enabled,
 		       w.preview_episodes, w.status, w.is_copyrighted, w.quality_level,
 		       w.view_count, w.favorite_count, w.sale_count, w.rating, w.create_time,
-		       u.nick_name as author_name,
-		       c.category_name as genre_name
+		       u.nick_name as author_name
 		from sys_favorite f
 		inner join sys_work w on w.work_id = f.work_id
 		left join sys_user u on u.user_id = w.author_id
-		left join sys_category c on c.category_id = w.genre_id
 		where f.user_id = #{userId}
 		  and w.is_deleted = 0
 		  and w.status = 'on_shelf'

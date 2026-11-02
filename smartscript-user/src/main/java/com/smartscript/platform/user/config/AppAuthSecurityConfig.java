@@ -96,7 +96,7 @@ public class AppAuthSecurityConfig
                         .requestMatchers(HttpMethod.GET,
                                 "/api/v1/content/works/*/rating").authenticated()
                         // A6/B 业务模块公开接口：游客可读（无需 App Token）
-                        // B 模块书城浏览主链路（第一批）：Banner / 分类 / 标签 / 作品列表 / 作品详情 / 榜单
+                        // B 模块书城浏览主链路（第一批）：Banner / 分类页导航 / 标签 / 作品列表 / 作品详情 / 榜单
                         // B 模块试读链路（第二批）：作品章节目录落在 /works/** 内，章节正文单列
                         // B 模块外部视频浏览（APP 2.8）：信息流 / 外部视频详情与找同款 / 剧集列表与详情
                         //   - /works/** 与 /episodes/* 均为「单段/GET-only」白名单：
@@ -104,8 +104,6 @@ public class AppAuthSecurityConfig
                         //     /works/** 是 GET-only，不会误放 POST/DELETE /works/{id}/subscribe（需登录）。
                         .requestMatchers(HttpMethod.GET,
                                 "/api/v1/content/banners",
-                                "/api/v1/content/categories",
-                                "/api/v1/content/categories/tree",
                                 "/api/v1/content/categories/nav",
                                 "/api/v1/content/tags",
                                 "/api/v1/content/works",

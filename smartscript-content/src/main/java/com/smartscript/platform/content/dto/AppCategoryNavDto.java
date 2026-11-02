@@ -10,7 +10,7 @@ import java.util.List;
  * 与三级分类迁移 B_20261029_001、标签维度迁移 B_20261029_002。
  *
  * 维度固定四个：hot 热门标签 / theme 主题 / role 角色 / plot 情节；
- * 每个维度由若干分组构成，分组内条目统一为「分类」或「标签」。
+ * 每个维度由若干分组构成，分组内条目统一为标签（作品只按标签归属）。
  *
  * @author xiangsipeng
  */
@@ -176,10 +176,10 @@ public class AppCategoryNavDto
         }
     }
 
-    /** 分组内条目：分类或标签 */
+    /** 分组内条目：标签 */
     public static class Item
     {
-        /** 条目类型：category / tag */
+        /** 条目类型：恒为 tag */
         private String itemType;
         private Long itemId;
         private String itemName;

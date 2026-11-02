@@ -28,15 +28,12 @@ public interface SysTagMapper
      *
      * 固定条件：status = '0'（'0'=正常 '1'=停用，与标签管理页同口径）；
      * 按 sort 升序（位次决定展示顺序，不再由 use_count 热度覆盖位次）。
-     * categoryId 有值时只返回该分类下已上架作品关联过的标签（接口文档表 2-126 的 category_id）。
      *
      * @param tagType    标签维度（可选，role/plot）
-     * @param categoryId 分类ID（可选，按分类收敛标签）
      * @param channelId  频道ID（可选；命中本频道标签 + 男女通用标签）
      * @return 标签集合
      */
-    public List<SysTag> selectAppTagList(@Param("tagType") String tagType, @Param("categoryId") Long categoryId,
-            @Param("channelId") Long channelId);
+    public List<SysTag> selectAppTagList(@Param("tagType") String tagType, @Param("channelId") Long channelId);
 
     /**
      * 按作品批量查询关联标签（App 侧只读）
@@ -125,51 +122,67 @@ public interface SysTagMapper
      * 前移重排：sort 在 [newSort, oldSort-1] 的其他标签 +1
      *
      * excludeId 为自身标签ID；新增场景该位次尚无自身行，传 null 时不追加排除条件。
+     * 按 channel_id + tag_type 分区，不同频道不同维度的标签sort互不干扰。
      */
     public int shiftTagSortForward(@Param("newSort") int newSort,
                                    @Param("oldSort") int oldSort,
-                                   @Param("excludeId") Long excludeId);
+                                   @Param("excludeId") Long excludeId,
+                                   @Param("channelId") Long channelId,
+                                   @Param("tagType") String tagType);
 
     /**
      * 后移重排：sort 在 [oldSort+1, newSort] 的其他标签 -1
      *
      * excludeId 说明同 {@link #shiftTagSortForward}。
+     * 按 channel_id + tag_type 分区。
      */
     public int shiftTagSortBackward(@Param("newSort") int newSort,
                                     @Param("oldSort") int oldSort,
-                                    @Param("excludeId") Long excludeId);
+                                    @Param("excludeId") Long excludeId,
+                                    @Param("channelId") Long channelId,
+                                    @Param("tagType") String tagType);
 
     /**
-     * 当前最大位次
+     * 当前分区最大位次（按 channel_id + tag_type 分区）
      *
      * 新增标签时以「最大位次 + 1」作为默认位次，保证追加到末尾且不与既有位次重复。
      *
-     * @return 最大 sort；表中无标签时返回 null
+     * @param channelId 频道ID
+     * @param tagType   标签维度
+     * @return 最大 sort；分区内无标签时返回 null
      */
-    public Integer selectMaxSort();
+    public Integer selectMaxSort(@Param("channelId") Long channelId, @Param("tagType") String tagType);
 
     /**
-     * 统计占用指定位次的其它标签数
+     * 统计分区内占用指定位次的其它标签数（按 channel_id + tag_type 分区）
      *
      * 位次唯一性强校验用：excludeId 传自身标签ID以排除自己；结果 > 0 即表示位次重复，
      * 调用方（Service）应据此抛异常回滚，绝不落库重复位次。
      *
      * @param sort      位次
      * @param excludeId 需排除的标签ID（可为 null）
+     * @param channelId 频道ID
+     * @param tagType   标签维度
      * @return 占用该位次的标签数
      */
-    public int countBySort(@Param("sort") int sort, @Param("excludeId") Long excludeId);
+    public int countBySort(@Param("sort") int sort, @Param("excludeId") Long excludeId,
+                           @Param("channelId") Long channelId, @Param("tagType") String tagType);
 
     /**
-     * 删除后紧缩：把位次大于 deletedSort 的标签整体前移一位，消除删除留下的位次空洞
+     * 删除后紧缩：把分区内位次大于 deletedSort 的标签整体前移一位，消除删除留下的位次空洞
      *
      * 与书城「编辑推荐」移除推荐位后的重排同规则（被删位次之后的元素统一前移一位），
      * 保证位次始终「1..N 稠密无空洞」；批量删除时由 Service 按被删位次从大到小依次调用。
+     * 按 channel_id + tag_type 分区。
      *
      * @param deletedSort 被删除标签的原位次
+     * @param channelId 频道ID
+     * @param tagType   标签维度
      * @return 影响行数
      */
-    public int shiftSortAfterDelete(@Param("deletedSort") int deletedSort);
+    public int shiftSortAfterDelete(@Param("deletedSort") int deletedSort,
+                                    @Param("channelId") Long channelId,
+                                    @Param("tagType") String tagType);
 
     /**
      * 全量刷新标签使用数量（use_count）

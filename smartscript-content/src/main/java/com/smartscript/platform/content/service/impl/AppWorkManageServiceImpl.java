@@ -42,7 +42,7 @@ import com.smartscript.platform.review.service.RiskCheckService;
  *    quote_valid_days=0、word_count=0、is_free='0'、is_copyrighted='0'、
  *    三计数=0、rating=0.00、is_deleted='0'），不改库结构、不编造新增字段。
  *    status 只写可见性开关（on_shelf/off_shelf），不写生命周期值：新作品未上架故为 off_shelf。
- * 2. genre_id（接口 category_id）NOT NULL：控制层已校验必填，此处只落库。
+ * 2. 标签墙体系下作品不再写 genre_id（历史列保留但不再由 App 端赋值），标签走 sys_work_tag。
  * 3. 2.9.6 审核状态：sys_work 无 review_result/review_comment 列，
  *    状态一律由 sys_review_record（target_type='work'）最新一条派生（见 WorkStatusDeriver），
  *    review_comment←sys_work.reject_reason，review_result 由同一来源派生。
@@ -145,7 +145,6 @@ public class AppWorkManageServiceImpl implements IAppWorkManageService
         work.setTitle(trimToNull(request.getTitle()));
         work.setCover(trimToNull(request.getCover()));
         work.setSummary(trimToNull(request.getDescription()));
-        work.setGenreId(request.getCategoryId());
         work.setPrice(request.getPrice() == null ? BigDecimal.ZERO : request.getPrice());
         // 归属取当前身份，绝不取请求体
         work.setAuthorId(userId);

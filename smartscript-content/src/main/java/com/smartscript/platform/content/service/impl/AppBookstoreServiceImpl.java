@@ -1,9 +1,7 @@
 package com.smartscript.platform.content.service.impl;
 
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
@@ -19,7 +17,6 @@ import com.smartscript.platform.content.domain.SysTag;
 import com.smartscript.platform.content.domain.SysWorkChapter;
 import com.smartscript.platform.content.domain.SysWorkFile;
 import com.smartscript.platform.content.dto.AppCategoryNavDto;
-import com.smartscript.platform.content.dto.AppCategoryNodeDto;
 import com.smartscript.platform.content.dto.AppChapterDetailDto;
 import com.smartscript.platform.content.dto.AppChapterDto;
 import com.smartscript.platform.content.dto.AppChapterListDto;
@@ -50,7 +47,7 @@ import com.smartscript.platform.identity.IdentityProvider;
  *
  * 依据：接口文档 2.7 + 云端 script_platform_dev 库真实表结构。
  * 反推处理点：
- * 1. 启用口径以 PC 管理页为准：分类/标签 normal 为 status='0'（'1'=停用），
+ * 1. 启用口径以 PC 管理页为准：频道/标签 normal 为 status='0'（'1'=停用），
  *    Banner 启用为 status='on'；作品可见性为 is_deleted=0 且 status='on_shelf'。
  * 2. 分页总数必须在映射成 DTO 之前取（PageInfo 只对 Page 类型有效），
  *    否则越界页会退化为 total=0。故先取 Mapper 返回的原集合再取 total。
@@ -72,19 +69,13 @@ public class AppBookstoreServiceImpl implements IAppBookstoreService
     /** 每页条数上限 */
     private static final int PAGE_SIZE_MAX = 50;
 
-    /** 热门标签维度最多下发的标签数 */
-    private static final int HOT_TAG_LIMIT = 12;
-
-    /** 热门题材维度最多下发的题材数 */
-    private static final int HOT_THEME_LIMIT = 8;
-
     /** 榜单默认条数 */
     private static final int DEFAULT_RANKING_LIMIT = 10;
 
     /** 榜单条数上限 */
     private static final int RANKING_LIMIT_MAX = 50;
 
-    /** 分类/标签「正常」状态（PC 端口径：'0'=正常 '1'=停用） */
+    /** 频道/标签「正常」状态（PC 端口径：'0'=正常 '1'=停用） */
     private static final String STATUS_NORMAL = "0";
 
     /** 试读开关「开启」取值（sys_work.preview_enabled 为 tinyint ↔ String） */
@@ -141,61 +132,9 @@ public class AppBookstoreServiceImpl implements IAppBookstoreService
     }
 
     @Override
-    public List<SysCategory> listCategories(String categoryType, Long parentId)
+    public List<SysTag> listTags(String tagType, Long channelId)
     {
-        SysCategory query = new SysCategory();
-        query.setCategoryType(categoryType);
-        query.setParentId(parentId);
-        // 只下发正常分类，停用分类不出现在 App 分类入口与筛选项
-        query.setStatus(STATUS_NORMAL);
-        return categoryMapper.selectCategoryList(query);
-    }
-
-    @Override
-    public List<AppCategoryNodeDto> listCategoryTree()
-    {
-        SysCategory query = new SysCategory();
-        query.setStatus(STATUS_NORMAL);
-        // 一次查询全量正常分类（Mapper 已按 sort, category_id 升序），避免逐层查询
-        List<SysCategory> rows = categoryMapper.selectCategoryList(query);
-        Map<Long, AppCategoryNodeDto> nodes = new LinkedHashMap<>();
-        for (SysCategory row : rows)
-        {
-            nodes.put(row.getCategoryId(), toCategoryNode(row));
-        }
-        List<AppCategoryNodeDto> roots = new ArrayList<>();
-        for (SysCategory row : rows)
-        {
-            AppCategoryNodeDto node = nodes.get(row.getCategoryId());
-            AppCategoryNodeDto parent = row.getParentId() == null ? null : nodes.get(row.getParentId());
-            if (parent == null)
-            {
-                // 顶级分类；父级被停用/缺失时也提升为根，避免分类从树中消失
-                roots.add(node);
-            }
-            else
-            {
-                parent.getChildren().add(node);
-            }
-        }
-        return roots;
-    }
-
-    private static AppCategoryNodeDto toCategoryNode(SysCategory row)
-    {
-        AppCategoryNodeDto node = new AppCategoryNodeDto();
-        node.setCategoryId(row.getCategoryId());
-        node.setCategoryName(row.getCategoryName());
-        node.setCategoryType(row.getCategoryType());
-        node.setParentId(row.getParentId());
-        node.setSort(row.getSort());
-        return node;
-    }
-
-    @Override
-    public List<SysTag> listTags(String tagType, Long categoryId, Long channelId)
-    {
-        return tagMapper.selectAppTagList(tagType, categoryId, channelId);
+        return tagMapper.selectAppTagList(tagType, channelId);
     }
 
     @Override
@@ -238,7 +177,7 @@ public class AppBookstoreServiceImpl implements IAppBookstoreService
         nav.setChannelId(selectedId);
 
         // 从 sys_tag 表读取当前频道的所有标签
-        List<SysTag> allTags = tagMapper.selectAppTagList(null, null, selectedId);
+        List<SysTag> allTags = tagMapper.selectAppTagList(null, selectedId);
 
         // 四个维度：热门标签 / 主题 / 角色 / 情节，按 tag_type 分组
         nav.getDimensions().add(buildTagTypeDimension("hot", "热门标签", allTags));
@@ -268,12 +207,6 @@ public class AppBookstoreServiceImpl implements IAppBookstoreService
             dimension.getGroups().add(group);
         }
         return dimension;
-    }
-
-    private static AppCategoryNavDto.Item categoryItem(SysCategory category, int workCount)
-    {
-        return new AppCategoryNavDto.Item("category", category.getCategoryId(),
-                category.getCategoryName(), workCount);
     }
 
     private static AppCategoryNavDto.Item tagItem(SysTag tag)

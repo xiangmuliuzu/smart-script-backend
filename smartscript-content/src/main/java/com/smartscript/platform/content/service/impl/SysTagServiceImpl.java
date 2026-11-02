@@ -2,7 +2,9 @@ package com.smartscript.platform.content.service.impl;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -85,7 +87,8 @@ public class SysTagServiceImpl implements ISysTagService
         }
 
         // 位次：未指定则追加到末尾；指定则占用该位次（已被占用时原 k..N 依次后移一位）
-        int tail = nextTailSort();
+        // 按 channel_id + tag_type 分区，不同频道不同维度的标签sort互不干扰
+        int tail = nextTailSort(tag.getChannelId(), tag.getTagType());
         if (StringUtils.isNull(tag.getSort()))
         {
             tag.setSort(tail);
@@ -96,13 +99,13 @@ public class SysTagServiceImpl implements ISysTagService
             // 超出当前最大位次时夹取到末尾，避免跳到空洞之外留下尾部空洞
             int target = clampToTail(tag.getSort(), tail);
             tag.setSort(target);
-            makeRoomForSort(target, tail, null);
+            makeRoomForSort(target, tail, null, tag.getChannelId(), tag.getTagType());
         }
 
         int rows = tagMapper.insertTag(tag);
 
         // 位次唯一强校验：新增后若与既有标签重复，立即回滚
-        assertSortUnique(tag.getSort(), tag.getTagId());
+        assertSortUnique(tag.getSort(), tag.getTagId(), tag.getChannelId(), tag.getTagType());
         return rows;
     }
 
@@ -121,10 +124,13 @@ public class SysTagServiceImpl implements ISysTagService
                 throw new ServiceException("标签不存在，无法修改位次");
             }
             int oldSort = StringUtils.isNull(old.getSort()) ? 0 : old.getSort();
+            // 如果修改了频道或维度，以新的分区为准
+            Long channelId = tag.getChannelId() != null ? tag.getChannelId() : old.getChannelId();
+            String tagType = tag.getTagType() != null ? tag.getTagType() : old.getTagType();
             // 目标位次不得超过当前最大位次，否则会遗留尾部空洞
-            int target = clampToMax(tag.getSort());
+            int target = clampToMax(channelId, tagType, tag.getSort());
             tag.setSort(target);
-            makeRoomForSort(target, oldSort, tag.getTagId());
+            makeRoomForSort(target, oldSort, tag.getTagId(), channelId, tagType);
         }
 
         int rows = tagMapper.updateTag(tag);
@@ -132,17 +138,21 @@ public class SysTagServiceImpl implements ISysTagService
         // 位次唯一强校验：写入后若与其它标签重复，立即回滚
         if (tag.getSort() != null)
         {
-            assertSortUnique(tag.getSort(), tag.getTagId());
+            SysTag old = tagMapper.selectTagById(tag.getTagId());
+            Long channelId = tag.getChannelId() != null ? tag.getChannelId() : old.getChannelId();
+            String tagType = tag.getTagType() != null ? tag.getTagType() : old.getTagType();
+            assertSortUnique(tag.getSort(), tag.getTagId(), channelId, tagType);
         }
         return rows;
     }
 
     /**
-     * 末尾位次：当前最大位次 + 1（空表为 1）
+     * 末尾位次：当前分区最大位次 + 1（空分区为 1）
+     * 按 channel_id + tag_type 分区
      */
-    private int nextTailSort()
+    private int nextTailSort(Long channelId, String tagType)
     {
-        Integer maxSort = tagMapper.selectMaxSort();
+        Integer maxSort = tagMapper.selectMaxSort(channelId, tagType);
         return (maxSort == null ? 0 : maxSort) + 1;
     }
 
@@ -158,7 +168,7 @@ public class SysTagServiceImpl implements ISysTagService
     }
 
     /**
-     * 新增位次夹取：目标位次不得超过「当前最大位次 + 1」
+     * 新增位次夹取：目标位次不得超过「当前分区最大位次 + 1」
      *
      * 超出时夹到末尾，否则元素会直接跳到空洞之外，在尾部留下位次空洞。
      */
@@ -168,13 +178,13 @@ public class SysTagServiceImpl implements ISysTagService
     }
 
     /**
-     * 修改位次夹取：目标位次不得超过当前最大位次
+     * 修改位次夹取：目标位次不得超过当前分区最大位次
      *
      * 超出时夹到末尾（即移到最后一个槽位），否则会遗留尾部空洞。
      */
-    private int clampToMax(int newSort)
+    private int clampToMax(Long channelId, String tagType, int newSort)
     {
-        Integer maxSort = tagMapper.selectMaxSort();
+        Integer maxSort = tagMapper.selectMaxSort(channelId, tagType);
         return Math.min(newSort, Math.max(maxSort == null ? 0 : maxSort, 1));
     }
 
@@ -187,31 +197,33 @@ public class SysTagServiceImpl implements ISysTagService
      * @param newSort   目标位次（调用方保证 >= 1）
      * @param oldSort   当前占用位次；新增场景传「末尾位次」，即让出 [newSort, 最大位次]
      * @param excludeId 自身标签ID（修改场景排除自己；新增场景传 null）
+     * @param channelId 频道ID（分区条件）
+     * @param tagType   标签维度（分区条件）
      */
-    private void makeRoomForSort(int newSort, int oldSort, Long excludeId)
+    private void makeRoomForSort(int newSort, int oldSort, Long excludeId, Long channelId, String tagType)
     {
         // 目标位次空闲（存量数据存在空洞）：直接占用，不位移任何标签
-        if (tagMapper.countBySort(newSort, excludeId) == 0)
+        if (tagMapper.countBySort(newSort, excludeId, channelId, tagType) == 0)
         {
             return;
         }
 
         if (newSort < oldSort)
         {
-            tagMapper.shiftTagSortForward(newSort, oldSort, excludeId);
+            tagMapper.shiftTagSortForward(newSort, oldSort, excludeId, channelId, tagType);
         }
         else if (newSort > oldSort)
         {
-            tagMapper.shiftTagSortBackward(newSort, oldSort, excludeId);
+            tagMapper.shiftTagSortBackward(newSort, oldSort, excludeId, channelId, tagType);
         }
     }
 
     /**
-     * 位次唯一强校验：除自身外若仍存在占用该位次的标签，抛异常触发事务回滚
+     * 位次唯一强校验：除自身外若分区内仍存在占用该位次的标签，抛异常触发事务回滚
      */
-    private void assertSortUnique(Integer sort, Long tagId)
+    private void assertSortUnique(Integer sort, Long tagId, Long channelId, String tagType)
     {
-        if (tagMapper.countBySort(sort, tagId) > 0)
+        if (tagMapper.countBySort(sort, tagId, channelId, tagType) > 0)
         {
             throw new ServiceException("显示位次 " + sort + " 已被占用，位次必须唯一");
         }
@@ -237,25 +249,30 @@ public class SysTagServiceImpl implements ISysTagService
             }
         }
 
-        // 记录被删位次（去重：重复 ID 若各紧缩一次会把其后元素多减一位，造成位次错乱）
-        java.util.Set<Integer> deletedSorts = new java.util.HashSet<>();
+        // 记录被删位次及所属分区（去重：重复 ID 若各紧缩一次会把其后元素多减一位，造成位次错乱）
+        java.util.Set<String> deletedKeys = new java.util.HashSet<>();
+        java.util.Map<Integer, java.util.List<Long>> sortToChannelTagType = new java.util.HashMap<>();
         for (Long tagId : uniqueIds)
         {
             SysTag db = tagMapper.selectTagById(tagId);
             if (db != null && db.getSort() != null)
             {
-                deletedSorts.add(db.getSort());
+                String key = db.getSort() + "_" + db.getChannelId() + "_" + db.getTagType();
+                deletedKeys.add(key);
             }
         }
 
         int rows = tagMapper.deleteTagByIds(tagIds);
 
         // 删除后紧缩：按被删位次从大到小依次前移其后元素，保证位次连续无空洞
-        List<Integer> orderedDeletedSorts = new ArrayList<>(deletedSorts);
-        orderedDeletedSorts.sort(Comparator.reverseOrder());
-        for (Integer deletedSort : orderedDeletedSorts)
+        // 每个被删标签按自己所属的 channel_id + tag_type 分区分别紧缩
+        for (String key : deletedKeys)
         {
-            tagMapper.shiftSortAfterDelete(deletedSort);
+            String[] parts = key.split("_");
+            int deletedSort = Integer.parseInt(parts[0]);
+            Long channelId = Long.parseLong(parts[1]);
+            String tagType = parts[2];
+            tagMapper.shiftSortAfterDelete(deletedSort, channelId, tagType);
         }
         return rows;
     }

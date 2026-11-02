@@ -30,7 +30,6 @@ public class ReviewRecord {
     // 扩展字段
     private String workTitle;
     private String workType;
-    private String genreName;
     private String authorName;
     private Long userId;
     private Integer aiScore;
@@ -80,8 +79,6 @@ public class ReviewRecord {
     public void setWorkTitle(String workTitle) { this.workTitle = workTitle; }
     public String getWorkType() { return workType; }
     public void setWorkType(String workType) { this.workType = workType; }
-    public String getGenreName() { return genreName; }
-    public void setGenreName(String genreName) { this.genreName = genreName; }
     public String getAuthorName() { return authorName; }
     public void setAuthorName(String authorName) { this.authorName = authorName; }
     public Long getUserId() { return userId; }

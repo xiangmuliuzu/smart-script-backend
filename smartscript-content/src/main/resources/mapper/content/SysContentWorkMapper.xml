@@ -11,7 +11,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 	  2. status varchar(20) 原样持有；trade_enabled/is_free/preview_enabled/is_copyrighted/is_deleted
 	     tinyint ↔ String。
 	  3. ext_json json 类型，String 透传（MySQL 隐式转换合法 JSON 字符串）。
-	  4. authorName/genreName 为 JOIN 扩展字段（sys_user.nick_name / sys_category.category_name）。
+	  4. authorName 为 JOIN 扩展字段（sys_user.nick_name）；标签由 Service 层批量回填。
 	  5. recommendStatus/showScope 为书城 ext_json 解析扩展字段（JSON_EXTRACT）。
 	-->
 	<resultMap type="SysContentWork" id="SysWorkResult">
@@ -19,7 +19,6 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		<result property="title"            column="title"             />
 		<result property="cover"            column="cover"             />
 		<result property="authorId"         column="author_id"         />
-		<result property="genreId"          column="genre_id"          />
 		<result property="workType"         column="work_type"         />
 		<result property="uploadType"       column="upload_type"       />
 		<result property="lengthType"       column="length_type"       />
@@ -54,7 +53,6 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		<result property="updateTime"       column="update_time"       />
 		<result property="remark"           column="remark"            />
 		<result property="authorName"       column="author_name"       />
-		<result property="genreName"        column="genre_name"        />
 		<result property="recommendStatus"     column="recommend_status"   />
 		<result property="showScope"           column="show_scope"         />
 		<result property="recommendWeight"    column="recommend_weight"    />
@@ -62,9 +60,9 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		<result property="recommendExpireAt"  column="recommend_expire_at" />
 	</resultMap>
 
-	<!-- 作品管理列表：含 authorName/genreName，全字段 -->
+	<!-- 作品管理列表：含 authorName，全字段；标签由 Service 层批量回填 -->
 	<sql id="selectWorkVo">
-		select w.work_id, w.title, w.cover, w.author_id, w.genre_id, w.work_type, w.upload_type,
+		select w.work_id, w.title, w.cover, w.author_id, w.work_type, w.upload_type,
 		       w.length_type, w.summary,
 		       w.price, w.trade_type, w.trade_enabled, w.negotiable_min, w.negotiable_max,
 		       w.quote_valid_days, w.word_count, w.episode_count, w.duration,
@@ -74,12 +72,10 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		       w.ext_json, w.is_deleted,
 		       w.create_by, w.create_time, w.update_by, w.update_time, w.remark,
 		       u.nick_name as author_name,
-		       c.category_name as genre_name,
 		       JSON_UNQUOTE(JSON_EXTRACT(w.ext_json, '$.recommendStatus')) as recommend_status,
 		       JSON_EXTRACT(w.ext_json, '$.showScope') as show_scope
 		from sys_work w
 		left join sys_user u on u.user_id = w.author_id
-		left join sys_category c on c.category_id = w.genre_id
 		where w.is_deleted = 0
 	</sql>
 
@@ -94,8 +90,8 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		<if test="authorId != null">
 			AND w.author_id = #{authorId}
 		</if>
-		<if test="genreId != null">
-			AND w.genre_id = #{genreId}
+		<if test="tagId != null">
+			AND EXISTS (SELECT 1 FROM sys_work_tag wt WHERE wt.work_id = w.work_id AND wt.tag_id = #{tagId})
 		</if>
 		<if test="status != null and status != ''">
 			AND w.status = #{status}
@@ -128,7 +124,6 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		       w.favorite_count, w.sale_count, w.rating, w.ext_json,
 		       w.create_by, w.create_time, w.update_by, w.update_time, w.remark,
 		       u.nick_name as author_name,
-		       c.category_name as genre_name,
 		       JSON_UNQUOTE(JSON_EXTRACT(w.ext_json, '$.recommendStatus')) as recommend_status,
 		       JSON_EXTRACT(w.ext_json, '$.showScope') as show_scope,
 		       CAST(JSON_EXTRACT(w.ext_json, '$.recommendWeight') AS UNSIGNED) as recommend_weight,
@@ -136,7 +131,6 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		       JSON_UNQUOTE(JSON_EXTRACT(w.ext_json, '$.recommendExpireAt')) as recommend_expire_at
 		from sys_work w
 		left join sys_user u on u.user_id = w.author_id
-		left join sys_category c on c.category_id = w.genre_id
 		where w.is_deleted = 0
 	</sql>
 
@@ -226,8 +220,6 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		<result property="cover"            column="cover"             />
 		<result property="authorId"         column="author_id"         />
 		<result property="authorName"       column="author_name"       />
-		<result property="genreId"          column="genre_id"          />
-		<result property="genreName"        column="genre_name"        />
 		<result property="workType"         column="work_type"         />
 		<result property="uploadType"       column="upload_type"       />
 		<result property="lengthType"       column="length_type"       />
@@ -256,7 +248,6 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		<result property="title"           column="title"            />
 		<result property="cover"           column="cover"            />
 		<result property="authorName"      column="author_name"      />
-		<result property="genreName"       column="genre_name"       />
 		<result property="viewCount"       column="view_count"       />
 		<result property="favoriteCount"   column="favorite_count"   />
 		<result property="saleCount"       column="sale_count"       />
@@ -287,18 +278,16 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		)
 	</sql>
 
-	<!-- 列表公共列 -->
+	<!-- 列表公共列（标签由 Service 层批量回填） -->
 	<sql id="selectAppWorkVo">
-		select w.work_id, w.title, w.cover, w.author_id, w.genre_id, w.work_type, w.upload_type,
+		select w.work_id, w.title, w.cover, w.author_id, w.work_type, w.upload_type,
 		       w.length_type, w.summary, w.price, w.trade_type, w.trade_enabled,
 		       w.word_count, w.episode_count, w.duration, w.is_free, w.preview_enabled,
 		       w.preview_episodes, w.status, w.is_copyrighted, w.quality_level,
 		       w.view_count, w.favorite_count, w.sale_count, w.rating, w.create_time,
-		       u.nick_name as author_name,
-		       c.category_name as genre_name
+		       u.nick_name as author_name
 		from sys_work w
 		left join sys_user u on u.user_id = w.author_id
-		left join sys_category c on c.category_id = w.genre_id
 		<where>
 			<include refid="readerVisibleWork"><property name="alias" value="w"/></include>
 		</where>
@@ -311,18 +300,6 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		</if>
 		<if test="authorId != null">
 			AND w.author_id = #{authorId}
-		</if>
-		<if test="categoryId != null">
-			<!-- 分类筛选取「自身 + 直接子级 + 孙级」，支持频道/题材点击后聚合整个子树的作品 -->
-			AND w.genre_id IN (
-				SELECT category_id FROM sys_category WHERE category_id = #{categoryId}
-				UNION ALL
-				SELECT category_id FROM sys_category WHERE parent_id = #{categoryId}
-				UNION ALL
-				SELECT c3.category_id FROM sys_category c3
-				JOIN sys_category c2 ON c2.category_id = c3.parent_id
-				WHERE c2.parent_id = #{categoryId}
-			)
 		</if>
 		<if test="tagId != null">
 			AND exists (select 1 from sys_work_tag wt where wt.work_id = w.work_id and wt.tag_id = #{tagId})
@@ -354,17 +331,15 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 	</select>
 
 	<select id="selectAppWorkById" parameterType="Long" resultMap="AppWorkDtoResult">
-		select w.work_id, w.title, w.cover, w.author_id, w.genre_id, w.work_type, w.upload_type,
+		select w.work_id, w.title, w.cover, w.author_id, w.work_type, w.upload_type,
 		       w.length_type, w.summary,
 		       w.price, w.trade_type, w.trade_enabled,
 		       w.word_count, w.episode_count, w.duration, w.is_free, w.preview_enabled,
 		       w.preview_episodes, w.status, w.is_copyrighted, w.quality_level,
 		       w.view_count, w.favorite_count, w.sale_count, w.rating, w.create_time,
-		       u.nick_name as author_name,
-		       c.category_name as genre_name
+		       u.nick_name as author_name
 		from sys_work w
 		left join sys_user u on u.user_id = w.author_id
-		left join sys_category c on c.category_id = w.genre_id
 		<where>
 			<include refid="readerVisibleWork"><property name="alias" value="w"/></include>
 			and w.work_id = #{workId}
@@ -387,15 +362,13 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 	<select id="selectAppRankingList" resultMap="AppRankingItemResult">
 		<choose>
 			<when test='type != null and type == "favorite"'>
-				select w.work_id, w.title, w.cover, w.genre_id, w.price, w.is_free,
+				select w.work_id, w.title, w.cover, w.price, w.is_free,
 				       w.word_count, w.episode_count, w.view_count, w.favorite_count,
 				       w.sale_count, w.rating,
 				       u.nick_name as author_name,
-				       c.category_name as genre_name,
 				       coalesce(fc.cnt_7d, 0) as rank_score
 				from sys_work w
 				left join sys_user u on u.user_id = w.author_id
-				left join sys_category c on c.category_id = w.genre_id
 				left join (
 					select f.work_id, count(1) as cnt_7d
 					from sys_favorite f
@@ -409,15 +382,13 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 				limit #{limit}
 			</when>
 			<when test='type != null and type == "sale"'>
-				select w.work_id, w.title, w.cover, w.genre_id, w.price, w.is_free,
+				select w.work_id, w.title, w.cover, w.price, w.is_free,
 				       w.word_count, w.episode_count, w.view_count, w.favorite_count,
 				       w.sale_count, w.rating,
 				       u.nick_name as author_name,
-				       c.category_name as genre_name,
 				       coalesce(so.cnt_7d, 0) as rank_score
 				from sys_work w
 				left join sys_user u on u.user_id = w.author_id
-				left join sys_category c on c.category_id = w.genre_id
 				left join (
 					select o.work_id, count(1) as cnt_7d
 					from sys_order o
@@ -431,15 +402,13 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 				limit #{limit}
 			</when>
 			<when test='type != null and type == "rating"'>
-				select w.work_id, w.title, w.cover, w.genre_id, w.price, w.is_free,
+				select w.work_id, w.title, w.cover, w.price, w.is_free,
 				       w.word_count, w.episode_count, w.view_count, w.favorite_count,
 				       w.sale_count, w.rating,
 				       u.nick_name as author_name,
-				       c.category_name as genre_name,
 				       w.rating as rank_score
 				from sys_work w
 				left join sys_user u on u.user_id = w.author_id
-				left join sys_category c on c.category_id = w.genre_id
 				<where>
 					<include refid="readerVisibleWork"><property name="alias" value="w"/></include>
 					and w.rating &gt; 0
@@ -448,18 +417,16 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 				limit #{limit}
 			</when>
 			<when test='type != null and type == "new"'>
-				select w.work_id, w.title, w.cover, w.genre_id, w.price, w.is_free,
+				select w.work_id, w.title, w.cover, w.price, w.is_free,
 				       w.word_count, w.episode_count, w.view_count, w.favorite_count,
 				       w.sale_count, w.rating,
 				       u.nick_name as author_name,
-				       c.category_name as genre_name,
 				       (select min(coalesce(r.review_end_time, r.updated_at, r.created_at))
 				        from sys_review_record r
 				        where r.target_type = 'work' and r.target_id = w.work_id and r.status = 'approved') as shelf_time,
 				       w.view_count as rank_score
 				from sys_work w
 				left join sys_user u on u.user_id = w.author_id
-				left join sys_category c on c.category_id = w.genre_id
 				<where>
 					<include refid="readerVisibleWork"><property name="alias" value="w"/></include>
 					and (
@@ -476,15 +443,13 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 				limit #{limit}
 			</when>
 			<otherwise>
-				select w.work_id, w.title, w.cover, w.genre_id, w.price, w.is_free,
+				select w.work_id, w.title, w.cover, w.price, w.is_free,
 				       w.word_count, w.episode_count, w.view_count, w.favorite_count,
 				       w.sale_count, w.rating,
 				       u.nick_name as author_name,
-				       c.category_name as genre_name,
 				       w.view_count as rank_score
 				from sys_work w
 				left join sys_user u on u.user_id = w.author_id
-				left join sys_category c on c.category_id = w.genre_id
 				<where>
 					<include refid="readerVisibleWork"><property name="alias" value="w"/></include>
 				</where>
@@ -495,13 +460,12 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 	</select>
 
 
-	<!-- 用户端修改作品基本信息（title/summary/genre_id/cover，状态校验在服务层） -->
+	<!-- 用户端修改作品基本信息（title/summary/cover，状态校验在服务层；标签走 sys_work_tag） -->
 	<update id="updateWorkBaseInfo" parameterType="SysContentWork">
 		update sys_work
 		<trim prefix="SET" suffixOverrides=",">
 			<if test="title != null and title != ''">title = #{title},</if>
 			<if test="summary != null">summary = #{summary},</if>
-			<if test="genreId != null">genre_id = #{genreId},</if>
 			<if test="cover != null and cover != ''">cover = #{cover},</if>
 			<if test="price != null">price = #{price},</if>
 			<if test="tradeType != null">trade_type = #{tradeType},</if>
@@ -516,7 +480,6 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		<id     property="workId"      column="work_id"       />
 		<result property="title"       column="title"         />
 		<result property="authorName"  column="author_name"   />
-		<result property="genreName"   column="genre_name"    />
 		<result property="workType"    column="work_type"     />
 		<result property="status"      column="status"        />
 		<result property="summary"     column="summary"       />
@@ -526,11 +489,9 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 	<!-- 查询版权资产列表（authorId/onlyPublished 仅创作者侧传入，Admin 不传则行为不变） -->
 	<select id="selectCopyrightAssetList" parameterType="com.smartscript.platform.content.dto.CopyrightAssetQuery" resultMap="CopyrightAssetResult">
 		select w.work_id, w.title, w.work_type, w.status, w.summary, w.create_time,
-		       u.nick_name as author_name,
-		       c.category_name as genre_name
+		       u.nick_name as author_name
 		from sys_work w
 		left join sys_user u on u.user_id = w.author_id
-		left join sys_category c on c.category_id = w.genre_id
 		where w.is_deleted = 0
 		<if test="authorId != null">
 			and w.author_id = #{authorId}
@@ -560,11 +521,9 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 	<!-- 查询版权资产详情（authorId 可选，创作者侧传入以限制本人作品） -->
 	<select id="selectCopyrightAssetById" resultMap="CopyrightAssetResult">
 		select w.work_id, w.title, w.work_type, w.status, w.summary, w.create_time,
-		       u.nick_name as author_name,
-		       c.category_name as genre_name
+		       u.nick_name as author_name
 		from sys_work w
 		left join sys_user u on u.user_id = w.author_id
-		left join sys_category c on c.category_id = w.genre_id
 		where w.work_id = #{workId} and w.is_deleted = 0
 		<if test="authorId != null">
 			and w.author_id = #{authorId}
@@ -611,8 +570,6 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		<id     property="workId"     column="work_id"     />
 		<result property="title"      column="title"       />
 		<result property="cover"      column="cover"       />
-		<result property="genreId"    column="genre_id"    />
-		<result property="genreName"  column="genre_name"  />
 		<result property="summary"    column="summary"     />
 		<result property="price"      column="price"       />
 		<result property="status"     column="status"      />
@@ -622,12 +579,12 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 	<!-- 创建作品（2.9.2） -->
 	<insert id="insertWork" parameterType="SysContentWork" useGeneratedKeys="true" keyProperty="workId">
 		insert into sys_work (
-			title, cover, author_id, genre_id, work_type, length_type, summary,
+			title, cover, author_id, work_type, length_type, summary,
 			price, trade_enabled, quote_valid_days, word_count, is_free, status,
 			is_copyrighted, view_count, favorite_count, sale_count, rating, is_deleted,
 			create_by, create_time
 		) values (
-			#{title}, #{cover}, #{authorId}, #{genreId}, #{workType}, #{lengthType}, #{summary},
+			#{title}, #{cover}, #{authorId}, #{workType}, #{lengthType}, #{summary},
 			#{price}, #{tradeEnabled}, #{quoteValidDays}, #{wordCount}, #{isFree}, #{status},
 			#{isCopyrighted}, #{viewCount}, #{favoriteCount}, #{saleCount}, #{rating}, #{isDeleted},
 			#{createBy}, sysdate()
@@ -670,10 +627,8 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 
 	<!-- 草稿箱（2.9.5）：本人 + 未删除 + 从未提交审核 -->
 	<select id="selectDraftWorks" resultMap="AppDraftWorkItemResult">
-		select w.work_id, w.title, w.cover, w.genre_id, w.summary, w.price, w.status, w.create_time,
-		       c.category_name as genre_name
+		select w.work_id, w.title, w.cover, w.summary, w.price, w.status, w.create_time
 		from sys_work w
-		left join sys_category c on c.category_id = w.genre_id
 		where w.is_deleted = 0 and w.author_id = #{userId}
 		  and not exists (select 1 from sys_review_record r
 		                  where r.target_type = 'work' and r.target_id = w.work_id)

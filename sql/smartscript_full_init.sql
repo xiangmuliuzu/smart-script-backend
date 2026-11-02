@@ -1621,7 +1621,7 @@ CREATE TABLE IF NOT EXISTS sys_work (
   `title` varchar(100) COLLATE utf8mb4_general_ci NOT NULL,
   `cover` varchar(255) COLLATE utf8mb4_general_ci DEFAULT NULL,
   `author_id` bigint NOT NULL,
-  `genre_id` int NOT NULL,
+  `genre_id` int DEFAULT NULL COMMENT '历史题材ID（标签墙体系下不再写入，仅存量保留）',
   `work_type` varchar(20) COLLATE utf8mb4_general_ci NOT NULL,
   `upload_type` varchar(20) COLLATE utf8mb4_general_ci DEFAULT NULL,
   `length_type` varchar(20) COLLATE utf8mb4_general_ci NOT NULL,

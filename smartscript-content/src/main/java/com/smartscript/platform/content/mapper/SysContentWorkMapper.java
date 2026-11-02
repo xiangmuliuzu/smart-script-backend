@@ -25,15 +25,15 @@ import com.smartscript.platform.content.dto.CopyrightAssetQuery;
 public interface SysContentWorkMapper
 {
     /**
-     * 查询作品列表（含 authorName/genreName，JOIN sys_user + sys_category）
+     * 查询作品列表（含 authorName，标签由服务层按 sys_work_tag 回填；JOIN sys_user）
      *
-     * @param query 查询条件（title 模糊、authorId/genreId/status/workType/tradeType 精确，按需传入）
+     * @param query 查询条件（title 模糊、authorId/tagId/status/workType/tradeType 精确，按需传入）
      * @return 作品集合
      */
     public List<SysWork> selectWorkList(SysWork query);
 
     /**
-     * 通过作品ID查询详情（含 authorName/genreName）
+     * 通过作品ID查询详情（含 authorName，标签由服务层回填）
      *
      * @param workId 作品ID
      * @return 作品对象
@@ -41,7 +41,7 @@ public interface SysContentWorkMapper
     public SysWork selectWorkById(Long workId);
 
     /**
-     * 用户端「我的作品」列表（含 authorName/genreName，按更新时间倒序）
+     * 用户端「我的作品」列表（含 authorName，按更新时间倒序）
      *
      * 固定条件：is_deleted = 0，作者为当前用户。
      * 审核派生状态由服务层依据 sys_review_record 最新记录计算，此处不参与过滤。
@@ -96,7 +96,7 @@ public interface SysContentWorkMapper
      *
      * 固定条件：is_deleted = 0 且 status = 'on_shelf'（书城只展示已上架作品）。
      *
-     * @param query 查询条件（keyword 模糊、categoryId 精确、tagId 走 sys_work_tag EXISTS、sort 决定排序）
+     * @param query 查询条件（keyword 模糊、tagId 走 sys_work_tag EXISTS、sort 决定排序）
      * @return 作品集合（AppWorkDto，分页由调用方 PageHelper 驱动）
      */
     public List<AppWorkDto> selectAppWorkList(AppWorkQuery query);
@@ -123,11 +123,11 @@ public interface SysContentWorkMapper
     public List<AppRankingItem> selectAppRankingList(@Param("type") String type, @Param("limit") int limit);
 
     /**
-     * 用户端修改作品基本信息（单一职责：仅改 title/summary/genre_id）
+     * 用户端修改作品基本信息（单一职责：仅改 title/summary）
      *
      * 仅未在审核中的作品允许调用，状态校验在服务层。
      *
-     * @param work 仅携带 workId + title/summary/genreId + updateBy/updateTime
+     * @param work 仅携带 workId + title/summary + updateBy/updateTime
      * @return 影响行数
      */
     public int updateWorkBaseInfo(SysWork work);
@@ -170,8 +170,8 @@ public interface SysContentWorkMapper
     /**
      * 新增作品（2.9.2 创建作品）
      *
-     * 服务层负责补齐 NOT NULL 列默认值（author_id/work_type/length_type/status/各类计数等），
-     * 并校验 genreId（category_id）非空与归属。
+     * 服务层负责补齐 NOT NULL 列默认值（author_id/work_type/length_type/status/各类计数等）。
+     * 标签墙体系下作品不再设置分类（genre_id 保留可空，仅存量），标签在作品工作台维护。
      *
      * @param work 作品对象（含业务字段 + createBy）
      * @return 影响行数

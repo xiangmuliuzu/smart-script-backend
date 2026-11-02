@@ -5,8 +5,8 @@ import java.math.BigDecimal;
 /**
  * 创建作品请求（App 接口文档 2.9.2 表 2-112）。
  *
- * 入参：title 必填；categoryId 落库 sys_work.genre_id（该列 NOT NULL，故本模块约定必填，
- * 缺失按 400 拒绝，不编造默认分类）；description 落库 sys_work.summary；cover / price 可选。
+ * 入参：title 必填；description 落库 sys_work.summary；cover / price 可选。
+ * 标签墙体系下作品不再设置分类，标签在作品工作台的「设置」中维护。
  *
  * @author xiangsipeng
  */
@@ -14,9 +14,6 @@ public class AppWorkCreateRequest
 {
     /** 作品标题（必填） */
     private String title;
-
-    /** 分类ID（必填，落库 genre_id） */
-    private Integer categoryId;
 
     /** 作品简介（可选，落库 summary） */
     private String description;
@@ -44,16 +41,6 @@ public class AppWorkCreateRequest
     public void setTitle(String title)
     {
         this.title = title;
-    }
-
-    public Integer getCategoryId()
-    {
-        return categoryId;
-    }
-
-    public void setCategoryId(Integer categoryId)
-    {
-        this.categoryId = categoryId;
     }
 
     public String getDescription()

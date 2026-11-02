@@ -36,7 +36,7 @@ public class SysWorkController extends BaseController
 
     /**
      * 获取作品列表
-     * 入参（query，均可选）：title 模糊、authorId/genreId/status/workType/tradeType 精确；pageNum/pageSize 分页
+     * 入参（query，均可选）：title 模糊、authorId/tagId/status/workType/tradeType 精确；pageNum/pageSize 分页
      */
     @PreAuthorize("@ss.hasPermi('content:work:list')")
     @GetMapping("/list")
@@ -48,7 +48,7 @@ public class SysWorkController extends BaseController
     }
 
     /**
-     * 通过作品ID获取详细信息（含 authorName/genreName）
+     * 通过作品ID获取详细信息（含 authorName/tags）
      */
     @PreAuthorize("@ss.hasPermi('content:work:query')")
     @GetMapping("/{workId}")

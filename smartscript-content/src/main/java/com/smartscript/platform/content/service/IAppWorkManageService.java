@@ -28,7 +28,7 @@ public interface IAppWorkManageService
     /**
      * 创建作品（2.9.2）
      *
-     * @param request 创建入参（title/categoryId 已由控制层校验非空）
+     * @param request 创建入参（title 已由控制层校验非空）
      * @return 新作品ID；写入失败返回 null
      */
     public Long createWork(AppWorkCreateRequest request);
