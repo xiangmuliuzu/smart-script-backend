@@ -152,6 +152,14 @@ public class ProfileFileController
     private static final int THUMB_MIN_SOURCE_BYTES = 40 * 1024;
 
     /**
+     * 超过该像素数（约 5000 万）的原图不做缩略，直接回原文件。
+     *
+     * 解码一张图要 width*height*4 字节堆内存，封面目录没有像素上限校验，
+     * 任由超大图解码会把共享 JVM 拖进 OOM——那比慢更糟。
+     */
+    private static final long THUMB_MAX_SOURCE_PIXELS = 50_000_000L;
+
+    /**
      * 缩略图：首次按需生成并落盘，后续直接复用同一文件。
      *
      * 只对 jpg/jpeg/png/webp/bmp 且体积超过 {@link #THUMB_MIN_SOURCE_BYTES} 的原图生效；
@@ -230,6 +238,11 @@ public class ProfileFileController
             try
             {
                 reader.setInput(imageIn, true, true);
+                // 先只取尺寸：超大图不解码，避免一张图吃掉整块堆
+                if ((long) reader.getWidth(0) * reader.getHeight(0) > THUMB_MAX_SOURCE_PIXELS)
+                {
+                    return false;
+                }
                 decoded = reader.read(0);
             }
             finally
