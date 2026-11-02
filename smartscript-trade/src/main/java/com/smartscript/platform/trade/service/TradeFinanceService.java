@@ -56,27 +56,27 @@ public class TradeFinanceService
      * 字段口径：
      * totalIncome = 累计已入账作者实得（确认结算后计入，提现不扣减）；
      * pendingSettleAmount = 待作者确认、尚未入账（已扣 5% 平台抽成后的作者实得）；
-     * availableAmount = 可提现；
-     * withdrawnAmount = 已提现（含审核中/已通过/已打款，不含已驳回）。
+     * availableAmount = 可提现（账户 available_amount）；
+     * frozenAmount = 提现中未打款合计（pending/approved/frozen 且无 pay_time；不读账户遗留 frozen_amount）；
+     * withdrawnAmount = 已打款提现合计（status=paid 或已有 pay_time）。
      * 待结算未入账，因此总收益 = 可提现口径的累计入账，不含待结算。
      * 不使用 sys_creator_stats.total_income：该表按日插入且无累计唯一键，最新一行只是当日增量。
+     * 不改申请/审核/结算写入流程，仅统一摘要展示口径。
      */
     public Map<String, Object> getIncomeOverview(Long userId)
     {
         Map<String, Object> overview = new HashMap<>();
 
         BigDecimal available = BigDecimal.ZERO;
-        BigDecimal frozen = BigDecimal.ZERO;
         BigDecimal settled = BigDecimal.ZERO;
         Map<String, Object> account = financeStatsMapper.selectIncomeAccount(userId);
         if (account != null)
         {
             available = toDecimal(account.get("availableAmount"));
-            frozen = toDecimal(account.get("frozenAmount"));
             settled = toDecimal(account.get("settledAmount"));
         }
         overview.put("availableAmount", available);
-        overview.put("frozenAmount", frozen);
+        overview.put("frozenAmount", queryInFlightWithdrawAmount(userId));
         overview.put("settledAmount", settled);
 
         Map<String, Object> stats = financeStatsMapper.selectLatestCreatorStats(userId);
@@ -107,14 +107,32 @@ public class TradeFinanceService
         return overview;
     }
 
-    /** 已提现合计：提现申请中未驳回的金额。 */
+    /** 提现中（未打款）：已申请且尚未打款的金额，对应摘要「冻结/提现中」。 */
+    private BigDecimal queryInFlightWithdrawAmount(Long userId)
+    {
+        try
+        {
+            BigDecimal amount = jdbc.queryForObject(
+                    "SELECT IFNULL(SUM(amount), 0) FROM sys_withdraw_apply "
+                            + "WHERE user_id = ? AND status IN ('pending','approved','frozen') "
+                            + "AND pay_time IS NULL",
+                    BigDecimal.class, userId);
+            return amount != null ? amount : BigDecimal.ZERO;
+        }
+        catch (Exception ex)
+        {
+            return BigDecimal.ZERO;
+        }
+    }
+
+    /** 已提现合计：仅已打款。 */
     private BigDecimal queryWithdrawnAmount(Long userId)
     {
         try
         {
             BigDecimal amount = jdbc.queryForObject(
                     "SELECT IFNULL(SUM(amount), 0) FROM sys_withdraw_apply "
-                            + "WHERE user_id = ? AND status IN ('pending','approved','frozen','paid')",
+                            + "WHERE user_id = ? AND (status = 'paid' OR pay_time IS NOT NULL)",
                     BigDecimal.class, userId);
             return amount != null ? amount : BigDecimal.ZERO;
         }
