@@ -174,7 +174,7 @@ class AppUserWorkServiceTest
     {
         when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
         when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of());
-        service.updateWorkBase(OWNER, WORK_ID, "新标题", "新简介", 5, null, null, null, null);
+        service.updateWorkBase(OWNER, WORK_ID, "新标题", "新简介", null, null, null, null);
         verify(workMapper).updateWorkBaseInfo(any(SysWork.class));
     }
 
@@ -184,16 +184,16 @@ class AppUserWorkServiceTest
     {
         when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
         when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of());
-        service.updateWorkBase(OWNER, WORK_ID, "标题", "简介", 5, null, null,
+        service.updateWorkBase(OWNER, WORK_ID, "标题", "简介", null, null,
                 new java.math.BigDecimal("123.45"), "non_exclusive");
         verify(workMapper).updateWorkBaseInfo(argThat(work ->
                 new java.math.BigDecimal("123.45").equals(work.getPrice())
                 && "non_exclusive".equals(work.getTradeType())));
         for (String price : List.of("-1", "1.001", "10000000000"))
             assertThrows(IllegalArgumentException.class, () -> service.updateWorkBase(
-                    OWNER, WORK_ID, "标题", "简介", 5, null, null, new java.math.BigDecimal(price), "exclusive"));
+                    OWNER, WORK_ID, "标题", "简介", null, null, new java.math.BigDecimal(price), "exclusive"));
         assertThrows(IllegalArgumentException.class, () -> service.updateWorkBase(
-                OWNER, WORK_ID, "标题", "简介", 5, null, null, null, "negotiable"));
+                OWNER, WORK_ID, "标题", "简介", null, null, null, "negotiable"));
         verify(workMapper).updateWorkBaseInfo(any());
     }
 
@@ -203,7 +203,7 @@ class AppUserWorkServiceTest
     {
         when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
         when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of(recordOf("revision")));
-        service.updateWorkBase(OWNER, WORK_ID, "新标题", "新简介", 5, null, null, null, null);
+        service.updateWorkBase(OWNER, WORK_ID, "新标题", "新简介", null, null, null, null);
         verify(workMapper).updateWorkBaseInfo(any(SysWork.class));
     }
 
@@ -214,7 +214,7 @@ class AppUserWorkServiceTest
         when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
         when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of(recordOf("pending")));
         assertThrows(IllegalStateException.class,
-                () -> service.updateWorkBase(OWNER, WORK_ID, "新标题", "新简介", 5, null, null, null, null));
+                () -> service.updateWorkBase(OWNER, WORK_ID, "新标题", "新简介", null, null, null, null));
         verify(workMapper, never()).updateWorkBaseInfo(any());
     }
 
@@ -224,7 +224,7 @@ class AppUserWorkServiceTest
     {
         when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
         when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of(recordOf("approved")));
-        service.updateWorkBase(OWNER, WORK_ID, "新标题", "新简介", 5, "/profile/upload/cover.png", null, null, null);
+        service.updateWorkBase(OWNER, WORK_ID, "新标题", "新简介", "/profile/upload/cover.png", null, null, null);
         verify(workMapper).updateWorkBaseInfo(argThat(work -> "/profile/upload/cover.png".equals(work.getCover())));
     }
 
@@ -235,7 +235,7 @@ class AppUserWorkServiceTest
         when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
         when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of());
 
-        service.updateWorkBase(OWNER, WORK_ID, "新标题", "新简介", 5, null, List.of(3, 1, 3), null, null);
+        service.updateWorkBase(OWNER, WORK_ID, "新标题", "新简介", null, List.of(3, 1, 3), null, null);
 
         verify(tagMapper).deleteWorkTagByWorkId(WORK_ID);
         // 3 重复出现两次，去重后只写 2 条，避免撞 uk_work_tag(work_id, tag_id)
@@ -252,7 +252,7 @@ class AppUserWorkServiceTest
         when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
         when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of());
 
-        service.updateWorkBase(OWNER, WORK_ID, "新标题", "新简介", 5, null, List.of(), null, null);
+        service.updateWorkBase(OWNER, WORK_ID, "新标题", "新简介", null, List.of(), null, null);
 
         verify(tagMapper).deleteWorkTagByWorkId(WORK_ID);
         verify(tagMapper, never()).batchInsertWorkTag(anyLong(), any(), anyString());
@@ -267,7 +267,7 @@ class AppUserWorkServiceTest
         when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
         when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of());
 
-        service.updateWorkBase(OWNER, WORK_ID, "新标题", "新简介", 5, null, null, null, null);
+        service.updateWorkBase(OWNER, WORK_ID, "新标题", "新简介", null, null, null, null);
 
         verify(tagMapper, never()).deleteWorkTagByWorkId(anyLong());
         // 标签未变动，不应触发使用数量刷新
@@ -282,7 +282,7 @@ class AppUserWorkServiceTest
         when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of());
 
         assertThrows(IllegalArgumentException.class, () -> service.updateWorkBase(
-                OWNER, WORK_ID, "新标题", "新简介", 5, null, List.of(1, 2, 3, 4, 5, 6, 7, 8, 9), null, null));
+                OWNER, WORK_ID, "新标题", "新简介", null, List.of(1, 2, 3, 4, 5, 6, 7, 8, 9), null, null));
 
         verify(tagMapper, never()).deleteWorkTagByWorkId(anyLong());
     }

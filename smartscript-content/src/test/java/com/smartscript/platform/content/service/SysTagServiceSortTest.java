@@ -47,6 +47,8 @@ class SysTagServiceSortTest
         tag.setTagId(tagId);
         tag.setTagName("标签");
         tag.setSort(sort);
+        tag.setChannelId(146L);
+        tag.setTagType("plot");
         return tag;
     }
 
@@ -54,9 +56,10 @@ class SysTagServiceSortTest
     @DisplayName("新增未带类型：兜底为情节维度（plot），避免 tag_type 非空约束报错")
     void insertDefaultsTagType()
     {
-        when(tagMapper.selectMaxSort()).thenReturn(0);
+        when(tagMapper.selectMaxSort(any(), any())).thenReturn(0);
 
         SysTag tag = tag(null, null);
+        tag.setTagType(null);
         service.insertTag(tag);
 
         assertEquals("plot", tag.getTagType());
@@ -67,30 +70,30 @@ class SysTagServiceSortTest
     @DisplayName("新增未指定位次：追加到末尾（最大位次 + 1），不做腾位")
     void insertWithoutSortAppendsToTail()
     {
-        when(tagMapper.selectMaxSort()).thenReturn(5);
+        when(tagMapper.selectMaxSort(any(), any())).thenReturn(5);
 
         SysTag tag = tag(null, null);
         service.insertTag(tag);
 
         assertEquals(6, tag.getSort());
-        verify(tagMapper, never()).shiftTagSortForward(anyInt(), anyInt(), any());
-        verify(tagMapper, never()).shiftTagSortBackward(anyInt(), anyInt(), any());
+        verify(tagMapper, never()).shiftTagSortForward(anyInt(), anyInt(), any(), any(), any());
+        verify(tagMapper, never()).shiftTagSortBackward(anyInt(), anyInt(), any(), any(), any());
     }
 
     @Test
     @DisplayName("新增指定位次 1：原 1~N 整体后移一位，腾位于 1")
     void insertWithSortOneShiftsOthersDown()
     {
-        when(tagMapper.selectMaxSort()).thenReturn(5);
+        when(tagMapper.selectMaxSort(any(), any())).thenReturn(5);
         // 位次 1 已被占用 → 需要腾位；腾位后该位次空闲（供写入后唯一性校验）
-        when(tagMapper.countBySort(eq(1), any())).thenReturn(1, 0);
+        when(tagMapper.countBySort(eq(1), any(), any(), any())).thenReturn(1, 0);
 
         SysTag tag = tag(null, 1);
         service.insertTag(tag);
 
         assertEquals(1, tag.getSort());
         // 腾位区间 [1, 最大位次 5]：整体 +1
-        verify(tagMapper).shiftTagSortForward(eq(1), eq(6), any());
+        verify(tagMapper).shiftTagSortForward(eq(1), eq(6), any(), any(), any());
         verify(tagMapper).insertTag(tag);
     }
 
@@ -98,15 +101,15 @@ class SysTagServiceSortTest
     @DisplayName("新增指定位次为空缺位次：直接落位，不位移任何标签")
     void insertIntoSortGapDoesNotShift()
     {
-        when(tagMapper.selectMaxSort()).thenReturn(5);
+        when(tagMapper.selectMaxSort(any(), any())).thenReturn(5);
 
         // 位次 3 空闲（存量数据中间有空洞）
         SysTag tag = tag(null, 3);
         service.insertTag(tag);
 
         assertEquals(3, tag.getSort());
-        verify(tagMapper, never()).shiftTagSortForward(anyInt(), anyInt(), any());
-        verify(tagMapper, never()).shiftTagSortBackward(anyInt(), anyInt(), any());
+        verify(tagMapper, never()).shiftTagSortForward(anyInt(), anyInt(), any(), any(), any());
+        verify(tagMapper, never()).shiftTagSortBackward(anyInt(), anyInt(), any(), any(), any());
         verify(tagMapper).insertTag(tag);
     }
 
@@ -124,8 +127,8 @@ class SysTagServiceSortTest
     @DisplayName("新增写入后位次仍被占用：抛异常触发回滚")
     void insertWithDuplicateSortRollsBack()
     {
-        when(tagMapper.selectMaxSort()).thenReturn(3);
-        when(tagMapper.countBySort(anyInt(), any())).thenReturn(1);
+        when(tagMapper.selectMaxSort(any(), any())).thenReturn(3);
+        when(tagMapper.countBySort(anyInt(), any(), any(), any())).thenReturn(1);
 
         SysTag tag = tag(null, 2);
 
@@ -138,12 +141,12 @@ class SysTagServiceSortTest
     {
         when(tagMapper.selectTagById(9L)).thenReturn(tag(9L, 4));
         // 目标位次 1 已被占用 → 需要腾位
-        when(tagMapper.countBySort(eq(1), eq(9L))).thenReturn(1, 0);
+        when(tagMapper.countBySort(eq(1), eq(9L), any(), any())).thenReturn(1, 0);
 
         SysTag tag = tag(9L, 1);
         service.updateTag(tag);
 
-        verify(tagMapper).shiftTagSortForward(eq(1), eq(4), eq(9L));
+        verify(tagMapper).shiftTagSortForward(eq(1), eq(4), eq(9L), any(), any());
         verify(tagMapper).updateTag(tag);
     }
 
@@ -153,14 +156,14 @@ class SysTagServiceSortTest
     {
         when(tagMapper.selectTagById(9L)).thenReturn(tag(9L, 2));
         // 当前最大位次为 8，目标位次 6 未越界
-        when(tagMapper.selectMaxSort()).thenReturn(8);
+        when(tagMapper.selectMaxSort(any(), any())).thenReturn(8);
         // 目标位次 6 已被占用 → 需要腾位
-        when(tagMapper.countBySort(eq(6), eq(9L))).thenReturn(1, 0);
+        when(tagMapper.countBySort(eq(6), eq(9L), any(), any())).thenReturn(1, 0);
 
         SysTag tag = tag(9L, 6);
         service.updateTag(tag);
 
-        verify(tagMapper).shiftTagSortBackward(eq(6), eq(2), eq(9L));
+        verify(tagMapper).shiftTagSortBackward(eq(6), eq(2), eq(9L), any(), any());
         verify(tagMapper).updateTag(tag);
     }
 
@@ -170,13 +173,13 @@ class SysTagServiceSortTest
     {
         // 自身当前位次 7（也是当前最大位次），目标位次 4 空闲（存量数据中间有空洞）
         when(tagMapper.selectTagById(9L)).thenReturn(tag(9L, 7));
-        when(tagMapper.selectMaxSort()).thenReturn(7);
+        when(tagMapper.selectMaxSort(any(), any())).thenReturn(7);
 
         SysTag tag = tag(9L, 4);
         service.updateTag(tag);
 
-        verify(tagMapper, never()).shiftTagSortForward(anyInt(), anyInt(), any());
-        verify(tagMapper, never()).shiftTagSortBackward(anyInt(), anyInt(), any());
+        verify(tagMapper, never()).shiftTagSortForward(anyInt(), anyInt(), any(), any(), any());
+        verify(tagMapper, never()).shiftTagSortBackward(anyInt(), anyInt(), any(), any(), any());
         verify(tagMapper).updateTag(tag);
     }
 
@@ -197,7 +200,7 @@ class SysTagServiceSortTest
     void updateWithDuplicateSortRollsBack()
     {
         when(tagMapper.selectTagById(9L)).thenReturn(tag(9L, 4));
-        when(tagMapper.countBySort(anyInt(), any())).thenReturn(1);
+        when(tagMapper.countBySort(anyInt(), any(), any(), any())).thenReturn(1);
 
         SysTag tag = tag(9L, 1);
 
@@ -214,8 +217,8 @@ class SysTagServiceSortTest
         service.updateTag(tag);
 
         verify(tagMapper, never()).selectTagById(anyLong());
-        verify(tagMapper, never()).shiftTagSortForward(anyInt(), anyInt(), any());
-        verify(tagMapper, never()).shiftTagSortBackward(anyInt(), anyInt(), any());
+        verify(tagMapper, never()).shiftTagSortForward(anyInt(), anyInt(), any(), any(), any());
+        verify(tagMapper, never()).shiftTagSortBackward(anyInt(), anyInt(), any(), any(), any());
         verify(tagMapper).updateTag(tag);
     }
 
@@ -228,7 +231,7 @@ class SysTagServiceSortTest
         service.deleteTagByIds(new Long[] { 2L });
 
         verify(tagMapper).deleteTagByIds(new Long[] { 2L });
-        verify(tagMapper).shiftSortAfterDelete(2);
+        verify(tagMapper).shiftSortAfterDelete(eq(2), any(), any());
     }
 
     @Test
@@ -241,8 +244,8 @@ class SysTagServiceSortTest
         service.deleteTagByIds(new Long[] { 2L, 5L });
 
         InOrder inOrder = inOrder(tagMapper);
-        inOrder.verify(tagMapper).shiftSortAfterDelete(5);
-        inOrder.verify(tagMapper).shiftSortAfterDelete(2);
+        inOrder.verify(tagMapper).shiftSortAfterDelete(eq(5), any(), any());
+        inOrder.verify(tagMapper).shiftSortAfterDelete(eq(2), any(), any());
     }
 
     @Test
@@ -250,14 +253,14 @@ class SysTagServiceSortTest
     void insertClampsToTailWhenSortExceedsMax()
     {
         // 当前最大位次 5 → 末尾位次 6；请求位次 100 应被夹到 6
-        when(tagMapper.selectMaxSort()).thenReturn(5);
+        when(tagMapper.selectMaxSort(any(), any())).thenReturn(5);
 
         SysTag tag = tag(null, 100);
         service.insertTag(tag);
 
         assertEquals(6, tag.getSort());
-        verify(tagMapper, never()).shiftTagSortForward(anyInt(), anyInt(), any());
-        verify(tagMapper, never()).shiftTagSortBackward(anyInt(), anyInt(), any());
+        verify(tagMapper, never()).shiftTagSortForward(anyInt(), anyInt(), any(), any(), any());
+        verify(tagMapper, never()).shiftTagSortBackward(anyInt(), anyInt(), any(), any(), any());
         verify(tagMapper).insertTag(tag);
     }
 
@@ -267,15 +270,15 @@ class SysTagServiceSortTest
     {
         when(tagMapper.selectTagById(9L)).thenReturn(tag(9L, 2));
         // 当前最大位次 5 → 请求位次 100 夹到 5
-        when(tagMapper.selectMaxSort()).thenReturn(5);
+        when(tagMapper.selectMaxSort(any(), any())).thenReturn(5);
         // 位次 5 已被占用 → 腾位；腾位后该位次空闲（供写入后唯一性校验）
-        when(tagMapper.countBySort(eq(5), eq(9L))).thenReturn(1, 0);
+        when(tagMapper.countBySort(eq(5), eq(9L), any(), any())).thenReturn(1, 0);
 
         SysTag tag = tag(9L, 100);
         service.updateTag(tag);
 
         assertEquals(5, tag.getSort());
-        verify(tagMapper).shiftTagSortBackward(eq(5), eq(2), eq(9L));
+        verify(tagMapper).shiftTagSortBackward(eq(5), eq(2), eq(9L), any(), any());
         verify(tagMapper).updateTag(tag);
     }
 
@@ -287,7 +290,7 @@ class SysTagServiceSortTest
 
         assertThrows(ServiceException.class, () -> service.deleteTagByIds(new Long[] { 2L }));
         verify(tagMapper, never()).deleteTagByIds(any());
-        verify(tagMapper, never()).shiftSortAfterDelete(anyInt());
+        verify(tagMapper, never()).shiftSortAfterDelete(anyInt(), any(), any());
     }
 
     @Test
@@ -298,6 +301,6 @@ class SysTagServiceSortTest
 
         service.deleteTagByIds(new Long[] { 2L, 2L });
 
-        verify(tagMapper, times(1)).shiftSortAfterDelete(2);
+        verify(tagMapper, times(1)).shiftSortAfterDelete(eq(2), any(), any());
     }
 }

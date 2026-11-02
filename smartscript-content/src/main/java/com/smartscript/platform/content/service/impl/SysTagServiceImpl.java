@@ -250,8 +250,12 @@ public class SysTagServiceImpl implements ISysTagService
         }
 
         // 记录被删位次及所属分区（去重：重复 ID 若各紧缩一次会把其后元素多减一位，造成位次错乱）
-        java.util.Set<String> deletedKeys = new java.util.HashSet<>();
-        java.util.Map<Integer, java.util.List<Long>> sortToChannelTagType = new java.util.HashMap<>();
+        // 必须按位次从大到小依次紧缩；TreeSet 同时保留不同频道/维度的同一位次
+        java.util.Comparator<String> descBySort = java.util.Comparator
+                .comparingInt((String key) -> Integer.parseInt(key.split("_", 2)[0]))
+                .reversed()
+                .thenComparing(java.util.Comparator.naturalOrder());
+        java.util.Set<String> deletedKeys = new java.util.TreeSet<>(descBySort);
         for (Long tagId : uniqueIds)
         {
             SysTag db = tagMapper.selectTagById(tagId);
