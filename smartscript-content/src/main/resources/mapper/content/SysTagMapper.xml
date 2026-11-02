@@ -65,9 +65,9 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		where tag_id = #{tagId}
 	</select>
 
-	<select id="checkTagNameUnique" parameterType="String" resultMap="SysTagResult">
+	<select id="checkTagNameUnique" parameterType="SysTag" resultMap="SysTagResult">
 		<include refid="selectTagVo"/>
-		where tag_name = #{tagName} limit 1
+		where tag_name = #{tagName} and channel_id = #{channelId} limit 1
 	</select>
 
 	<!--

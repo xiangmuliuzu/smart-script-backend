@@ -78,10 +78,10 @@ public interface SysTagMapper
     /**
      * 校验标签名称是否唯一
      *
-     * @param tagName 标签名称
+     * @param tag 标签（包含tagName和channelId）
      * @return 命中的标签对象（无则 null）
      */
-    public SysTag checkTagNameUnique(String tagName);
+    public SysTag checkTagNameUnique(SysTag tag);
 
     /**
      * 新增标签

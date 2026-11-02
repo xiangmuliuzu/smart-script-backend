@@ -55,8 +55,13 @@ public class SysTagServiceImpl implements ISysTagService
     @Override
     public boolean checkTagNameUnique(SysTag tag)
     {
+        // 频道ID不能为空，男女频同名标签允许共存
+        if (tag.getChannelId() == null)
+        {
+            throw new ServiceException("频道ID不能为空");
+        }
         Long tagId = StringUtils.isNull(tag.getTagId()) ? -1L : tag.getTagId();
-        SysTag info = tagMapper.checkTagNameUnique(tag.getTagName());
+        SysTag info = tagMapper.checkTagNameUnique(tag);
         if (StringUtils.isNotNull(info) && info.getTagId().longValue() != tagId.longValue())
         {
             return false;
@@ -68,6 +73,11 @@ public class SysTagServiceImpl implements ISysTagService
     @Transactional
     public int insertTag(SysTag tag)
     {
+        // 频道ID不能为空，不允许通用标签
+        if (tag.getChannelId() == null)
+        {
+            throw new ServiceException("频道ID不能为空，请选择男生或女生频道");
+        }
         // 位次维护前先串行化同类写入，避免并发下彼此看不到对方腾位结果而落库重复位次
         tagMapper.lockSortScope();
 
