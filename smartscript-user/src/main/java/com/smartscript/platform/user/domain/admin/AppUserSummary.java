@@ -16,6 +16,7 @@ public class AppUserSummary
     private String userType;
     private String nickname;
     private String phoneMasked;
+    private String email;
     private String status;
     private String realNameStatus;
     private String creatorApplicationStatus;
@@ -78,6 +79,16 @@ public class AppUserSummary
     public void setPhoneMasked(String phoneMasked)
     {
         this.phoneMasked = phoneMasked;
+    }
+
+    public String getEmail()
+    {
+        return email;
+    }
+
+    public void setEmail(String email)
+    {
+        this.email = email;
     }
 
     public String getStatus()

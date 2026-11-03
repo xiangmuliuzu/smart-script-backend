@@ -34,6 +34,7 @@
         <result property="userType" column="user_type"/>
         <result property="nickname" column="nickname"/>
         <result property="phoneMasked" column="phone_masked"/>
+        <result property="email" column="email"/>
         <result property="status" column="status"/>
         <result property="realNameStatus" column="real_name_status"/>
         <result property="creatorApplicationStatus" column="creator_application_status"/>
@@ -71,6 +72,7 @@
             u.user_type,
             u.nick_name AS nickname,
             <include refid="phoneMaskExpr"/> AS phone_masked,
+            u.email,
             u.status,
             u.create_time,
             u.login_date AS last_login_time,
