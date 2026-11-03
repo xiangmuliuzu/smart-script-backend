@@ -11,7 +11,6 @@ import com.ruoyi.common.exception.file.FileSizeLimitExceededException;
 import com.ruoyi.common.exception.file.InvalidExtensionException;
 import com.ruoyi.common.utils.file.FileUploadUtils;
 import com.ruoyi.common.utils.file.MimeTypeUtils;
-import com.ruoyi.framework.storage.ProfileStorageService;
 import com.smartscript.platform.content.dto.AppUploadResult;
 import com.smartscript.platform.content.exception.AppContentUploadException;
 
@@ -65,13 +64,6 @@ public class AppContentFileUploadService
     private static final String[] DEFAULT_EXTENSION = {
             "bmp", "gif", "jpg", "jpeg", "png", "webp", "txt", "doc", "docx", "pdf" };
 
-    private final ProfileStorageService storage;
-
-    public AppContentFileUploadService(ProfileStorageService storage)
-    {
-        this.storage = storage;
-    }
-
     /**
      * 保存上传文件并返回可访问地址。
      *
@@ -94,8 +86,6 @@ public class AppContentFileUploadService
         {
             // 复用若依上传实现：同一上传目录 + 同一套扩展名/文件名长度校验
             storedPath = FileUploadUtils.upload(RuoYiConfig.getUploadPath(), file, extensionsOf(type));
-            // 同步到 MinIO，保证共享库中的记录在其他机器/服务器上也有文件
-            storage.publishUrl(storedPath);
         }
         catch (InvalidExtensionException | FileSizeLimitExceededException | FileNameLengthLimitExceededException e)
         {

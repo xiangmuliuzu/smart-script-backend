@@ -51,6 +51,9 @@ public class SysWork extends BaseEntity
     /** 作者ID */
     private Long authorId;
 
+    /** 所属频道：146男频 147女频 */
+    private Integer channelId;
+
     /** 标签筛选条件（sys_work_tag.tag_id，仅查询用） */
     private Long tagId;
 
@@ -209,6 +212,16 @@ public class SysWork extends BaseEntity
     public void setAuthorId(Long authorId)
     {
         this.authorId = authorId;
+    }
+
+    public Integer getChannelId()
+    {
+        return channelId;
+    }
+
+    public void setChannelId(Integer channelId)
+    {
+        this.channelId = channelId;
     }
 
     public Long getTagId()

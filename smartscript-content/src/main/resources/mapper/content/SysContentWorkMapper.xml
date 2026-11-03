@@ -19,6 +19,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		<result property="title"            column="title"             />
 		<result property="cover"            column="cover"             />
 		<result property="authorId"         column="author_id"         />
+		<result property="channelId"         column="channel_id"         />
 		<result property="workType"         column="work_type"         />
 		<result property="uploadType"       column="upload_type"       />
 		<result property="lengthType"       column="length_type"       />
@@ -101,6 +102,9 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		</if>
 		<if test="tradeType != null and tradeType != ''">
 			AND w.trade_type = #{tradeType}
+		</if>
+		<if test="channelId != null">
+			AND w.channel_id = #{channelId}
 		</if>
 		order by w.create_time desc
 	</select>
@@ -469,6 +473,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 			<if test="cover != null and cover != ''">cover = #{cover},</if>
 			<if test="price != null">price = #{price},</if>
 			<if test="tradeType != null">trade_type = #{tradeType},</if>
+			<if test="channelId != null">channel_id = #{channelId},</if>
 			<if test="updateBy != null">update_by = #{updateBy},</if>
 			<if test="updateTime != null">update_time = #{updateTime},</if>
 		</trim>
