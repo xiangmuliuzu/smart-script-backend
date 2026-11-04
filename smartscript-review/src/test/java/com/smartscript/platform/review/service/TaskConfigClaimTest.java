@@ -161,14 +161,14 @@ class TaskConfigClaimTest {
         when(userTaskMapper.selectByUserAndTask(106L, 1L)).thenReturn(finishedToday("DAILY"));
         when(userTaskMapper.countClaimed(eq(106L), eq(1L), anyString())).thenReturn(0);
         when(pointsService.grantPoints(106L, 5, "TASK", 1L, "每日登录任务")).thenReturn(15);
-        when(userTaskMapper.insertUserTask(any())).thenReturn(1);
+        when(userTaskMapper.updateUserTaskClaimed(any())).thenReturn(1);
 
         Map<String, Object> r = taskConfigService.claimTask("DAILY_LOGIN", 106L);
         assertEquals(200, r.get("code"));
         assertEquals(15, r.get("balance"));
         assertEquals(5, r.get("rewardPoints"));
         verify(pointsService, times(1)).grantPoints(106L, 5, "TASK", 1L, "每日登录任务");
-        verify(userTaskMapper, times(1)).insertUserTask(any());
+        verify(userTaskMapper, times(1)).updateUserTaskClaimed(any());
     }
 
     @Test
@@ -210,7 +210,7 @@ class TaskConfigClaimTest {
         when(userTaskMapper.selectByUserAndTask(106L, 1L)).thenReturn(finishedToday("DAILY"));
         when(userTaskMapper.countClaimed(eq(106L), eq(1L), anyString())).thenReturn(1);
         when(pointsService.grantPoints(106L, 5, "TASK", 1L, "每日登录任务")).thenReturn(20);
-        when(userTaskMapper.insertUserTask(any())).thenReturn(1);
+        when(userTaskMapper.updateUserTaskClaimed(any())).thenReturn(1);
         Map<String, Object> r = taskConfigService.claimTask("DAILY_LOGIN", 106L);
         assertEquals(200, r.get("code"));
         assertEquals(20, r.get("balance"));
@@ -230,7 +230,7 @@ class TaskConfigClaimTest {
         when(userTaskMapper.selectByUserAndTask(106L, 1L)).thenReturn(ut);
         when(userTaskMapper.countClaimedAll(106L, 1L)).thenReturn(0);
         when(pointsService.grantPoints(106L, 5, "TASK", 1L, "每日登录任务")).thenReturn(30);
-        when(userTaskMapper.insertUserTask(any())).thenReturn(1);
+        when(userTaskMapper.updateUserTaskClaimed(any())).thenReturn(1);
         Map<String, Object> r = taskConfigService.claimTask("READ_CHAPTER", 106L);
         assertEquals(200, r.get("code"));
         assertEquals(30, r.get("balance"));

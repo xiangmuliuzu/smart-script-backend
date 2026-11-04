@@ -67,4 +67,12 @@
         WHERE id = #{id}
     </update>
 
+    <update id="updateUserTaskClaimed" parameterType="com.smartscript.platform.review.domain.UserTask">
+        UPDATE sys_user_task
+        SET is_claimed = 1,
+            claim_time = #{claimTime},
+            updated_at = NOW()
+        WHERE id = #{id}
+    </update>
+
 </mapper>

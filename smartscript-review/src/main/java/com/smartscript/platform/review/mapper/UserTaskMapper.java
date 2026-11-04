@@ -37,4 +37,9 @@ public interface UserTaskMapper {
      * 更新任务进度/完成状态（行为上报累加进度用，按主键更新）
      */
     int updateUserTaskProgress(UserTask userTask);
+
+    /**
+     * 更新任务为已领取（领取奖励时复用同周期进度记录，按主键更新，避免唯一键冲突）
+     */
+    int updateUserTaskClaimed(UserTask userTask);
 }

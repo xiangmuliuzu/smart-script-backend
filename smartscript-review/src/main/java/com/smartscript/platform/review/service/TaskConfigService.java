@@ -255,20 +255,26 @@ public class TaskConfigService {
         // 发积分（账户不存在自动创建）
         int balance = pointsService.grantPoints(userId, task.getRewardPoints(), "TASK",
                 task.getTaskId().longValue(), task.getTaskName());
-        // 写领取记录
-        UserTask ut = new UserTask();
-        ut.setUserId(userId);
-        ut.setTaskId(task.getTaskId().longValue());
-        ut.setProgress(task.getTargetCount() == null ? 1 : task.getTargetCount());
-        ut.setIsCompleted(1);
-        ut.setIsClaimed(1);
-        ut.setCompleteTime(now);
-        ut.setClaimTime(now);
-        try {
-            ut.setPeriodDate(new SimpleDateFormat("yyyy-MM-dd").parse(today));
-        } catch (Exception ignored) {
+        // 写领取记录：优先复用同周期进度记录（置为已领取），避免与进度记录唯一键冲突
+        if (progressRec != null && progressRec.getId() != null) {
+            progressRec.setIsClaimed(1);
+            progressRec.setClaimTime(now);
+            userTaskMapper.updateUserTaskClaimed(progressRec);
+        } else {
+            UserTask ut = new UserTask();
+            ut.setUserId(userId);
+            ut.setTaskId(task.getTaskId().longValue());
+            ut.setProgress(task.getTargetCount() == null ? 1 : task.getTargetCount());
+            ut.setIsCompleted(1);
+            ut.setIsClaimed(1);
+            ut.setCompleteTime(now);
+            ut.setClaimTime(now);
+            try {
+                ut.setPeriodDate(new SimpleDateFormat("yyyy-MM-dd").parse(today));
+            } catch (Exception ignored) {
+            }
+            userTaskMapper.insertUserTask(ut);
         }
-        userTaskMapper.insertUserTask(ut);
 
         result.put("code", 200);
         result.put("msg", "领取成功");
