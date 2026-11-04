@@ -135,6 +135,65 @@ public class ChatService
         return toSessionVo(created != null ? created : session, userId);
     }
 
+    /**
+     * 创建或获取「任务会话」（sessionType=DEMAND）：任务发布者与创作者一对一沟通。
+     *
+     * <p>一条任务对应一个发布者与任意多个意向/接单创作者。为使会话在
+     * 有序唯一键 {@code uk_session_biz(user1_id,user2_id,business_type,business_id)}
+     * 下幂等唯一且与「谁先发起」无关，这里以固定角色顺序落库：
+     * user1=发布者、user2=创作者，businessType/businessId 记为 DEMAND/任务ID。
+     * 双方均为 App 用户，{@code assigned_admin_id} 置空，
+     * {@code handlerId} 回落 user2，故发送/已读/未读对双方都成立。</p>
+     *
+     * @param viewerUserId    当前发起/查看方（用于 VO 计算对方与未读）
+     * @param demandId        任务 ID（作为 businessId）
+     * @param publisherUserId 任务发布者 user_id（规范为 user1）
+     * @param creatorUserId   创作者 user_id（规范为 user2）
+     * @param demandTitle     任务标题（业务名称快照，便于列表展示）
+     */
+    @Transactional
+    public Map<String, Object> createOrGetDemandSession(Long viewerUserId, Long demandId,
+                                                        Long publisherUserId, Long creatorUserId,
+                                                        String demandTitle)
+    {
+        if (demandId == null || publisherUserId == null || creatorUserId == null)
+        {
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "任务会话参数不完整");
+        }
+        ChatSession existing = sessionMapper.selectByBusiness(publisherUserId, creatorUserId, "DEMAND", demandId);
+        if (existing != null)
+        {
+            resumeIfClosed(existing);
+            return toSessionVo(existing, viewerUserId);
+        }
+        ChatSession session = new ChatSession();
+        session.setSessionType("DEMAND");
+        session.setUser1Id(publisherUserId);
+        session.setUser2Id(creatorUserId);
+        session.setBusinessType("DEMAND");
+        session.setBusinessId(demandId);
+        session.setBusinessName(demandTitle);
+        session.setStatus(STATUS_PENDING);
+        session.setAssignedAdminId(null);
+        try
+        {
+            sessionMapper.insertSession(session);
+        }
+        catch (Exception e)
+        {
+            // 并发/唯一键冲突 → 再查一次复用
+            existing = sessionMapper.selectByBusiness(publisherUserId, creatorUserId, "DEMAND", demandId);
+            if (existing != null)
+            {
+                resumeIfClosed(existing);
+                return toSessionVo(existing, viewerUserId);
+            }
+            throw e;
+        }
+        ChatSession created = sessionMapper.selectById(session.getSessionId());
+        return toSessionVo(created != null ? created : session, viewerUserId);
+    }
+
     /* ========== 任务 3/11：会话列表 ========== */
 
     /** 用户端：我的会话列表。SQL 层强制 user1_id 或 user2_id = userId（任务 11）。 */
