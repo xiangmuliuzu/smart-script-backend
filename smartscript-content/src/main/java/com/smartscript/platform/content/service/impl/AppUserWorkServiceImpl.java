@@ -441,6 +441,7 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
         item.put("workType", work.getWorkType());
         item.put("wordCount", work.getWordCount());
         item.put("status", derivedStatus);
+        item.put("shelfStatus", work.getStatus());
         item.put("reviewSummary", reviewSummary(latest));
         item.put("createTime", work.getCreateTime());
         item.put("updateTime", work.getUpdateTime());

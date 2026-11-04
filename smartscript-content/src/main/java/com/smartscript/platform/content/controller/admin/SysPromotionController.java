@@ -9,7 +9,6 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import com.ruoyi.common.annotation.Log;
 import com.ruoyi.common.core.controller.BaseController;
@@ -130,14 +129,5 @@ public class SysPromotionController extends BaseController
         {
             return error(e.getMessage());
         }
-    }
-
-    /** 轮播位绑定素材 */
-    @PreAuthorize("@ss.hasPermi('content:promotion:edit')")
-    @Log(title = "作品推广", businessType = BusinessType.UPDATE)
-    @PutMapping("/applications/{applyId}/banner")
-    public AjaxResult bindBanner(@PathVariable Long applyId, @RequestParam Long bannerId)
-    {
-        return toAjax(promotionService.bindBanner(applyId, bannerId, getUsername()));
     }
 }

@@ -125,7 +125,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		    audit_by = #{auditBy},
 		    audit_time = sysdate(),
 		    update_time = sysdate()
-		where apply_id = #{applyId}
+		where apply_id = #{applyId} and status = 'pending'
 	</update>
 
 	<update id="updatePaid">
@@ -136,12 +136,6 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		    lock_expire_at = null,
 		    update_time = sysdate()
 		where apply_id = #{applyId} and status = 'approved' and pay_status = 'unpaid'
-	</update>
-
-	<update id="updateBanner">
-		update sys_promotion_application
-		set banner_id = #{bannerId}, update_time = sysdate()
-		where apply_id = #{applyId}
 	</update>
 
 	<update id="cancel">
@@ -178,6 +172,17 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		  and a.start_time &lt;= #{now} and a.end_time &gt;= #{now}
 		  and (a.material_url is not null or a.banner_id is not null)
 		  and w.status = 'on_shelf'
+		order by a.slot_no asc, a.apply_id asc
+	</select>
+
+	<select id="selectActiveSlotApplications" resultMap="PromotionApplicationResult">
+		select a.apply_id, a.apply_no, a.work_id, a.author_id, a.slot_type, a.slot_no,
+		       a.start_time, a.end_time,
+		       w.title as work_title, w.cover as work_cover
+		from sys_promotion_application a
+		join sys_work w on w.work_id = a.work_id and w.is_deleted = 0 and w.status = 'on_shelf'
+		where a.slot_type = #{slotType} and a.status = 'paid'
+		  and a.start_time &lt;= #{now} and a.end_time &gt;= #{now}
 		order by a.slot_no asc, a.apply_id asc
 	</select>
 

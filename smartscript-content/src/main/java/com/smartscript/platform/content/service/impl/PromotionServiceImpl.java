@@ -182,6 +182,11 @@ public class PromotionServiceImpl implements IPromotionService
                 vo.setBanner(banner);
             }
 
+            // 运营 Banner 与 App 端一致：仅「启用且处于投放时间窗」才算展示中
+            boolean bannerLive = banner != null && "on".equals(banner.getStatus())
+                    && (banner.getStartTime() == null || !banner.getStartTime().after(now))
+                    && (banner.getEndTime() == null || !banner.getEndTime().before(now));
+
             vo.setCurrent(current);
             if (active != null)
             {
@@ -197,10 +202,15 @@ public class PromotionServiceImpl implements IPromotionService
             {
                 vo.setState("reserved");
             }
-            else if (banner != null)
+            else if (bannerLive)
             {
                 vo.setState("active");
                 activeCount++;
+            }
+            else if (banner != null)
+            {
+                vo.setState("disabled");
+                idleCount++;
             }
             else if ("0".equals(slot.getEnabled()))
             {
@@ -235,6 +245,19 @@ public class PromotionServiceImpl implements IPromotionService
         }
         upcoming.sort((a, b) -> a.getStartTime().compareTo(b.getStartTime()));
 
+        // App 端只看到位次占用情况，隐藏他人申请单的价格、申请号、作者身份等敏感字段
+        if (!admin)
+        {
+            for (PromotionSlotVo vo : result)
+            {
+                maskForApp(vo.getCurrent());
+            }
+            for (SysPromotionApplication app : upcoming)
+            {
+                maskForApp(app);
+            }
+        }
+
         PromotionOverviewVo overview = new PromotionOverviewVo();
         overview.setSlotType(slotType);
         overview.setTotalSlots(slots.size());
@@ -253,6 +276,26 @@ public class PromotionServiceImpl implements IPromotionService
         page.setSlots(result);
         page.setUpcoming(upcoming);
         return page;
+    }
+
+    /** App 端位次占用信息脱敏：仅保留展示所需的作品与时间字段。 */
+    private void maskForApp(SysPromotionApplication app)
+    {
+        if (app == null)
+        {
+            return;
+        }
+        app.setApplyNo(null);
+        app.setAuthorId(null);
+        app.setAuthorName(null);
+        app.setAmount(null);
+        app.setAuditBy(null);
+        app.setRejectReason(null);
+        app.setRemark(null);
+        app.setPayTime(null);
+        app.setBannerId(null);
+        app.setCreateBy(null);
+        app.setUpdateBy(null);
     }
 
     // ==================== 申请列表 / 详情 ====================
@@ -298,7 +341,9 @@ public class PromotionServiceImpl implements IPromotionService
         {
             update.setStatus(STATUS_REJECTED);
             update.setRejectReason(rejectReason == null || rejectReason.isBlank() ? "不符合推广要求" : rejectReason);
-            return applicationMapper.updateAudit(update);
+            int rows = applicationMapper.updateAudit(update);
+            requireUpdated(rows);
+            return rows;
         }
 
         // 锁坑：先锁 slot 行，再校验时间窗冲突
@@ -308,7 +353,18 @@ public class PromotionServiceImpl implements IPromotionService
         update.setStatus(STATUS_APPROVED);
         update.setPayStatus("unpaid");
         update.setLockExpireAt(new Date(System.currentTimeMillis() + TimeUnit.HOURS.toMillis(LOCK_HOURS)));
-        return applicationMapper.updateAudit(update);
+        int rows = applicationMapper.updateAudit(update);
+        requireUpdated(rows);
+        return rows;
+    }
+
+    /** 审核更新未命中（并发重复审核 / 用户已取消）时统一提示刷新。 */
+    private void requireUpdated(int rows)
+    {
+        if (rows <= 0)
+        {
+            throw new IllegalStateException("申请状态已变更，请刷新后重试");
+        }
     }
 
     @Override
@@ -386,7 +442,9 @@ public class PromotionServiceImpl implements IPromotionService
         {
             throw new IllegalStateException("该申请已结束");
         }
-        return applicationMapper.cancel(applyId, operator);
+        int rows = applicationMapper.cancel(applyId, operator);
+        requireUpdated(rows);
+        return rows;
     }
 
     // ==================== 价格 / 素材 ====================
@@ -417,21 +475,6 @@ public class PromotionServiceImpl implements IPromotionService
             rows += slotMapper.updatePrice(slot);
         }
         return rows;
-    }
-
-    @Override
-    public int bindBanner(Long applyId, Long bannerId, String operator)
-    {
-        SysPromotionApplication app = applicationMapper.selectApplicationById(applyId);
-        if (app == null)
-        {
-            throw new IllegalArgumentException("推广申请不存在");
-        }
-        if (!"banner".equals(app.getSlotType()))
-        {
-            throw new IllegalStateException("仅轮播位申请可绑定素材");
-        }
-        return applicationMapper.updateBanner(applyId, bannerId);
     }
 
     // ==================== App 端 ====================

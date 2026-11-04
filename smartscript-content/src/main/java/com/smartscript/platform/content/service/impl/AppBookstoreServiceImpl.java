@@ -3,8 +3,10 @@ package com.smartscript.platform.content.service.impl;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -16,6 +18,7 @@ import com.ruoyi.common.utils.DateUtils;
 import com.smartscript.platform.content.domain.SysBanner;
 import com.smartscript.platform.content.domain.SysCategory;
 import com.smartscript.platform.content.domain.SysPromotionApplication;
+import com.smartscript.platform.content.domain.SysPromotionSlot;
 import com.smartscript.platform.content.domain.SysTag;
 import com.smartscript.platform.content.domain.SysWorkChapter;
 import com.smartscript.platform.content.domain.SysWorkFile;
@@ -40,6 +43,7 @@ import com.smartscript.platform.content.mapper.SysBannerMapper;
 import com.smartscript.platform.content.mapper.SysCategoryMapper;
 import com.smartscript.platform.content.mapper.SysContentWorkMapper;
 import com.smartscript.platform.content.mapper.SysPromotionApplicationMapper;
+import com.smartscript.platform.content.mapper.SysPromotionSlotMapper;
 import com.smartscript.platform.content.mapper.SysTagMapper;
 import com.smartscript.platform.content.mapper.SysWorkChapterMapper;
 import com.smartscript.platform.content.mapper.SysWorkFileMapper;
@@ -113,6 +117,9 @@ public class AppBookstoreServiceImpl implements IAppBookstoreService
     private SysPromotionApplicationMapper promotionApplicationMapper;
 
     @Autowired
+    private SysPromotionSlotMapper promotionSlotMapper;
+
+    @Autowired
     private SysWorkChapterMapper chapterMapper;
 
     @Autowired
@@ -145,8 +152,14 @@ public class AppBookstoreServiceImpl implements IAppBookstoreService
         // 首页轮播：已支付的推广申请在投放时间窗内直接派生为 Banner，按位次覆盖运营素材；
         // 没有付费投放的位次继续展示运营 Banner。上线/下线完全由时间窗决定。
         Map<Integer, SysBanner> bySortOrder = new TreeMap<>();
+        int maxSlotNo = maxSlotNo("banner");
         for (SysPromotionApplication app : promotionApplicationMapper.selectActiveBannerApplications(new Date()))
         {
+            if (app.getSlotNo() == null || app.getSlotNo() < 1
+                    || (maxSlotNo > 0 && app.getSlotNo() > maxSlotNo))
+            {
+                continue;
+            }
             SysBanner banner = new SysBanner();
             banner.setBannerId(app.getBannerId() != null ? app.getBannerId() : app.getApplyId());
             banner.setTitle(app.getWorkTitle());
@@ -165,21 +178,32 @@ public class AppBookstoreServiceImpl implements IAppBookstoreService
             bySortOrder.putIfAbsent(app.getSlotNo(), banner);
         }
 
-        List<SysBanner> tail = new ArrayList<>();
+        // 轮播展示严格按坑位配置位次取数：付费投放覆盖同位次运营素材，
+        // 超出坑位数量或未配置位次的运营 Banner 不再下发，避免 App 比 PC 多出轮播图。
         for (SysBanner row : rows)
         {
             Integer sortOrder = row.getSortOrder();
-            if (sortOrder == null)
+            if (sortOrder == null || sortOrder < 1 || (maxSlotNo > 0 && sortOrder > maxSlotNo))
             {
-                tail.add(row);
                 continue;
             }
             bySortOrder.putIfAbsent(sortOrder, row);
         }
+        return new ArrayList<>(bySortOrder.values());
+    }
 
-        List<SysBanner> result = new ArrayList<>(bySortOrder.values());
-        result.addAll(tail);
-        return result;
+    /** 坑位配置的最大位次；未配置时返回 0（调用方按不限位次处理） */
+    private int maxSlotNo(String slotType)
+    {
+        int max = 0;
+        for (SysPromotionSlot slot : promotionSlotMapper.selectSlots(slotType))
+        {
+            if (slot.getSlotNo() != null)
+            {
+                max = Math.max(max, slot.getSlotNo());
+            }
+        }
+        return max;
     }
 
     /** 推广申请素材：优先作者提交的素材，其次回退到管理员绑定的运营 Banner */
@@ -288,6 +312,17 @@ public class AppBookstoreServiceImpl implements IAppBookstoreService
         int safePageNum = pageNum < 1 ? DEFAULT_PAGE_NUM : pageNum;
         int safePageSize = pageSize < 1 ? DEFAULT_PAGE_SIZE : Math.min(pageSize, PAGE_SIZE_MAX);
         AppWorkQuery safeQuery = query == null ? new AppWorkQuery() : query;
+        // 首页热门精选与搜索页推荐是「坑位列表」，不是普通分页列表：
+        // 按坑位配置数量（热门 20 / 搜索 5）合成，付费投放占对应位次，空位由自然作品补位。
+        if ("home_hot".equals(safeQuery.getRecommendStatus()))
+        {
+            return composeSlotWorks("hot", safePageNum);
+        }
+        if ("search".equals(safeQuery.getShowScope())
+                && (safeQuery.getKeyword() == null || safeQuery.getKeyword().trim().isEmpty()))
+        {
+            return composeSlotWorks("search", safePageNum);
+        }
         safeQuery.setSort(normalizeSort(safeQuery.getSort()));
         PageHelper.startPage(safePageNum, safePageSize);
         List<AppWorkDto> rows = workMapper.selectAppWorkList(safeQuery);
@@ -296,6 +331,75 @@ public class AppBookstoreServiceImpl implements IAppBookstoreService
         // 一次批量回填标签，避免逐作品查询造成 N+1
         fillTags(rows);
         return AppPageResult.of(total, rows);
+    }
+
+    /**
+     * 按坑位合成资源位列表（首页热门精选 / 搜索页推荐）。
+     *
+     * 位次 1..N 固定：已支付投放按 slot_no 占位，空位按浏览量自然补位；
+     * 作品下架或素材缺失的付费申请视为空位。列表不分页，page&gt;1 返回空页。
+     */
+    private AppPageResult<AppWorkDto> composeSlotWorks(String slotType, int pageNum)
+    {
+        int slotCount = maxSlotNo(slotType);
+        if (slotCount <= 0)
+        {
+            return AppPageResult.of(0, new ArrayList<>());
+        }
+        if (pageNum > 1)
+        {
+            return AppPageResult.of(slotCount, new ArrayList<>());
+        }
+
+        Map<Integer, AppWorkDto> paidBySlot = new HashMap<>();
+        Set<Long> usedWorkIds = new HashSet<>();
+        for (SysPromotionApplication app : promotionApplicationMapper.selectActiveSlotApplications(slotType, new Date()))
+        {
+            Integer slotNo = app.getSlotNo();
+            if (slotNo == null || paidBySlot.containsKey(slotNo))
+            {
+                continue;
+            }
+            AppWorkDto paid = getWork(app.getWorkId());
+            if (paid == null || usedWorkIds.contains(paid.getWorkId()))
+            {
+                // 作品下架或同一作品重复占位，按空位处理
+                continue;
+            }
+            paidBySlot.put(slotNo, paid);
+            usedWorkIds.add(paid.getWorkId());
+        }
+
+        // 自然补位候选：按浏览量排序，多取付费占用数保证空位够填
+        AppWorkQuery naturalQuery = new AppWorkQuery();
+        naturalQuery.setSort("view");
+        PageHelper.startPage(DEFAULT_PAGE_NUM,
+                Math.min(slotCount + paidBySlot.size(), PAGE_SIZE_MAX), false);
+        List<AppWorkDto> candidates = workMapper.selectAppWorkList(naturalQuery);
+        fillTags(candidates);
+
+        List<AppWorkDto> result = new ArrayList<>(slotCount);
+        int index = 0;
+        for (int slotNo = 1; slotNo <= slotCount; slotNo++)
+        {
+            AppWorkDto paid = paidBySlot.get(slotNo);
+            if (paid != null)
+            {
+                result.add(paid);
+                continue;
+            }
+            while (index < candidates.size() && usedWorkIds.contains(candidates.get(index).getWorkId()))
+            {
+                index++;
+            }
+            if (index < candidates.size())
+            {
+                AppWorkDto filler = candidates.get(index++);
+                result.add(filler);
+                usedWorkIds.add(filler.getWorkId());
+            }
+        }
+        return AppPageResult.of(result.size(), result);
     }
 
     @Override

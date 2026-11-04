@@ -26,8 +26,6 @@ public interface SysPromotionApplicationMapper
 
     int updatePaid(@Param("applyId") Long applyId, @Param("payTime") Date payTime);
 
-    int updateBanner(@Param("applyId") Long applyId, @Param("bannerId") Long bannerId);
-
     int cancel(@Param("applyId") Long applyId, @Param("updateBy") String updateBy);
 
     /** 本月已支付金额（按资源位） */
@@ -37,4 +35,8 @@ public interface SysPromotionApplicationMapper
 
     /** 当前生效的轮播投放（paid 且处于投放时间窗、作品在架），用于首页轮播派生展示 */
     List<SysPromotionApplication> selectActiveBannerApplications(@Param("now") Date now);
+
+    /** 指定资源位当前生效的付费投放（按位次升序），用于搜索页/热门精选按坑位合成 */
+    List<SysPromotionApplication> selectActiveSlotApplications(@Param("slotType") String slotType,
+            @Param("now") Date now);
 }

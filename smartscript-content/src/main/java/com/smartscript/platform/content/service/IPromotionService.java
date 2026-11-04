@@ -41,9 +41,6 @@ public interface IPromotionService
     /** 位次单价与启停配置 */
     int updatePrices(PromotionPriceRequest request);
 
-    /** 绑定轮播素材 */
-    int bindBanner(Long applyId, Long bannerId, String operator);
-
     /** App：提交推广申请 */
     Long apply(PromotionApplyRequest request, Long authorId);
 
