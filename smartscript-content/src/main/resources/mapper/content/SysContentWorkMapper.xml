@@ -292,6 +292,20 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		       u.nick_name as author_name
 		from sys_work w
 		left join sys_user u on u.user_id = w.author_id
+		left join (
+			select work_id, min(slot_no) as promo_slot
+			from sys_promotion_application
+			where slot_type = 'hot' and status = 'paid'
+			  and start_time &lt;= sysdate() and end_time &gt;= sysdate()
+			group by work_id
+		) hp on hp.work_id = w.work_id
+		left join (
+			select work_id, min(slot_no) as promo_slot
+			from sys_promotion_application
+			where slot_type = 'search' and status = 'paid'
+			  and start_time &lt;= sysdate() and end_time &gt;= sysdate()
+			group by work_id
+		) sp on sp.work_id = w.work_id
 		<where>
 			<include refid="readerVisibleWork"><property name="alias" value="w"/></include>
 		</where>
@@ -308,22 +322,11 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		<if test="tagId != null">
 			AND exists (select 1 from sys_work_tag wt where wt.work_id = w.work_id and wt.tag_id = #{tagId})
 		</if>
-		<if test="recommendStatus != null and recommendStatus != ''">
-			AND JSON_UNQUOTE(JSON_EXTRACT(w.ext_json, '$.recommendStatus')) = #{recommendStatus}
-			AND (JSON_UNQUOTE(JSON_EXTRACT(w.ext_json, '$.recommendExpireAt')) IS NULL
-			     OR JSON_UNQUOTE(JSON_EXTRACT(w.ext_json, '$.recommendExpireAt')) = ''
-			     OR JSON_UNQUOTE(JSON_EXTRACT(w.ext_json, '$.recommendExpireAt')) > NOW())
-		</if>
-		<if test="showScope != null and showScope != ''">
-			AND JSON_CONTAINS(w.ext_json, concat('"', #{showScope}, '"'), '$.showScope')
-			AND (JSON_UNQUOTE(JSON_EXTRACT(w.ext_json, '$.recommendExpireAt')) IS NULL
-			     OR JSON_UNQUOTE(JSON_EXTRACT(w.ext_json, '$.recommendExpireAt')) = ''
-			     OR JSON_UNQUOTE(JSON_EXTRACT(w.ext_json, '$.recommendExpireAt')) > NOW())
-		</if>
+		<!-- 推广位改造：首页热门与搜索页不再读 ext_json，改为按 sys_promotion_application
+		     的生效投放优先排序（同一位次付费作品排前，空位由自然排序顺延补位）。 -->
 		<choose>
-			<when test='recommendStatus != null and recommendStatus != ""'>order by CASE WHEN JSON_EXTRACT(w.ext_json, '$.recommendWeight') IS NULL THEN 1 ELSE 0 END, CAST(JSON_EXTRACT(w.ext_json, '$.recommendWeight') AS UNSIGNED) asc, w.view_count desc, w.work_id desc</when>
-			<when test='showScope == "search"'>order by CASE WHEN JSON_EXTRACT(w.ext_json, '$.searchWeight') IS NULL THEN 1 ELSE 0 END, CAST(JSON_EXTRACT(w.ext_json, '$.searchWeight') AS UNSIGNED) asc, w.view_count desc, w.work_id desc</when>
-			<when test='showScope != null and showScope != ""'>order by CASE WHEN JSON_EXTRACT(w.ext_json, '$.recommendWeight') IS NULL THEN 1 ELSE 0 END, CAST(JSON_EXTRACT(w.ext_json, '$.recommendWeight') AS UNSIGNED) asc, w.view_count desc, w.work_id desc</when>
+			<when test='recommendStatus == "home_hot"'>order by CASE WHEN hp.promo_slot IS NULL THEN 1 ELSE 0 END, hp.promo_slot asc, w.view_count desc, w.favorite_count desc, w.work_id desc</when>
+			<when test='showScope == "search"'>order by CASE WHEN sp.promo_slot IS NULL THEN 1 ELSE 0 END, sp.promo_slot asc, w.view_count desc, w.work_id desc</when>
 			<when test='sort != null and sort == "view"'>order by w.view_count desc, w.work_id desc</when>
 			<when test='sort != null and sort == "favorite"'>order by w.favorite_count desc, w.work_id desc</when>
 			<when test='sort != null and sort == "sale"'>order by w.sale_count desc, w.work_id desc</when>

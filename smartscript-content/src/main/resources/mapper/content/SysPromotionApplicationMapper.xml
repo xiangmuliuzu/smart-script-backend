@@ -1,0 +1,184 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.content.mapper.SysPromotionApplicationMapper">
+
+	<resultMap type="com.smartscript.platform.content.domain.SysPromotionApplication" id="PromotionApplicationResult">
+		<id     property="applyId"        column="apply_id"        />
+		<result property="applyNo"        column="apply_no"        />
+		<result property="workId"         column="work_id"         />
+		<result property="authorId"       column="author_id"       />
+		<result property="slotType"       column="slot_type"       />
+		<result property="slotNo"         column="slot_no"         />
+		<result property="startTime"      column="start_time"      />
+		<result property="endTime"        column="end_time"        />
+		<result property="days"           column="days"            />
+		<result property="amount"         column="amount"          />
+		<result property="source"         column="source"          />
+		<result property="status"         column="status"          />
+		<result property="payStatus"      column="pay_status"      />
+		<result property="payTime"        column="pay_time"        />
+		<result property="bannerId"       column="banner_id"       />
+		<result property="materialUrl"    column="material_url"    />
+		<result property="rejectReason"   column="reject_reason"   />
+		<result property="lockExpireAt"   column="lock_expire_at"  />
+		<result property="auditBy"        column="audit_by"        />
+		<result property="auditTime"      column="audit_time"      />
+		<result property="remark"         column="remark"          />
+		<result property="createBy"       column="create_by"       />
+		<result property="createTime"     column="create_time"     />
+		<result property="updateBy"       column="update_by"       />
+		<result property="updateTime"     column="update_time"     />
+		<result property="workTitle"      column="work_title"      />
+		<result property="workCover"      column="work_cover"      />
+		<result property="authorName"     column="author_name"     />
+	</resultMap>
+
+	<sql id="selectApplicationVo">
+		select a.apply_id, a.apply_no, a.work_id, a.author_id, a.slot_type, a.slot_no,
+		       a.start_time, a.end_time, a.days, a.amount, a.source, a.status, a.pay_status,
+		       a.pay_time, a.banner_id, a.material_url, a.reject_reason, a.lock_expire_at, a.audit_by, a.audit_time,
+		       a.remark, a.create_by, a.create_time, a.update_by, a.update_time,
+		       w.title as work_title, w.cover as work_cover, u.nick_name as author_name
+		from sys_promotion_application a
+		left join sys_work w on w.work_id = a.work_id
+		left join sys_user u on u.user_id = a.author_id
+	</sql>
+
+	<select id="selectApplicationList" parameterType="com.smartscript.platform.content.domain.SysPromotionApplication" resultMap="PromotionApplicationResult">
+		<include refid="selectApplicationVo"/>
+		<where>
+			<if test="slotType != null and slotType != ''">AND a.slot_type = #{slotType}</if>
+			<if test="status != null and status != ''">AND a.status = #{status}</if>
+			<if test="authorId != null">AND a.author_id = #{authorId}</if>
+			<if test="workId != null">AND a.work_id = #{workId}</if>
+			<if test="applyNoQuery != null and applyNoQuery != ''">AND a.apply_no = #{applyNoQuery}</if>
+			<if test="keyword != null and keyword != ''">
+				AND (w.title like concat('%', #{keyword}, '%')
+				     OR u.nick_name like concat('%', #{keyword}, '%')
+				     OR a.apply_no like concat('%', #{keyword}, '%'))
+			</if>
+			<if test="viewStatus != null and viewStatus != ''">
+				<choose>
+					<when test="viewStatus == 'pending'">AND a.status = 'pending'</when>
+					<when test="viewStatus == 'locked'">
+						AND a.status = 'approved' AND a.pay_status = 'unpaid'
+						AND a.lock_expire_at &gt; sysdate()
+					</when>
+					<when test="viewStatus == 'waiting'">
+						AND a.status = 'paid' AND a.start_time &gt; sysdate()
+					</when>
+					<when test="viewStatus == 'active'">
+						AND a.status = 'paid' AND a.start_time &lt;= sysdate() AND a.end_time &gt;= sysdate()
+					</when>
+					<when test="viewStatus == 'ended'">
+						AND a.status = 'paid' AND a.end_time &lt; sysdate()
+					</when>
+					<when test="viewStatus == 'rejected'">AND a.status = 'rejected'</when>
+					<when test="viewStatus == 'cancelled'">AND a.status = 'cancelled'</when>
+				</choose>
+			</if>
+		</where>
+		order by a.create_time desc, a.apply_id desc
+	</select>
+
+	<select id="selectApplicationById" resultMap="PromotionApplicationResult">
+		<include refid="selectApplicationVo"/>
+		where a.apply_id = #{applyId}
+	</select>
+
+	<select id="selectOpenOccupancies" resultMap="PromotionApplicationResult">
+		<include refid="selectApplicationVo"/>
+		where a.slot_type = #{slotType}
+		  and a.end_time &gt; #{now}
+		  and (a.status = 'paid' or (a.status = 'approved' and a.lock_expire_at &gt; #{now}))
+		order by a.slot_no, a.start_time
+	</select>
+
+	<select id="countConflicts" resultType="int">
+		select count(*) from sys_promotion_application
+		where slot_type = #{slotType} and slot_no = #{slotNo}
+		  and start_time &lt; #{endTime} and end_time &gt; #{startTime}
+		  and (status = 'paid' or (status = 'approved' and lock_expire_at &gt; #{now}))
+		<if test="excludeId != null">and apply_id != #{excludeId}</if>
+	</select>
+
+	<insert id="insertApplication" parameterType="com.smartscript.platform.content.domain.SysPromotionApplication"
+	        useGeneratedKeys="true" keyProperty="applyId">
+		insert into sys_promotion_application(
+			apply_no, work_id, author_id, slot_type, slot_no, start_time, end_time, days, amount,
+			source, status, pay_status, pay_time, banner_id, material_url, reject_reason, lock_expire_at,
+			audit_by, audit_time, remark, create_by, create_time
+		) values (
+			#{applyNo}, #{workId}, #{authorId}, #{slotType}, #{slotNo}, #{startTime}, #{endTime}, #{days}, #{amount},
+			#{source}, #{status}, #{payStatus}, #{payTime}, #{bannerId}, #{materialUrl}, #{rejectReason}, #{lockExpireAt},
+			#{auditBy}, #{auditTime}, #{remark}, #{createBy}, sysdate()
+		)
+	</insert>
+
+	<update id="updateAudit" parameterType="com.smartscript.platform.content.domain.SysPromotionApplication">
+		update sys_promotion_application
+		set status = #{status},
+		    reject_reason = #{rejectReason},
+		    lock_expire_at = #{lockExpireAt},
+		    audit_by = #{auditBy},
+		    audit_time = sysdate(),
+		    update_time = sysdate()
+		where apply_id = #{applyId}
+	</update>
+
+	<update id="updatePaid">
+		update sys_promotion_application
+		set status = 'paid',
+		    pay_status = 'paid',
+		    pay_time = #{payTime},
+		    lock_expire_at = null,
+		    update_time = sysdate()
+		where apply_id = #{applyId} and status = 'approved' and pay_status = 'unpaid'
+	</update>
+
+	<update id="updateBanner">
+		update sys_promotion_application
+		set banner_id = #{bannerId}, update_time = sysdate()
+		where apply_id = #{applyId}
+	</update>
+
+	<update id="cancel">
+		update sys_promotion_application
+		set status = 'cancelled',
+		    update_by = #{updateBy},
+		    update_time = sysdate()
+		where apply_id = #{applyId} and status in ('pending', 'approved', 'paid')
+	</update>
+
+	<select id="selectMonthRevenue" resultType="java.math.BigDecimal">
+		select coalesce(sum(amount), 0) from sys_promotion_application
+		where slot_type = #{slotType}
+		  and source = 'author_paid'
+		  and pay_status = 'paid'
+		  and date_format(pay_time, '%Y-%m') = date_format(sysdate(), '%Y-%m')
+	</select>
+
+	<select id="countPending" resultType="int">
+		select count(*) from sys_promotion_application
+		<where>
+			status = 'pending'
+			<if test="slotType != null and slotType != ''">and slot_type = #{slotType}</if>
+		</where>
+	</select>
+
+	<select id="selectActiveBannerApplications" resultMap="PromotionApplicationResult">
+		select a.apply_id, a.apply_no, a.work_id, a.author_id, a.slot_type, a.slot_no,
+		       a.start_time, a.end_time, a.material_url, a.banner_id,
+		       w.title as work_title, w.cover as work_cover
+		from sys_promotion_application a
+		join sys_work w on w.work_id = a.work_id and w.is_deleted = 0
+		where a.slot_type = 'banner' and a.status = 'paid'
+		  and a.start_time &lt;= #{now} and a.end_time &gt;= #{now}
+		  and (a.material_url is not null or a.banner_id is not null)
+		  and w.status = 'on_shelf'
+		order by a.slot_no asc, a.apply_id asc
+	</select>
+
+</mapper>

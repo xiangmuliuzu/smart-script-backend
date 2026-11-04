@@ -1,9 +1,11 @@
 package com.smartscript.platform.content.service.impl;
 
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -13,6 +15,7 @@ import com.github.pagehelper.PageInfo;
 import com.ruoyi.common.utils.DateUtils;
 import com.smartscript.platform.content.domain.SysBanner;
 import com.smartscript.platform.content.domain.SysCategory;
+import com.smartscript.platform.content.domain.SysPromotionApplication;
 import com.smartscript.platform.content.domain.SysTag;
 import com.smartscript.platform.content.domain.SysWorkChapter;
 import com.smartscript.platform.content.domain.SysWorkFile;
@@ -36,6 +39,7 @@ import com.smartscript.platform.content.mapper.AppWorkAuthorizationMapper;
 import com.smartscript.platform.content.mapper.SysBannerMapper;
 import com.smartscript.platform.content.mapper.SysCategoryMapper;
 import com.smartscript.platform.content.mapper.SysContentWorkMapper;
+import com.smartscript.platform.content.mapper.SysPromotionApplicationMapper;
 import com.smartscript.platform.content.mapper.SysTagMapper;
 import com.smartscript.platform.content.mapper.SysWorkChapterMapper;
 import com.smartscript.platform.content.mapper.SysWorkFileMapper;
@@ -106,6 +110,9 @@ public class AppBookstoreServiceImpl implements IAppBookstoreService
     private SysContentWorkMapper workMapper;
 
     @Autowired
+    private SysPromotionApplicationMapper promotionApplicationMapper;
+
+    @Autowired
     private SysWorkChapterMapper chapterMapper;
 
     @Autowired
@@ -128,7 +135,67 @@ public class AppBookstoreServiceImpl implements IAppBookstoreService
     {
         SysBanner query = new SysBanner();
         query.setPosition(position);
-        return bannerMapper.selectAppBannerList(query);
+        List<SysBanner> rows = bannerMapper.selectAppBannerList(query);
+
+        if (!"home_top".equals(position))
+        {
+            return rows;
+        }
+
+        // 首页轮播：已支付的推广申请在投放时间窗内直接派生为 Banner，按位次覆盖运营素材；
+        // 没有付费投放的位次继续展示运营 Banner。上线/下线完全由时间窗决定。
+        Map<Integer, SysBanner> bySortOrder = new TreeMap<>();
+        for (SysPromotionApplication app : promotionApplicationMapper.selectActiveBannerApplications(new Date()))
+        {
+            SysBanner banner = new SysBanner();
+            banner.setBannerId(app.getBannerId() != null ? app.getBannerId() : app.getApplyId());
+            banner.setTitle(app.getWorkTitle());
+            banner.setImageUrl(resolvePromotionMaterial(app));
+            if (banner.getImageUrl() == null)
+            {
+                continue;
+            }
+            banner.setLinkType("work");
+            banner.setLinkId(app.getWorkId());
+            banner.setPosition(position);
+            banner.setSortOrder(app.getSlotNo());
+            banner.setStartTime(app.getStartTime());
+            banner.setEndTime(app.getEndTime());
+            banner.setStatus("on");
+            bySortOrder.putIfAbsent(app.getSlotNo(), banner);
+        }
+
+        List<SysBanner> tail = new ArrayList<>();
+        for (SysBanner row : rows)
+        {
+            Integer sortOrder = row.getSortOrder();
+            if (sortOrder == null)
+            {
+                tail.add(row);
+                continue;
+            }
+            bySortOrder.putIfAbsent(sortOrder, row);
+        }
+
+        List<SysBanner> result = new ArrayList<>(bySortOrder.values());
+        result.addAll(tail);
+        return result;
+    }
+
+    /** 推广申请素材：优先作者提交的素材，其次回退到管理员绑定的运营 Banner */
+    private String resolvePromotionMaterial(SysPromotionApplication app)
+    {
+        String material = app.getMaterialUrl();
+        if (material != null && !material.trim().isEmpty())
+        {
+            return material.trim();
+        }
+        if (app.getBannerId() != null)
+        {
+            SysBanner bound = bannerMapper.selectBannerById(app.getBannerId());
+            return bound == null ? null : bound.getImageUrl();
+        }
+        return null;
     }
 
     @Override

@@ -42,7 +42,7 @@ public class AlipaySandboxPaymentService {
         this.appId = appId; this.privateKey = privateKey; this.publicKey = publicKey;
     }
 
-    private void requireSandbox() {
+    void requireSandbox() {
         if (!enabled || appId.isBlank() || privateKey.isBlank() || publicKey.isBlank())
             throw new IllegalStateException("支付宝沙箱尚未配置");
         String database = jdbc.queryForObject("SELECT DATABASE()", String.class);

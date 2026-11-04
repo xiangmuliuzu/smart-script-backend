@@ -44,7 +44,7 @@ public class SysBannerController extends BaseController
      * 获取Banner列表
      * 入参（query，均可选）：title 模糊、position/status 精确；pageNum/pageSize 分页
      */
-    @PreAuthorize("@ss.hasPermi('content:banner:list')")
+    @PreAuthorize("@ss.hasPermi('content:promotion:list')")
     @GetMapping("/list")
     public TableDataInfo list(SysBanner query)
     {
@@ -56,7 +56,7 @@ public class SysBannerController extends BaseController
     /**
      * 通过BannerID获取详细信息
      */
-    @PreAuthorize("@ss.hasPermi('content:banner:query')")
+    @PreAuthorize("@ss.hasPermi('content:promotion:query')")
     @GetMapping("/{bannerId}")
     public AjaxResult getInfo(@PathVariable Long bannerId)
     {
@@ -66,7 +66,7 @@ public class SysBannerController extends BaseController
     /**
      * 新增Banner
      */
-    @PreAuthorize("@ss.hasPermi('content:banner:add')")
+    @PreAuthorize("@ss.hasPermi('content:promotion:add')")
     @Log(title = "Banner管理", businessType = BusinessType.INSERT)
     @PostMapping
     public AjaxResult add(@Validated @RequestBody SysBanner banner)
@@ -78,7 +78,7 @@ public class SysBannerController extends BaseController
     /**
      * 修改Banner（动态 set，仅更新非空字段）
      */
-    @PreAuthorize("@ss.hasPermi('content:banner:edit')")
+    @PreAuthorize("@ss.hasPermi('content:promotion:edit')")
     @Log(title = "Banner管理", businessType = BusinessType.UPDATE)
     @PutMapping
     public AjaxResult edit(@Validated @RequestBody SysBanner banner)
@@ -90,7 +90,7 @@ public class SysBannerController extends BaseController
     /**
      * 修改Banner状态（单一职责：只改 status）
      */
-    @PreAuthorize("@ss.hasPermi('content:banner:edit')")
+    @PreAuthorize("@ss.hasPermi('content:promotion:edit')")
     @Log(title = "Banner管理", businessType = BusinessType.UPDATE)
     @PutMapping("/changeStatus")
     public AjaxResult changeStatus(@RequestBody SysBanner banner)
@@ -102,7 +102,7 @@ public class SysBannerController extends BaseController
     /**
      * 调整Banner排序（单一职责：只改 sort_order）
      */
-    @PreAuthorize("@ss.hasPermi('content:banner:edit')")
+    @PreAuthorize("@ss.hasPermi('content:promotion:edit')")
     @Log(title = "Banner管理", businessType = BusinessType.UPDATE)
     @PutMapping("/changeSort")
     public AjaxResult changeSort(@RequestBody SysBanner banner)
@@ -116,7 +116,7 @@ public class SysBannerController extends BaseController
      *
      * @param bannerId BannerID
      */
-    @PreAuthorize("@ss.hasPermi('content:banner:edit')")
+    @PreAuthorize("@ss.hasPermi('content:promotion:remove')")
     @Log(title = "Banner管理", businessType = BusinessType.DELETE)
     @DeleteMapping("/{bannerId}")
     public AjaxResult remove(@PathVariable Long bannerId)
@@ -124,3 +124,4 @@ public class SysBannerController extends BaseController
         return toAjax(bannerService.deleteBannerById(bannerId));
     }
 }
+
