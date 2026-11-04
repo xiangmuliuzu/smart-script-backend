@@ -1407,7 +1407,8 @@ CREATE TABLE IF NOT EXISTS sys_demand (
   PRIMARY KEY (`demand_id`),
   UNIQUE KEY `uk_demand_no` (`demand_no`) USING BTREE,
   KEY `idx_client_id` (`client_id`) USING BTREE,
-  KEY `idx_status` (`status`) USING BTREE
+  KEY `idx_status` (`status`) USING BTREE,
+  KEY `idx_square` (`status`, `escrow_status`, `created_at`) USING BTREE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='征集项目';
 
 CREATE TABLE IF NOT EXISTS sys_demand_submission (
