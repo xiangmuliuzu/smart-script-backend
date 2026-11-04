@@ -1,0 +1,245 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.trade.mapper.SysDemandStageMapper">
+
+    <resultMap type="com.smartscript.platform.trade.domain.SysDemandStage" id="StageResult">
+        <result property="stageId"          column="stage_id" />
+        <result property="demandId"         column="demand_id" />
+        <result property="stageOrder"       column="stage_order" />
+        <result property="episodeTo"        column="episode_to" />
+        <result property="amount"           column="amount" />
+        <result property="status"           column="status" />
+        <result property="deliverableDesc"  column="deliverable_desc" />
+        <result property="deliverableUrl"   column="deliverable_url" />
+        <result property="submittedAt"      column="submitted_at" />
+        <result property="reviewedAt"       column="reviewed_at" />
+        <result property="rejectReason"     column="reject_reason" />
+        <result property="releaseFlag"      column="release_flag" />
+        <result property="durationDays"     column="duration_days" />
+        <result property="durationHours"    column="duration_hours" />
+        <result property="startedAt"        column="started_at" />
+        <result property="dueAt"            column="due_at" />
+        <result property="overdue"          column="is_overdue" />
+        <result property="workId"           column="work_id" />
+        <result property="workTitle"        column="work_title" />
+        <result property="aiScore"          column="ai_score" />
+        <result property="aiResult"         column="ai_result" />
+        <result property="aiReviewedAt"     column="ai_reviewed_at" />
+        <result property="extendStatus"     column="extend_status" />
+        <result property="extendDays"       column="extend_days" />
+        <result property="extendHours"      column="extend_hours" />
+        <result property="extendReason"     column="extend_reason" />
+        <result property="extendAppliedAt"  column="extend_applied_at" />
+        <result property="createdAt"        column="created_at" />
+        <result property="updatedAt"        column="updated_at" />
+        <result property="createBy"         column="create_by" />
+        <result property="updateBy"         column="update_by" />
+        <result property="remark"           column="remark" />
+    </resultMap>
+
+    <insert id="insertBatch" parameterType="java.util.List">
+        INSERT INTO sys_demand_stage (
+            demand_id, stage_order, episode_to, amount, status,
+            duration_days, duration_hours, release_flag, is_overdue,
+            create_by, created_at
+        ) VALUES
+        <foreach collection="list" item="s" separator=",">
+            (#{s.demandId}, #{s.stageOrder}, #{s.episodeTo}, #{s.amount}, #{s.status},
+             #{s.durationDays}, #{s.durationHours}, 0, 0,
+             #{s.createBy}, NOW())
+        </foreach>
+    </insert>
+
+    <!-- 编辑任务重建轮次：删除该任务现有全部轮次 -->
+    <delete id="deleteByDemandId">
+        DELETE FROM sys_demand_stage WHERE demand_id = #{demandId}
+    </delete>
+
+    <select id="selectByDemandId" resultMap="StageResult">
+        SELECT s.*, w.title AS work_title
+        FROM sys_demand_stage s
+        LEFT JOIN sys_work w ON w.work_id = s.work_id
+        WHERE s.demand_id = #{demandId}
+        ORDER BY s.stage_order ASC
+    </select>
+
+    <select id="selectByStageId" resultMap="StageResult">
+        SELECT s.*, w.title AS work_title
+        FROM sys_demand_stage s
+        LEFT JOIN sys_work w ON w.work_id = s.work_id
+        WHERE s.stage_id = #{stageId}
+    </select>
+
+    <!-- 交付写入：同时清除上一轮 AI 审核结果，避免重新交付时面板展示旧分数 -->
+    <update id="updateDeliverable">
+        UPDATE sys_demand_stage
+        SET status = #{status},
+            deliverable_desc = #{deliverableDesc},
+            deliverable_url = #{deliverableUrl},
+            work_id = #{workId},
+            submitted_at = NOW(),
+            ai_score = NULL,
+            ai_result = NULL,
+            ai_reviewed_at = NULL,
+            update_by = #{updateBy},
+            updated_at = NOW()
+        WHERE stage_id = #{stageId}
+    </update>
+
+    <update id="updateReview">
+        UPDATE sys_demand_stage
+        SET status = #{status},
+            reject_reason = #{rejectReason},
+            release_flag = #{releaseFlag},
+            reviewed_at = NOW(),
+            update_by = #{updateBy},
+            updated_at = NOW()
+        WHERE stage_id = #{stageId}
+    </update>
+
+    <!-- AI 审核完成：仅当仍为 ai_reviewing 时流转（条件更新，避免重复处理/覆盖人工结果） -->
+    <update id="updateAiReview">
+        UPDATE sys_demand_stage
+        SET status = #{status},
+            ai_score = #{aiScore},
+            ai_result = #{aiResult},
+            ai_reviewed_at = NOW(),
+            <if test="rejectReason != null">reject_reason = #{rejectReason},</if>
+            update_by = #{updateBy},
+            updated_at = NOW()
+        WHERE stage_id = #{stageId}
+          AND status = 'ai_reviewing'
+    </update>
+
+    <!-- 启动恢复用：当前卡在 AI 审核中的轮次 -->
+    <select id="selectAiReviewingStages" resultMap="StageResult">
+        SELECT s.*, w.title AS work_title
+        FROM sys_demand_stage s
+        LEFT JOIN sys_work w ON w.work_id = s.work_id
+        WHERE s.status = 'ai_reviewing'
+        ORDER BY s.stage_id ASC
+    </select>
+
+    <!-- AI 审核取文：交付作品的章节正文（含富文本标记，由服务层转纯文本） -->
+    <select id="selectChapterContents" resultType="java.lang.String">
+        SELECT COALESCE(content, '')
+        FROM sys_work_chapter
+        WHERE work_id = #{workId}
+        ORDER BY chapter_no ASC, chapter_id ASC
+    </select>
+
+    <!-- 激活某轮：写入开始/截止时间(顺序起算)，清零逾期 -->
+    <update id="activateStage">
+        UPDATE sys_demand_stage
+        SET started_at = #{startedAt},
+            due_at = #{dueAt},
+            is_overdue = 0,
+            update_by = #{updateBy},
+            updated_at = NOW()
+        WHERE stage_id = #{stageId}
+    </update>
+
+    <!-- 本轮逾期标记 -->
+    <update id="markStageOverdue">
+        UPDATE sys_demand_stage SET is_overdue = 1, updated_at = NOW()
+        WHERE stage_id = #{stageId}
+    </update>
+
+    <!-- 当前活动轮：已激活(started_at 非空)且未通过(status in pending/ai_reviewing/submitted/rejected)取最小 stage_order -->
+    <select id="selectActiveStage" resultMap="StageResult">
+        SELECT s.*, w.title AS work_title
+        FROM sys_demand_stage s
+        LEFT JOIN sys_work w ON w.work_id = s.work_id
+        WHERE s.demand_id = #{demandId}
+          AND s.started_at IS NOT NULL
+          AND s.status IN ('pending', 'ai_reviewing', 'submitted', 'rejected')
+        ORDER BY s.stage_order ASC
+        LIMIT 1
+    </select>
+
+    <!-- 下一待激活轮：stage_order 大于 prevOrder 中最小者 -->
+    <select id="selectNextPending" resultMap="StageResult">
+        SELECT * FROM sys_demand_stage
+        WHERE demand_id = #{demandId}
+          AND stage_order &gt; #{prevOrder}
+        ORDER BY stage_order ASC
+        LIMIT 1
+    </select>
+
+    <!-- 定时扫描：已过本轮截止且仍在计时的活动轮（跨全库）。
+         活动轮定义与 selectActiveStage 一致：已激活 + 未通过 + 最小 stage_order；
+         暂停计时的三种情形（submitted 待人工验收 / ai_reviewing / 待处理延时申请）全部排除，否则会误杀创作者。 -->
+    <select id="selectOverdueActiveStages" resultMap="StageResult">
+        SELECT s.*, w.title AS work_title
+        FROM sys_demand_stage s
+        JOIN sys_demand d ON d.demand_id = s.demand_id
+        LEFT JOIN sys_work w ON w.work_id = s.work_id
+        WHERE d.status = 'in_progress'
+          AND s.started_at IS NOT NULL
+          AND s.status IN ('pending', 'rejected')
+          AND (s.extend_status IS NULL OR s.extend_status &lt;&gt; 'pending')
+          AND s.due_at IS NOT NULL
+          AND s.due_at &lt; NOW()
+          AND s.stage_order = (
+              SELECT MIN(s2.stage_order)
+              FROM sys_demand_stage s2
+              WHERE s2.demand_id = s.demand_id
+                AND s2.started_at IS NOT NULL
+                AND s2.status IN ('pending', 'ai_reviewing', 'submitted', 'rejected')
+          )
+        ORDER BY s.stage_id ASC
+    </select>
+
+    <!-- 顺延截止（驳回恢复计时/延期批准/自主延期共用），并清零逾期 -->
+    <update id="pushDue">
+        UPDATE sys_demand_stage
+        SET due_at = #{dueAt},
+            is_overdue = 0,
+            update_by = #{updateBy},
+            updated_at = NOW()
+        WHERE stage_id = #{stageId}
+    </update>
+
+    <!-- 创作者发起延期申请 -->
+    <update id="requestExtend">
+        UPDATE sys_demand_stage
+        SET extend_status = 'pending',
+            extend_days = #{days},
+            extend_hours = #{hours},
+            extend_reason = #{reason},
+            extend_applied_at = NOW(),
+            update_by = #{updateBy},
+            updated_at = NOW()
+        WHERE stage_id = #{stageId}
+    </update>
+
+    <!-- 发布者处理延期申请：批准时同步顺延 due_at，驳回时仅落决定 -->
+    <update id="decideExtend">
+        UPDATE sys_demand_stage
+        <set>
+            extend_status = #{extendStatus},
+            <if test="dueAt != null">due_at = #{dueAt}, is_overdue = 0,</if>
+            update_by = #{updateBy},
+            updated_at = NOW()
+        </set>
+        WHERE stage_id = #{stageId}
+    </update>
+
+    <!-- 交付校验：读作品归属与上架状态 -->
+    <select id="selectWorkBrief" resultType="java.util.HashMap">
+        SELECT work_id AS workId, author_id AS authorId, status, title
+        FROM sys_work
+        WHERE work_id = #{workId}
+    </select>
+
+    <!-- 可交付作品：本人、未删除、非已上架售卖(on_shelf) -->
+    <select id="selectDeliverableWorks" resultType="java.util.HashMap">
+        SELECT work_id AS workId, title, status, update_time AS updateTime
+        FROM sys_work
+        WHERE author_id = #{authorId}
+          AND is_deleted = 0
+          AND status &lt;&gt; 'on_shelf'
+        ORDER BY update_time DESC
+    </select>
+
+</mapper>

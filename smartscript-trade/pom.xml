@@ -41,6 +41,11 @@
             <groupId>com.smartscript</groupId>
             <artifactId>smartscript-user</artifactId>
         </dependency>
+        <!-- E 模块 AI 审核能力：交付物提交后复用 AiReviewService 打分（前置门，人工验收前） -->
+        <dependency>
+            <groupId>com.smartscript</groupId>
+            <artifactId>smartscript-review</artifactId>
+        </dependency>
         <!-- PDF 生成：合同签署完成后合成最终 PDF -->
         <dependency>
             <groupId>com.openhtmltopdf</groupId>

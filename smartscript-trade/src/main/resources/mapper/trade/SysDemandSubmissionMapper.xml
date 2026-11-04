@@ -33,4 +33,54 @@
         order by s.created_at desc
     </select>
 
+    <select id="selectSubmissionById" parameterType="Long" resultMap="SysDemandSubmissionResult">
+        select s.submission_id, s.demand_id, s.work_id, s.submitter_id,
+               s.status, s.submit_message, s.review_remark, s.reviewed_at,
+               s.created_at, s.updated_at, s.create_by, s.create_time, s.remark,
+               w.title as work_title,
+               u.nick_name as submitter_name
+        from sys_demand_submission s
+        left join sys_work w on s.work_id = w.work_id
+        left join sys_user u on s.submitter_id = u.user_id
+        where s.submission_id = #{submissionId}
+    </select>
+
+    <select id="selectBySubmitterId" parameterType="Long" resultMap="SysDemandSubmissionResult">
+        select s.submission_id, s.demand_id, s.work_id, s.submitter_id,
+               s.status, s.submit_message, s.review_remark, s.reviewed_at,
+               s.created_at, s.updated_at, s.create_by, s.create_time, s.remark,
+               w.title as work_title,
+               u.nick_name as submitter_name
+        from sys_demand_submission s
+        left join sys_work w on s.work_id = w.work_id
+        left join sys_user u on s.submitter_id = u.user_id
+        where s.submitter_id = #{submitterId}
+        order by s.created_at desc
+    </select>
+
+    <insert id="insertSubmission" parameterType="com.smartscript.platform.trade.domain.SysDemandSubmission" useGeneratedKeys="true" keyProperty="submissionId">
+        insert into sys_demand_submission (
+            demand_id, work_id, submitter_id, status, submit_message,
+            create_by, create_time
+        ) values (
+            #{demandId}, #{workId}, #{submitterId}, #{status}, #{submitMessage},
+            #{createBy}, #{createTime}
+        )
+    </insert>
+
+    <update id="updateStatus">
+        update sys_demand_submission
+        set status = #{status}, review_remark = #{reviewRemark}, reviewed_at = NOW(),
+            update_by = #{updateBy}, update_time = NOW(), updated_at = NOW()
+        where submission_id = #{submissionId}
+    </update>
+
+    <update id="batchRejectByDemandId">
+        update sys_demand_submission
+        set status = 'rejected', update_by = #{updateBy}, update_time = NOW(), updated_at = NOW()
+        where demand_id = #{demandId}
+          and submission_id != #{excludeId}
+          and status in ('submitted', 'shortlisted')
+    </update>
+
 </mapper>

@@ -117,8 +117,9 @@ public class TradeInquiryService
         }
         inquiry.setCreateTime(new Date());
         inquiryMapper.insertInquiry(inquiry);
-        // 发起询盘 → 通知卖方及时处理（通知失败不影响询盘落库）
-        notifyService.notifyInquiryCreated(inquiry.getInquiryId(), inquiry.getInquiryNo(), inquiry.getSellerId());
+        // 发起询盘 → 通知卖方及时处理（重查带出作品名/买家昵称等展示字段；通知失败不影响询盘落库）
+        SysInquiry fresh = inquiryMapper.selectInquiryById(inquiry.getInquiryId());
+        notifyService.notifyInquiryCreated(fresh != null ? fresh : inquiry);
         return inquiry;
     }
 
@@ -144,13 +145,14 @@ public class TradeInquiryService
         return rows;
     }
 
-    /** 接受询盘成功后通知买方进入会话洽谈（回查买方 ID 与询盘编号）。 */
+    /** 接受询盘成功后通知买方进入会话洽谈（回查买方 ID、询盘编号与展示字段）。 */
     private void notifyInquiryAccepted(Long inquiryId)
     {
         SysInquiry inquiry = inquiryMapper.selectInquiryById(inquiryId);
         if (inquiry != null)
         {
-            notifyService.notifyInquiryAccepted(inquiryId, inquiry.getInquiryNo(), inquiry.getBuyerId());
+            notifyService.notifyInquiryAccepted(inquiryId, inquiry.getInquiryNo(),
+                    inquiry.getWorkTitle(), inquiry.getSellerName(), inquiry.getBuyerId());
         }
     }
 

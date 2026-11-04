@@ -246,7 +246,8 @@ public class TradeOrderService
         deliveryService.createDeliveryForOrder(refreshed != null ? refreshed : order);
 
         // 买方付款 → 通知卖方订单进入交割
-        notifyService.notifyOrderPaid(orderId, order.getOrderNo(), order.getSellerId());
+        notifyService.notifyOrderPaid(orderId, order.getOrderNo(), order.getWorkTitle(),
+                order.getTotalAmount(), order.getBuyerName(), order.getSellerId());
     }
 
     /**
@@ -310,8 +311,9 @@ public class TradeOrderService
         log.setCreateTime(new Date());
         logMapper.insertLog(log);
 
-        // 买方确认收货、订单完成 → 通知买卖双方
-        notifyService.notifyOrderCompleted(orderId, order.getOrderNo(), order.getBuyerId(), order.getSellerId());
+        // 买方确认收货、订单完成 → 通知买卖双方（按受众拆分为两条，文案各带角色指引）
+        notifyService.notifyOrderCompleted(orderId, order.getOrderNo(), order.getWorkTitle(),
+                order.getTotalAmount(), order.getBuyerId(), order.getSellerId());
     }
 
     /**
@@ -367,8 +369,11 @@ public class TradeOrderService
         log.setCreateTime(new Date());
         logMapper.insertLog(log);
 
-        // 取消 → 通知对方（未发起取消的那一方）
-        Long counterpartId = operatorId.equals(order.getBuyerId()) ? order.getSellerId() : order.getBuyerId();
-        notifyService.notifyOrderCancelled(orderId, order.getOrderNo(), counterpartId);
+        // 取消 → 通知对方（未发起取消的那一方），带取消方昵称与原因
+        boolean byBuyer = operatorId.equals(order.getBuyerId());
+        Long counterpartId = byBuyer ? order.getSellerId() : order.getBuyerId();
+        String actorName = byBuyer ? order.getBuyerName() : order.getSellerName();
+        notifyService.notifyOrderCancelled(orderId, order.getOrderNo(), order.getWorkTitle(),
+                actorName, reason, counterpartId);
     }
 }

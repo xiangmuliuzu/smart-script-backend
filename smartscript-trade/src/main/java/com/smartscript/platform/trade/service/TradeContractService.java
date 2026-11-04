@@ -22,6 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.LinkedHashMap;
@@ -492,16 +493,31 @@ public class TradeContractService
             }
         }
 
-        // 签署结果通知：双方签满→通知买方付款；仅单方签完→通知另一方尽快签署
+        // 签署结果通知：双方签满→通知买方付款；仅单方签完→通知另一方尽快签署。
+        // 通知文案需要作品名/金额等展示字段，与 orderNo 一并回查；取不到仅缺对应行，不影响投递。
         Long orderId = ((Number) contract.get("orderId")).longValue();
         String orderNo = null;
+        BigDecimal orderAmount = contract.get("amount") instanceof BigDecimal b ? b
+                : (contract.get("amount") instanceof Number n ? new BigDecimal(n.toString()) : null);
+        String workTitle = (String) contract.get("workTitle");
         try
         {
-            orderNo = jdbc.queryForObject("SELECT order_no FROM sys_order WHERE order_id = ?", String.class, orderId);
+            Map<String, Object> ord = jdbc.queryForMap(
+                    "SELECT o.order_no AS orderNo, o.total_amount AS totalAmount, w.title AS workTitle "
+                    + "FROM sys_order o LEFT JOIN sys_work w ON w.work_id = o.work_id WHERE o.order_id = ?", orderId);
+            orderNo = (String) ord.get("orderNo");
+            if (ord.get("totalAmount") instanceof Number n)
+            {
+                orderAmount = new BigDecimal(n.toString());
+            }
+            if (workTitle == null)
+            {
+                workTitle = (String) ord.get("workTitle");
+            }
         }
         catch (Exception ignore)
         {
-            // 编号仅用于通知文案展示，取不到不影响通知投递
+            // 展示字段仅用于通知文案，取不到不影响通知投递
         }
         if ("completed".equals(newStatus))
         {
@@ -528,12 +544,16 @@ public class TradeContractService
             {
                 log.error("合同 {} 双签完成但推进订单至 paying 失败，orderId={}", contractId, orderId, e);
             }
-            notifyService.notifyContractCompleted(orderId, orderNo, buyerId);
+            notifyService.notifyContractCompleted(orderId, orderNo, workTitle, orderAmount,
+                    displayName(sellerId, (String) contract.get("sellerName")), buyerId);
         }
         else
         {
             Long counterpartId = "buyer".equals(party) ? sellerId : buyerId;
-            notifyService.notifyContractSignedByParty(contractId, orderNo, counterpartId);
+            String signerName = displayName("buyer".equals(party) ? buyerId : sellerId,
+                    "buyer".equals(party) ? (String) contract.get("buyerName") : (String) contract.get("sellerName"));
+            notifyService.notifyContractSignedByParty(contractId, orderNo, workTitle, orderAmount,
+                    (String) contract.get("licenseType"), signerName, counterpartId);
         }
 
         return getById(contractId);

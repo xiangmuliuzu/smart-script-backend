@@ -322,7 +322,10 @@ public class TradeQuoteService
 
         // 一方接受报价 → 通知另一方（未接受的那方）订单已生成、进入订单流程
         Long counterpartId = OPERATOR_ROLE_BUYER.equals(operatorRole) ? inquiry.getSellerId() : inquiry.getBuyerId();
-        notifyService.notifyQuoteAccepted(order.getOrderId(), order.getOrderNo(), counterpartId);
+        String acceptorName = OPERATOR_ROLE_BUYER.equals(operatorRole)
+                ? inquiry.getBuyerName() : inquiry.getSellerName();
+        notifyService.notifyQuoteAccepted(order.getOrderId(), order.getOrderNo(),
+                inquiry.getWorkTitle(), quote.getPrice(), acceptorName, counterpartId);
 
         return order;
     }

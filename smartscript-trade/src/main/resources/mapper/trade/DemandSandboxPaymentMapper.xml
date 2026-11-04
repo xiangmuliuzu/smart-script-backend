@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.trade.mapper.DemandSandboxPaymentMapper">
+
+    <resultMap type="com.smartscript.platform.trade.domain.DemandSandboxPayment" id="PaymentResult">
+        <result property="id"         column="id" />
+        <result property="demandId"   column="demand_id" />
+        <result property="purpose"    column="purpose" />
+        <result property="payerId"    column="payer_id" />
+        <result property="amount"     column="amount" />
+        <result property="outTradeNo" column="out_trade_no" />
+        <result property="tradeNo"    column="trade_no" />
+        <result property="status"     column="status" />
+        <result property="createdAt"  column="created_at" />
+        <result property="updatedAt"  column="updated_at" />
+    </resultMap>
+
+    <insert id="upsertPending">
+        INSERT INTO demand_sandbox_payment (demand_id, purpose, payer_id, amount, out_trade_no, status)
+        VALUES (#{demandId}, #{purpose}, #{payerId}, #{amount}, #{outTradeNo}, 'PENDING')
+        ON DUPLICATE KEY UPDATE demand_id = demand_id
+    </insert>
+
+    <select id="selectForUpdate" resultMap="PaymentResult">
+        SELECT * FROM demand_sandbox_payment
+        WHERE demand_id = #{demandId} AND purpose = #{purpose}
+        FOR UPDATE
+    </select>
+
+    <select id="selectByOutTradeNo" resultMap="PaymentResult">
+        SELECT * FROM demand_sandbox_payment WHERE out_trade_no = #{outTradeNo}
+    </select>
+
+    <update id="markPaid">
+        UPDATE demand_sandbox_payment SET status = 'PAID', trade_no = #{tradeNo}, updated_at = NOW()
+        WHERE out_trade_no = #{outTradeNo} AND status = 'PENDING'
+    </update>
+
+    <update id="markClosed">
+        UPDATE demand_sandbox_payment SET status = 'CLOSED', updated_at = NOW()
+        WHERE out_trade_no = #{outTradeNo} AND status = 'PENDING'
+    </update>
+
+    <update id="reactivateClosed">
+        UPDATE demand_sandbox_payment SET out_trade_no = #{newOutTradeNo}, status = 'PENDING', trade_no = NULL, updated_at = NOW()
+        WHERE demand_id = #{demandId} AND purpose = #{purpose} AND status = 'CLOSED'
+    </update>
+
+</mapper>

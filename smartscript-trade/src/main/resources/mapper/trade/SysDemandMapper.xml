@@ -14,7 +14,13 @@
         <result property="requirement"     column="requirement" />
         <result property="contactInfo"     column="contact_info" />
         <result property="submissionCount" column="submission_count" />
+        <result property="totalEpisodes"    column="total_episodes" />
         <result property="status"          column="status" />
+        <result property="acceptedCreatorId" column="accepted_creator_id" />
+        <result property="acceptedAt"        column="accepted_at" />
+        <result property="durationHours"     column="duration_hours" />
+        <result property="dueAt"             column="due_at" />
+        <result property="overdue"           column="is_overdue" />
         <result property="createdAt"       column="created_at" />
         <result property="updatedAt"       column="updated_at" />
         <result property="createBy"        column="create_by" />
@@ -23,46 +29,238 @@
         <result property="updateTime"      column="update_time" />
         <result property="remark"          column="remark" />
         <result property="clientName"      column="client_name" />
+        <result property="acceptedCreatorName" column="accepted_creator_name" />
+        <result property="escrowAmount"    column="escrow_amount" />
+        <result property="escrowStatus"    column="escrow_status" />
+        <result property="depositAmount"   column="deposit_amount" />
+        <result property="depositStatus"   column="deposit_status" />
+        <result property="depositPaidAt"   column="deposit_paid_at" />
+        <result property="depositSettledAt" column="deposit_settled_at" />
+        <result property="failReason"      column="fail_reason" />
+        <result property="failAt"          column="fail_at" />
     </resultMap>
 
-    <select id="selectDemandList" parameterType="com.smartscript.platform.trade.domain.SysDemand" resultMap="SysDemandResult">
-        select d.demand_id, d.demand_no, d.client_id, d.title, d.genre_id, d.tags, d.budget, d.deadline,
-               d.requirement, d.contact_info, d.submission_count, d.status,
-               d.created_at, d.updated_at, d.create_by, d.create_time, d.update_by, d.update_time, d.remark,
-               uc.nick_name as client_name
+    <!-- 任务查询可复用片段：列 / 连接 / where 条件（selectDemandList、selectDemandPage、countDemandList 共用，避免漂移） -->
+    <sql id="demandColumns">
+        d.demand_id, d.demand_no, d.client_id, d.title, d.genre_id, d.tags, d.budget, d.deadline,
+        d.requirement, d.contact_info, d.submission_count, d.total_episodes, d.status,
+        d.accepted_creator_id, d.accepted_at, d.duration_hours, d.due_at, d.is_overdue,
+        d.escrow_amount, d.escrow_status, d.deposit_amount, d.deposit_status,
+        d.deposit_paid_at, d.deposit_settled_at, d.fail_reason, d.fail_at,
+        d.created_at, d.updated_at, d.create_by, d.create_time, d.update_by, d.update_time, d.remark,
+        uc.nick_name as client_name,
+        ua.nick_name as accepted_creator_name
+    </sql>
+
+    <sql id="demandJoins">
         from sys_demand d
         left join sys_user uc on d.client_id = uc.user_id
+        left join sys_user ua on d.accepted_creator_id = ua.user_id
+    </sql>
+
+    <sql id="demandCriteriaWhere">
+        <if test="title != null and title != ''">AND d.title like concat('%', #{title}, '%')</if>
+        <if test="status != null and status != ''">AND d.status = #{status}</if>
+        <if test="genreId != null">AND d.genre_id = #{genreId}</if>
+        <if test="clientId != null">AND d.client_id = #{clientId}</if>
+        <if test="acceptedCreatorId != null">AND d.accepted_creator_id = #{acceptedCreatorId}</if>
+        <if test="escrowStatus != null and escrowStatus != ''">AND d.escrow_status = #{escrowStatus}</if>
+        <if test="demandNo != null and demandNo != ''">AND d.demand_no like concat('%', #{demandNo}, '%')</if>
+        <if test="keyword != null and keyword != ''">
+            AND (d.title like concat('%', #{keyword}, '%') or d.demand_no like concat('%', #{keyword}, '%'))
+        </if>
+        <!-- 预算区间筛选（元，与库列同口径） -->
+        <if test="budgetMin != null">AND d.budget &gt;= #{budgetMin}</if>
+        <if test="budgetMax != null">AND d.budget &lt;= #{budgetMax}</if>
+        <!-- 集数下限筛选 -->
+        <if test="episodesMin != null">AND d.total_episodes &gt;= #{episodesMin}</if>
+    </sql>
+
+    <select id="selectDemandList" parameterType="com.smartscript.platform.trade.domain.SysDemand" resultMap="SysDemandResult">
+        select <include refid="demandColumns" />
+        <include refid="demandJoins" />
         <where>
-            <if test="title != null and title != ''">AND d.title like concat('%', #{title}, '%')</if>
-            <if test="status != null and status != ''">AND d.status = #{status}</if>
-            <if test="demandNo != null and demandNo != ''">AND d.demand_no like concat('%', #{demandNo}, '%')</if>
-            <if test="keyword != null and keyword != ''">
-                AND (d.title like concat('%', #{keyword}, '%') or d.demand_no like concat('%', #{keyword}, '%'))
-            </if>
+            <include refid="demandCriteriaWhere" />
         </where>
         order by d.created_at desc
     </select>
 
+    <!-- APP 任务广场真分页：SQL 层 LIMIT/OFFSET + 白名单排序（非法值回落 created desc） -->
+    <select id="selectDemandPage" parameterType="com.smartscript.platform.trade.domain.SysDemand" resultMap="SysDemandResult">
+        select <include refid="demandColumns" />
+        <include refid="demandJoins" />
+        <where>
+            <include refid="demandCriteriaWhere" />
+        </where>
+        <choose>
+            <when test="sortBy == 'budget' and sortDir == 'asc'">order by d.budget asc, d.demand_id desc</when>
+            <when test="sortBy == 'budget'">order by d.budget desc, d.demand_id desc</when>
+            <when test="sortBy == 'deadline' and sortDir == 'desc'">order by (d.deadline is null) desc, d.deadline desc, d.demand_id desc</when>
+            <when test="sortBy == 'deadline'">order by (d.deadline is null) asc, d.deadline asc, d.demand_id asc</when>
+            <when test="sortBy == 'created' and sortDir == 'asc'">order by d.created_at asc, d.demand_id asc</when>
+            <otherwise>order by d.created_at desc, d.demand_id desc</otherwise>
+        </choose>
+        <if test="limit != null">limit #{limit} offset #{offset}</if>
+    </select>
+
+    <!-- 与 selectDemandPage 成对的独立 count（同 where，不含 join，行数一致） -->
+    <select id="countDemandList" parameterType="com.smartscript.platform.trade.domain.SysDemand" resultType="long">
+        select count(*) from sys_demand d
+        <where>
+            <include refid="demandCriteriaWhere" />
+        </where>
+    </select>
+
+    <!-- Hero 轻量统计（广场口径：open+escrowed）：可接单数 / 奖金池(元) / 今日新增 -->
+    <select id="selectDemandSquareStats" resultType="java.util.HashMap">
+        select
+            count(*) as availableCount,
+            coalesce(sum(budget), 0) as prizePoolYuan,
+            sum(case when date(created_at) = curdate() then 1 else 0 end) as todayNewCount
+        from sys_demand
+        where status = 'open' and escrow_status = 'escrowed'
+    </select>
+
+    <!-- 题材分类数量角标：公开可接单口径（status=open ∧ escrow=escrowed），与广场列表一致 -->
+    <select id="selectGenreCounts" resultType="java.util.HashMap">
+        select genre_id as genreId, count(*) as cnt
+        from sys_demand
+        where status = 'open' and escrow_status = 'escrowed'
+        group by genre_id
+    </select>
+
     <select id="selectDemandById" parameterType="Long" resultMap="SysDemandResult">
         select d.demand_id, d.demand_no, d.client_id, d.title, d.genre_id, d.tags, d.budget, d.deadline,
-               d.requirement, d.contact_info, d.submission_count, d.status,
+               d.requirement, d.contact_info, d.submission_count, d.total_episodes, d.status,
+               d.accepted_creator_id, d.accepted_at, d.duration_hours, d.due_at, d.is_overdue,
+               d.escrow_amount, d.escrow_status, d.deposit_amount, d.deposit_status,
+               d.deposit_paid_at, d.deposit_settled_at, d.fail_reason, d.fail_at,
                d.created_at, d.updated_at, d.create_by, d.create_time, d.update_by, d.update_time, d.remark,
-               uc.nick_name as client_name
+               uc.nick_name as client_name,
+               ua.nick_name as accepted_creator_name
         from sys_demand d
         left join sys_user uc on d.client_id = uc.user_id
+        left join sys_user ua on d.accepted_creator_id = ua.user_id
         where d.demand_id = #{demandId}
     </select>
 
     <insert id="insertDemand" parameterType="com.smartscript.platform.trade.domain.SysDemand" useGeneratedKeys="true" keyProperty="demandId">
         insert into sys_demand (
             demand_no, client_id, title, genre_id, tags, budget, deadline,
-            requirement, contact_info, submission_count, status,
+            requirement, contact_info, submission_count, total_episodes, duration_hours, status,
+            escrow_amount, escrow_status,
             create_by, create_time, remark
         ) values (
             #{demandNo}, #{clientId}, #{title}, #{genreId}, #{tags}, #{budget}, #{deadline},
-            #{requirement}, #{contactInfo}, #{submissionCount}, #{status},
+            #{requirement}, #{contactInfo}, #{submissionCount}, #{totalEpisodes}, #{durationHours}, #{status},
+            #{escrowAmount}, #{escrowStatus},
             #{createBy}, #{createTime}, #{remark}
         )
     </insert>
+
+    <!-- 编辑任务：仅更新非空可编辑字段（未托管未接单时由 service 保证） -->
+    <update id="updateDemand" parameterType="com.smartscript.platform.trade.domain.SysDemand">
+        update sys_demand
+        <set>
+            <if test="title != null">title = #{title},</if>
+            <if test="genreId != null">genre_id = #{genreId},</if>
+            <if test="tags != null">tags = #{tags},</if>
+            <if test="budget != null">budget = #{budget},</if>
+            <if test="deadline != null">deadline = #{deadline},</if>
+            <if test="requirement != null">requirement = #{requirement},</if>
+            <if test="contactInfo != null">contact_info = #{contactInfo},</if>
+            <if test="totalEpisodes != null">total_episodes = #{totalEpisodes},</if>
+            <if test="durationHours != null">duration_hours = #{durationHours},</if>
+            <if test="escrowAmount != null">escrow_amount = #{escrowAmount},</if>
+            <if test="escrowStatus != null">escrow_status = #{escrowStatus},</if>
+            <if test="updateBy != null">update_by = #{updateBy},</if>
+            updated_at = NOW(),
+            update_time = NOW()
+        </set>
+        where demand_id = #{demandId}
+    </update>
+
+    <update id="updateStatus">
+        update sys_demand set status = #{status}, update_by = #{updateBy}, update_time = NOW(), updated_at = NOW()
+        where demand_id = #{demandId}
+    </update>
+
+    <!-- 抢单：原子锁定，仅当仍为 open 且已托管(escrowed) 才更新；同时置押金为 held 并记录入账时间 -->
+    <update id="claimDemand">
+        update sys_demand
+        set status = 'in_progress',
+            accepted_creator_id = #{creatorId},
+            accepted_at = #{acceptedAt},
+            due_at = #{dueAt},
+            is_overdue = 0,
+            deposit_amount = #{depositAmount},
+            deposit_status = 'held',
+            deposit_paid_at = NOW(),
+            update_by = #{updateBy},
+            update_time = NOW(),
+            updated_at = NOW()
+        where demand_id = #{demandId} and status = 'open' and escrow_status = 'escrowed'
+    </update>
+
+    <update id="markEscrowed">
+        update sys_demand set escrow_status = 'escrowed', updated_at = NOW()
+        where demand_id = #{demandId}
+    </update>
+
+    <!-- 资金/状态统一流转：仅更新传入的非空字段（status/escrowStatus/depositStatus/failReason） -->
+    <update id="updateFundState">
+        update sys_demand
+        <set>
+            <if test="status != null">status = #{status},</if>
+            <if test="escrowStatus != null">escrow_status = #{escrowStatus},</if>
+            <if test="depositStatus != null">
+                deposit_status = #{depositStatus},
+                deposit_settled_at = NOW(),
+            </if>
+            <if test="failReason != null">
+                fail_reason = #{failReason},
+                fail_at = NOW(),
+            </if>
+            updated_at = NOW()
+        </set>
+        where demand_id = #{demandId}
+    </update>
+
+    <!-- 镜像当前活动轮次的截止/逾期到 sys_demand，供卡片/列表读取 -->
+    <update id="mirrorRoundState">
+        update sys_demand
+        set due_at = #{dueAt}, is_overdue = #{overdue}, updated_at = NOW()
+        where demand_id = #{demandId}
+    </update>
+
+    <update id="markOverdue">
+        update sys_demand set is_overdue = 1, updated_at = NOW()
+        where demand_id = #{demandId}
+    </update>
+
+    <!-- 超时失败终止（CAS）：where 带来源状态守卫，读路径与定时扫描并发命中同一任务时只有一个是赢家 -->
+    <update id="failDemandIfInProgress">
+        update sys_demand
+        <set>
+            status = #{status},
+            <if test="escrowStatus != null">escrow_status = #{escrowStatus},</if>
+            <if test="depositStatus != null">
+                deposit_status = #{depositStatus},
+                deposit_settled_at = NOW(),
+            </if>
+            <if test="failReason != null">
+                fail_reason = #{failReason},
+                fail_at = NOW(),
+            </if>
+            updated_at = NOW()
+        </set>
+        where demand_id = #{demandId}
+          and status = 'in_progress'
+    </update>
+
+    <update id="incrementSubmissionCount">
+        update sys_demand set submission_count = submission_count + 1, updated_at = NOW()
+        where demand_id = #{demandId}
+    </update>
 
 </mapper>
