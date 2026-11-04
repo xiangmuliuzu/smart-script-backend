@@ -79,58 +79,19 @@ public class AiReviewService {
             result.put("msg", "审核记录不存在: " + reviewId);
             return result;
         }
-        // 1) 读取启用中的AI审核规则
-        List<AiReviewRule> rules = aiReviewRuleMapper.selectActiveAiReviewRules();
-        // 2) 违禁词词库确定性打分：命中词库中的词即扣分，不依赖AI自主判断
-        String text = content == null ? "" : content;
-        List<String> wordHits = collectKeywordHits(rules, text);
-        int wordScore = calcWordScore(wordHits);
-        // 3) 根据规则拼提示词（规则即审核标准，词库随提示词下发给AI辅助判断）
-        String prompt = buildPrompt(rules);
-        // 4) 调用AI：配置了 api-key 则真调 DeepSeek（版权查重等无词库规则依赖其语义判断），否则走确定性基线
-        boolean usingMock = !StringUtils.hasText(aiApiKey);
-        Map<String, Object> aiResp;
-        if (usingMock) {
-            aiResp = mockScore(content, rules);
-        } else {
-            try {
-                aiResp = callExternalAi(prompt, content);
-            } catch (Exception e) {
-                log.warn("AI审核调用失败，回退基线: {}", e.getMessage());
-                aiResp = mockScore(content, rules);
-            }
-        }
-        int aiScore = ((Number) aiResp.get("score")).intValue();
-        // 5) 最终分数：词库命中确定性扣分（wordScore）与 AI 自主打分取最严 min。
-        //    词库是辅助：命中即扣分，防止AI漏判；AI 是必要判定：即使词库未命中，AI 低分仍会拉低最终分。
-        int score = Math.min(wordScore, aiScore);
-        String riskLevel = score >= 85 ? "low" : (score >= 60 ? "medium" : "high");
-        // 合并命中词与问题引用：词库命中优先，AI 补充
-        List<String> keywords = new ArrayList<>(wordHits);
-        List<?> aiKeywords = (List<?>) aiResp.get("keywords");
-        if (aiKeywords != null) {
-            for (Object k : aiKeywords) {
-                if (k != null && !k.toString().isBlank() && !keywords.contains(k.toString())) {
-                    keywords.add(k.toString());
-                }
-            }
-        }
-        List<Map<String, Object>> issues = new ArrayList<>();
-        for (String kw : wordHits) {
-            Map<String, Object> issue = new HashMap<>();
-            issue.put("reason", "命中违禁词词库");
-            issue.put("quote", sentenceContaining(text, kw));
-            issues.add(issue);
-        }
-        List<?> aiIssues = (List<?>) aiResp.get("issues");
-        if (aiIssues != null) {
-            for (Object o : aiIssues) {
-                if (o instanceof Map) {
-                    issues.add((Map<String, Object>) o);
-                }
-            }
-        }
-        String sensitiveWords = String.join(",", keywords);
+        // 1)-4) 规则/词库/提示词/AI 打分与合并（与任务交付物 AI 审核复用同一套流程）
+        Map<String, Object> judged = scoreContent(content);
+        @SuppressWarnings("unchecked")
+        List<AiReviewRule> rules = (List<AiReviewRule>) judged.get("rules");
+        @SuppressWarnings("unchecked")
+        List<String> keywords = (List<String>) judged.get("keywords");
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> issues = (List<Map<String, Object>>) judged.get("issues");
+        String prompt = (String) judged.get("prompt");
+        int score = ((Number) judged.get("score")).intValue();
+        String riskLevel = (String) judged.get("level");
+        boolean usingMock = Boolean.TRUE.equals(judged.get("usingMock"));
+        String sensitiveWords = (String) judged.get("sensitiveWords");
 
         // 4) 落库AI结果
         Date now = new Date();
@@ -194,6 +155,80 @@ public class AiReviewService {
         result.put("nextStatus", nextStatus);
         result.put("prompt", prompt);
         return result;
+    }
+
+    /**
+     * 纯打分（不落审核记录、不流转任何状态）：规则读取 → 词库命中扣分 → 提示词 → AI/基线打分 → 合并。
+     * 供任务交付物 AI 审核等交易侧场景直接复用同一套审核能力。
+     *
+     * @param content 待审核文本
+     * @return score/level/keywords/issues/wordHits/rules/prompt/sensitiveWords/usingMock
+     */
+    public Map<String, Object> scoreContent(String content) {
+        Map<String, Object> out = new HashMap<>();
+        // 1) 读取启用中的AI审核规则
+        List<AiReviewRule> rules = aiReviewRuleMapper.selectActiveAiReviewRules();
+        // 2) 违禁词词库确定性打分：命中词库中的词即扣分，不依赖AI自主判断
+        String text = content == null ? "" : content;
+        List<String> wordHits = collectKeywordHits(rules, text);
+        int wordScore = calcWordScore(wordHits);
+        // 3) 根据规则拼提示词（规则即审核标准，词库随提示词下发给AI辅助判断）
+        String prompt = buildPrompt(rules);
+        // 4) 调用AI：配置了 api-key 则真调 DeepSeek（版权查重等无词库规则依赖其语义判断），否则走确定性基线
+        boolean usingMock = !StringUtils.hasText(aiApiKey);
+        Map<String, Object> aiResp;
+        if (usingMock) {
+            aiResp = mockScore(content, rules);
+        } else {
+            try {
+                aiResp = callExternalAi(prompt, content);
+            } catch (Exception e) {
+                log.warn("AI审核调用失败，回退基线: {}", e.getMessage());
+                aiResp = mockScore(content, rules);
+            }
+        }
+        int aiScore = ((Number) aiResp.get("score")).intValue();
+        // 5) 最终分数：词库命中确定性扣分（wordScore）与 AI 自主打分取最严 min。
+        //    词库是辅助：命中即扣分，防止AI漏判；AI 是必要判定：即使词库未命中，AI 低分仍会拉低最终分。
+        int score = Math.min(wordScore, aiScore);
+        String riskLevel = score >= 85 ? "low" : (score >= 60 ? "medium" : "high");
+        // 合并命中词与问题引用：词库命中优先，AI 补充
+        List<String> keywords = new ArrayList<>(wordHits);
+        List<?> aiKeywords = (List<?>) aiResp.get("keywords");
+        if (aiKeywords != null) {
+            for (Object k : aiKeywords) {
+                if (k != null && !k.toString().isBlank() && !keywords.contains(k.toString())) {
+                    keywords.add(k.toString());
+                }
+            }
+        }
+        List<Map<String, Object>> issues = new ArrayList<>();
+        for (String kw : wordHits) {
+            Map<String, Object> issue = new HashMap<>();
+            issue.put("reason", "命中违禁词词库");
+            issue.put("quote", sentenceContaining(text, kw));
+            issues.add(issue);
+        }
+        List<?> aiIssues = (List<?>) aiResp.get("issues");
+        if (aiIssues != null) {
+            for (Object o : aiIssues) {
+                if (o instanceof Map) {
+                    issues.add((Map<String, Object>) o);
+                }
+            }
+        }
+        String sensitiveWords = String.join(",", keywords);
+
+        out.put("score", score);
+        out.put("level", riskLevel);
+        out.put("keywords", keywords);
+        out.put("issues", issues);
+        out.put("wordHits", wordHits);
+        out.put("rules", rules);
+        out.put("prompt", prompt);
+        out.put("sensitiveWords", sensitiveWords);
+        out.put("usingMock", usingMock);
+        return out;
     }
 
     /**
