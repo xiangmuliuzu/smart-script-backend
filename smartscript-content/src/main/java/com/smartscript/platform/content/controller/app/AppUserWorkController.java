@@ -151,7 +151,7 @@ public class AppUserWorkController
             userWorkService.updateWorkBase(userId, workId,
                     str(body.get("title")), str(body.get("summary")),
                     str(body.get("cover")), integerList(body.get("tagIds")), decimal(body.get("price")),
-                    str(body.get("tradeType")));
+                    str(body.get("tradeType")), integer(body.get("channelId")));
             return AppApiResponse.ok();
         }
         catch (IllegalArgumentException e)

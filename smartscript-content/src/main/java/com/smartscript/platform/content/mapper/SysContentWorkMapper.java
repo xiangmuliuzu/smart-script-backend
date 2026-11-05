@@ -41,6 +41,14 @@ public interface SysContentWorkMapper
     public SysWork selectWorkById(Long workId);
 
     /**
+     * 校验频道是否有效（sys_category 顶级、channel 类型、启用状态）
+     *
+     * @param channelId 频道ID（146 男频 / 147 女频）
+     * @return 匹配行数（1 有效，0 无效）
+     */
+    public int countEnabledChannel(@Param("channelId") Integer channelId);
+
+    /**
      * 用户端「我的作品」列表（含 authorName，按更新时间倒序）
      *
      * 固定条件：is_deleted = 0，作者为当前用户。

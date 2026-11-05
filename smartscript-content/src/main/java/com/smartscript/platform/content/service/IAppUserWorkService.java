@@ -39,9 +39,19 @@ public interface IAppUserWorkService
      * @param cover   封面地址（2.9.1 上传接口返回的 url；为空不更新）
      * @param tagIds  标签ID列表（接口文档 2.3.3：全量覆盖，最多 8 个；
      *                null = 不修改标签，空列表 = 清空标签）
+     * @param channelId 所属频道（146 男频 / 147 女频；null = 不修改）
      */
     void updateWorkBase(Long userId, Long workId, String title, String summary, String cover,
-            List<Integer> tagIds, BigDecimal price, String tradeType);
+            List<Integer> tagIds, BigDecimal price, String tradeType, Integer channelId);
+
+    /**
+     * 兼容旧调用：不修改频道。
+     */
+    default void updateWorkBase(Long userId, Long workId, String title, String summary, String cover,
+            List<Integer> tagIds, BigDecimal price, String tradeType)
+    {
+        updateWorkBase(userId, workId, title, summary, cover, tagIds, price, tradeType, null);
+    }
 
     /**
      * 章节目录（含 content 全文，用户端编辑用）

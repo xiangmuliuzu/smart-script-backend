@@ -9,6 +9,7 @@ import java.util.Map;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import com.smartscript.platform.content.domain.SysWork;
+import com.smartscript.platform.content.domain.SysTag;
 import com.smartscript.platform.content.domain.SysWorkChapter;
 import com.smartscript.platform.content.domain.SysWorkReviewRecord;
 import com.smartscript.platform.content.mapper.SysContentWorkMapper;
@@ -45,8 +46,12 @@ import java.util.concurrent.CompletableFuture;
 @Service
 public class AppUserWorkServiceImpl implements IAppUserWorkService
 {
-    /** 作品标签数量上限（接口文档 2.3.3：tagIds 最多 8 个） */
-    private static final int MAX_WORK_TAGS = 8;
+    /** 作品标签维度上限：主分类 1 + 主题 2 + 角色 2 + 情节 2 = 最多 7 个 */
+    private static final Map<String, Integer> MAX_TAGS_BY_TYPE = Map.of(
+            "hot", 1, "theme", 2, "role", 2, "plot", 2);
+    private static final int MAX_WORK_TAGS = 7;
+    private static final Map<String, String> TAG_TYPE_NAMES = Map.of(
+            "hot", "主分类", "theme", "主题", "role", "角色", "plot", "情节");
 
     private final SysContentWorkMapper workMapper;
     private final SysWorkChapterMapper chapterMapper;
@@ -95,7 +100,7 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
     @Override
     @Transactional
     public void updateWorkBase(Long userId, Long workId, String title, String summary, String cover,
-            List<Integer> tagIds, BigDecimal price, String tradeType)
+            List<Integer> tagIds, BigDecimal price, String tradeType, Integer channelId)
     {
         requireOwnWork(userId, workId);
         requireEditable(workId, userId);
@@ -112,6 +117,10 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
         {
             throw new IllegalArgumentException("请选择有效的合作方式");
         }
+        if (channelId != null && workMapper.countEnabledChannel(channelId) == 0)
+        {
+            throw new IllegalArgumentException("频道不存在或已停用");
+        }
         SysWork update = new SysWork();
         update.setPrice(price);
         update.setTradeType(tradeType);
@@ -119,6 +128,7 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
         update.setTitle(title);
         update.setSummary(summary);
         update.setCover(cover);
+        update.setChannelId(channelId);
         update.setUpdateBy(String.valueOf(userId));
         update.setUpdateTime(new Date());
         workMapper.updateWorkBaseInfo(update);
@@ -130,7 +140,7 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
     }
 
     /**
-     * 全量覆盖作品标签（接口文档 2.3.3：tagIds 为全量覆盖语义，最多 8 个）。
+     * 全量覆盖作品标签：主分类 1 + 主题 2 + 角色 2 + 情节 2（最多 7 个）。
      *
      * 先清空该作品现有标签再批量写入，空列表即清空；重复ID去重，避免撞 uk_work_tag 唯一索引。
      */
@@ -147,6 +157,22 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
         if (uniqueTagIds.size() > MAX_WORK_TAGS)
         {
             throw new IllegalArgumentException("标签最多选择 " + MAX_WORK_TAGS + " 个");
+        }
+        Map<String, Integer> typeCounts = new LinkedHashMap<>();
+        for (Integer tagId : uniqueTagIds)
+        {
+            SysTag tag = tagMapper.selectTagById(Long.valueOf(tagId));
+            if (tag == null)
+            {
+                throw new IllegalArgumentException("标签不存在或已删除");
+            }
+            int count = typeCounts.merge(tag.getTagType(), 1, Integer::sum);
+            int max = MAX_TAGS_BY_TYPE.getOrDefault(tag.getTagType(), 0);
+            if (count > max)
+            {
+                throw new IllegalArgumentException(TAG_TYPE_NAMES.getOrDefault(tag.getTagType(), tag.getTagType())
+                        + "最多选择 " + max + " 个");
+            }
         }
         tagMapper.deleteWorkTagByWorkId(workId);
         if (!uniqueTagIds.isEmpty())

@@ -63,7 +63,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 
 	<!-- 作品管理列表：含 authorName，全字段；标签由 Service 层批量回填 -->
 	<sql id="selectWorkVo">
-		select w.work_id, w.title, w.cover, w.author_id, w.work_type, w.upload_type,
+		select w.work_id, w.title, w.cover, w.author_id, w.channel_id, w.work_type, w.upload_type,
 		       w.length_type, w.summary,
 		       w.price, w.trade_type, w.trade_enabled, w.negotiable_min, w.negotiable_max,
 		       w.quote_valid_days, w.word_count, w.episode_count, w.duration,
@@ -112,6 +112,15 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 	<select id="selectWorkById" parameterType="Long" resultMap="SysWorkResult">
 		<include refid="selectWorkVo"/>
 		and w.work_id = #{workId}
+	</select>
+
+	<!-- 频道校验：仅顶级、channel 类型、启用的分类可作为作品频道 -->
+	<select id="countEnabledChannel" resultType="int">
+		select count(*) from sys_category
+		where category_id = #{channelId}
+		  and parent_id = 0
+		  and category_type = 'channel'
+		  and status = '0'
 	</select>
 
 	<!-- 用户端「我的作品」列表：本人作品，按更新时间倒序 -->

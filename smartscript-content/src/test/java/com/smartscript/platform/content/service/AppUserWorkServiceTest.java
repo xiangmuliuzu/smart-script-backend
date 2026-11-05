@@ -17,6 +17,7 @@ import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import com.smartscript.platform.content.domain.SysTag;
 import com.smartscript.platform.content.domain.SysWork;
 import com.smartscript.platform.content.domain.SysWorkChapter;
 import com.smartscript.platform.content.domain.SysWorkReviewRecord;
@@ -66,6 +67,15 @@ class AppUserWorkServiceTest
         work.setStatus("on_shelf");
         work.setTitle("测试作品");
         return work;
+    }
+
+    private SysTag tagOf(int tagId, String tagType)
+    {
+        SysTag tag = new SysTag();
+        tag.setTagId((long) tagId);
+        tag.setTagType(tagType);
+        tag.setTagName("标签" + tagId);
+        return tag;
     }
 
     /** 带 rejectReason 的作品（平台强制下架场景） */
@@ -198,6 +208,22 @@ class AppUserWorkServiceTest
     }
 
     @Test
+    @DisplayName("作品设置保存目标读者频道，非法频道拒绝")
+    void updateWorkBasePersistsChannel()
+    {
+        when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
+        when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of());
+        when(workMapper.countEnabledChannel(147)).thenReturn(1);
+        service.updateWorkBase(OWNER, WORK_ID, "标题", "简介", null, null, null, null, 147);
+        verify(workMapper).updateWorkBaseInfo(argThat(work ->
+                Integer.valueOf(147).equals(work.getChannelId())));
+
+        when(workMapper.countEnabledChannel(999)).thenReturn(0);
+        assertThrows(IllegalArgumentException.class, () -> service.updateWorkBase(
+                OWNER, WORK_ID, "标题", "简介", null, null, null, null, 999));
+    }
+
+    @Test
     @DisplayName("修改基本信息：revision（待修改）允许")
     void updateWorkBaseAllowedInRevision()
     {
@@ -234,6 +260,8 @@ class AppUserWorkServiceTest
     {
         when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
         when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of());
+        when(tagMapper.selectTagById(1L)).thenReturn(tagOf(1, "theme"));
+        when(tagMapper.selectTagById(3L)).thenReturn(tagOf(3, "theme"));
 
         service.updateWorkBase(OWNER, WORK_ID, "新标题", "新简介", null, List.of(3, 1, 3), null, null);
 
@@ -275,7 +303,7 @@ class AppUserWorkServiceTest
     }
 
     @Test
-    @DisplayName("设置标签：超过 8 个拒绝，且不产生任何删除")
+    @DisplayName("设置标签：超过 7 个拒绝，且不产生任何删除")
     void updateWorkBaseRejectsTooManyTags()
     {
         when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
@@ -283,6 +311,22 @@ class AppUserWorkServiceTest
 
         assertThrows(IllegalArgumentException.class, () -> service.updateWorkBase(
                 OWNER, WORK_ID, "新标题", "新简介", null, List.of(1, 2, 3, 4, 5, 6, 7, 8, 9), null, null));
+
+        verify(tagMapper, never()).deleteWorkTagByWorkId(anyLong());
+    }
+
+    @Test
+    @DisplayName("设置标签：同一维度超过上限（主分类 2 个）拒绝")
+    void updateWorkBaseRejectsTooManyTagsInDimension()
+    {
+        when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
+        when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of());
+        when(tagMapper.selectTagById(1L)).thenReturn(tagOf(1, "hot"));
+        when(tagMapper.selectTagById(2L)).thenReturn(tagOf(2, "hot"));
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> service.updateWorkBase(OWNER, WORK_ID, "新标题", "新简介", null, List.of(1, 2), null, null));
+        assertEquals("主分类最多选择 1 个", ex.getMessage());
 
         verify(tagMapper, never()).deleteWorkTagByWorkId(anyLong());
     }
