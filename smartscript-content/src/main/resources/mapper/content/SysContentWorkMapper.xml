@@ -362,10 +362,10 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		</where>
 	</select>
 
-	<!-- 榜单：type 由控制层收敛为 view/favorite/sale/rating/new，此处按类型取对应指标并排序。
+	 <!-- 榜单：type 由控制层收敛为 view/favorite/sale/rating/new，此处按类型取对应指标并排序。
 	     指标口径：
 	       view     热门榜：按累计浏览量 view_count 排序
-	       favorite 收藏榜：sys_favorite 近 7 天收藏条数（非 sys_bookshelf_record）
+	       favorite 收藏榜：按累计收藏量 sys_work.favorite_count 排序（不再取近 7 天）
 	       sale     交易热度榜：sys_order 近 7 天已支付订单条数（pay_time 已落地即视为已支付）
 	       rating   评分榜：平均评分 sys_work.rating（由 AppWorkRatingMapper.refreshWorkRating
 	               在每次评分后回写为 ROUND(AVG(score),1)）；无评分（rating=0）的作品不进榜
@@ -382,19 +382,13 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 				       w.word_count, w.episode_count, w.view_count, w.favorite_count,
 				       w.sale_count, w.rating,
 				       u.nick_name as author_name,
-				       coalesce(fc.cnt_7d, 0) as rank_score
+				       w.favorite_count as rank_score
 				from sys_work w
 				left join sys_user u on u.user_id = w.author_id
-				left join (
-					select f.work_id, count(1) as cnt_7d
-					from sys_favorite f
-					where f.created_at &gt;= date_sub(now(), interval 7 day)
-					group by f.work_id
-				) fc on fc.work_id = w.work_id
 				<where>
 					<include refid="readerVisibleWork"><property name="alias" value="w"/></include>
 				</where>
-				order by coalesce(fc.cnt_7d, 0) desc, w.favorite_count desc, w.work_id desc
+				order by w.favorite_count desc, w.work_id desc
 				limit #{limit}
 			</when>
 			<when test='type != null and type == "sale"'>
