@@ -2,6 +2,7 @@ package com.smartscript.platform.user.service;
 
 import static org.junit.jupiter.api.Assertions.*;
 import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -24,5 +25,15 @@ class RealNameMaterialStorageTest {
         assertThrows(AppAuthException.class, () -> storage.validate(new MockMultipartFile("front", new byte[]{1, 2, 3})));
         assertThrows(AppAuthException.class, () -> storage.validate(null));
         assertThrows(IllegalStateException.class, () -> new RealNameMaterialStorage(root.toString(), root.toString()));
+    }
+
+    @Test void oversizedImagesAreDownscaledForReview() throws Exception {
+        var storage = new RealNameMaterialStorage(root.toString(), root.resolveSibling("public").toString());
+        var png = new ByteArrayOutputStream();
+        ImageIO.write(new BufferedImage(3200, 1600, BufferedImage.TYPE_INT_RGB), "png", png);
+        byte[] stored = storage.validate(new MockMultipartFile("front", png.toByteArray()));
+        BufferedImage image = ImageIO.read(new ByteArrayInputStream(stored));
+        assertEquals(1600, image.getWidth());
+        assertEquals(800, image.getHeight());
     }
 }

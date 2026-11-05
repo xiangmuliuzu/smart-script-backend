@@ -1,5 +1,8 @@
 package com.smartscript.platform.user.service;
 
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
+import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -22,6 +25,12 @@ import com.smartscript.platform.user.exception.AppAuthException;
 /** Private identity material; never stored under the public profile directory. */
 @Service
 public class RealNameMaterialStorage {
+    /**
+     * 审核端下载用的最大长边。手机原图常见 2800px 以上，直接转 PNG 可达 5 MB，
+     * 慢网络下后台下载容易中断；1600px 足够辨认证件信息。
+     */
+    private static final int MAX_IMAGE_SIDE = 1600;
+
     private final Path root;
     private final ProfileStorageService storage;
 
@@ -62,12 +71,40 @@ public class RealNameMaterialStorage {
                     var image = reader.read(0);
                     if (image == null) throw new AppAuthException(40000, 400, "图片内容无效");
                     var output = new ByteArrayOutputStream();
-                    if (!ImageIO.write(image, "png", output)) throw new AppAuthException(40000, 400, "图片内容无效");
+                    if (!ImageIO.write(downscale(image), "png", output)) throw new AppAuthException(40000, 400, "图片内容无效");
                     return output.toByteArray();
                 } finally { reader.dispose(); }
             }
         } catch (IOException e) { throw new AppAuthException(40000, 400, "图片内容无效"); }
     }
+
+    /** 长边超过 1600px 时等比缩小，避免审核端下载数 MB 的原图。 */
+    private static BufferedImage downscale(BufferedImage source) {
+        int longestSide = Math.max(source.getWidth(), source.getHeight());
+        if (longestSide <= MAX_IMAGE_SIDE) {
+            return source;
+        }
+        double scale = (double) MAX_IMAGE_SIDE / longestSide;
+        int width = Math.max(1, (int) Math.round(source.getWidth() * scale));
+        int height = Math.max(1, (int) Math.round(source.getHeight() * scale));
+        int type = source.getColorModel().hasAlpha()
+                ? BufferedImage.TYPE_INT_ARGB : BufferedImage.TYPE_INT_RGB;
+        BufferedImage target = new BufferedImage(width, height, type);
+        Graphics2D graphics = target.createGraphics();
+        try {
+            graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
+                    RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+            graphics.setRenderingHint(RenderingHints.KEY_RENDERING,
+                    RenderingHints.VALUE_RENDER_QUALITY);
+            graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING,
+                    RenderingHints.VALUE_ANTIALIAS_ON);
+            graphics.drawImage(source, 0, 0, width, height, null);
+        } finally {
+            graphics.dispose();
+        }
+        return target;
+    }
+
     public String save(Long userId, byte[] bytes) {
         String ref = "realname/" + userId + "/" + UUID.randomUUID() + ".png";
         final boolean remote = storage.privateRemoteEnabled();
