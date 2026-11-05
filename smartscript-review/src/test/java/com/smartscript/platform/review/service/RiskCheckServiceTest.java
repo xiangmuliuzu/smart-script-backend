@@ -202,4 +202,25 @@ class RiskCheckServiceTest {
         org.mockito.Mockito.verify(valueOperations).increment(captor.capture());
         assertTrue(captor.getValue().contains("1.2.3.4"));
     }
+
+    @Test
+    void checkFrequency_IP规则在操作入口生效_超阈值拦截() {
+        when(blacklistMapper.selectActiveByTarget(anyString(), anyString())).thenReturn(null);
+        when(riskRuleMapper.selectActiveRulesByType("operation"))
+                .thenReturn(Collections.singletonList(freqRule("operation", "批量操作检测", "{\"times\":100,\"window\":\"1m\"}", "ban")));
+        when(riskRuleMapper.selectActiveRulesByType("ip"))
+                .thenReturn(Collections.singletonList(freqRule("ip", "异常IP检测", "{\"times\":10,\"window\":\"1h\"}", "block")));
+        when(valueOperations.increment(anyString())).thenReturn(11L);
+
+        Map<String, Object> r = riskCheckService.checkFrequency(106L, "1.2.3.4", "operation");
+        assertEquals("HIGH", r.get("riskLevel"));
+        assertEquals(Boolean.TRUE, r.get("blocked"));
+        List<?> hits = (List<?>) r.get("hits");
+        assertEquals(1, hits.size());
+        assertEquals("异常IP检测", ((Map<?, ?>) hits.get(0)).get("ruleName"));
+        // IP 频控计数键使用 IP
+        org.mockito.ArgumentCaptor<String> captor = org.mockito.ArgumentCaptor.forClass(String.class);
+        org.mockito.Mockito.verify(valueOperations, org.mockito.Mockito.atLeastOnce()).increment(captor.capture());
+        assertTrue(captor.getAllValues().stream().anyMatch(k -> k.contains("1.2.3.4")));
+    }
 }

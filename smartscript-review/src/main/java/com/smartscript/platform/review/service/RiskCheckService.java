@@ -124,7 +124,15 @@ public class RiskCheckService {
             }
             // 2) 频控规则：按 actionType 匹配启用中的规则（login/operation/ip）
             if (stringRedisTemplate != null) {
-                List<RiskRule> rules = riskRuleMapper.selectActiveRulesByType(actionType);
+                List<RiskRule> typedRules = riskRuleMapper.selectActiveRulesByType(actionType);
+                List<RiskRule> rules = typedRules != null ? new ArrayList<>(typedRules) : new ArrayList<>();
+                // IP 频控对所有频控入口生效：同一 IP 的跨动作请求累计，需额外加载 ip 类型规则
+                if (!"ip".equals(actionType) && StringUtils.hasText(ip)) {
+                    List<RiskRule> ipRules = riskRuleMapper.selectActiveRulesByType("ip");
+                    if (ipRules != null) {
+                        rules.addAll(ipRules);
+                    }
+                }
                 for (RiskRule rule : rules) {
                     FreqCfg cfg = parseFreq(rule.getRuleContent());
                     if (cfg == null || cfg.times <= 0 || cfg.windowSec <= 0) {
