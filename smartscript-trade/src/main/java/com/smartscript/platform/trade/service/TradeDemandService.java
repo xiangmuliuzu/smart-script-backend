@@ -89,6 +89,10 @@ public class TradeDemandService
     @Autowired
     private DemandStageAiReviewService stageAiReviewService;
 
+    /** 逐轮放款：本轮验收通过后生成该轮待结算单（与验收同事务） */
+    @Autowired
+    private TradeFinanceService financeService;
+
     public List<SysDemand> selectDemandList(SysDemand demand)
     {
         List<SysDemand> list = demandMapper.selectDemandList(demand);
@@ -692,13 +696,27 @@ public class TradeDemandService
 
         String newStatus = approved ? SysDemandStage.STAGE_STATUS_APPROVED : SysDemandStage.STAGE_STATUS_REJECTED;
         int releaseFlag = approved ? 1 : 0;
-        stageMapper.updateReview(stageId, newStatus, approved ? null : rejectReason,
+        int changed = stageMapper.updateReview(stageId, newStatus, approved ? null : rejectReason,
                 releaseFlag, String.valueOf(buyerId));
+        if (changed == 0)
+        {
+            // CAS 未命中：本轮已被并发请求（双击/双端同时提交）处理完，绝不能再做放款等副作用
+            throw new RuntimeException("本轮已被处理，请刷新后重试");
+        }
 
         // 逐轮：通过则本轮放款记账，并激活下一轮或整单完成
         if (approved)
         {
             Date now = new Date();
+            // 本轮款项 → 待结算单（作者确认后入可提现）；零额轮次（末轮预算余额为 0）不生成
+            if (stage.getAmount() != null && stage.getAmount().compareTo(BigDecimal.ZERO) > 0)
+            {
+                Map<String, Object> settle = financeService.createPendingStageSettle(demand, stage);
+                notifyService.notifyStageSettleCreated(demand.getDemandId(), demand.getTitle(),
+                        stage.getStageOrder(), stage.getAmount(),
+                        TradeFinanceService.toDecimal(settle.get("sellerAmount")),
+                        demand.getAcceptedCreatorId());
+            }
             SysDemandStage next = stageMapper.selectNextPending(demandId, stage.getStageOrder());
             if (next != null)
             {

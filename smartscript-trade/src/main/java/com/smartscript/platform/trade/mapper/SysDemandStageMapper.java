@@ -27,6 +27,11 @@ public interface SysDemandStageMapper
                           @Param("workId") Long workId,
                           @Param("updateBy") String updateBy);
 
+    /**
+     * 人工验收写回（通过/驳回）：仅当本轮仍为 submitted 时生效。
+     *
+     * @return 影响行数；0 表示本轮已被并发路径处理完，调用方必须放弃放款等后续副作用
+     */
     int updateReview(@Param("stageId") Long stageId,
                      @Param("status") String status,
                      @Param("rejectReason") String rejectReason,

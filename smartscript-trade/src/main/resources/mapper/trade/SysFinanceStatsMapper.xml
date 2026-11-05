@@ -61,4 +61,13 @@
             sold_count = sold_count + 1
     </insert>
 
+    <!-- 任务逐轮入账：一轮不等于一个订单，只累计收益，不抬高 total_orders / sold_count -->
+    <insert id="upsertCreatorIncomeStats">
+        insert into sys_creator_stats (user_id, total_income, month_income, total_orders, published_count, reviewing_count, sold_count, total_views, total_favorites, avg_rating, stat_date)
+        values (#{userId}, #{amount}, #{amount}, 0, 0, 0, 0, 0, 0, 0.0, CURDATE())
+        on duplicate key update
+            total_income = total_income + #{amount},
+            month_income = month_income + #{amount}
+    </insert>
+
 </mapper>

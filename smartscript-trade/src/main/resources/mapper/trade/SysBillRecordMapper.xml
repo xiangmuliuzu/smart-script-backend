@@ -16,13 +16,17 @@
         <result property="orderNo"      column="order_no" />
         <result property="workTitle"    column="work_title" />
         <result property="settleStatus" column="settle_status" />
+        <result property="stageOrder"   column="stage_order" />
     </resultMap>
 
+    <!-- 账单流水：related_type 既可能是 order（货款）也可能是 demand_stage（任务逐轮放款），
+         两侧都要能取到可辨识的单号与标题，否则任务收益在列表里只能显示「无关联订单」。 -->
     <select id="selectBillRecordList" parameterType="com.smartscript.platform.trade.domain.SysBillRecord" resultMap="SysBillRecordResult">
         select b.bill_id, b.bill_no, b.user_id, b.bill_type, b.amount, b.balance_after,
                b.related_type, b.related_id, b.remark, b.created_at,
-               o.order_no,
-               w.title as work_title,
+               COALESCE(o.order_no, dm.demand_no) as order_no,
+               COALESCE(w.title, w2.title, dm.title) as work_title,
+               ds.stage_order as stage_order,
                CASE b.bill_type
                    WHEN 'income' THEN 'settled'
                    WHEN 'settle' THEN 'settled'
@@ -33,6 +37,9 @@
         from sys_bill_record b
         left join sys_order o on b.related_type = 'order' and b.related_id = o.order_id
         left join sys_work w on o.work_id = w.work_id
+        left join sys_demand_stage ds on b.related_type = 'demand_stage' and b.related_id = ds.stage_id
+        left join sys_demand dm on dm.demand_id = ds.demand_id
+        left join sys_work w2 on w2.work_id = ds.work_id
         <where>
             <if test="userId != null">AND b.user_id = #{userId}</if>
             <if test="billType != null and billType != ''">AND b.bill_type = #{billType}</if>

@@ -415,6 +415,23 @@ public class TradeNotifyService
                 "DEMAND", str(demandId), one(creatorId), "SELLER");
     }
 
+    /**
+     * 本轮验收通过、本轮款项已放出 → 通知接单创作者去「收益-待结算」确认入账。
+     * requestId 以轮次为键，保证同一轮重复触发只会有一条。
+     */
+    public void notifyStageSettleCreated(Long demandId, String demandTitle, Integer stageOrder,
+            BigDecimal amount, BigDecimal sellerAmount, Long creatorId)
+    {
+        StringBuilder content = new StringBuilder("您本轮的交付已通过验收，本轮款项已放出。\n");
+        line(content, "任务", titleOf(demandTitle));
+        line(content, "轮次", roundText(stageOrder));
+        line(content, "本轮金额", amountText(amount));
+        line(content, "作者实得", amountText(sellerAmount));
+        content.append("可前往「收益 - 待结算」确认入账，确认后将计入可提现余额。");
+        push("TRD-DM-FUND-" + demandId + "-" + stageOrder, "本轮验收通过，款项已放出",
+                content.toString(), "DEMAND", str(demandId), one(creatorId), "SELLER");
+    }
+
     /** 本轮超时未通过 → 任务失败终止，按角色分别通知发布者与创作者。 */
     public void notifyDemandRoundFailed(Long demandId, String demandTitle, Integer stageOrder,
             String reason, Long buyerId, Long creatorId)

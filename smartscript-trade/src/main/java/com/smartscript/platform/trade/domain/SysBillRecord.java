@@ -30,6 +30,8 @@ public class SysBillRecord extends BaseEntity
     private String workTitle;
     /** 结算状态（pending/settled/abnormal），来自结算单或账单类型推导 */
     private String settleStatus;
+    /** 验收轮次序号（仅 related_type=demand_stage 的任务逐轮放款有值） */
+    private Integer stageOrder;
 
     public Long getBillId() { return billId; }
     public void setBillId(Long billId) { this.billId = billId; }
@@ -57,4 +59,6 @@ public class SysBillRecord extends BaseEntity
     public void setWorkTitle(String workTitle) { this.workTitle = workTitle; }
     public String getSettleStatus() { return settleStatus; }
     public void setSettleStatus(String settleStatus) { this.settleStatus = settleStatus; }
+    public Integer getStageOrder() { return stageOrder; }
+    public void setStageOrder(Integer stageOrder) { this.stageOrder = stageOrder; }
 }

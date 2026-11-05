@@ -86,6 +86,9 @@
         WHERE stage_id = #{stageId}
     </update>
 
+    <!-- 人工验收写回：仅当本轮仍为 submitted 时生效（业务状态当版本号）。
+         验收通过会触发逐轮放款，Java 侧的「先查后判」在并发下拦不住两个请求，
+         必须由本条 CAS 决定谁真正生效；返回 0 行表示已被并发处理，调用方不得再做放款等副作用。 -->
     <update id="updateReview">
         UPDATE sys_demand_stage
         SET status = #{status},
@@ -95,6 +98,7 @@
             update_by = #{updateBy},
             updated_at = NOW()
         WHERE stage_id = #{stageId}
+          AND status = 'submitted'
     </update>
 
     <!-- AI 审核完成：仅当仍为 ai_reviewing 时流转（条件更新，避免重复处理/覆盖人工结果） -->

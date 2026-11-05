@@ -204,7 +204,8 @@ public class AppTradeFinanceController
             toFen(detail, "platformFee");
             toFen(detail, "sellerAmount");
             detail.put("incomeSource", billSourceLabel(
-                    detail.get("billType") != null ? detail.get("billType").toString() : null));
+                    detail.get("billType") != null ? detail.get("billType").toString() : null,
+                    detail.get("relatedType") != null ? detail.get("relatedType").toString() : null));
             return AppApiResponse.ok(detail);
         }
         catch (IllegalArgumentException ex)
@@ -514,17 +515,24 @@ public class AppTradeFinanceController
         m.put("orderNo", b.getOrderNo());
         m.put("workTitle", b.getWorkTitle());
         m.put("settleStatus", b.getSettleStatus());
+        // 任务逐轮放款的轮次序号，便于 App 在账单列表标出“第N轮”
+        m.put("stageOrder", b.getStageOrder());
         // 收益来源文案，便于 App 直接展示
-        m.put("incomeSource", billSourceLabel(b.getBillType()));
+        m.put("incomeSource", billSourceLabel(b.getBillType(), b.getRelatedType()));
         return m;
     }
 
-    private static String billSourceLabel(String billType)
+    /**
+     * 收益来源文案。同为 income 流水，任务逐轮放款与订单货款必须区分开，
+     * 否则创作者看到的“订单收入”其实是一轮验收款。
+     */
+    private static String billSourceLabel(String billType, String relatedType)
     {
         if (billType == null) return "未知";
+        boolean fromDemandStage = "demand_stage".equals(relatedType);
         return switch (billType)
         {
-            case "income" -> "订单收入";
+            case "income" -> fromDemandStage ? "任务轮次收益" : "订单收入";
             case "withdraw" -> "提现支出";
             case "freeze" -> "资金冻结";
             case "settle" -> "分成结算";

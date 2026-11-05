@@ -25,4 +25,10 @@ public interface SysFinanceStatsMapper
 
     /** UPSERT 作者统计（累加收益和订单数） */
     int upsertCreatorStats(Map<String, Object> params);
+
+    /**
+     * UPSERT 作者统计（只累加收益，不动订单数/已售数）。
+     * 用于任务逐轮入账：一轮不等于一个订单，否则订单数会被轮次虚增。
+     */
+    int upsertCreatorIncomeStats(Map<String, Object> params);
 }

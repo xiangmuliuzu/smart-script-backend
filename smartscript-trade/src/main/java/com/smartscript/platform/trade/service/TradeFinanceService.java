@@ -8,6 +8,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import com.ruoyi.common.utils.uuid.Seq;
 import com.smartscript.platform.trade.domain.SysBillRecord;
+import com.smartscript.platform.trade.domain.SysDemand;
+import com.smartscript.platform.trade.domain.SysDemandStage;
 import com.smartscript.platform.trade.domain.SysEscrow;
 import com.smartscript.platform.trade.domain.SysInvoice;
 import com.smartscript.platform.trade.domain.SysOrder;
@@ -55,7 +57,7 @@ public class TradeFinanceService
      * <p>
      * 字段口径：
      * totalIncome = 累计已入账作者实得（确认结算后计入，提现不扣减）；
-     * pendingSettleAmount = 待作者确认、尚未入账（已扣 5% 平台抽成后的作者实得）；
+     * pendingSettleAmount = 待作者确认、尚未入账（已扣平台抽成后的作者实得，比例见 splitRate）；
      * availableAmount = 可提现（账户 available_amount）；
      * frozenAmount = 提现中未打款合计（pending/approved/frozen 且无 pay_time；不读账户遗留 frozen_amount）；
      * withdrawnAmount = 已打款提现合计（status=paid 或已有 pay_time）。
@@ -103,6 +105,8 @@ public class TradeFinanceService
         overview.put("pendingSettleAmount", queryPendingSettleAmount(userId));
         overview.put("pendingSettleCount", countPendingSettle(userId));
         overview.put("withdrawnAmount", queryWithdrawnAmount(userId));
+        // 抽成比例单一来源：汇总页文案不得写死百分比，必须跟随 PLATFORM_SPLIT_RATE 变动
+        overview.put("splitRate", PLATFORM_SPLIT_RATE);
 
         return overview;
     }
@@ -178,9 +182,16 @@ public class TradeFinanceService
 
     /* ========== 待结算（到账前作者确认/异议） ========== */
 
+    /** 结算行业务类型：订单成单。 */
+    public static final String SETTLE_BIZ_ORDER = "order";
+    /** 结算行业务类型：征集任务逐轮放款。 */
+    public static final String SETTLE_BIZ_DEMAND_STAGE = "demand_stage";
+
     private static final String SETTLE_SELECT =
-            "SELECT settle_id AS settleId, settle_no AS settleNo, user_id AS userId, order_id AS orderId, "
-                    + "order_no AS orderNo, work_title AS workTitle, total_amount AS totalAmount, "
+            "SELECT settle_id AS settleId, settle_no AS settleNo, user_id AS userId, "
+                    + "biz_type AS bizType, order_id AS orderId, order_no AS orderNo, biz_no AS bizNo, "
+                    + "demand_id AS demandId, stage_id AS stageId, stage_order AS stageOrder, "
+                    + "work_title AS workTitle, total_amount AS totalAmount, "
                     + "platform_fee AS platformFee, split_rate AS splitRate, seller_amount AS sellerAmount, "
                     + "status AS status, dispute_reason AS disputeReason, bill_id AS billId, "
                     + "DATE_FORMAT(confirm_time, '%Y-%m-%d %H:%i:%s') AS confirmTime, "
@@ -227,6 +238,67 @@ public class TradeFinanceService
                         + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NOW(), NOW())",
                 settleNo, order.getSellerId(), order.getOrderId(), order.getOrderNo(),
                 order.getWorkTitle(), total, fee, rate, sellerAmount);
+
+        List<Map<String, Object>> created = jdbc.queryForList(
+                SETTLE_SELECT + " WHERE settle_no = ? LIMIT 1", settleNo);
+        return created.isEmpty() ? Map.of("settleNo", settleNo, "status", "pending") : created.get(0);
+    }
+
+    /**
+     * 任务某一验收轮次通过后创建该轮的待结算单（不入账，等作者确认）。
+     *
+     * <p>与订单结算单同源同口径：total_amount 取本轮金额，平台抽成一律走
+     * {@link #splitSettleAmounts(BigDecimal)}，因此抽成率变动时任务侧自动跟随，不存在第二套比例。</p>
+     *
+     * <p>幂等：一张轮次只对应一张结算单（uk_stage_id）。已存在则直接返回，不重复生成；
+     * 并发重放撞到唯一键时会让外层事务整体回滚——宁可验收失败，也不能双份放款。</p>
+     *
+     * <p>调用方必须处于同一事务内，使“轮次状态流转”与“本轮放款”要么都成功要么都作废。</p>
+     *
+     * @return 该轮的待结算单
+     */
+    @Transactional
+    public Map<String, Object> createPendingStageSettle(SysDemand demand, SysDemandStage stage)
+    {
+        if (demand == null || stage == null || demand.getDemandId() == null || stage.getStageId() == null)
+        {
+            throw new IllegalArgumentException("任务或轮次信息不完整，无法创建待结算");
+        }
+        Long creatorId = demand.getAcceptedCreatorId();
+        if (creatorId == null)
+        {
+            throw new IllegalArgumentException("任务尚无接单创作者，无法创建待结算");
+        }
+        BigDecimal total = stage.getAmount() != null ? stage.getAmount() : BigDecimal.ZERO;
+        BigDecimal[] split = splitSettleAmounts(total);
+        BigDecimal fee = split[0];
+        BigDecimal rate = split[1];
+        BigDecimal sellerAmount = split[2];
+        if (sellerAmount.compareTo(BigDecimal.ZERO) <= 0)
+        {
+            // 0 额轮次由调用方先行跳过；走到这里说明本轮无款可放，不该生成结算单
+            throw new IllegalArgumentException("本轮作者应得金额无效，无法创建待结算");
+        }
+
+        List<Map<String, Object>> existed = jdbc.queryForList(
+                SETTLE_SELECT + " WHERE stage_id = ? LIMIT 1", stage.getStageId());
+        if (!existed.isEmpty())
+        {
+            return applyPendingPlatformSplit(existed.get(0));
+        }
+
+        String settleNo = "ST" + Seq.getId();
+        String titleSnapshot = stage.getWorkTitle() != null && !stage.getWorkTitle().isBlank()
+                ? stage.getWorkTitle() : demand.getTitle();
+
+        jdbc.update(
+                "INSERT INTO sys_income_settle (settle_no, user_id, biz_type, order_id, order_no, biz_no, "
+                        + "demand_id, stage_id, stage_order, work_title, "
+                        + "total_amount, platform_fee, split_rate, seller_amount, status, created_at, updated_at) "
+                        + "VALUES (?, ?, 'demand_stage', NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NOW(), NOW())",
+                settleNo, creatorId, demand.getDemandNo(), demand.getDemandId(),
+                stage.getStageId(), stage.getStageOrder(), titleSnapshot,
+                total, fee, rate, sellerAmount);
 
         List<Map<String, Object>> created = jdbc.queryForList(
                 SETTLE_SELECT + " WHERE settle_no = ? LIMIT 1", settleNo);
@@ -302,9 +374,18 @@ public class TradeFinanceService
             throw new IllegalStateException("结算单状态已变化，请刷新后重试");
         }
 
-        Long orderId = ((Number) settle.get("orderId")).longValue();
+        // 结算单有两种来源：订单成单 / 任务逐轮放款（任务行 order_id 为 NULL，靠 biz_type 分流）
+        String bizType = settle.get("bizType") == null
+                ? SETTLE_BIZ_ORDER : String.valueOf(settle.get("bizType"));
+        boolean fromDemandStage = SETTLE_BIZ_DEMAND_STAGE.equals(bizType);
+        Object relatedRaw = fromDemandStage ? settle.get("stageId") : settle.get("orderId");
+        if (!(relatedRaw instanceof Number relatedNum))
+        {
+            throw new IllegalStateException("结算单缺少关联业务ID，无法入账");
+        }
         BigDecimal amount = toDecimal(settle.get("sellerAmount"));
-        Long billId = creditSellerIncome(userId, amount, orderId);
+        Integer stageOrder = settle.get("stageOrder") instanceof Number n ? n.intValue() : null;
+        Long billId = creditSellerIncome(userId, amount, bizType, relatedNum.longValue(), stageOrder);
 
         jdbc.update("UPDATE sys_income_settle SET bill_id = ?, updated_at = NOW() WHERE settle_id = ?",
                 billId, settleId);
@@ -339,7 +420,9 @@ public class TradeFinanceService
     }
 
     /**
-     * 账单详情（含订单分成字段，供收益明细详情页）。
+     * 账单详情（含分成核算字段，供收益明细详情页）。
+     * <p>related_type 为 order 时取订单及其结算单；为 demand_stage 时取本轮及其结算单，
+     * 单号槽位展示征集任务号、标题槽位展示本轮交付作品（无则任务标题）。
      */
     public Map<String, Object> getBillDetail(Long userId, Long billId)
     {
@@ -347,18 +430,24 @@ public class TradeFinanceService
                 "SELECT b.bill_id AS billId, b.bill_no AS billNo, b.bill_type AS billType, b.amount AS amount, "
                         + "b.balance_after AS balanceAfter, b.related_type AS relatedType, b.related_id AS relatedId, "
                         + "b.remark AS remark, DATE_FORMAT(b.created_at, '%Y-%m-%d %H:%i:%s') AS createdAt, "
-                        + "o.order_no AS orderNo, o.status AS orderStatus, "
-                        + "COALESCE(s.total_amount, o.total_amount) AS totalAmount, "
-                        + "COALESCE(s.platform_fee, o.platform_fee) AS platformFee, "
-                        + "COALESCE(s.split_rate, o.split_rate) AS splitRate, "
-                        + "COALESCE(s.seller_amount, o.seller_amount) AS sellerAmount, "
+                        + "o.status AS orderStatus, "
+                        + "COALESCE(o.order_no, dm.demand_no) AS orderNo, "
+                        + "COALESCE(s.total_amount, s2.total_amount, o.total_amount) AS totalAmount, "
+                        + "COALESCE(s.platform_fee, s2.platform_fee, o.platform_fee) AS platformFee, "
+                        + "COALESCE(s.split_rate, s2.split_rate, o.split_rate) AS splitRate, "
+                        + "COALESCE(s.seller_amount, s2.seller_amount, o.seller_amount) AS sellerAmount, "
                         + "DATE_FORMAT(o.pay_time, '%Y-%m-%d %H:%i:%s') AS payTime, "
                         + "DATE_FORMAT(o.complete_time, '%Y-%m-%d %H:%i:%s') AS completeTime, "
-                        + "w.title AS workTitle "
+                        + "ds.stage_order AS stageOrder, "
+                        + "COALESCE(w.title, w2.title, dm.title) AS workTitle "
                         + "FROM sys_bill_record b "
                         + "LEFT JOIN sys_order o ON b.related_type = 'order' AND b.related_id = o.order_id "
                         + "LEFT JOIN sys_income_settle s ON s.order_id = o.order_id "
                         + "LEFT JOIN sys_work w ON o.work_id = w.work_id "
+                        + "LEFT JOIN sys_demand_stage ds ON b.related_type = 'demand_stage' AND b.related_id = ds.stage_id "
+                        + "LEFT JOIN sys_demand dm ON dm.demand_id = ds.demand_id "
+                        + "LEFT JOIN sys_income_settle s2 ON s2.stage_id = ds.stage_id "
+                        + "LEFT JOIN sys_work w2 ON w2.work_id = ds.work_id "
                         + "WHERE b.bill_id = ? AND b.user_id = ? LIMIT 1",
                 billId, userId);
         if (rows.isEmpty())
@@ -564,7 +653,8 @@ public class TradeFinanceService
         return text;
     }
 
-    private static BigDecimal toDecimal(Object value)
+    /** 金额字段容错转换（包内可见：任务域取结算结果时复用，不再写第二套转换） */
+    static BigDecimal toDecimal(Object value)
     {
         if (value instanceof BigDecimal bd)
         {
@@ -598,7 +688,7 @@ public class TradeFinanceService
     }
 
     /**
-     * 未入账结算单若仍是旧的 0 抽成快照，补算 5% 并写回，保证详情/确认金额一致。
+     * 未入账结算单若仍是旧的 0 抽成快照，按当前 PLATFORM_SPLIT_RATE 补算并写回，保证详情/确认金额一致。
      * 已确认入账的历史单不改。
      */
     private Map<String, Object> applyPendingPlatformSplit(Map<String, Object> settle)
@@ -784,16 +874,41 @@ public class TradeFinanceService
         return "INV" + System.currentTimeMillis() + String.format("%04d", new Random().nextInt(10000));
     }
 
-    /* ========== 收益入账（订单完成时调用） ========== */
+    /* ========== 收益入账（结算单确认时调用） ========== */
+
+    /** 抽成百分比文案：由 PLATFORM_SPLIT_RATE 单点推导，比例变动时文案自动跟随。 */
+    private static String platformRateText()
+    {
+        return PLATFORM_SPLIT_RATE.multiply(new BigDecimal("100")).stripTrailingZeros().toPlainString();
+    }
+
+    /** 账单备注：任务轮次额外标出第几轮，避免逐轮入账的流水看不出归属。 */
+    private static String incomeRemark(String relatedType, Integer stageOrder)
+    {
+        String suffix = "（已扣除" + platformRateText() + "%平台抽成）";
+        if (SETTLE_BIZ_DEMAND_STAGE.equals(relatedType))
+        {
+            String round = stageOrder != null ? "第" + stageOrder + "轮" : "某轮";
+            return "任务" + round + "验收通过，作者确认结算后入账" + suffix;
+        }
+        return "作者确认结算后入账" + suffix;
+    }
 
     /**
-     * 将卖家收益写入账户 + 账单流水 + 统计（作者确认结算后调用）。
+     * 将作者实得写入账户 + 账单流水 + 统计（结算单确认时调用）。
+     *
+     * <p>relatedType 取 {@link #SETTLE_BIZ_ORDER} 或 {@link #SETTLE_BIZ_DEMAND_STAGE}；
+     * 仅订单结算才计入“订单数/已售数”，任务逐轮只累计收益，不把一轮当成一个订单。</p>
      *
      * @return 新建账单 ID
      */
     @Transactional
-    public Long creditSellerIncome(Long sellerId, BigDecimal amount, Long orderId)
+    public Long creditSellerIncome(Long sellerId, BigDecimal amount, String relatedType,
+                                   Long relatedId, Integer stageOrder)
     {
+        String type = relatedType == null || relatedType.isBlank() ? SETTLE_BIZ_ORDER : relatedType;
+        boolean countsAsOrder = SETTLE_BIZ_ORDER.equals(type);
+
         // 1. UPSERT 收益账户
         Map<String, Object> accountParams = new HashMap<>();
         accountParams.put("userId", sellerId);
@@ -814,16 +929,23 @@ public class TradeFinanceService
         billParams.put("billType", "income");
         billParams.put("amount", amount);
         billParams.put("balanceAfter", balanceAfter);
-        billParams.put("relatedType", "order");
-        billParams.put("relatedId", orderId);
-        billParams.put("remark", "作者确认结算后入账（已扣除5%平台抽成）");
+        billParams.put("relatedType", type);
+        billParams.put("relatedId", relatedId);
+        billParams.put("remark", incomeRemark(type, stageOrder));
         financeStatsMapper.insertBillRecord(billParams);
 
-        // 4. UPSERT 作者统计
+        // 4. UPSERT 作者统计：订单计入订单数，任务轮次只累计收益
         Map<String, Object> statsParams = new HashMap<>();
         statsParams.put("userId", sellerId);
         statsParams.put("amount", amount);
-        financeStatsMapper.upsertCreatorStats(statsParams);
+        if (countsAsOrder)
+        {
+            financeStatsMapper.upsertCreatorStats(statsParams);
+        }
+        else
+        {
+            financeStatsMapper.upsertCreatorIncomeStats(statsParams);
+        }
 
         Long billId = jdbc.queryForObject(
                 "SELECT bill_id FROM sys_bill_record WHERE bill_no = ? LIMIT 1", Long.class, billNo);
