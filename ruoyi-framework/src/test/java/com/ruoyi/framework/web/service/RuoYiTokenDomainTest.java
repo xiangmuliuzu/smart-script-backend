@@ -22,6 +22,7 @@ class RuoYiTokenDomainTest
 {
     private static final String SECRET = "RuoYi-test-signing-secret-0123456789-ABCDEFG";
     private TokenService tokens;
+    private LoginSessionRegistry sessionRegistry;
     private final Map<String, Object> cache = new HashMap<>();
 
     @BeforeEach
@@ -42,6 +43,8 @@ class RuoYiTokenDomainTest
         when(redis.keys(anyString())).thenAnswer(i -> java.util.List.copyOf(cache.keySet()));
         tokens = spy(new TokenService());
         ReflectionTestUtils.setField(tokens, "redisCache", redis);
+        sessionRegistry = mock(LoginSessionRegistry.class);
+        ReflectionTestUtils.setField(tokens, "loginSessionRegistry", sessionRegistry);
         ReflectionTestUtils.setField(tokens, "secret", SECRET);
         ReflectionTestUtils.setField(tokens, "header", "Authorization");
         ReflectionTestUtils.setField(tokens, "expireTime", 30);
@@ -125,6 +128,21 @@ class RuoYiTokenDomainTest
         tokens.delLoginUser(app.getToken());
         tokens.verifyToken(app);
         assertNull(tokens.getLoginUser(jwt));
+    }
+
+    @Test
+    void sessionIndexTracksCreateRenewAndDelete()
+    {
+        LoginUser app = user(8, "app");
+        tokens.createToken(app);
+        verify(sessionRegistry).add(app);
+
+        app.setExpireTime(System.currentTimeMillis() + 60_000);
+        tokens.verifyToken(app);
+        verify(sessionRegistry, times(2)).add(app);
+
+        tokens.delLoginUser(app.getToken());
+        verify(sessionRegistry).remove(app);
     }
 
     @Test

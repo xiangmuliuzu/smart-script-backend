@@ -12,6 +12,8 @@ public class AppAuthProperties
 {
     private String env = "local";
     private String redisKeyPrefix = "";
+    /** 同一账号最多同时保留的 App 登录会话数；0 表示不限制。 */
+    private int maxDevices = 3;
     private Sms sms = new Sms();
     private Agreement agreement = new Agreement();
 
@@ -294,6 +296,16 @@ public class AppAuthProperties
     public void setRedisKeyPrefix(String redisKeyPrefix)
     {
         this.redisKeyPrefix = redisKeyPrefix;
+    }
+
+    public int getMaxDevices()
+    {
+        return maxDevices;
+    }
+
+    public void setMaxDevices(int maxDevices)
+    {
+        this.maxDevices = maxDevices;
     }
 
     public Sms getSms()

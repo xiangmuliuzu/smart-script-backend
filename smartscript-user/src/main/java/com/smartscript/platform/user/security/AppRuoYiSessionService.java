@@ -7,8 +7,10 @@ import org.springframework.stereotype.Service;
 import com.ruoyi.common.core.domain.entity.SysUser;
 import com.ruoyi.common.core.domain.model.LoginUser;
 import com.ruoyi.framework.security.context.AuthenticationContextHolder;
+import com.ruoyi.framework.web.service.LoginSessionRegistry;
 import com.ruoyi.framework.web.service.SysLoginService;
 import com.ruoyi.framework.web.service.TokenService;
+import com.smartscript.platform.user.config.AppAuthProperties;
 import com.smartscript.platform.user.constant.AppAuthErrorCodes;
 import com.smartscript.platform.user.domain.AppUserRecord;
 import com.smartscript.platform.user.exception.AppAuthException;
@@ -24,14 +26,19 @@ public class AppRuoYiSessionService
     private final AuthenticationManager authenticationManager;
     private final SysLoginService loginService;
     private final AppUserMapper userMapper;
+    private final LoginSessionRegistry loginSessionRegistry;
+    private final AppAuthProperties properties;
 
     public AppRuoYiSessionService(TokenService tokenService, AuthenticationManager authenticationManager,
-            SysLoginService loginService, AppUserMapper userMapper)
+            SysLoginService loginService, AppUserMapper userMapper,
+            LoginSessionRegistry loginSessionRegistry, AppAuthProperties properties)
     {
         this.tokenService = tokenService;
         this.authenticationManager = authenticationManager;
         this.loginService = loginService;
         this.userMapper = userMapper;
+        this.loginSessionRegistry = loginSessionRegistry;
+        this.properties = properties;
     }
 
     public void authenticate(AppUserRecord user, String password, String code, String uuid)
@@ -99,7 +106,13 @@ public class AppRuoYiSessionService
         account.setDelFlag(user.getDelFlag());
         LoginUser loginUser = new LoginUser(user.getUserId(), null, account, Set.of());
         loginUser.setCredentialDomain(DOMAIN);
-        return tokenService.createToken(loginUser);
+        String token = tokenService.createToken(loginUser);
+        int maxDevices = properties.getMaxDevices();
+        if (maxDevices > 0)
+        {
+            loginSessionRegistry.trimTo(DOMAIN, user.getUserId(), maxDevices, loginUser.getToken());
+        }
+        return token;
     }
 
     public AppIdentityContext parseAndValidate(String token)

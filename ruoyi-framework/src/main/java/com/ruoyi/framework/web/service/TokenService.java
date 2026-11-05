@@ -55,6 +55,9 @@ public class TokenService
     @Autowired
     private RedisCache redisCache;
 
+    @Autowired
+    private LoginSessionRegistry loginSessionRegistry;
+
     /**
      * 获取用户身份信息
      * 
@@ -111,13 +114,37 @@ public class TokenService
     /**
      * 删除用户身份信息
      */
-    public void delLoginUser(String token)
+    public void delLoginUser(String sessionId)
     {
-        if (StringUtils.isNotEmpty(token))
+        if (StringUtils.isNotEmpty(sessionId))
         {
-            String userKey = getTokenKey(token);
+            LoginUser loginUser = getLoginUserBySessionId(sessionId);
+            String userKey = getTokenKey(sessionId);
             redisCache.deleteObject(userKey);
+            if (loginUser != null)
+            {
+                loginSessionRegistry.remove(loginUser);
+            }
         }
+    }
+
+    /**
+     * 按 Redis 会话 UUID 读取登录用户（入参不是 JWT）。
+     * 供退出、吊销与索引维护复用；过期或已删除时返回 null。
+     */
+    public LoginUser getLoginUserBySessionId(String sessionId)
+    {
+        if (StringUtils.isEmpty(sessionId))
+        {
+            return null;
+        }
+        LoginUser user = redisCache.getCacheObject(getTokenKey(sessionId));
+        if (user == null || !Objects.equals(sessionId, user.getToken())
+                || user.getExpireTime() == null || user.getExpireTime() <= System.currentTimeMillis())
+        {
+            return null;
+        }
+        return user;
     }
 
     /**
@@ -174,8 +201,13 @@ public class TokenService
         {
             loginUser.setLoginTime(currentTime);
             loginUser.setExpireTime(currentTime + this.expireTime * MILLIS_MINUTE);
-            redisCache.setCacheObjectIfPresent(getTokenKey(loginUser.getToken()), loginUser,
+            boolean renewed = redisCache.setCacheObjectIfPresent(getTokenKey(loginUser.getToken()), loginUser,
                     this.expireTime, TimeUnit.MINUTES);
+            if (renewed)
+            {
+                // 只有续期成功才更新索引，避免把已退出/已踢除的会话重新写回。
+                loginSessionRegistry.add(loginUser);
+            }
         }
     }
 
@@ -191,6 +223,7 @@ public class TokenService
         // 根据uuid将loginUser缓存
         String userKey = getTokenKey(loginUser.getToken());
         redisCache.setCacheObject(userKey, loginUser, expireTime, TimeUnit.MINUTES);
+        loginSessionRegistry.add(loginUser);
     }
 
     /**

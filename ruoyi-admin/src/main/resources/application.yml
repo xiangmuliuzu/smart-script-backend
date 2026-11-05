@@ -120,6 +120,8 @@ app:
   auth:
     env: ${APP_AUTH_ENV:local}
     redis-key-prefix: ${APP_REDIS_KEY_PREFIX:}
+    # 同一账号最多同时保留的 App 登录会话数；0 = 不限制。
+    max-devices: ${APP_AUTH_MAX_DEVICES:3}
     sms:
       provider: ${SMS_PROVIDER:mock}
       access-key-id: ${SMS_ACCESS_KEY_ID:}

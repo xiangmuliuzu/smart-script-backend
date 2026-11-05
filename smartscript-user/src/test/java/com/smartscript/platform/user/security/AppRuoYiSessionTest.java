@@ -13,8 +13,10 @@ import org.springframework.security.authentication.BadCredentialsException;
 import com.ruoyi.common.core.domain.entity.SysUser;
 import com.ruoyi.common.core.domain.model.LoginUser;
 import com.ruoyi.framework.security.context.AuthenticationContextHolder;
+import com.ruoyi.framework.web.service.LoginSessionRegistry;
 import com.ruoyi.framework.web.service.SysLoginService;
 import com.ruoyi.framework.web.service.TokenService;
+import com.smartscript.platform.user.config.AppAuthProperties;
 import com.smartscript.platform.user.domain.AppUserRecord;
 import com.smartscript.platform.user.exception.AppAuthException;
 import com.smartscript.platform.user.mapper.AppUserMapper;
@@ -25,7 +27,10 @@ class AppRuoYiSessionTest
     private final AuthenticationManager manager = mock(AuthenticationManager.class);
     private final SysLoginService login = mock(SysLoginService.class);
     private final AppUserMapper users = mock(AppUserMapper.class);
-    private final AppRuoYiSessionService service = new AppRuoYiSessionService(tokens, manager, login, users);
+    private final LoginSessionRegistry registry = mock(LoginSessionRegistry.class);
+    private final AppAuthProperties properties = new AppAuthProperties();
+    private final AppRuoYiSessionService service =
+            new AppRuoYiSessionService(tokens, manager, login, users, registry, properties);
 
     @AfterEach
     void cleanup() { AuthenticationContextHolder.clearContext(); }
@@ -92,6 +97,16 @@ class AppRuoYiSessionTest
         assertEquals("app", captor.getValue().getCredentialDomain());
         assertTrue(captor.getValue().getPermissions().isEmpty());
         assertEquals(8L, captor.getValue().getUserId());
+        verify(registry).trimTo(eq("app"), eq(8L), eq(3), any());
+    }
+
+    @Test
+    void issueSkipsTrimWhenDeviceLimitDisabled()
+    {
+        properties.setMaxDevices(0);
+        when(tokens.createToken(any())).thenReturn("signed-token");
+        assertEquals("signed-token", service.issue(account()));
+        verify(registry, never()).trimTo(anyString(), any(), anyInt(), any());
     }
 
     @Test
