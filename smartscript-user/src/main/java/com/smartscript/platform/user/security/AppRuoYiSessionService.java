@@ -60,7 +60,7 @@ public class AppRuoYiSessionService
                     || !DOMAIN.equals(loginUser.getCredentialDomain())
                     || !user.getUserId().equals(loginUser.getUserId()))
             {
-                throw new AppAuthException(AppAuthErrorCodes.DOMAIN_OR_PERMISSION, 403, "credential domain mismatch");
+                throw new AppAuthException(AppAuthErrorCodes.DOMAIN_OR_PERMISSION, 403, "暂无权限执行此操作");
             }
         }
         catch (AppAuthException e)
@@ -120,11 +120,11 @@ public class AppRuoYiSessionService
         LoginUser session = tokenService.getLoginUser(token);
         if (session == null)
         {
-            throw new AppAuthException(AppAuthErrorCodes.UNAUTHORIZED, 401, "login expired, please sign in again");
+            throw new AppAuthException(AppAuthErrorCodes.UNAUTHORIZED, 401, "登录状态已过期，请重新登录");
         }
         if (!DOMAIN.equals(session.getCredentialDomain()))
         {
-            throw new AppAuthException(AppAuthErrorCodes.DOMAIN_OR_PERMISSION, 403, "credential domain mismatch");
+            throw new AppAuthException(AppAuthErrorCodes.DOMAIN_OR_PERMISSION, 403, "暂无权限执行此操作");
         }
         AppUserRecord user = userMapper.selectById(session.getUserId());
         requireAppAccount(user);
@@ -139,11 +139,11 @@ public class AppRuoYiSessionService
     {
         if (user == null || !user.isUsable())
         {
-            throw new AppAuthException(AppAuthErrorCodes.ACCOUNT_DISABLED, 403, "account disabled");
+            throw new AppAuthException(AppAuthErrorCodes.ACCOUNT_DISABLED, 403, "账号暂时无法使用，请联系客服或管理员");
         }
         if (user.getUserType() == null || !Set.of("01", "02", "03").contains(user.getUserType()))
         {
-            throw new AppAuthException(AppAuthErrorCodes.DOMAIN_OR_PERMISSION, 403, "account is not an App user");
+            throw new AppAuthException(AppAuthErrorCodes.DOMAIN_OR_PERMISSION, 403, "当前账号无法使用此功能");
         }
     }
 }

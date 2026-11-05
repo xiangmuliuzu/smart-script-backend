@@ -85,7 +85,7 @@ public class AppAiController
         String prompt = trimToNull(asString(body, "prompt"));
         if (prompt == null)
         {
-            return AppApiResponse.fail(CODE_BAD_REQUEST, "prompt 不能为空");
+            return AppApiResponse.fail(CODE_BAD_REQUEST, "提示词不能为空，请填写后重试");
         }
         AppAiWriteRequest request = new AppAiWriteRequest();
         request.setPrompt(prompt);
@@ -123,7 +123,7 @@ public class AppAiController
         String content = trimToNull(asString(body, "content"));
         if (content == null)
         {
-            return AppApiResponse.fail(CODE_BAD_REQUEST, "content 不能为空");
+            return AppApiResponse.fail(CODE_BAD_REQUEST, "内容不能为空，请填写后重试");
         }
         AppAiPolishRequest request = new AppAiPolishRequest();
         request.setContent(content);
@@ -229,7 +229,7 @@ public class AppAiController
         request.setSkillId(asLong(body, "skill_id", "skillId"));
         request.setModel(trimToNull(asString(body, "model")));
         return streamResponse(servletRequest, delta -> {
-            if (prompt == null) throw new IllegalArgumentException("prompt 不能为空");
+            if (prompt == null) throw new IllegalArgumentException("提示词不能为空，请填写后重试");
             AppAiWriteResult result = aiWriteService.writeStream(request, delta);
             return "{\"done\":true,\"recordId\":" + result.getRecordId() + ",\"truncated\":"
                     + result.isTruncated() + "}";
@@ -247,7 +247,7 @@ public class AppAiController
         request.setSkillId(asLong(body, "skill_id", "skillId"));
         request.setModel(trimToNull(asString(body, "model")));
         return streamResponse(servletRequest, delta -> {
-            if (content == null) throw new IllegalArgumentException("content 不能为空");
+            if (content == null) throw new IllegalArgumentException("内容不能为空，请填写后重试");
             AppAiWriteResult result = aiWriteService.polishStream(request, delta);
             return "{\"done\":true,\"recordId\":" + result.getRecordId() + ",\"truncated\":"
                     + result.isTruncated() + "}";
@@ -396,7 +396,7 @@ public class AppAiController
         String script = trimToNull(asString(body, "script"));
         if (script == null)
         {
-            return AppApiResponse.fail(CODE_BAD_REQUEST, "script 不能为空");
+            return AppApiResponse.fail(CODE_BAD_REQUEST, "剧本内容不能为空，请填写后重试");
         }
         AppAiStoryboardRequest request = new AppAiStoryboardRequest();
         request.setScript(script);
@@ -443,7 +443,7 @@ public class AppAiController
         request.setSkillId(asLong(body, "skill_id", "skillId"));
         request.setModel(trimToNull(asString(body, "model")));
         return streamResponse(servletRequest, delta -> {
-            if (script == null) throw new IllegalArgumentException("script 不能为空");
+            if (script == null) throw new IllegalArgumentException("剧本内容不能为空，请填写后重试");
             AppAiStoryboardResult result = aiWriteService.storyboardStream(request, delta);
             return "{\"done\":true,\"quotaUsed\":" + result.getQuotaUsed() + ",\"requestNo\":"
                     + jsonEscape(result.getRequestNo() == null ? "" : result.getRequestNo())

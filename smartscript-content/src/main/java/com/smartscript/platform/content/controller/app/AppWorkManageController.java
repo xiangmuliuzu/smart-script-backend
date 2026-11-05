@@ -126,16 +126,16 @@ public class AppWorkManageController
         String title = trimToNull(asString(request, "title"));
         if (title == null)
         {
-            return AppApiResponse.fail(CODE_BAD_REQUEST, "title 不能为空");
+            return AppApiResponse.fail(CODE_BAD_REQUEST, "标题不能为空，请填写后重试");
         }
         if (title.length() > TITLE_MAX_LENGTH)
         {
-            return AppApiResponse.fail(CODE_BAD_REQUEST, "title 长度不能超过 " + TITLE_MAX_LENGTH);
+            return AppApiResponse.fail(CODE_BAD_REQUEST, "标题过长，请精简后重试");
         }
         BigDecimal price = asDecimal(request, "price");
         if (price != null && price.signum() < 0)
         {
-            return AppApiResponse.fail(CODE_BAD_REQUEST, "price 不能为负数");
+            return AppApiResponse.fail(CODE_BAD_REQUEST, "价格不能为负数，请检查后重试");
         }
         AppWorkCreateRequest createRequest = new AppWorkCreateRequest();
         createRequest.setTitle(title);
@@ -172,12 +172,12 @@ public class AppWorkManageController
         BigDecimal price = asDecimal(request, "price");
         if (price != null && price.signum() < 0)
         {
-            return AppApiResponse.fail(CODE_BAD_REQUEST, "price 不能为负数");
+            return AppApiResponse.fail(CODE_BAD_REQUEST, "价格不能为负数，请检查后重试");
         }
         String title = trimToNull(asString(request, "title"));
         if (title != null && title.length() > TITLE_MAX_LENGTH)
         {
-            return AppApiResponse.fail(CODE_BAD_REQUEST, "title 长度不能超过 " + TITLE_MAX_LENGTH);
+            return AppApiResponse.fail(CODE_BAD_REQUEST, "标题过长，请精简后重试");
         }
         AppWorkUpdateRequest updateRequest = new AppWorkUpdateRequest();
         updateRequest.setTitle(title);

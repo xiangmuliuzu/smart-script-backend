@@ -213,7 +213,7 @@ public class AppTradeDemandController
             }
             catch (java.text.ParseException e)
             {
-                return AppApiResponse.fail(400, "截止日期格式错误(yyyy-MM-dd)");
+                return AppApiResponse.fail(400, "截止日期格式不正确，请重新选择");
             }
         }
 
@@ -259,7 +259,7 @@ public class AppTradeDemandController
             }
             catch (java.text.ParseException e)
             {
-                return AppApiResponse.fail(400, "截止日期格式错误(yyyy-MM-dd)");
+                return AppApiResponse.fail(400, "截止日期格式不正确，请重新选择");
             }
         }
         List<SysDemandStage> stages = parseStages(body.get("stages"));
@@ -469,7 +469,7 @@ public class AppTradeDemandController
         Long userId = currentUserId();
         Long workId = longVal(body, "workId");
         String message = str(body, "message");
-        if (workId == null) return AppApiResponse.fail(400, "作品ID不能为空");
+        if (workId == null) return AppApiResponse.fail(400, "作品信息不完整，请刷新后重试");
         SysDemandSubmission sub = demandService.insertSubmission(demandId, workId, userId, message);
         return AppApiResponse.ok(sub);
     }

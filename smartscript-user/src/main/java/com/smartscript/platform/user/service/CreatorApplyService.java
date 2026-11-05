@@ -76,7 +76,7 @@ public class CreatorApplyService
     {
         if (request == null)
         {
-            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "no payload");
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "请求内容不能为空，请刷新后重试");
         }
         String penName = required(request.getPenName(), PEN_NAME_MAX, "pen name");
         String direction = required(request.getDirection(), DIRECTION_MAX, "direction");
@@ -127,7 +127,7 @@ public class CreatorApplyService
         String value = raw == null ? "" : raw.trim();
         if (value.isEmpty() || value.length() > max)
         {
-            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, field + " invalid");
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "信息不符合规范，请检查后重试");
         }
         return value;
     }
@@ -137,7 +137,7 @@ public class CreatorApplyService
         String value = raw == null ? "" : raw.trim();
         if (value.length() > max)
         {
-            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, field + " too long");
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "内容过长，请精简后重试");
         }
         return value;
     }

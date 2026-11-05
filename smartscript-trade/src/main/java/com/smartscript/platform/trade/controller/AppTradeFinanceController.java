@@ -401,7 +401,7 @@ public class AppTradeFinanceController
 
         if (orderId == null || invoiceType == null || title == null || amount == null)
         {
-            return AppApiResponse.fail(400, "缺少必填参数：orderId/invoiceType/title/amount");
+            return AppApiResponse.fail(400, "开票信息不完整，请检查后重试");
         }
 
         SysInvoice invoice = new SysInvoice();

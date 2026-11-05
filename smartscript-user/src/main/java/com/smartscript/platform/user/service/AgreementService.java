@@ -75,7 +75,7 @@ public class AgreementService
         }
         if (!userOk || !privacyOk)
         {
-            throw new AppAuthException(AppAuthErrorCodes.AGREEMENT_MISMATCH, 409, "agreement version mismatch");
+            throw new AppAuthException(AppAuthErrorCodes.AGREEMENT_MISMATCH, 409, "协议已更新，请重新阅读并同意");
         }
     }
 

@@ -95,7 +95,7 @@ public class AppBookshelfController
     {
         if (shelfType != null && shelfType.trim().length() > ADD_SOURCE_MAX_LENGTH)
         {
-            return AppApiResponse.fail(CODE_BAD_REQUEST, "shelf_type 长度不能超过 " + ADD_SOURCE_MAX_LENGTH);
+            return AppApiResponse.fail(CODE_BAD_REQUEST, "书架类型不正确，请刷新后重试");
         }
         if (!bookshelfService.addShelf(workId, shelfType))
         {
@@ -149,7 +149,7 @@ public class AppBookshelfController
         Long chapterId = parseChapterId(body);
         if (chapterId == null || chapterId <= 0)
         {
-            return AppApiResponse.fail(CODE_BAD_REQUEST, "chapterId 不能为空且必须为正整数");
+            return AppApiResponse.fail(CODE_BAD_REQUEST, "章节参数不正确，请刷新后重试");
         }
         if (!bookshelfService.saveProgress(workId, chapterId))
         {

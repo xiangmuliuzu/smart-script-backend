@@ -100,7 +100,7 @@ public class AppUserProfileService
     {
         if (request == null || (request.getNickname() == null && request.getAvatar() == null && request.getBio() == null))
         {
-            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "no updatable field");
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "没有可更新的内容，请修改后重试");
         }
         AppUserRecord user = requireUser(userId);
         if (request.getNickname() != null)
@@ -186,16 +186,16 @@ public class AppUserProfileService
             }
             catch (IllegalArgumentException e)
             {
-                throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "avatar must be a platform path or http(s) url");
+                throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "头像地址格式不正确，请重新上传");
             }
         }
         if (value.startsWith("/profile/") && !validAvatarPath(value))
         {
-            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "invalid avatar path");
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "头像地址不正确，请重新上传");
         }
         if (value.length() > AVATAR_MAX)
         {
-            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "avatar too long");
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "头像地址过长，请重新上传");
         }
         return value;
     }
@@ -276,7 +276,7 @@ public class AppUserProfileService
         String value = raw == null ? "" : raw.trim();
         if (value.length() > BIO_MAX)
         {
-            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "bio too long");
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "个人简介过长，请精简后重试");
         }
         return value;
     }
@@ -286,7 +286,7 @@ public class AppUserProfileService
         AppUserRecord user = userMapper.selectById(userId);
         if (user == null || !user.isUsable())
         {
-            throw new AppAuthException(AppAuthErrorCodes.ACCOUNT_DISABLED, 403, "account disabled");
+            throw new AppAuthException(AppAuthErrorCodes.ACCOUNT_DISABLED, 403, "账号暂时无法使用，请联系客服或管理员");
         }
         return user;
     }

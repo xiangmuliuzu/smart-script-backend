@@ -43,10 +43,10 @@ public class AppAuthExceptionHandler
     {
         var fieldErrors = e.getBindingResult().getFieldErrors().stream()
                 .collect(Collectors.toMap(FieldError::getField,
-                        fe -> fe.getDefaultMessage() == null ? "invalid" : fe.getDefaultMessage(),
+                        fe -> fe.getDefaultMessage() == null ? "填写不正确" : fe.getDefaultMessage(),
                         (a, b) -> a));
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(AppApiResponse.fail(AppAuthErrorCodes.PARAM, "invalid request",
+                .body(AppApiResponse.fail(AppAuthErrorCodes.PARAM, "您的信息不符合规范，请检查后重试",
                         java.util.Map.of("fieldErrors", fieldErrors)));
     }
 
@@ -65,7 +65,7 @@ public class AppAuthExceptionHandler
     public ResponseEntity<AppApiResponse<Object>> handleIllegalParameter(Exception e)
     {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(AppApiResponse.fail(AppAuthErrorCodes.PARAM, "invalid request"));
+                .body(AppApiResponse.fail(AppAuthErrorCodes.PARAM, "您的信息不符合规范，请检查后重试"));
     }
 
     /**
@@ -75,60 +75,66 @@ public class AppAuthExceptionHandler
     public ResponseEntity<AppApiResponse<Object>> handleRuntime(RuntimeException e)
     {
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(AppApiResponse.fail(AppAuthErrorCodes.SYSTEM_ERROR, "internal error"));
+                .body(AppApiResponse.fail(AppAuthErrorCodes.SYSTEM_ERROR, "服务暂时不可用，请稍后再试"));
     }
 
     /**
      * 对外文案裁决：
-     *   1. 契约已定义对外文案的码（A5 用户中心新增码）直接使用该文案；
-     *   2. A3 码沿用既有英文文案，保持 A3 契约与既有测试口径不变；
-     *   3. 其余情况使用异常自带文案，但先做泄漏过滤（SQL 片段、内部类名、路径）。
-     *
-     * 过滤而非一律替换的原因：用户中心的服务层文案是面向用户的中文提示
-     * （如「当前实名状态不允许该操作」），一律替换会让 App 只能显示通用错误；
-     * 而过滤能同时挡住内部细节泄漏。
+     *   1. 有固定语义的错误码使用统一中文文案；
+     *   2. 参数类错误允许服务层携带安全中文提示（如实名姓名/证件号），
+     *      英文或技术内容一律回退通用文案；
+     *   3. 错误码与 HTTP 状态保持不变，文案不再沿用 A3 英文。
      */
     static String safeMessage(int code, String fallback)
     {
         return switch (code)
         {
-            case AppUserErrorCodes.RESOURCE_NOT_FOUND -> AppUserErrorCodes.RESOURCE_NOT_FOUND_TEXT;
-            case AppUserErrorCodes.REAL_NAME_CONFLICT -> AppUserErrorCodes.REAL_NAME_CONFLICT_TEXT;
-            case AppUserErrorCodes.DUPLICATE_SUBMIT -> AppUserErrorCodes.DUPLICATE_SUBMIT_TEXT;
-            case AppUserErrorCodes.PAYLOAD_TOO_LARGE -> AppUserErrorCodes.PAYLOAD_TOO_LARGE_TEXT;
-            case AppAuthErrorCodes.PARAM -> "invalid request";
-            case AppAuthErrorCodes.SMS_CODE_INVALID -> "sms code invalid";
-            case AppAuthErrorCodes.SMS_CODE_EXPIRED -> "sms code expired";
-            case AppAuthErrorCodes.SMS_CODE_USED -> "sms code already used";
-            case AppAuthErrorCodes.PHONE_TAKEN -> "phone already registered";
-            case AppAuthErrorCodes.AGREEMENT_MISMATCH -> "agreement version mismatch";
-            case AppAuthErrorCodes.PASSWORD_STATE_CONFLICT -> "password state conflict";
-            case AppAuthErrorCodes.UNAUTHORIZED -> "unauthorized";
-            case AppAuthErrorCodes.ACCESS_EXPIRED -> "access token expired";
-            case AppAuthErrorCodes.REFRESH_INVALID -> "refresh token invalid";
-            case AppAuthErrorCodes.DOMAIN_OR_PERMISSION -> "forbidden";
-            case AppAuthErrorCodes.ACCOUNT_DISABLED -> "account disabled";
-            case AppAuthErrorCodes.SMS_COOLDOWN -> "sms cooldown";
-            case AppAuthErrorCodes.SMS_RATE_LIMIT -> "rate limited";
-            default -> leakFree(fallback);
+            case AppUserErrorCodes.RESOURCE_NOT_FOUND -> "内容不存在或暂时不可用";
+            case AppUserErrorCodes.REAL_NAME_CONFLICT -> "实名认证正在审核或已通过，请勿重复提交";
+            case AppUserErrorCodes.DUPLICATE_SUBMIT -> "请勿重复提交";
+            case AppUserErrorCodes.PAYLOAD_TOO_LARGE -> "文件过大，请更换后重试";
+            case AppAuthErrorCodes.PARAM -> safeUserMessage(fallback, "您的信息不符合规范，请检查后重试");
+            case AppAuthErrorCodes.SMS_CODE_INVALID -> "验证码错误，请重新输入";
+            case AppAuthErrorCodes.SMS_CODE_EXPIRED -> "验证码已过期，请重新获取";
+            case AppAuthErrorCodes.SMS_CODE_USED -> "验证码已使用，请重新获取";
+            case AppAuthErrorCodes.PHONE_TAKEN -> "该手机号或邮箱已注册，请直接登录";
+            case AppAuthErrorCodes.AGREEMENT_MISMATCH -> "协议已更新，请重新阅读并同意";
+            case AppAuthErrorCodes.PASSWORD_STATE_CONFLICT -> "当前密码状态无法执行此操作，请刷新后重试";
+            case AppAuthErrorCodes.UNAUTHORIZED -> "登录状态已过期，请重新登录";
+            case AppAuthErrorCodes.ACCESS_EXPIRED -> "登录状态已过期，请重新登录";
+            case AppAuthErrorCodes.REFRESH_INVALID -> "登录状态已过期，请重新登录";
+            case AppAuthErrorCodes.DOMAIN_OR_PERMISSION -> "暂无权限执行此操作";
+            case AppAuthErrorCodes.ACCOUNT_DISABLED -> "账号暂时无法使用，请联系客服或管理员";
+            case AppAuthErrorCodes.SMS_COOLDOWN -> "操作过于频繁，请稍后再试";
+            case AppAuthErrorCodes.SMS_RATE_LIMIT -> "操作过于频繁，请稍后再试";
+            case AppAuthErrorCodes.SYSTEM_ERROR -> "服务暂时不可用，请稍后再试";
+            default -> safeUserMessage(fallback, "服务暂时不可用，请稍后再试");
         };
     }
 
-    /** 泄漏过滤：出现内部特征时退回通用文案，避免把实现细节透给客户端。 */
-    private static String leakFree(String message)
+    /** 服务层文案只在“含中文且不含技术特征”时透传，否则使用兜底。 */
+    static String safeUserMessage(String message, String fallback)
     {
-        if (message == null || message.isBlank())
+        if (message == null || message.isBlank() || !containsChinese(message))
         {
-            return "error";
+            return fallback;
         }
         String lower = message.toLowerCase();
         if (lower.contains("select ") || lower.contains("insert ") || lower.contains("update ")
-                || lower.contains("sqlexception") || lower.contains("com.ruoyi")
-                || lower.contains("com.smartscript") || lower.contains("java.")
+                || lower.contains("sqlexception") || lower.contains("exception")
+                || lower.contains("com.ruoyi") || lower.contains("com.smartscript")
+                || lower.contains("java.") || lower.contains("http")
+                || lower.contains("null") || lower.contains("undefined")
                 || message.contains("/") || message.contains("\\"))
         {
-            return "error";
+            return fallback;
         }
         return message;
+    }
+
+    private static boolean containsChinese(String message)
+    {
+        return message.codePoints().anyMatch(cp ->
+                Character.UnicodeScript.of(cp) == Character.UnicodeScript.HAN);
     }
 }

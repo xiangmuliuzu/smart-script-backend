@@ -48,20 +48,20 @@ public final class AppUserErrorCodes
     public static final int CREATOR_APPLY_CONFLICT = 40908;
 
     /** 404 通用文案：与「不属于我」同文案，避免泄露资源是否存在。 */
-    public static final String RESOURCE_NOT_FOUND_TEXT = "资源不存在";
+    public static final String RESOURCE_NOT_FOUND_TEXT = "内容不存在或暂时不可用";
 
     /** 409 实名状态冲突文案。 */
-    public static final String REAL_NAME_CONFLICT_TEXT = "当前实名状态不允许该操作";
+    public static final String REAL_NAME_CONFLICT_TEXT = "实名认证正在审核或已通过，请勿重复提交";
 
     /** 409 创作者申请状态冲突文案。 */
-    public static final String CREATOR_APPLY_CONFLICT_TEXT = "当前创作者申请状态不允许该操作";
+    public static final String CREATOR_APPLY_CONFLICT_TEXT = "创作者申请正在审核或已通过，请勿重复提交";
 
     /** 409 重复提交文案。 */
     public static final String DUPLICATE_SUBMIT_TEXT = "请勿重复提交";
 
     /** 400 通用文案。 */
-    public static final String INVALID_PARAM = "请求参数无效";
+    public static final String INVALID_PARAM = "您的信息不符合规范，请检查后重试";
 
     /** 413 上传超限文案（不暴露容器上限与异常细节）。 */
-    public static final String PAYLOAD_TOO_LARGE_TEXT = "文件超出大小上限";
+    public static final String PAYLOAD_TOO_LARGE_TEXT = "文件过大，请更换后重试";
 }

@@ -135,7 +135,7 @@ public class AppAuthAuthenticationFilter extends OncePerRequestFilter
                 filterChain.doFilter(request, response);
                 return;
             }
-            writeError(request, response, AppAuthErrorCodes.UNAUTHORIZED, "unauthorized");
+            writeError(request, response, AppAuthErrorCodes.UNAUTHORIZED, "登录状态已过期，请重新登录");
             return;
         }
         String token = header.substring(7).trim();

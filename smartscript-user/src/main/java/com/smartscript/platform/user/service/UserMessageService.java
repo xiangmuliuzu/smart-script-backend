@@ -213,7 +213,7 @@ public class UserMessageService
     {
         if (request == null || request.getPreferences() == null || request.getPreferences().isEmpty())
         {
-            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "preferences required");
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "请先选择消息偏好");
         }
         Set<String> seen = new LinkedHashSet<>();
         int changed = 0;
@@ -221,14 +221,14 @@ public class UserMessageService
         {
             if (item == null)
             {
-                throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "preference item invalid");
+                throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "偏好设置不正确，请检查后重试");
             }
             String channel = normalizeChannel(item.getChannel());
             String type = normalizePreferenceType(item.getType());
             String key = channel + "/" + type;
             if (!seen.add(key))
             {
-                throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "duplicate preference item");
+                throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "偏好设置重复，请检查后重试");
             }
             if (item.isEnabled() && !TRADE_PREFERENCE_TYPES.contains(type))
             {
@@ -249,7 +249,7 @@ public class UserMessageService
         String value = channel == null ? "" : channel.trim().toUpperCase();
         if (!CHANNELS.contains(value))
         {
-            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "invalid channel");
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "消息渠道不正确，请刷新后重试");
         }
         return value;
     }
@@ -259,7 +259,7 @@ public class UserMessageService
         String value = type == null ? "" : type.trim().toUpperCase();
         if (!PREFERENCE_TYPES.contains(value))
         {
-            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "invalid type");
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "消息类型不正确，请刷新后重试");
         }
         return value;
     }
@@ -277,12 +277,12 @@ public class UserMessageService
             {
                 return null;
             }
-            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "invalid type");
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "消息类型不正确，请刷新后重试");
         }
         String value = type.trim().toUpperCase();
         if (!TYPES.contains(value))
         {
-            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "invalid type");
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "消息类型不正确，请刷新后重试");
         }
         return value;
     }

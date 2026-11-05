@@ -81,7 +81,7 @@ public class AppAuthController
         riskCheckService.checkFrequencyOrThrow(null, clientIp(http), "login");
         String scene = request.getScene() == null ? "REGISTER" : request.getScene();
         if (!java.util.Set.of("REGISTER", "LOGIN", "RESET_PASSWORD").contains(scene))
-            throw new AppAuthException(40000, 400, "invalid scene");
+            throw new AppAuthException(40000, 400, "请求场景不正确，请刷新后重试");
         smsCodeService.sendEmailCode(request.getEmail(), scene, clientIp(http), requestId);
         return AjaxResult.success(Map.of("cooldownSeconds", properties.getSms().getCooldownSeconds(),
                 "expiresIn", properties.getSms().getCodeTtlSeconds()));
@@ -122,7 +122,8 @@ public class AppAuthController
     @ExceptionHandler(AppAuthException.class)
     public ResponseEntity<AjaxResult> authError(AppAuthException error)
     {
-        AjaxResult result = AjaxResult.error(error.getCode(), error.getMessage());
+        AjaxResult result = AjaxResult.error(error.getCode(),
+                AppAuthExceptionHandler.safeMessage(error.getCode(), error.getMessage()));
         if (error.getData() != null) result.put("data", error.getData());
         return ResponseEntity.status(error.getHttpStatus()).body(result);
     }
@@ -130,10 +131,10 @@ public class AppAuthController
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<AjaxResult> invalidLogin(MethodArgumentNotValidException error)
     {
-        AjaxResult result = AjaxResult.error(40000, "invalid request");
+        AjaxResult result = AjaxResult.error(40000, "您的信息不符合规范，请检查后重试");
         var fields = error.getBindingResult().getFieldErrors().stream().collect(
                 java.util.stream.Collectors.toMap(org.springframework.validation.FieldError::getField,
-                        field -> field.getDefaultMessage() == null ? "invalid" : field.getDefaultMessage(), (a, b) -> a));
+                        field -> field.getDefaultMessage() == null ? "填写不正确" : field.getDefaultMessage(), (a, b) -> a));
         result.put("data", java.util.Map.of("fieldErrors", fields));
         return ResponseEntity.badRequest().body(result);
     }
@@ -143,13 +144,13 @@ public class AppAuthController
             org.springframework.web.bind.MissingServletRequestParameterException.class})
     public ResponseEntity<AjaxResult> malformedRequest(Exception error)
     {
-        return ResponseEntity.badRequest().body(AjaxResult.error(40000, "invalid request"));
+        return ResponseEntity.badRequest().body(AjaxResult.error(40000, "您的信息不符合规范，请检查后重试"));
     }
 
     @ExceptionHandler(RuntimeException.class)
     public ResponseEntity<AjaxResult> unexpectedError(RuntimeException error)
     {
-        return ResponseEntity.internalServerError().body(AjaxResult.error(50000, "internal error"));
+        return ResponseEntity.internalServerError().body(AjaxResult.error(50000, "服务暂时不可用，请稍后再试"));
     }
 
     @PostMapping("/password/login")
@@ -225,7 +226,7 @@ public class AppAuthController
         {
             return identity;
         }
-        throw new AppAuthException(40100, 401, "unauthorized");
+        throw new AppAuthException(40100, 401, "登录状态已过期，请重新登录");
     }
 
     private static String clientIp(HttpServletRequest request)

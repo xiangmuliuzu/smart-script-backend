@@ -289,7 +289,7 @@ public class AppUserController
             return identity;
         }
         // 到达这里说明过滤器链未建立 App 身份（配置错误或凭证域不符）
-        throw new AppAuthException(AppAuthErrorCodes.UNAUTHORIZED, 401, "unauthorized");
+        throw new AppAuthException(AppAuthErrorCodes.UNAUTHORIZED, 401, "登录状态已过期，请重新登录");
     }
 
     private Long currentUserId()

@@ -110,11 +110,11 @@ public class AppCommentController
         content = content == null ? null : content.trim();
         if (content == null || content.isEmpty())
         {
-            return AppApiResponse.fail(CODE_BAD_REQUEST, "content 不能为空");
+            return AppApiResponse.fail(CODE_BAD_REQUEST, "内容不能为空，请填写后重试");
         }
         if (content.length() > CONTENT_MAX_LENGTH)
         {
-            return AppApiResponse.fail(CODE_BAD_REQUEST, "content 长度不能超过 " + CONTENT_MAX_LENGTH);
+            return AppApiResponse.fail(CODE_BAD_REQUEST, "内容过长，请精简后重试");
         }
         Long parentId = request.getParentId();
         if (parentId != null && parentId > 0 && !commentService.parentExistsInEpisode(parentId, episodeId))

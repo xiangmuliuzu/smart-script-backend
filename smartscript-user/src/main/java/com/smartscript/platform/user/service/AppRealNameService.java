@@ -98,7 +98,7 @@ public class AppRealNameService
     {
         if (request == null)
         {
-            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "no payload");
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "请求内容不能为空，请刷新后重试");
         }
         String realName = normalizeRealName(request.getRealName());
         String idNumber = normalizeIdNumber(request.getIdNumber());
@@ -148,7 +148,7 @@ public class AppRealNameService
         String value = raw == null ? "" : raw.trim();
         if (value.length() < REAL_NAME_MIN || value.length() > REAL_NAME_MAX)
         {
-            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "real name length invalid");
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "姓名长度不正确，请检查后重试");
         }
         return value;
     }
@@ -158,7 +158,7 @@ public class AppRealNameService
         String value = raw == null ? "" : raw.trim();
         if (!value.matches(ID_NUMBER_PATTERN))
         {
-            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "id number format invalid");
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "身份证号格式不正确，请检查后重试");
         }
         return value;
     }

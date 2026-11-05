@@ -133,7 +133,7 @@ public class AppAuthenticationService
         else if (!user.isUsable())
         {
             audit(maskPhone(request.getPhone()), ip, "APP_LOGIN_DISABLED", "scene=LOGIN userId=" + user.getUserId());
-            throw new AppAuthException(AppAuthErrorCodes.ACCOUNT_DISABLED, 403, "account disabled");
+            throw new AppAuthException(AppAuthErrorCodes.ACCOUNT_DISABLED, 403, "账号暂时无法使用，请联系客服或管理员");
         }
         else if (request.getAgreementAcceptances() != null && !request.getAgreementAcceptances().isEmpty()
                 && !agreementService.hasCurrentConsents(user.getUserId()))
@@ -160,7 +160,7 @@ public class AppAuthenticationService
             agreementService.recordAcceptances(user.getUserId(), request.getAgreementAcceptances(), ip, request.getDeviceId());
         }
         else if (!user.isUsable())
-            throw new AppAuthException(AppAuthErrorCodes.ACCOUNT_DISABLED, 403, "account disabled");
+            throw new AppAuthException(AppAuthErrorCodes.ACCOUNT_DISABLED, 403, "账号暂时无法使用，请联系客服或管理员");
         else if (request.getAgreementAcceptances() != null && !request.getAgreementAcceptances().isEmpty()
                 && !agreementService.hasCurrentConsents(user.getUserId()))
             agreementService.recordAcceptances(user.getUserId(), request.getAgreementAcceptances(), ip, request.getDeviceId());
@@ -176,12 +176,12 @@ public class AppAuthenticationService
         if (user == null || !com.smartscript.platform.user.constant.AppAdminConstants.isManagedUserType(user.getUserType()))
         {
             audit(maskPhone(request.getPhone()), ip, "APP_LOGIN_FAIL", "scene=PASSWORD reason=BAD_CREDENTIAL");
-            throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "phone or password incorrect");
+            throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "手机号或密码错误，请重试");
         }
         if (!user.isUsable())
         {
             audit(maskPhone(request.getPhone()), ip, "APP_LOGIN_DISABLED", "scene=PASSWORD userId=" + user.getUserId());
-            throw new AppAuthException(AppAuthErrorCodes.ACCOUNT_DISABLED, 403, "account disabled");
+            throw new AppAuthException(AppAuthErrorCodes.ACCOUNT_DISABLED, 403, "账号暂时无法使用，请联系客服或管理员");
         }
         authenticateAndAudit(user, request.getPassword(), request.getCode(), request.getUuid(),
                 maskPhone(request.getPhone()), ip, "PASSWORD");
@@ -244,7 +244,7 @@ public class AppAuthenticationService
         AppUserRecord existing = hasEmail ? userMapper.selectByEmail(email) : userMapper.selectByPhone(request.getPhone());
         if (existing != null || (hasEmail && userMapper.selectByLoginIdentifier(email) != null))
         {
-            throw new AppAuthException(AppAuthErrorCodes.PHONE_TAKEN, 409, hasEmail ? "邮箱已注册" : "phone already registered");
+            throw new AppAuthException(AppAuthErrorCodes.PHONE_TAKEN, 409, hasEmail ? "邮箱已注册" : "该手机号已注册，请直接登录");
         }
         AppUserRecord user = createAppUser(request.getPhone(), email, passwordEncoder.encode(request.getPassword()));
         if (hasEmail) {
@@ -283,7 +283,7 @@ public class AppAuthenticationService
         AppUserRecord user = userMapper.selectById(identity.getUserId());
         if (user == null || !user.isUsable())
         {
-            throw new AppAuthException(AppAuthErrorCodes.ACCOUNT_DISABLED, 403, "account disabled");
+            throw new AppAuthException(AppAuthErrorCodes.ACCOUNT_DISABLED, 403, "账号暂时无法使用，请联系客服或管理员");
         }
         return toCurrentUser(user);
     }
@@ -295,7 +295,7 @@ public class AppAuthenticationService
         AppUserRecord user = requireUser(identity.getUserId());
         if (user.getPassword() != null && !user.getPassword().isBlank())
         {
-            throw new AppAuthException(AppAuthErrorCodes.PASSWORD_STATE_CONFLICT, 409, "password already set");
+            throw new AppAuthException(AppAuthErrorCodes.PASSWORD_STATE_CONFLICT, 409, "密码已设置，请直接登录");
         }
         userMapper.updatePassword(user.getUserId(), passwordEncoder.encode(password));
         revocationService.revokeOthersForUser(user.getUserId(), identity.getJti(), "PASSWORD_SET");
@@ -309,11 +309,11 @@ public class AppAuthenticationService
         if (user.getPassword() == null || user.getPassword().isBlank()
                 || !passwordEncoder.matches(request.getOldPassword(), user.getPassword()))
         {
-            throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "old password incorrect");
+            throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "原密码不正确，请重新输入");
         }
         if (passwordEncoder.matches(request.getNewPassword(), user.getPassword()))
         {
-            throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "new password must differ");
+            throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "新密码不能与原密码相同");
         }
         userMapper.updatePassword(user.getUserId(), passwordEncoder.encode(request.getNewPassword()));
         revocationService.revokeAllForUser(user.getUserId(), "PASSWORD_CHANGE");
@@ -339,11 +339,11 @@ public class AppAuthenticationService
         if (user == null)
         {
             // Do not reveal existence; still consume code path for security tests via same message.
-            throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "phone or password incorrect");
+            throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "手机号或密码错误，请重试");
         }
         if (user.getPassword() != null && passwordEncoder.matches(request.getNewPassword(), user.getPassword()))
         {
-            throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "new password must differ");
+            throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "新密码不能与原密码相同");
         }
         userMapper.updatePassword(user.getUserId(), passwordEncoder.encode(request.getNewPassword()));
         revocationService.revokeAllForUser(user.getUserId(), "PASSWORD_RESET");
@@ -421,7 +421,7 @@ public class AppAuthenticationService
         AppUserRecord user = userMapper.selectById(userId);
         if (user == null || !user.isUsable())
         {
-            throw new AppAuthException(AppAuthErrorCodes.ACCOUNT_DISABLED, 403, "account disabled");
+            throw new AppAuthException(AppAuthErrorCodes.ACCOUNT_DISABLED, 403, "账号暂时无法使用，请联系客服或管理员");
         }
         return user;
     }
@@ -454,11 +454,11 @@ public class AppAuthenticationService
     {
         if (password == null || password.length() < 8 || password.length() > 64)
         {
-            throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "password length must be 8-64");
+            throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "密码长度需为 8-64 位");
         }
         if (password.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > MAX_PASSWORD_BYTES)
         {
-            throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "password must not exceed 72 UTF-8 bytes");
+            throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "密码过长，请修改后重试");
         }
         boolean letter = false;
         boolean digit = false;
@@ -477,7 +477,7 @@ public class AppAuthenticationService
         }
         if (!letter || !digit)
         {
-            throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "password must contain letter and digit");
+            throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "密码需同时包含字母和数字");
         }
     }
 

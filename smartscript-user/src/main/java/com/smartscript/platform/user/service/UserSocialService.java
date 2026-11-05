@@ -37,7 +37,7 @@ public class UserSocialService
     {
         if (targetUserId == null || targetUserId <= 0)
         {
-            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "invalid user");
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "用户不存在或暂不可用");
         }
         AppUserRecord user = followMapper.selectPublicUser(targetUserId);
         if (user == null)
@@ -76,7 +76,7 @@ public class UserSocialService
     {
         if (followeeId == null || followeeId <= 0)
         {
-            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "invalid user");
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "用户不存在或暂不可用");
         }
         return followMapper.deleteFollow(followerId, followeeId) > 0;
     }
@@ -99,7 +99,7 @@ public class UserSocialService
     {
         if (followeeId == null || followeeId <= 0)
         {
-            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "invalid user");
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "用户不存在或暂不可用");
         }
         if (followerId != null && followerId.equals(followeeId))
         {

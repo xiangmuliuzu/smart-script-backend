@@ -128,6 +128,6 @@ public class AppChatController
         {
             return identity.getUserId();
         }
-        throw new AppAuthException(AppAuthErrorCodes.UNAUTHORIZED, 401, "unauthorized");
+        throw new AppAuthException(AppAuthErrorCodes.UNAUTHORIZED, 401, "登录状态已过期，请重新登录");
     }
 }

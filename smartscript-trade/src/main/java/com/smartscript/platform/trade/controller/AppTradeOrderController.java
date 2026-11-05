@@ -71,7 +71,7 @@ public class AppTradeOrderController
         }
         else
         {
-            return AppApiResponse.fail(400, "role 参数无效，须为 buyer 或 seller");
+            return AppApiResponse.fail(400, "角色参数不正确，请刷新后重试");
         }
 
         if (status != null && !status.isEmpty())

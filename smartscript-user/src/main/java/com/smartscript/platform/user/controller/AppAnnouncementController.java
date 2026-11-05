@@ -82,7 +82,7 @@ public class AppAnnouncementController
     {
         var authentication = SecurityContextHolder.getContext().getAuthentication();
         if (!(authentication instanceof AppIdentityContext identity))
-            throw new AppAuthException(AppUserErrorCodes.UNAUTHORIZED, 401, "unauthorized");
+            throw new AppAuthException(AppUserErrorCodes.UNAUTHORIZED, 401, "登录状态已过期，请重新登录");
         if (!List.of("01", "02", "03").contains(identity.getUserType()))
             throw new AppAuthException(AppUserErrorCodes.DOMAIN_OR_PERMISSION, 403, "无权阅读公告");
         return identity;
