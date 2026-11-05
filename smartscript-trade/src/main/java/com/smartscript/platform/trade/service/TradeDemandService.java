@@ -345,6 +345,7 @@ public class TradeDemandService
                 s.setStatus(SysDemandStage.STAGE_STATUS_PENDING);
                 s.setReleaseFlag(0);
                 s.setCreateBy(demand.getCreateBy());
+                normalizeRoundDuration(s);
             }
             stageMapper.insertBatch(stages);
         }
@@ -484,6 +485,7 @@ public class TradeDemandService
                 s.setStatus(SysDemandStage.STAGE_STATUS_PENDING);
                 s.setReleaseFlag(0);
                 s.setCreateBy(String.valueOf(operatorId));
+                normalizeRoundDuration(s);
             }
             stageMapper.insertBatch(stages);
         }
@@ -506,6 +508,24 @@ public class TradeDemandService
                 && !contact.matches("^(1[3-9]\\d{9}|0\\d{2,3}-?\\d{7,8}|(400|800)-?\\d{3}-?\\d{4})$"))
         {
             throw new RuntimeException("联系电话格式不正确");
+        }
+    }
+
+    /**
+     * 轮次时限归一：库内 duration_days / duration_hours 均为 NOT NULL DEFAULT 0，而
+     * insertBatch 是显式列赋值（不走列默认值），调用方只填天数时会把 null 直接写入，
+     * 报 “Column 'duration_hours' cannot be null” 使发布/编辑接口 500。
+     * 校验口径本就把 null 当 0 看（见 validateStages 对 days+hours 的判断），故落库前统一归一。
+     */
+    private static void normalizeRoundDuration(SysDemandStage s)
+    {
+        if (s.getDurationDays() == null)
+        {
+            s.setDurationDays(0);
+        }
+        if (s.getDurationHours() == null)
+        {
+            s.setDurationHours(0);
         }
     }
 
