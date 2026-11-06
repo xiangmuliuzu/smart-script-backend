@@ -11,6 +11,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
+import com.smartscript.platform.trade.domain.SysDemand;
+import com.smartscript.platform.trade.domain.SysDemandStage;
 import com.smartscript.platform.trade.domain.SysInquiry;
 import com.smartscript.platform.trade.domain.SysOrder;
 import com.smartscript.platform.user.constant.AppAdminConstants;
@@ -451,6 +453,129 @@ public class TradeNotifyService
                 + "本次任务押金已按规则没收，如有疑问可与发布方沟通。";
         push("TRD-DM-FAIL-" + demandId + "-" + stageOrder + "-S", "任务超时终止",
                 creatorContent, "DEMAND", str(demandId), one(creatorId), "SELLER");
+    }
+
+    /**
+     * AI 审核通过转人工验收 → 通知发布者处理本轮交付。
+     * 列表侧展示事件叙述，详情侧提供需求编号/交付作品/本轮金额/本轮截止/接单人/交付说明 六个关键行。
+     * requestId 以 (轮次, 交付提交时刻) 为键：同一轮多次重交付每次都会通知；
+     * 同一轮 AI 恢复扫描重复触发因 submittedAt 不变而幂等收敛为一条。
+     */
+    public void notifyStageReadyForReview(SysDemand demand, SysDemandStage stage)
+    {
+        StringBuilder content = new StringBuilder("创作者已提交本轮交付并通过 AI 前置审核，请及时人工验收。\n");
+        line(content, "任务", titleOf(demand.getTitle()));
+        line(content, "需求编号", demand.getDemandNo());
+        line(content, "轮次", roundText(stage.getStageOrder()));
+        line(content, "交付作品", titleOf(stage.getWorkTitle()));
+        line(content, "本轮金额", amountText(stage.getAmount()));
+        line(content, "本轮截止", dueText(stage.getDueAt()));
+        line(content, "接单人", nameOf(demand.getAcceptedCreatorName()));
+        line(content, "交付说明", stage.getDeliverableDesc());
+        content.append("可前往「任务详情-验收进度」处理：通过则放出本轮款项，驳回则本轮恢复计时等待重交。");
+        long submittedAt = stage.getSubmittedAt() != null
+                ? stage.getSubmittedAt().getTime() : System.currentTimeMillis();
+        push("TRD-DM-REVIEW-" + demand.getDemandId() + "-" + stage.getStageOrder() + "-" + submittedAt,
+                "本轮交付待验收", content.toString(),
+                "DEMAND", str(demand.getDemandId()), one(demand.getClientId()), "BUYER");
+    }
+
+    /**
+     * AI 审核未通过自动打回 → 通知创作者修改后重交。
+     * 详情展示需求编号/交付作品/本轮金额/AI 评分/打回原因/本轮截止/交付说明。
+     * AI 评分与打回原因作为写入参数显式传递，避免依赖调用侧重新读取时是否已刷新。
+     * requestId 键位同 {@link #notifyStageReadyForReview}。
+     */
+    public void notifyStageRejectedByAi(SysDemand demand, SysDemandStage stage, Integer score, String rejectReason)
+    {
+        StringBuilder content = new StringBuilder("本轮交付未通过 AI 前置审核，请修改后重新提交。\n");
+        line(content, "任务", titleOf(demand.getTitle()));
+        line(content, "需求编号", demand.getDemandNo());
+        line(content, "轮次", roundText(stage.getStageOrder()));
+        line(content, "交付作品", titleOf(stage.getWorkTitle()));
+        line(content, "本轮金额", amountText(stage.getAmount()));
+        if (score != null)
+        {
+            line(content, "AI 评分", String.valueOf(score));
+        }
+        line(content, "打回原因", rejectReason);
+        line(content, "本轮截止", dueText(stage.getDueAt()));
+        line(content, "交付说明", stage.getDeliverableDesc());
+        content.append("请在截止时间前完成重新交付，否则本轮任务将超时终止。");
+        long submittedAt = stage.getSubmittedAt() != null
+                ? stage.getSubmittedAt().getTime() : System.currentTimeMillis();
+        push("TRD-DM-REJ-AI-" + demand.getDemandId() + "-" + stage.getStageOrder() + "-" + submittedAt,
+                "本轮 AI 审核未通过", content.toString(),
+                "DEMAND", str(demand.getDemandId()), one(demand.getAcceptedCreatorId()), "SELLER");
+    }
+
+    /**
+     * 发布者人工驳回本轮 → 通知创作者重交。
+     * 详情展示需求编号/交付作品/本轮金额/驳回原因/新的截止/发布者/交付说明。
+     * reviewedAtMillis 仅作为幂等时间戳，上游 updateReview CAS 已保证同次审核仅一次进入。
+     */
+    public void notifyStageRejectedByBuyer(SysDemand demand, SysDemandStage stage, String rejectReason,
+            Date newDue, long reviewedAtMillis)
+    {
+        StringBuilder content = new StringBuilder("本轮交付已被发布者驳回，请修改后重新提交。\n");
+        line(content, "任务", titleOf(demand.getTitle()));
+        line(content, "需求编号", demand.getDemandNo());
+        line(content, "轮次", roundText(stage.getStageOrder()));
+        line(content, "交付作品", titleOf(stage.getWorkTitle()));
+        line(content, "本轮金额", amountText(stage.getAmount()));
+        line(content, "驳回原因", rejectReason);
+        line(content, "新的截止", dueText(newDue));
+        line(content, "发布者", nameOf(demand.getClientName()));
+        line(content, "交付说明", stage.getDeliverableDesc());
+        content.append("请在新截止前完成重新交付，否则本轮任务将超时终止。");
+        push("TRD-DM-REJ-BYR-" + demand.getDemandId() + "-" + stage.getStageOrder() + "-" + reviewedAtMillis,
+                "本轮验收未通过", content.toString(),
+                "DEMAND", str(demand.getDemandId()), one(demand.getAcceptedCreatorId()), "SELLER");
+    }
+
+    /**
+     * 全部轮次通过 → 任务完成，按角色分别通知发布者与创作者。
+     * 发布者看到预算与“无待处理项”，创作者额外看到押金金额与收益入口。
+     * requestId 以 demandId 单键幂等：上游状态机 `!COMPLETED` 保证整单完成仅触发一次。
+     */
+    public void notifyDemandCompleted(SysDemand demand)
+    {
+        String buyerContent = "任务已全部轮次验收通过，交易完成。\n"
+                + detailLine("任务", titleOf(demand.getTitle()))
+                + detailLine("需求编号", demand.getDemandNo())
+                + detailLine("预算金额", amountText(demand.getBudget()))
+                + detailLine("接单人", nameOf(demand.getAcceptedCreatorName()))
+                + "托管款项已按轮次放出，本单无待处理项。";
+        push("TRD-DM-DONE-" + demand.getDemandId() + "-B", "任务已完成",
+                buyerContent, "DEMAND", str(demand.getDemandId()), one(demand.getClientId()), "BUYER");
+
+        String creatorContent = "任务已全部轮次验收通过，交易完成。\n"
+                + detailLine("任务", titleOf(demand.getTitle()))
+                + detailLine("需求编号", demand.getDemandNo())
+                + detailLine("预算总额", amountText(demand.getBudget()))
+                + detailLine("押金退还", amountText(demand.getDepositAmount()))
+                + detailLine("发布者", nameOf(demand.getClientName()))
+                + "请前往「收益-待结算」逐轮确认入账。";
+        push("TRD-DM-DONE-" + demand.getDemandId() + "-S", "任务已完成",
+                creatorContent, "DEMAND", str(demand.getDemandId()), one(demand.getAcceptedCreatorId()), "SELLER");
+    }
+
+    /**
+     * 本轮验收通过且存在下一轮 → 通知创作者新一轮已激活，展示截止时间。
+     * requestId 以 (轮次, 激活时刻) 为键，同一轮仅触发一次。
+     */
+    public void notifyNextRoundActivated(SysDemand demand, SysDemandStage nextStage, Date nextDue)
+    {
+        StringBuilder content = new StringBuilder("上一轮已通过验收，新一轮交付任务已开启，请开始创作。\n");
+        line(content, "任务", titleOf(demand.getTitle()));
+        line(content, "需求编号", demand.getDemandNo());
+        line(content, "新轮次", roundText(nextStage.getStageOrder()));
+        line(content, "本轮金额", amountText(nextStage.getAmount()));
+        line(content, "本轮截止", dueText(nextDue));
+        content.append("请前往「任务详情-交付」查看本轮要求并开始创作，截止前完成交付即可通过 AI 审核进入验收。");
+        push("TRD-DM-NEXT-" + demand.getDemandId() + "-" + nextStage.getStageOrder(),
+                "新一轮任务已开启", content.toString(),
+                "DEMAND", str(demand.getDemandId()), one(demand.getAcceptedCreatorId()), "SELLER");
     }
 }
 

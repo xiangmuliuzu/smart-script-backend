@@ -747,6 +747,8 @@ public class TradeDemandService
                 Date nextDue = computeRoundDueAt(now, next);
                 stageMapper.activateStage(next.getStageId(), now, nextDue, String.valueOf(buyerId));
                 demandMapper.mirrorRoundState(demandId, nextDue, 0);
+                // 下一轮激活→通知创作者新一轮已开始（携本轮金额与新截止时间）
+                notifyService.notifyNextRoundActivated(demand, next, nextDue);
             }
             else
             {
@@ -755,6 +757,8 @@ public class TradeDemandService
                 {
                     demandMapper.updateFundState(demandId, DEMAND_STATUS_COMPLETED,
                             ESCROW_RELEASED, DEPOSIT_REFUNDED, null);
+                    // 任务完成→通知双方（demandId 单键幂等，上游 !COMPLETED 已保证仅进入一次）
+                    notifyService.notifyDemandCompleted(demand);
                 }
             }
         }
@@ -764,16 +768,20 @@ public class TradeDemandService
             Date now = new Date();
             // AI 审核已通过的本轮，暂停起点取 AI 完成时刻（提交→AI完成 的耗时已在 AI 完成时补回）
             Date pauseStart = stage.getAiReviewedAt() != null ? stage.getAiReviewedAt() : stage.getSubmittedAt();
+            // 兜底：无法计算新截止时，保持原 dueAt（仅用于通知文案展示）
+            Date newDue = stage.getDueAt();
             if (pauseStart != null && stage.getDueAt() != null)
             {
                 long pausedMillis = Math.max(0, now.getTime() - pauseStart.getTime());
                 Calendar cal = Calendar.getInstance();
                 cal.setTime(stage.getDueAt());
                 cal.add(Calendar.MILLISECOND, (int) pausedMillis);
-                Date newDue = cal.getTime();
+                newDue = cal.getTime();
                 stageMapper.pushDue(stageId, newDue, String.valueOf(buyerId));
                 demandMapper.mirrorRoundState(demandId, newDue, 0);
             }
+            // 人工驳回→通知创作者重交（携原因与新截止）
+            notifyService.notifyStageRejectedByBuyer(demand, stage, rejectReason, newDue, now.getTime());
         }
 
         return stageMapper.selectByStageId(stageId);

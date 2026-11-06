@@ -18,6 +18,7 @@ import org.springframework.stereotype.Service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smartscript.platform.review.service.AiReviewService;
 import com.smartscript.platform.review.util.ReviewContentText;
+import com.smartscript.platform.trade.domain.SysDemand;
 import com.smartscript.platform.trade.domain.SysDemandStage;
 import com.smartscript.platform.trade.mapper.SysDemandMapper;
 import com.smartscript.platform.trade.mapper.SysDemandStageMapper;
@@ -54,6 +55,10 @@ public class DemandStageAiReviewService
 
     @Autowired
     private AiReviewService aiReviewService;
+
+    /** AI 审核完成后的站内通知出口（失败不冒泡，不影响状态流转）。 */
+    @Autowired
+    private TradeNotifyService notifyService;
 
     @Autowired
     @Qualifier("threadPoolTaskExecutor")
@@ -164,6 +169,12 @@ public class DemandStageAiReviewService
 
             // AI 审核耗时不计入本轮时限：把（提交→AI完成）的时长补回截止时间
             restorePausedDuration(stageId);
+
+            // 通知投递：pass 告知发布者验收，fail 告知创作者重交。
+            // 重新读取本轮，拿包含 AI 耗时补回后的最新 dueAt；避免通知仍展示旧截止。
+            // 任何异常已由 TradeNotifyService.push 内部吞下，不需此处再包。
+            SysDemandStage fresh = stageMapper.selectByStageId(stageId);
+            notifyAiOutcome(fresh != null ? fresh : stage, pass, score, rejectReason);
         }
         catch (Exception e)
         {
@@ -211,6 +222,40 @@ public class DemandStageAiReviewService
         Date newDue = new Date(after.getDueAt().getTime() + pausedMillis);
         stageMapper.pushDue(stageId, newDue, "ai");
         demandMapper.mirrorRoundState(after.getDemandId(), newDue, 0);
+    }
+
+    /**
+     * AI 审核完成后的通知分发：
+     * <ul>
+     *   <li>pass：通知发布者本轮已交付等待人工验收（audience=BUYER）；</li>
+     *   <li>fail：通知创作者本轮已被 AI 自动打回（audience=SELLER）。</li>
+     * </ul>
+     * 通知失败不冒泡也不影响已有状态流转；TradeNotifyService.push 内部已吞下异常，
+     * 本层仅对 demand 反查等潜在 NPE 再包一层。
+     */
+    private void notifyAiOutcome(SysDemandStage stage, boolean pass, Integer score, String rejectReason)
+    {
+        try
+        {
+            SysDemand demand = demandMapper.selectDemandById(stage.getDemandId());
+            if (demand == null)
+            {
+                log.warn("AI 审核通知跳过：任务不存在 demandId={}", stage.getDemandId());
+                return;
+            }
+            if (pass)
+            {
+                notifyService.notifyStageReadyForReview(demand, stage);
+            }
+            else
+            {
+                notifyService.notifyStageRejectedByAi(demand, stage, score, rejectReason);
+            }
+        }
+        catch (Exception e)
+        {
+            log.warn("AI 审核完成通知投递异常 stageId={}: {}", stage.getStageId(), e.getMessage());
+        }
     }
 
     /** 送审文本：作品标题 + 交付说明 + 各章正文（纯文本，截断）。 */
