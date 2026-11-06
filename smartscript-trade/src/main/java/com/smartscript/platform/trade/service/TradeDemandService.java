@@ -2,8 +2,10 @@ package com.smartscript.platform.trade.service;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Date;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
@@ -24,6 +26,7 @@ import com.smartscript.platform.trade.mapper.SysDemandExtendApplyMapper;
 import com.smartscript.platform.trade.mapper.SysDemandMapper;
 import com.smartscript.platform.trade.mapper.SysDemandStageMapper;
 import com.smartscript.platform.trade.mapper.SysDemandSubmissionMapper;
+import com.smartscript.platform.review.util.ReviewContentText;
 
 /**
  * C module: demand project (task marketplace) service.
@@ -1011,6 +1014,73 @@ public class TradeDemandService
     public List<SysDemandStage> selectStagesByDemandId(Long demandId)
     {
         return stageMapper.selectByDemandId(demandId);
+    }
+
+    /**
+     * 发布者查看某轮交付作品（验收前核对正文）。
+     *
+     * <p>为什么要在 trade 域开这个口：交付作品一定未上架（deliverStage 拒 on_shelf 交付），
+     * 而 content 域给读者的 /works/{id} 与 /works/{id}/chapters 走 readerVisibleWork 过滤只放行上架作品，
+     * 给作者的 /content/user/works/{id} 又只认本人，发布者两条都取不到（404 / SecurityException）。
+     *
+     * <p>可见范围只到本轮 episodeTo：一章即一集（sys_work.episode_count 由 sys_work_chapter 行数汇总），
+     * 正文截断在 SQL 的 CASE 里完成；超范围的章节保留标题且 readable=false，
+     * 让发布者知道后面还有几集未交，但拿不到内容。
+     *
+     * <p>下发前统一过 ReviewContentText.plain：与送 AI 审核同一口径，发布者看到的就是 AI 依据的那份文本，
+     * 同时避免把富文本原样丢给前端再渲染（XSS 面）。
+     */
+    public Map<String, Object> selectStageDeliveredWork(Long demandId, Long stageId, Long publisherId)
+    {
+        SysDemandStage stage = stageMapper.selectByStageId(stageId);
+        if (stage == null) throw new RuntimeException("轮次不存在");
+        if (!demandId.equals(stage.getDemandId())) throw new RuntimeException("轮次与任务不匹配");
+
+        SysDemand demand = demandMapper.selectDemandById(demandId);
+        if (demand == null) throw new RuntimeException("任务不存在");
+        if (publisherId == null || !publisherId.equals(demand.getClientId()))
+        {
+            throw new RuntimeException("只有发布者可以查看交付作品");
+        }
+        if (stage.getWorkId() == null) throw new RuntimeException("本轮尚未交付作品");
+
+        Map<String, Object> work = stageMapper.selectDeliveredWorkBrief(stage.getWorkId());
+        if (work == null) throw new RuntimeException("交付作品不存在或已删除");
+
+        List<Map<String, Object>> rawChapters = stageMapper.selectChaptersForReview(stage.getWorkId(), stage.getEpisodeTo());
+        List<Map<String, Object>> chapters = new ArrayList<>();
+        int readableCount = 0;
+        if (rawChapters != null)
+        {
+            for (Map<String, Object> row : rawChapters)
+            {
+                // content 为 NULL 时 MyBatis 不会把 key 放进 HashMap，这里逐字段补齐，前端拿到稳定结构
+                Object readable = row.get("readable");
+                boolean canRead = readable != null && !"0".equals(String.valueOf(readable));
+                Map<String, Object> item = new LinkedHashMap<>();
+                item.put("chapterId", row.get("chapterId"));
+                item.put("chapterNo", row.get("chapterNo"));
+                item.put("chapterTitle", row.get("chapterTitle"));
+                item.put("wordCount", row.get("wordCount"));
+                item.put("readable", canRead);
+                item.put("content", canRead ? ReviewContentText.plain((String) row.get("content")) : null);
+                chapters.add(item);
+                if (canRead) readableCount++;
+            }
+        }
+
+        Map<String, Object> result = new LinkedHashMap<>(work);
+        result.put("stageId", stageId);
+        result.put("stageOrder", stage.getStageOrder());
+        result.put("episodeTo", stage.getEpisodeTo());
+        result.put("stageStatus", stage.getStatus());
+        result.put("submittedAt", stage.getSubmittedAt());
+        result.put("deliverableDesc", stage.getDeliverableDesc());
+        result.put("deliverableUrl", stage.getDeliverableUrl());
+        result.put("aiScore", stage.getAiScore());
+        result.put("chapters", chapters);
+        result.put("readableCount", readableCount);
+        return result;
     }
 
     /**

@@ -132,6 +132,39 @@
         ORDER BY chapter_no ASC, chapter_id ASC
     </select>
 
+    <!--
+      发布者验收查看：交付作品概要。
+      交付作品一定未上架（deliverStage 拒 on_shelf 交付），content 域的读者接口用 readerVisibleWork
+      过滤只认上架作品、作者接口又只认本人，所以发布者只能从这里看；只取验收页要展示的字段，不带正文。
+    -->
+    <select id="selectDeliveredWorkBrief" resultType="java.util.HashMap">
+        SELECT w.work_id AS workId, w.title AS title, w.summary AS summary,
+               w.work_type AS workType, w.length_type AS lengthType,
+               w.episode_count AS episodeCount, w.word_count AS wordCount,
+               w.status AS workStatus, u.nick_name AS authorName
+        FROM sys_work w
+        LEFT JOIN sys_user u ON u.user_id = w.author_id
+        WHERE w.work_id = #{workId}
+          AND w.is_deleted = 0
+    </select>
+
+    <!--
+      发布者验收查看：章节目录 + 本轮集数内的正文。
+      一章即一集（sys_work.episode_count 由本表行数汇总），所以 episodeTo 直接当可读上界；
+      chapter_no 超出本轮的 content 在 SQL 里就置 NULL，而不是查全量再在服务层筛，
+      避免后续改动漏判把未交付轮次的全文发给发布者。status='0' 与 content 域取正常章节的口径一致。
+    -->
+    <select id="selectChaptersForReview" resultType="java.util.HashMap">
+        SELECT c.chapter_id AS chapterId, c.chapter_no AS chapterNo,
+               c.chapter_title AS chapterTitle, c.word_count AS wordCount,
+               CASE WHEN #{episodeTo} IS NULL OR c.chapter_no &lt;= #{episodeTo} THEN 1 ELSE 0 END AS readable,
+               CASE WHEN #{episodeTo} IS NULL OR c.chapter_no &lt;= #{episodeTo} THEN c.content ELSE NULL END AS content
+        FROM sys_work_chapter c
+        WHERE c.work_id = #{workId}
+          AND c.status = '0'
+        ORDER BY c.chapter_no ASC, c.chapter_id ASC
+    </select>
+
     <!-- 激活某轮：写入开始/截止时间(顺序起算)，清零逾期 -->
     <update id="activateStage">
         UPDATE sys_demand_stage

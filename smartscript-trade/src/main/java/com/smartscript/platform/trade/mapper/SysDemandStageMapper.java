@@ -62,6 +62,18 @@ public interface SysDemandStageMapper
     /** AI 审核取文：交付作品的章节正文列表（原始富文本，服务层转纯文本） */
     List<String> selectChapterContents(@Param("workId") Long workId);
 
+    /** 发布者验收查看：交付作品概要（不含正文） */
+    Map<String, Object> selectDeliveredWorkBrief(@Param("workId") Long workId);
+
+    /**
+     * 发布者验收查看：交付作品章节目录，正文按本轮集数截断。
+     *
+     * 一章即一集（sys_work.episode_count 由 sys_work_chapter 行数汇总），episodeTo 直接当可读上界；
+     * 截断放在 SQL 的 CASE 里而不是服务层循环，避免后续改动漏判把未交付轮次的全文发给发布者。
+     */
+    List<Map<String, Object>> selectChaptersForReview(@Param("workId") Long workId,
+                                                      @Param("episodeTo") Integer episodeTo);
+
     /** 激活某轮：写 started_at/due_at，清零逾期 */
     int activateStage(@Param("stageId") Long stageId,
                       @Param("startedAt") Date startedAt,

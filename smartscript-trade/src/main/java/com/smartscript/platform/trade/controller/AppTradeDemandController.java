@@ -46,6 +46,10 @@ public class AppTradeDemandController
     private final IdentityProvider identityProvider;
     private final ChatService chatService;
 
+    /** 招标制（投稿/选标/中标）已下线，任务仅支持接单制；相关端点统一返回此提示。 */
+    private static final String BIDDING_OFFLINE_MSG =
+            "招标制已下线，本任务仅支持接单制（付押金接单、逐轮交付验收）";
+
     /** 开发直通托管开关：本地/演示环境置 true 时，允许"点一下即完成托管"（不走支付宝沙箱）。 */
     @Value("${APP_DEMAND_ESCROW_MOCK_PASS:false}")
     private boolean mockPassEnabled;
@@ -445,16 +449,12 @@ public class AppTradeDemandController
 
     /**
      * 查看投稿列表（仅发布者可看）。
+     * 招标制已下线：任务仅支持接单制，投稿/选标链路整体停用（service 与库表保留休眠，可回退）。
      */
     @GetMapping("/{demandId}/submissions")
     public AppApiResponse<List<SysDemandSubmission>> submissions(@PathVariable Long demandId)
     {
-        Long userId = currentUserId();
-        SysDemand demand = demandService.selectDemandById(demandId);
-        if (demand == null) return AppApiResponse.fail(404, "任务不存在");
-        if (!userId.equals(demand.getClientId())) return AppApiResponse.fail(403, "无权查看投稿");
-        List<SysDemandSubmission> list = demandService.selectSubmissionsByDemandId(demandId);
-        return AppApiResponse.ok(list);
+        return AppApiResponse.fail(410, BIDDING_OFFLINE_MSG);
     }
 
     /**
@@ -466,12 +466,7 @@ public class AppTradeDemandController
             @PathVariable Long demandId,
             @RequestBody Map<String, Object> body)
     {
-        Long userId = currentUserId();
-        Long workId = longVal(body, "workId");
-        String message = str(body, "message");
-        if (workId == null) return AppApiResponse.fail(400, "作品信息不完整，请刷新后重试");
-        SysDemandSubmission sub = demandService.insertSubmission(demandId, workId, userId, message);
-        return AppApiResponse.ok(sub);
+        return AppApiResponse.fail(410, BIDDING_OFFLINE_MSG);
     }
 
     /**
@@ -480,9 +475,7 @@ public class AppTradeDemandController
     @PutMapping("/submission/{submissionId}/shortlist")
     public AppApiResponse<Void> shortlist(@PathVariable Long submissionId)
     {
-        Long userId = currentUserId();
-        demandService.shortlistSubmission(submissionId, userId);
-        return AppApiResponse.ok();
+        return AppApiResponse.fail(410, BIDDING_OFFLINE_MSG);
     }
 
     /**
@@ -491,10 +484,7 @@ public class AppTradeDemandController
     @PutMapping("/submission/{submissionId}/accept")
     public AppApiResponse<SysInquiry> accept(@PathVariable Long submissionId)
     {
-        Long userId = currentUserId();
-        SysInquiry inquiry = demandService.acceptSubmission(submissionId, userId);
-        inquiry.setBudget(yuanToFen(inquiry.getBudget()));
-        return AppApiResponse.ok(inquiry);
+        return AppApiResponse.fail(410, BIDDING_OFFLINE_MSG);
     }
 
     /**
@@ -506,10 +496,7 @@ public class AppTradeDemandController
             @PathVariable Long submissionId,
             @RequestBody(required = false) Map<String, Object> body)
     {
-        Long userId = currentUserId();
-        String remark = body == null ? null : str(body, "remark");
-        demandService.rejectSubmission(submissionId, userId, remark);
-        return AppApiResponse.ok();
+        return AppApiResponse.fail(410, BIDDING_OFFLINE_MSG);
     }
 
     /**
@@ -518,9 +505,7 @@ public class AppTradeDemandController
     @GetMapping("/my-submissions")
     public AppApiResponse<List<SysDemandSubmission>> mySubmissions()
     {
-        Long userId = currentUserId();
-        List<SysDemandSubmission> list = demandService.selectMySubmissions(userId);
-        return AppApiResponse.ok(list);
+        return AppApiResponse.fail(410, BIDDING_OFFLINE_MSG);
     }
 
     /* ==================== 验收轮次 ==================== */
@@ -593,6 +578,28 @@ public class AppTradeDemandController
             SysDemandStage stage = demandService.reviewStage(demandId, stageId, userId, approved, rejectReason);
             stage.setAmount(yuanToFen(stage.getAmount()));
             return AppApiResponse.ok(stage);
+        }
+        catch (RuntimeException e)
+        {
+            return AppApiResponse.fail(400, e.getMessage());
+        }
+    }
+
+    /**
+     * 发布者查看某轮交付作品（验收前核对正文）。
+     *
+     * 仅该任务发布者可调；正文只下发本轮 episodeTo 内的章节，
+     * 之后章节只给标题并标 readable=false（交付作品未上架，走不了 content 域的读者接口）。
+     */
+    @GetMapping("/{demandId}/stage/{stageId}/deliverable-work")
+    public AppApiResponse<Map<String, Object>> deliverableWork(
+            @PathVariable Long demandId,
+            @PathVariable Long stageId)
+    {
+        Long userId = currentUserId();
+        try
+        {
+            return AppApiResponse.ok(demandService.selectStageDeliveredWork(demandId, stageId, userId));
         }
         catch (RuntimeException e)
         {
