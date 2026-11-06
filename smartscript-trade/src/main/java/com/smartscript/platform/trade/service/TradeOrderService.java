@@ -17,6 +17,7 @@ import com.smartscript.platform.trade.domain.SysOrderStatusLog;
 import com.smartscript.platform.trade.mapper.SysOrderMapper;
 import com.smartscript.platform.trade.mapper.SysOrderStatusLogMapper;
 import com.smartscript.platform.trade.mapper.SysEscrowMapper;
+import com.smartscript.platform.trade.mapper.SysWorkCopyrightMapper;
 
 /**
  * C module: order query + generation service.
@@ -58,6 +59,10 @@ public class TradeOrderService
     @Autowired
     private TradeContractService contractService;
 
+    /** 版权登记发证只读判定（跨域表）：无版权作品成单跳过合同直达付款. */
+    @Autowired
+    private SysWorkCopyrightMapper copyrightMapper;
+
     /** 交易全生命周期站内通知统一出口。 */
     @Autowired
     private TradeNotifyService notifyService;
@@ -91,6 +96,9 @@ public class TradeOrderService
     /**
      * 依据询盘生成授权订单（幂等）。转订单与接受报价两条路径共用。
      * 幂等：同一 inquiry_id 已存在订单则直接返回；并由 sys_order.inquiry_id 唯一索引兜底并发。
+     * <p>
+     * 版权分流：有版权作品维持现状（confirmed + 自动生成合同，双签后进 paying）；
+     * 无版权作品成单即 paying（跳过合同全套，买方直接付款）。
      *
      * @param inquiry     询盘
      * @param quoteId     报价 ID（转订单路径传 null）
@@ -125,7 +133,10 @@ public class TradeOrderService
         order.setPlatformFee(BigDecimal.ZERO);
         order.setSplitRate(BigDecimal.ZERO);
         order.setSellerAmount(total);
-        order.setStatus(ORDER_STATUS_CONFIRMED);
+        // 版权分流：有版权 confirmed（待双签合同）；无版权直达 paying（待买方付款）
+        boolean copyrighted = inquiry.getWorkId() != null
+                && copyrightMapper.hasCertificatedCopyright(inquiry.getWorkId());
+        order.setStatus(copyrighted ? ORDER_STATUS_CONFIRMED : ORDER_STATUS_PAYING);
         order.setCreateBy(safeGetOperatorName());
         order.setCreateTime(new Date());
         orderMapper.insertOrder(order);
@@ -133,24 +144,29 @@ public class TradeOrderService
         SysOrderStatusLog log = new SysOrderStatusLog();
         log.setOrderId(order.getOrderId());
         log.setFromStatus(null);
-        log.setToStatus(ORDER_STATUS_CONFIRMED);
+        log.setToStatus(order.getStatus());
         log.setOperatorId(safeGetOperatorId());
         log.setOperatorRole("admin");
-        log.setRemark(logRemark);
+        log.setRemark(copyrighted ? logRemark
+                : logRemark + "（无版权作品：跳过合同，成单即进入付款）");
         log.setCreateBy(safeGetOperatorName());
         log.setCreateTime(new Date());
         logMapper.insertLog(log);
 
         // 自动生成合同：与订单创建同事务，失败即整体回滚。
         // 不再吞异常——若此处放过失败，会建出「无合同、签不了也付不了」的 confirmed 死单（问题3）。
-        String buyerName = inquiry.getBuyerName() != null ? inquiry.getBuyerName() : "买方" + inquiry.getBuyerId();
-        String sellerName = inquiry.getSellerName() != null ? inquiry.getSellerName() : "卖方" + inquiry.getSellerId();
-        String workTitle = inquiry.getWorkTitle() != null ? inquiry.getWorkTitle() : "作品#" + inquiry.getWorkId();
-        contractService.autoGenerateContract(
-                order.getOrderId(), order.getOrderNo(),
-                inquiry.getBuyerId(), inquiry.getSellerId(),
-                buyerName, sellerName, workTitle,
-                total, inquiry.getLicenseType());
+        // 无版权分流：不建合同，付款不依赖签署，不存在死单。
+        if (copyrighted)
+        {
+            String buyerName = inquiry.getBuyerName() != null ? inquiry.getBuyerName() : "买方" + inquiry.getBuyerId();
+            String sellerName = inquiry.getSellerName() != null ? inquiry.getSellerName() : "卖方" + inquiry.getSellerId();
+            String workTitle = inquiry.getWorkTitle() != null ? inquiry.getWorkTitle() : "作品#" + inquiry.getWorkId();
+            contractService.autoGenerateContract(
+                    order.getOrderId(), order.getOrderNo(),
+                    inquiry.getBuyerId(), inquiry.getSellerId(),
+                    buyerName, sellerName, workTitle,
+                    total, inquiry.getLicenseType());
+        }
 
         return order;
     }

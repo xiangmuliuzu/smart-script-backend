@@ -324,8 +324,10 @@ public class TradeQuoteService
         Long counterpartId = OPERATOR_ROLE_BUYER.equals(operatorRole) ? inquiry.getSellerId() : inquiry.getBuyerId();
         String acceptorName = OPERATOR_ROLE_BUYER.equals(operatorRole)
                 ? inquiry.getBuyerName() : inquiry.getSellerName();
+        // 版权分流识别：新单成即 paying 即无版权作品（建单时已跳过合同），指引文案随之不同
+        boolean copyrighted = !TradeOrderService.ORDER_STATUS_PAYING.equals(order.getStatus());
         notifyService.notifyQuoteAccepted(order.getOrderId(), order.getOrderNo(),
-                inquiry.getWorkTitle(), quote.getPrice(), acceptorName, counterpartId);
+                inquiry.getWorkTitle(), quote.getPrice(), acceptorName, counterpartId, copyrighted);
 
         return order;
     }

@@ -137,6 +137,19 @@ public class AppTradeInquiryController
     }
 
     /**
+     * 作品确权状态：该作品是否已完成版权登记发证。
+     *
+     * true=有版权（发起询盘需选授权类型，成交后走合同签署）；
+     * false=无版权（发起询盘不选授权类型，接受报价后跳过合同直达付款）。
+     * 供 APP 发起询盘页决定是否展示授权类型选择器。
+     */
+    @GetMapping("/copyright-status")
+    public AppApiResponse<Boolean> copyrightStatus(@RequestParam Long workId)
+    {
+        return AppApiResponse.ok(inquiryService.hasCopyright(workId));
+    }
+
+    /**
      * 询盘详情。
      */
     @GetMapping("/{id}")

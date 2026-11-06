@@ -11,6 +11,7 @@ import com.smartscript.platform.trade.domain.SysInquiry;
 import com.smartscript.platform.trade.domain.SysOrder;
 import com.smartscript.platform.trade.domain.SysWork;
 import com.smartscript.platform.trade.mapper.SysInquiryMapper;
+import com.smartscript.platform.trade.mapper.SysWorkCopyrightMapper;
 import com.smartscript.platform.trade.mapper.SysWorkMapper;
 
 /**
@@ -46,6 +47,10 @@ public class TradeInquiryService
     @Autowired
     private SysWorkMapper workMapper;
 
+    /** 版权登记发证只读判定（跨域表）：分流有/无版权交易流程. */
+    @Autowired
+    private SysWorkCopyrightMapper copyrightMapper;
+
     @Autowired
     private TradeOrderService orderService;
 
@@ -63,10 +68,19 @@ public class TradeInquiryService
         return inquiryMapper.selectInquiryById(inquiryId);
     }
 
+    /** 作品是否已完成版权登记发证：true=有版权（走合同流程），false=无版权（跳过合同直达付款）. */
+    public boolean hasCopyright(Long workId)
+    {
+        return workId != null && copyrightMapper.hasCertificatedCopyright(workId);
+    }
+
     /**
      * 发起询盘（分工条目 9，PRD APP-TRADE-02）。
      * 买方对某作品发起合作询盘，落库后置 pending（待回复），生成 inquiry_no 与 expire_at。
      * PC 商务运营管理员可代录；APP 侧待 A 的 APP 鉴权合入后复用本方法。
+     * <p>
+     * 版权分流：有版权作品授权类型必填（现状）；无版权作品去掉授权类型（licenseType 置 null），
+     * 后续接受报价将跳过合同直接进入付款（见 TradeOrderService.generateOrderFromInquiry）。
      */
     @Transactional
     public SysInquiry createInquiry(SysInquiry inquiry)
@@ -83,10 +97,6 @@ public class TradeInquiryService
         {
             throw new RuntimeException("卖方ID不能为空");
         }
-        if (inquiry.getLicenseType() == null || inquiry.getLicenseType().isEmpty())
-        {
-            throw new RuntimeException("授权类型不能为空");
-        }
         // 不能对自己拥有的作品发起询盘：以作品真实归属 authorId 为准做同源校验，
         // 防止调用方伪造 sellerId 绕过（APP/PC/企业端所有创建入口在此统一收口）。
         SysWork work = workMapper.selectWorkById(inquiry.getWorkId());
@@ -100,6 +110,18 @@ public class TradeInquiryService
         }
         // 以作品归属为准回填卖方，避免调用方传入的 sellerId 与实际作者不一致
         inquiry.setSellerId(work.getAuthorId());
+        // 授权类型按版权分流：有版权必填（现状流程）；无版权不要求授权类型，归一置 null 防前端误传
+        if (hasCopyright(work.getWorkId()))
+        {
+            if (inquiry.getLicenseType() == null || inquiry.getLicenseType().isEmpty())
+            {
+                throw new RuntimeException("授权类型不能为空");
+            }
+        }
+        else
+        {
+            inquiry.setLicenseType(null);
+        }
         if (inquiry.getIntendedUse() == null || inquiry.getIntendedUse().isEmpty())
         {
             inquiry.setIntendedUse("-");

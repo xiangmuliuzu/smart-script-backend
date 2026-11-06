@@ -85,16 +85,18 @@ public class TradeNotifyService
                 "INQUIRY", str(inquiryId), one(buyerId), "BUYER");
     }
 
-    /** 一方接受报价 → 通知另一方订单已生成，进入合同签署环节。 */
+    /** 一方接受报价 → 通知另一方订单已生成：有版权进合同签署，无版权直达付款。 */
     public void notifyQuoteAccepted(Long orderId, String orderNo, String workTitle, BigDecimal amount,
-            String acceptorName, Long counterpartUserId)
+            String acceptorName, Long counterpartUserId, boolean copyrighted)
     {
         StringBuilder content = new StringBuilder("对方已接受报价，交易达成一致，授权订单已生成。\n");
         line(content, "作品", titleOf(workTitle));
         line(content, "订单编号", orderNo);
         line(content, "成交金额", amountText(amount));
         line(content, "接受方", nameOf(acceptorName));
-        content.append("下一步请前往「合同」完成双方签署，签署完成后进入付款流程。");
+        content.append(copyrighted
+                ? "下一步请前往「合同」完成双方签署，签署完成后进入付款流程。"
+                : "该作品未确权，本次交易免签合同，请前往「订单」直接完成付款。");
         push("TRD-QTE-ACC-" + orderId, "报价已接受，订单已生成", content.toString(),
                 "ORDER", str(orderId), one(counterpartUserId), "BOTH");
     }
