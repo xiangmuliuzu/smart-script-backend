@@ -14,6 +14,7 @@ import com.smartscript.platform.trade.domain.SysQuote;
 import com.smartscript.platform.trade.domain.SysWork;
 import com.smartscript.platform.trade.mapper.SysInquiryMapper;
 import com.smartscript.platform.trade.mapper.SysQuoteMapper;
+import com.smartscript.platform.trade.mapper.SysWorkCopyrightMapper;
 import com.smartscript.platform.trade.mapper.SysWorkMapper;
 
 /**
@@ -61,6 +62,10 @@ public class TradeQuoteService
 
     @Autowired
     private SysWorkMapper workMapper;
+
+    /** 版权分流唯一判定入口：作品是否存在已确权版权记录（与建单口径一致）。 */
+    @Autowired
+    private SysWorkCopyrightMapper copyrightMapper;
 
     @Autowired
     private TradeOrderService orderService;
@@ -324,8 +329,9 @@ public class TradeQuoteService
         Long counterpartId = OPERATOR_ROLE_BUYER.equals(operatorRole) ? inquiry.getSellerId() : inquiry.getBuyerId();
         String acceptorName = OPERATOR_ROLE_BUYER.equals(operatorRole)
                 ? inquiry.getBuyerName() : inquiry.getSellerName();
-        // 版权分流识别：新单成即 paying 即无版权作品（建单时已跳过合同），指引文案随之不同
-        boolean copyrighted = !TradeOrderService.ORDER_STATUS_PAYING.equals(order.getStatus());
+        // 版权分流识别：直查版权确权记录（与建单同源），不用订单状态反推，避免状态机演进后口径漂移
+        boolean copyrighted = inquiry.getWorkId() != null
+                && copyrightMapper.hasCertificatedCopyright(inquiry.getWorkId());
         notifyService.notifyQuoteAccepted(order.getOrderId(), order.getOrderNo(),
                 inquiry.getWorkTitle(), quote.getPrice(), acceptorName, counterpartId, copyrighted);
 

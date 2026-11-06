@@ -333,10 +333,10 @@ public class TradeOrderService
     }
 
     /**
-     * 取消订单（问题4）：仅「双方签署完成前」（即订单仍为 confirmed，合同为 pending/partial_signed）允许。
-     * 一旦合同双签完成、订单自动进入 paying，即锁定不可取消。
+     * 取消订单（问题4）：付款前可取消——「双方签署完成前」（confirmed）与「待付款尚未付款」（paying 且 pay_time 为空）均允许。
+     * 无版权分流后新单成即 paying，若仅放行 confirmed 则此类单永不可取消；一旦实际付款（转 delivering）即锁定。
      * <p>
-     * 买卖双方任一方可发起；CAS 落库（仅 confirmed 可取消，防并发）；
+     * 买卖双方任一方可发起；CAS 落库（仅 confirmed/paying-未付款 可取消，防并发与付款竞态）；
      * 连带作废该订单下尚未签满的合同，避免残留合同被签署后试图把已取消订单推回 paying。
      *
      * @param operatorId 操作人（须为买方或卖方）
@@ -355,16 +355,19 @@ public class TradeOrderService
         {
             throw new RuntimeException("只有交易双方可以取消订单");
         }
-        if (!ORDER_STATUS_CONFIRMED.equals(order.getStatus()))
+        String prevStatus = order.getStatus();
+        boolean cancellable = ORDER_STATUS_CONFIRMED.equals(prevStatus)
+                || (ORDER_STATUS_PAYING.equals(prevStatus) && order.getPayTime() == null);
+        if (!cancellable)
         {
-            throw new RuntimeException("合同双方签署完成后不可取消订单，当前状态: " + order.getStatus());
+            throw new RuntimeException("订单已付款或已进入后续环节，不可取消，当前状态: " + prevStatus);
         }
 
-        // CAS 落库：仅 confirmed 可取消，防并发重复；取消原因落 remark（toAppMap / 列表按 cancelReason 展示）
+        // CAS 落库：仅 confirmed 或未付款的 paying 可取消，叠加 pay_time IS NULL 防与付款并发竞态；取消原因落 remark（toAppMap / 列表按 cancelReason 展示）
         String actor = safeGetOperatorName();
         int changed = jdbc.update("UPDATE sys_order SET status = ?, remark = ?, update_by = ?, update_time = NOW() "
-                + "WHERE order_id = ? AND status = ?",
-                ORDER_STATUS_CANCELLED, reason, actor, orderId, ORDER_STATUS_CONFIRMED);
+                + "WHERE order_id = ? AND status IN ('confirmed', 'paying') AND pay_time IS NULL",
+                ORDER_STATUS_CANCELLED, reason, actor, orderId);
         if (changed != 1)
         {
             throw new RuntimeException("订单状态已变化，请刷新后重试");
@@ -376,7 +379,7 @@ public class TradeOrderService
 
         SysOrderStatusLog log = new SysOrderStatusLog();
         log.setOrderId(orderId);
-        log.setFromStatus(ORDER_STATUS_CONFIRMED);
+        log.setFromStatus(prevStatus);
         log.setToStatus(ORDER_STATUS_CANCELLED);
         log.setOperatorId(operatorId);
         log.setOperatorRole(operatorId.equals(order.getBuyerId()) ? "buyer" : "seller");

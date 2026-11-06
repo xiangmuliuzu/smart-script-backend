@@ -218,6 +218,7 @@ public class AppTradeOrderController
         m.put("amount", o.getTotalAmount() != null
                 ? o.getTotalAmount().multiply(new BigDecimal("100")).longValue() : null);
         m.put("licenseType", o.getLicenseType());
+        m.put("contractId", o.getContractId());
         m.put("status", o.getStatus());
         m.put("cancelReason", o.getRemark());
         m.put("createdAt", o.getCreatedAt());

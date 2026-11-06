@@ -36,7 +36,7 @@
     </resultMap>
 
     <select id="selectOrderList" parameterType="com.smartscript.platform.trade.domain.SysOrder" resultMap="SysOrderResult">
-        select o.order_id, o.order_no, o.inquiry_id, o.quote_id, o.work_id,
+        select o.order_id, o.order_no, o.contract_id, o.inquiry_id, o.quote_id, o.work_id,
                o.buyer_id, o.seller_id, o.order_type, o.license_type,
                o.total_amount, o.platform_fee, o.split_rate, o.seller_amount,
                o.status, o.pay_time, o.complete_time,
@@ -90,7 +90,7 @@
     </select>
 
     <sql id="selectOrderVo">
-        select o.order_id, o.order_no, o.inquiry_id, o.quote_id, o.work_id,
+        select o.order_id, o.order_no, o.contract_id, o.inquiry_id, o.quote_id, o.work_id,
                o.buyer_id, o.seller_id, o.order_type, o.license_type,
                o.total_amount, o.platform_fee, o.split_rate, o.seller_amount,
                o.status, o.pay_time, o.complete_time,
