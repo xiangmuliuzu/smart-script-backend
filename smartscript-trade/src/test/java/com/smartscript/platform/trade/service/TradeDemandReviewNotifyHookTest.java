@@ -232,4 +232,41 @@ class TradeDemandReviewNotifyHookTest
         verify(notify2, never()).notifyStageRejectedByAi(
                 any(SysDemand.class), any(SysDemandStage.class), any(), anyString());
     }
+
+    @Test
+    @DisplayName("E6 超时终止：失败通知携带托管退回与押金没收入账金额")
+    void terminateRound_notifiesWithDepositAmounts()
+    {
+        SysDemand d = demand("in_progress");
+        d.setEscrowAmount(new BigDecimal("3000.00"));
+        d.setDepositAmount(new BigDecimal("500.00"));
+        SysDemandStage active = submittedStage(new BigDecimal("100.00"));
+        active.setDueAt(new Date(System.currentTimeMillis() - 60_000L));
+        when(demandMapper.failDemandIfInProgress(eq(DEMAND_ID),
+                eq(TradeDemandService.DEMAND_STATUS_FAILED),
+                eq(TradeDemandService.ESCROW_REFUNDED_TO_PUBLISHER),
+                eq(TradeDemandService.DEPOSIT_FORFEITED), anyString())).thenReturn(1);
+
+        ReflectionTestUtils.invokeMethod(service, "terminateRound", d, active, new Date());
+
+        verify(notifyService, times(1)).notifyDemandRoundFailed(eq(DEMAND_ID), eq(DEMAND_TITLE),
+                eq(STAGE_ORDER), anyString(), eq(BUYER_ID), eq(CREATOR_ID),
+                eq(new BigDecimal("3000.00")), eq(new BigDecimal("500.00")));
+    }
+
+    @Test
+    @DisplayName("E6 并发防重：CAS 终止落败（changed=0）不重发失败通知")
+    void terminateRound_lostRace_noNotify()
+    {
+        SysDemand d = demand("in_progress");
+        d.setEscrowAmount(new BigDecimal("3000.00"));
+        d.setDepositAmount(new BigDecimal("500.00"));
+        SysDemandStage active = submittedStage(new BigDecimal("100.00"));
+        when(demandMapper.failDemandIfInProgress(any(), any(), any(), any(), any())).thenReturn(0);
+
+        ReflectionTestUtils.invokeMethod(service, "terminateRound", d, active, new Date());
+
+        verify(notifyService, never()).notifyDemandRoundFailed(
+                any(), any(), any(), any(), any(), any(), any(), any());
+    }
 }

@@ -436,15 +436,17 @@ public class TradeNotifyService
                 content.toString(), "DEMAND", str(demandId), one(creatorId), "SELLER");
     }
 
-    /** 本轮超时未通过 → 任务失败终止，按角色分别通知发布者与创作者。 */
+    /** 本轮超时未通过 → 任务失败终止，按角色分别通知发布者与创作者（含托管退回与押金没收入账金额）。 */
     public void notifyDemandRoundFailed(Long demandId, String demandTitle, Integer stageOrder,
-            String reason, Long buyerId, Long creatorId)
+            String reason, Long buyerId, Long creatorId, BigDecimal escrowAmount, BigDecimal depositAmount)
     {
         String buyerContent = "任务因本轮交付超时未通过而失败终止。\n"
                 + detailLine("任务", titleOf(demandTitle))
                 + detailLine("超时轮次", roundText(stageOrder))
                 + detailLine("终止原因", reason)
-                + "托管款项已退回给您，创作者本次任务押金已按规则没收。";
+                + detailLine("托管退回", amountText(escrowAmount))
+                + detailLine("押金入账", amountText(depositAmount))
+                + "托管款项已退回给您；创作者本次任务押金已按规则没收并入账到您的账户。";
         push("TRD-DM-FAIL-" + demandId + "-" + stageOrder + "-B", "任务超时终止",
                 buyerContent, "DEMAND", str(demandId), one(buyerId), "BUYER");
 
@@ -452,7 +454,8 @@ public class TradeNotifyService
                 + detailLine("任务", titleOf(demandTitle))
                 + detailLine("超时轮次", roundText(stageOrder))
                 + detailLine("终止原因", reason)
-                + "本次任务押金已按规则没收，如有疑问可与发布方沟通。";
+                + detailLine("押金没收", amountText(depositAmount))
+                + "本次任务押金已按规则没收并入账至发布方，如有疑问可与发布方沟通。";
         push("TRD-DM-FAIL-" + demandId + "-" + stageOrder + "-S", "任务超时终止",
                 creatorContent, "DEMAND", str(demandId), one(creatorId), "SELLER");
     }
@@ -557,7 +560,7 @@ public class TradeNotifyService
                 + detailLine("预算总额", amountText(demand.getBudget()))
                 + detailLine("押金退还", amountText(demand.getDepositAmount()))
                 + detailLine("发布者", nameOf(demand.getClientName()))
-                + "请前往「收益-待结算」逐轮确认入账。";
+                + "押金已随任务完成退还，收益请前往「收益-待结算」逐轮确认入账。";
         push("TRD-DM-DONE-" + demand.getDemandId() + "-S", "任务已完成",
                 creatorContent, "DEMAND", str(demand.getDemandId()), one(demand.getAcceptedCreatorId()), "SELLER");
     }

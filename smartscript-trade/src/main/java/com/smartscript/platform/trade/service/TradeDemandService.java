@@ -209,7 +209,8 @@ public class TradeDemandService
         demand.setOverdue(1);
         demand.setDueAt(active.getDueAt());
         notifyService.notifyDemandRoundFailed(demand.getDemandId(), demand.getTitle(),
-                active.getStageOrder(), reason, demand.getClientId(), demand.getAcceptedCreatorId());
+                active.getStageOrder(), reason, demand.getClientId(), demand.getAcceptedCreatorId(),
+                demand.getEscrowAmount(), demand.getDepositAmount());
         return true;
     }
 
