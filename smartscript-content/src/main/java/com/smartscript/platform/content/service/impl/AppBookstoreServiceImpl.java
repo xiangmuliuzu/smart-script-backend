@@ -473,6 +473,13 @@ public class AppBookstoreServiceImpl implements IAppBookstoreService
         dto.setAccessScope(unlocked ? ACCESS_SCOPE_FULL : ACCESS_SCOPE_PREVIEW);
         dto.setUnlocked(unlocked);
         List<AppChapterDto> list = toChapterDtos(work, unlocked);
+        // 未获授权时目录只展示可试读章节（试读范围 + 作者标记免费），
+        // 已发布但未开放试读的付费章节直接不下发；获授权后展示全部已发布章节。
+        dto.setPublishedTotal(list.size());
+        if (!unlocked)
+        {
+            list = list.stream().filter(chapter -> Boolean.TRUE.equals(chapter.getReadable())).toList();
+        }
         dto.setTotal(list.size());
         dto.setList(list);
         return dto;
@@ -584,7 +591,8 @@ public class AppBookstoreServiceImpl implements IAppBookstoreService
      * 当前用户对作品是否已获授权（可读全文）。
      *
      * 判定口径：sys_copyright_authorization 中存在「生效中」的授权记录
-     * （work_id=作品 且 licensee_id=当前 App 用户 且 status='active' 且时间窗覆盖今天）。
+     * （work_id=作品 且 licensee_id=当前 App 用户 且 status='active' 且时间窗覆盖今天），
+     * 或 sys_order 中存在该用户已购买该作品且已完成的订单（D 模块未落地前的成交口径）。
      * 不细分 license_type/license_scope：二者属 D 模块（版权财务域）语义，本批不越界解释。
      * 游客（无身份）一律视为未授权，不伪造用户 ID。
      */
@@ -599,7 +607,11 @@ public class AppBookstoreServiceImpl implements IAppBookstoreService
         {
             return false;
         }
-        return authorizationMapper.countEffectiveAuthorization(workId, userId) > 0;
+        if (authorizationMapper.countEffectiveAuthorization(workId, userId) > 0)
+        {
+            return true;
+        }
+        return authorizationMapper.countPurchasedOrder(workId, userId) > 0;
     }
 
     /**

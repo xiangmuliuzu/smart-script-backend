@@ -9,8 +9,9 @@ import java.util.List;
  *       sys_copyright_authorization（授权放开全文）。
  *
  * 访问范围 accessScope 取值：
- *   - preview：未获授权，仅能阅读试读范围内的章节（试读开关未开时实际无可读章节）；
- *   - full   ：已获授权，可阅读全部正常章节。
+ *   - preview：未获授权，目录仅展示可试读章节（试读范围 + 作者标记的免费章节），
+ *              已发布但未开放试读的付费章节不下发；
+ *   - full   ：已获授权，展示并可阅读全部已发布章节。
  * unlocked 为 accessScope 的布尔等价形态，便于客户端直接判断是否需要展示「未授权」提示。
  *
  * @author xiangsipeng
@@ -32,8 +33,11 @@ public class AppChapterListDto
     /** 是否已获授权（等价于 accessScope=='full'） */
     private Boolean unlocked;
 
-    /** 章节总数 */
+    /** 章节总数（当前身份可见的章节数） */
     private Integer total;
+
+    /** 已发布章节总数（含当前身份不可见的付费章节，用于展示「共 N 章」） */
+    private Integer publishedTotal;
 
     /** 章节摘要集合（按 chapter_no 升序，不下发 content 全文） */
     private List<AppChapterDto> list;
@@ -100,6 +104,16 @@ public class AppChapterListDto
     public void setTotal(Integer total)
     {
         this.total = total;
+    }
+
+    public Integer getPublishedTotal()
+    {
+        return publishedTotal;
+    }
+
+    public void setPublishedTotal(Integer publishedTotal)
+    {
+        this.publishedTotal = publishedTotal;
     }
 
     public List<AppChapterDto> getList()

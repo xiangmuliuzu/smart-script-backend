@@ -29,4 +29,16 @@ public interface AppWorkAuthorizationMapper
      * @return 生效授权条数（0 表示未授权）
      */
     public int countEffectiveAuthorization(@Param("workId") Long workId, @Param("licenseeId") Long licenseeId);
+
+    /**
+     * 统计当前用户已购买（订单已完成）该作品版权的订单数。
+     *
+     * 背景：D 模块未落地前，App 版权交易的成交结果落在 C 模块 sys_order（status='completed'），
+     * 需与授权表一起作为「已购可读全文」的判定来源。
+     *
+     * @param workId     作品ID
+     * @param licenseeId 购买方用户ID
+     * @return 已完成订单数（0 表示未购买）
+     */
+    public int countPurchasedOrder(@Param("workId") Long workId, @Param("licenseeId") Long licenseeId);
 }
