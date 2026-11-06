@@ -76,4 +76,53 @@ public class PointsService {
         pointsRecordMapper.insertPointsRecord(record);
         return balanceAfter;
     }
+
+    /**
+     * 管理员调整积分余额（按目标余额设置，差额计入获得/消耗并写流水）
+     *
+     * @param userId  用户ID
+     * @param balance 目标余额（>=0）
+     * @param remark  调整备注（可为空）
+     * @return 调整后余额
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public int adjustBalance(Long userId, int balance, String remark) {
+        if (userId == null) {
+            throw new IllegalArgumentException("userId不能为空");
+        }
+        if (balance < 0) {
+            throw new IllegalArgumentException("积分余额不能为负数");
+        }
+        PointsAccount account = pointsAccountMapper.selectByUserId(userId);
+        if (account == null) {
+            throw new IllegalStateException("该用户积分账户不存在");
+        }
+        int current = account.getBalance() == null ? 0 : account.getBalance();
+        int delta = balance - current;
+        if (delta == 0) {
+            return current;
+        }
+        String today = new SimpleDateFormat("yyyy-MM-dd").format(new Date());
+        int updated;
+        if (delta > 0) {
+            updated = pointsAccountMapper.increaseBalance(userId, delta, today);
+        } else {
+            updated = pointsAccountMapper.decreaseBalance(userId, -delta);
+        }
+        if (updated == 0) {
+            throw new IllegalStateException("积分账户更新失败 userId=" + userId);
+        }
+        PointsRecord record = new PointsRecord();
+        record.setUserId(userId);
+        record.setChangeType(delta > 0 ? "EARN" : "SPEND");
+        record.setPoints(Math.abs(delta));
+        record.setBalanceAfter(balance);
+        record.setSource("REVERSAL");
+        String text = (remark == null || remark.trim().isEmpty())
+                ? ("管理员调整余额：" + current + " → " + balance)
+                : remark.trim();
+        record.setRemark(text);
+        pointsRecordMapper.insertPointsRecord(record);
+        return balance;
+    }
 }

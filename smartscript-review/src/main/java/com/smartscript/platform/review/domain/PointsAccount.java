@@ -31,6 +31,8 @@ public class PointsAccount {
     private String remark;
     /** 关联用户昵称（联表查询） */
     private String nickname;
+    /** 关联用户手机号（联表查询） */
+    private String phonenumber;
 
     public Long getAccountId() { return accountId; }
     public void setAccountId(Long accountId) { this.accountId = accountId; }
@@ -58,4 +60,6 @@ public class PointsAccount {
     public void setRemark(String remark) { this.remark = remark; }
     public String getNickname() { return nickname; }
     public void setNickname(String nickname) { this.nickname = nickname; }
+    public String getPhonenumber() { return phonenumber; }
+    public void setPhonenumber(String phonenumber) { this.phonenumber = phonenumber; }
 }

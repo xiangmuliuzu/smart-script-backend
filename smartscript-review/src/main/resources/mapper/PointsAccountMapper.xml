@@ -16,18 +16,22 @@
         <result property="updateTime"    column="update_time"     />
         <result property="remark"        column="remark"           />
         <result property="nickname"      column="nick_name"      />
+        <result property="phonenumber"   column="phonenumber"    />
     </resultMap>
 
     <select id="selectPointsAccountList" parameterType="com.smartscript.platform.review.domain.PointsAccount" resultMap="PointsAccountResult">
         SELECT pa.account_id, pa.user_id, pa.balance, pa.total_earned, pa.total_spent,
                pa.today_earned, pa.last_update_date, pa.create_by, pa.created_at,
                pa.update_by, pa.update_time, pa.remark,
-               u.nick_name
+               u.nick_name, u.phonenumber
         FROM sys_points_account pa
         LEFT JOIN sys_user u ON u.user_id = pa.user_id
         <where>
             <if test="userId != null">
                 AND pa.user_id = #{userId}
+            </if>
+            <if test="phonenumber != null and phonenumber != ''">
+                AND u.phonenumber LIKE CONCAT('%', #{phonenumber}, '%')
             </if>
             <if test="nickname != null and nickname != ''">
                 AND u.nick_name LIKE CONCAT('%', #{nickname}, '%')
@@ -40,7 +44,7 @@
         SELECT pa.account_id, pa.user_id, pa.balance, pa.total_earned, pa.total_spent,
                pa.today_earned, pa.last_update_date, pa.create_by, pa.created_at,
                pa.update_by, pa.update_time, pa.remark,
-               u.nick_name
+               u.nick_name, u.phonenumber
         FROM sys_points_account pa
         LEFT JOIN sys_user u ON u.user_id = pa.user_id
         WHERE pa.user_id = #{userId}
