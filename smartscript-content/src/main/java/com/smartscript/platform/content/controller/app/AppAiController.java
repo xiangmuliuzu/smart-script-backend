@@ -177,17 +177,38 @@ public class AppAiController
         {
             for (Object item : list)
             {
-                try
+                Long id = asPositiveLong(item);
+                if (id != null)
                 {
-                    ids.add(Long.valueOf(String.valueOf(item)));
+                    ids.add(id);
                 }
-                catch (NumberFormatException ignored)
-                {
-                    // 非法ID直接忽略，不因单条脏数据拒绝整批删除。
-                }
+                // 非法ID直接忽略，不因单条脏数据拒绝整批删除。
             }
         }
         return AppApiResponse.ok(aiWriteService.deleteWriteRecords(ids));
+    }
+
+    /** 请求体里的 ID 可能是数字、字符串或小数；只接受正整数，其余忽略。 */
+    private static Long asPositiveLong(Object item)
+    {
+        if (item instanceof Number number)
+        {
+            long value = number.longValue();
+            return value > 0 && value == number.doubleValue() ? value : null;
+        }
+        if (item instanceof String text)
+        {
+            try
+            {
+                long value = Long.parseLong(text.trim());
+                return value > 0 ? value : null;
+            }
+            catch (NumberFormatException ignored)
+            {
+                return null;
+            }
+        }
+        return null;
     }
 
     /**
