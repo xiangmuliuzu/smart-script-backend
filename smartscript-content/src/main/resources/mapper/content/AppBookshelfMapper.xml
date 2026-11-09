@@ -5,44 +5,17 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 <mapper namespace="com.smartscript.platform.content.mapper.AppBookshelfMapper">
 
 	<!--
-	  依据：云端 script_platform_dev 库 sys_bookshelf_record 表（附件5.1 表3-32）。
-	  反推处理点：
-	  1. 表上有唯一索引 uk_user_work(user_id, work_id)，仍用
-	     INSERT ... SELECT ... WHERE NOT EXISTS 保证幂等（MySQL 允许 INSERT ... SELECT 读同一张表），
-	     与 AppFavoriteMapper.xml 同一写法；不依赖 INSERT IGNORE 的静默语义。
-	  2. add_source / is_deleted / created_at / updated_at 均为 NOT NULL 且无默认值，
-	     必须显式写入；created_at / updated_at 写 now()，不依赖库默认值差异。
-	  3. is_deleted 一律写 0；移出书架为物理删除，故查询与计数无需过滤该列。
-	  4. 列表只回「已上架未删除」作品，与 2.7.2 作品详情可见性口径一致；下架后书架关系保留，
-	     重新上架即恢复展示。
-	  5. 阅读进度（last_read_chapter_id / last_read_at）随列表一并下发；章节序号经
-	     LEFT JOIN sys_work_chapter.chapter_no 得到（章节被删则序号为空，仍展示时间）。
+	  书架语义（B 模块书城）：书架 = 「已购买 / 已获授权」的作品库，
+	  不再支持把普通作品手工加入书架，故本 Mapper 无写入书架关系的语句。
+
+	  数据来源（与章节解锁同一口径，避免「书架有书但点开无权限」）：
+	    1. sys_order：buyer_id = 当前用户 且 status = 'completed'（D 模块未落地前的成交口径）；
+	    2. sys_copyright_authorization：licensee_id = 当前用户 且 status = 'active' 且时间窗覆盖今天。
+	  两者任一命中即视为已购；同一作品多次购买按 work_id 聚合、以最近一次成交时间排序。
+
+	  sys_bookshelf_record 降级为阅读进度载体（last_read_chapter_id / last_read_at），
+	  不再表达「是否在书架」，读取时 LEFT JOIN，无进度行不影响列表展示。
 	-->
-	<insert id="insertShelfIfAbsent">
-		insert into sys_bookshelf_record (user_id, work_id, add_source, is_deleted, created_at, updated_at)
-		select #{userId}, #{workId}, #{addSource}, 0, now(), now()
-		from dual
-		where not exists (
-			select 1 from sys_bookshelf_record r
-			where r.user_id = #{userId} and r.work_id = #{workId}
-		)
-	</insert>
-
-	<delete id="deleteShelf">
-		delete from sys_bookshelf_record
-		where user_id = #{userId}
-		  and work_id = #{workId}
-	</delete>
-
-	<select id="countShelf" resultType="int">
-		select count(1)
-		from sys_bookshelf_record
-		where user_id = #{userId}
-		  and work_id = #{workId}
-	</select>
-
-	<!-- 列表列与 SysContentWorkMapper.selectAppWorkList 一致，
-	     在其 AppWorkDtoResult 结果映射上扩展进度列，避免同一批作品字段出现两套映射产生口径漂移 -->
 	<resultMap id="AppShelfWorkDtoResult"
 	           type="com.smartscript.platform.content.dto.AppShelfWorkDto"
 	           extends="com.smartscript.platform.content.mapper.SysContentWorkMapper.AppWorkDtoResult">
@@ -51,6 +24,11 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		<result property="lastReadAt"        column="last_read_at"         />
 	</resultMap>
 
+	<!--
+	  已购作品列表（按最近成交时间倒序；分页由调用方 PageHelper 驱动）。
+	  不过滤 sys_work.status：买家已付费的作品即使被运营下架，仍应保留在书架并可阅读
+	  （章节解锁同样不校验上架状态），仅排除逻辑删除的作品。
+	-->
 	<select id="selectShelfWorks" resultMap="AppShelfWorkDtoResult">
 		select w.work_id, w.title, w.cover, w.author_id, w.work_type, w.upload_type,
 		       w.length_type, w.summary, w.price, w.trade_type, w.trade_enabled,
@@ -61,28 +39,49 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		       r.last_read_chapter_id,
 		       ch.chapter_no as last_read_chapter_no,
 		       r.last_read_at
-		from sys_bookshelf_record r
-		inner join sys_work w on w.work_id = r.work_id
+		from sys_work w
 		left join sys_user u on u.user_id = w.author_id
+		left join sys_bookshelf_record r on r.user_id = #{userId} and r.work_id = w.work_id
 		left join sys_work_chapter ch on ch.chapter_id = r.last_read_chapter_id
-		where r.user_id = #{userId}
+		left join (
+			select o.work_id,
+			       max(coalesce(o.complete_time, o.pay_time, o.created_at)) as acquire_time
+			from sys_order o
+			where o.buyer_id = #{userId}
+			  and o.status = 'completed'
+			group by o.work_id
+		) o on o.work_id = w.work_id
+		left join (
+			select a.work_id, max(a.start_date) as acquire_time
+			from sys_copyright_authorization a
+			where a.licensee_id = #{userId}
+			  and a.status = 'active'
+			  and a.start_date &lt;= curdate()
+			  and (a.end_date is null or a.end_date &gt;= curdate())
+			group by a.work_id
+		) a on a.work_id = w.work_id
+		where (o.work_id is not null or a.work_id is not null)
 		  and w.is_deleted = 0
-		  and w.status = 'on_shelf'
-		order by r.created_at desc, r.id desc
+		order by coalesce(o.acquire_time, a.acquire_time) desc, w.work_id desc
 	</select>
 
 	<!--
 	  记录阅读进度（接口 2.7.12 补充写入，PUT /content/shelf/{workId}/progress）。
-	  仅当该作品已在该用户书架时有行可更新：影响 0 行即表示不在书架，由服务层按 404 处理。
-	  移出书架为物理删除，故无需再判 is_deleted。
+
+	  书架改为购买派生后，不再存在「是否已加入书架」的前置行，故改为 upsert：
+	  首次阅读自动建立进度行（add_source = 'read'），已存在则覆盖最近章节与时间。
+	  依赖表上唯一索引 uk_user_work(user_id, work_id) 触发 ON DUPLICATE KEY。
 	-->
-	<update id="updateShelfProgress">
-		update sys_bookshelf_record
-		set last_read_chapter_id = #{chapterId},
-		    last_read_at = now(),
-		    updated_at = now()
-		where user_id = #{userId}
-		  and work_id = #{workId}
-	</update>
+	<insert id="saveProgress">
+		insert into sys_bookshelf_record
+			(user_id, work_id, add_source, is_deleted, last_read_chapter_id, last_read_at, created_at, updated_at)
+		values
+			(#{userId}, #{workId}, 'read', 0, #{chapterId}, now(), now(), now())
+		on duplicate key update
+			last_read_chapter_id = values(last_read_chapter_id),
+			last_read_at = values(last_read_at),
+			add_source = 'read',
+			updated_at = values(updated_at)
+	</insert>
 
 </mapper>
