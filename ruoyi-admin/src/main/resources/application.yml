@@ -148,6 +148,14 @@ app:
       user-title: ${APP_AGREEMENT_USER_TITLE:用户协议}
       privacy-title: ${APP_AGREEMENT_PRIVACY_TITLE:隐私政策}
 
+# 积分充值（模拟支付壳子；真实微信/支付宝支付由支付组接入）
+# 换算比例：1 元 = points-per-yuan 积分，改这里即可调整（默认 1 元 100 积分）。
+# 固定档位在 RechargeService.PLAN_YUAN 中定义，自定义金额须为 1 元的整数倍。
+recharge:
+  points-per-yuan: ${RECHARGE_POINTS_PER_YUAN:100}
+  min-yuan: ${RECHARGE_MIN_YUAN:1}
+  max-yuan: ${RECHARGE_MAX_YUAN:100000}
+
 # MinIO 对象存储（可选）。启用后 /profile/** 资源会同步到对象存储，
 # 本地 ruoyi.profile 仅作为上传暂存与读取缓存；未启用时行为与历史版本一致。
 # 桶保持私有，公开读仍由后端 /profile/** 代理，避免向外暴露存储凭据。

@@ -78,6 +78,20 @@ public class PointsService {
     }
 
     /**
+     * 查询用户当前积分余额（账户不存在返回 0）。
+     *
+     * @param userId 用户ID
+     * @return 当前余额
+     */
+    public int currentBalance(Long userId) {
+        if (userId == null) {
+            return 0;
+        }
+        PointsAccount account = pointsAccountMapper.selectByUserId(userId);
+        return account == null || account.getBalance() == null ? 0 : account.getBalance();
+    }
+
+    /**
      * 管理员调整积分余额（按目标余额设置，差额计入获得/消耗并写流水）
      *
      * @param userId  用户ID
