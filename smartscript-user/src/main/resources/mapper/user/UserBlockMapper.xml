@@ -27,4 +27,25 @@
         WHERE user_id = #{userId} AND blocked_user_id = #{blockedUserId}
     </select>
 
+    <resultMap id="UserSummaryMap" type="com.smartscript.platform.user.dto.UserSummaryDto">
+        <id property="userId" column="user_id"/>
+        <result property="nickname" column="nick_name"/>
+        <result property="avatar" column="avatar"/>
+        <result property="bio" column="bio"/>
+        <result property="userType" column="user_type"/>
+        <result property="isFollowing" column="is_following"/>
+    </resultMap>
+
+    <!-- 我拉黑的用户：只返回公开字段；已删除/非 App 账号域的用户不展示。 -->
+    <select id="selectBlockedUsers" resultMap="UserSummaryMap">
+        SELECT u.user_id, u.nick_name, u.avatar, u.bio, u.user_type,
+               0 AS is_following
+        FROM sys_user_block b
+        JOIN sys_user u ON u.user_id = b.blocked_user_id
+        WHERE b.user_id = #{userId}
+          AND u.del_flag = '0'
+          AND u.user_type IN ('01', '02', '03')
+        ORDER BY b.created_at DESC, b.id DESC
+    </select>
+
 </mapper>

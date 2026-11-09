@@ -223,6 +223,13 @@ public class AppUserController
         return AppApiResponse.ok(Map.of("blocked", false, "changed", changed));
     }
 
+    /** 我拉黑的用户列表（抽屉「黑名单」页）。 */
+    @GetMapping("/me/blocks")
+    public AppApiResponse<Map<String, Object>> myBlocks()
+    {
+        return AppApiResponse.ok(Map.of("list", blockService.listBlocked(currentUserId())));
+    }
+
     // ------------------------------------------------------------------
     // 账号安全——换绑手机号（§1.4）
     // ------------------------------------------------------------------

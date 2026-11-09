@@ -33,6 +33,9 @@ public class AppWorkDto
     /** 作者昵称（JOIN sys_user.nick_name） */
     private String authorName;
 
+    /** 作者头像（JOIN sys_user.avatar）；未设置时为空 */
+    private String authorAvatar;
+
     /** 标签集合（sys_work_tag 关联 sys_tag，仅含启用标签，按 sort 排序） */
     private List<AppTagDto> tags;
 
@@ -161,6 +164,16 @@ public class AppWorkDto
     public void setAuthorName(String authorName)
     {
         this.authorName = authorName;
+    }
+
+    public String getAuthorAvatar()
+    {
+        return authorAvatar;
+    }
+
+    public void setAuthorAvatar(String authorAvatar)
+    {
+        this.authorAvatar = authorAvatar;
     }
 
     public List<AppTagDto> getTags()

@@ -233,6 +233,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		<result property="cover"            column="cover"             />
 		<result property="authorId"         column="author_id"         />
 		<result property="authorName"       column="author_name"       />
+		<result property="authorAvatar"     column="author_avatar"     />
 		<result property="workType"         column="work_type"         />
 		<result property="uploadType"       column="upload_type"       />
 		<result property="lengthType"       column="length_type"       />
@@ -298,7 +299,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		       w.word_count, w.episode_count, w.duration, w.is_free, w.preview_enabled,
 		       w.preview_episodes, w.status, w.is_copyrighted, w.quality_level,
 		       w.view_count, w.favorite_count, w.sale_count, w.rating, w.create_time,
-		       u.nick_name as author_name
+		       u.nick_name as author_name, u.avatar as author_avatar
 		from sys_work w
 		left join sys_user u on u.user_id = w.author_id
 		left join (
@@ -353,7 +354,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		       w.word_count, w.episode_count, w.duration, w.is_free, w.preview_enabled,
 		       w.preview_episodes, w.status, w.is_copyrighted, w.quality_level,
 		       w.view_count, w.favorite_count, w.sale_count, w.rating, w.create_time,
-		       u.nick_name as author_name
+		       u.nick_name as author_name, u.avatar as author_avatar
 		from sys_work w
 		left join sys_user u on u.user_id = w.author_id
 		<where>

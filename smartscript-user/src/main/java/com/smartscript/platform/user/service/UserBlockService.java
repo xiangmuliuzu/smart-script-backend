@@ -1,8 +1,11 @@
 package com.smartscript.platform.user.service;
 
+import java.util.ArrayList;
+import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import com.smartscript.platform.user.constant.AppUserErrorCodes;
+import com.smartscript.platform.user.dto.UserSummaryDto;
 import com.smartscript.platform.user.exception.AppAuthException;
 import com.smartscript.platform.user.mapper.UserBlockMapper;
 import com.smartscript.platform.user.mapper.UserFollowMapper;
@@ -56,6 +59,17 @@ public class UserBlockService
             throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "用户不存在或暂不可用");
         }
         return blockMapper.deleteBlock(userId, targetUserId) > 0;
+    }
+
+    /** 我拉黑的用户列表。 */
+    public List<UserSummaryDto> listBlocked(Long userId)
+    {
+        if (userId == null || userId <= 0)
+        {
+            return new ArrayList<>();
+        }
+        List<UserSummaryDto> rows = blockMapper.selectBlockedUsers(userId);
+        return rows == null ? new ArrayList<>() : rows;
     }
 
     /** userId 是否拉黑了 targetUserId。 */

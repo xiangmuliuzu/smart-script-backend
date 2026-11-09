@@ -80,4 +80,13 @@ class UserBlockServiceTest
         assertEquals(403, theirs.getHttpStatus());
         assertTrue(theirs.getMessage().contains("对方已将你加入黑名单"));
     }
+
+    @Test
+    void listBlockedReturnsMapperRowsOrEmptyList()
+    {
+        when(blockMapper.selectBlockedUsers(100L)).thenReturn(java.util.List.of());
+        assertTrue(service.listBlocked(100L).isEmpty());
+        when(blockMapper.selectBlockedUsers(100L)).thenReturn(null);
+        assertTrue(service.listBlocked(100L).isEmpty());
+    }
 }
