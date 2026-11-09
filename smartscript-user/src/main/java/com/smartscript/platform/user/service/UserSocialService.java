@@ -25,11 +25,14 @@ public class UserSocialService
 {
     private final UserFollowMapper followMapper;
     private final AppUserProfileService profileService;
+    private final UserBlockService blockService;
 
-    public UserSocialService(UserFollowMapper followMapper, AppUserProfileService profileService)
+    public UserSocialService(UserFollowMapper followMapper, AppUserProfileService profileService,
+            UserBlockService blockService)
     {
         this.followMapper = followMapper;
         this.profileService = profileService;
+        this.blockService = blockService;
     }
 
     /** 指定用户的公开资料（个人主页）；不存在或非 App 账号域返回 404。 */
@@ -58,6 +61,7 @@ public class UserSocialService
         dto.setSelf(self);
         dto.setFollowing(!self && viewerId != null
                 && followMapper.countFollowRelation(viewerId, targetUserId) > 0);
+        dto.setBlocked(!self && viewerId != null && blockService.hasBlocked(viewerId, targetUserId));
         dto.setCreatorProfile(profileService.creatorProfile(targetUserId));
         return dto;
     }
@@ -67,6 +71,7 @@ public class UserSocialService
     public boolean follow(Long followerId, Long followeeId)
     {
         requireFollowable(followerId, followeeId);
+        blockService.requireNotBlocked(followerId, followeeId, "关注对方");
         return followMapper.insertFollow(followerId, followeeId) > 0;
     }
 

@@ -26,6 +26,9 @@ public class UserPublicProfileDto
     private boolean isFollowing;
     private boolean isSelf;
 
+    /** 当前登录用户是否已将该用户加入黑名单（本人主页恒为 false）。 */
+    private boolean isBlocked;
+
     /** 创作者资料投影；未开通作者能力时为 null（与 UserProfileDto 同口径）。 */
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private CreatorProfileDto creatorProfile;
@@ -128,6 +131,16 @@ public class UserPublicProfileDto
     public void setSelf(boolean self)
     {
         isSelf = self;
+    }
+
+    public boolean getIsBlocked()
+    {
+        return isBlocked;
+    }
+
+    public void setBlocked(boolean blocked)
+    {
+        isBlocked = blocked;
     }
 
     public CreatorProfileDto getCreatorProfile()

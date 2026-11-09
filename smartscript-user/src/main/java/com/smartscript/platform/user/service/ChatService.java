@@ -47,14 +47,17 @@ public class ChatService
     private final ChatSessionMapper sessionMapper;
     private final ChatMessageMapper messageMapper;
     private final ChatTradeTemplateMapper templateMapper;
+    private final UserBlockService blockService;
 
     public ChatService(ChatSessionMapper sessionMapper,
                        ChatMessageMapper messageMapper,
-                       ChatTradeTemplateMapper templateMapper)
+                       ChatTradeTemplateMapper templateMapper,
+                       UserBlockService blockService)
     {
         this.sessionMapper = sessionMapper;
         this.messageMapper = messageMapper;
         this.templateMapper = templateMapper;
+        this.blockService = blockService;
     }
 
     /* ========== 任务 2/10：创建会话（幂等） ========== */
@@ -80,6 +83,12 @@ public class ChatService
         Long user2Id = req.getTargetAdminId() != null ? req.getTargetAdminId() : DEFAULT_ADMIN_ID;
         String bizType = req.getBusinessType();
         Long bizId = req.getBusinessId();
+
+        // 用户与用户之间的会话（交易等）受个人黑名单约束；管理员会话不适用。
+        if (!"ADMIN".equals(sessionType) && !"CHAT".equals(sessionType))
+        {
+            blockService.requireNotBlocked(user1Id, user2Id, "发起会话");
+        }
 
         // 先查已有
         ChatSession existing;
@@ -160,6 +169,9 @@ public class ChatService
         {
             throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "任务会话参数不完整");
         }
+        Long peerId = viewerUserId != null && viewerUserId.equals(publisherUserId)
+                ? creatorUserId : publisherUserId;
+        blockService.requireNotBlocked(viewerUserId, peerId, "发起会话");
         ChatSession existing = sessionMapper.selectByBusiness(publisherUserId, creatorUserId, "DEMAND", demandId);
         if (existing != null)
         {
@@ -353,6 +365,11 @@ public class ChatService
         // }
 
         Long receiverId = session.getUser1Id().equals(senderId) ? handlerId(session) : session.getUser1Id();
+        // 用户对用户的会话受个人黑名单约束；管理员会话（assignedAdminId 非空）不适用。
+        if (session.getAssignedAdminId() == null)
+        {
+            blockService.requireNotBlocked(senderId, receiverId, "发送消息");
+        }
         String msgType = (req.getMsgType() != null && !req.getMsgType().isBlank()) ? req.getMsgType() : MSG_TYPE_TEXT;
         if (MSG_TYPE_SYSTEM.equals(msgType))
         {

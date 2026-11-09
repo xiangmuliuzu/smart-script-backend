@@ -13,6 +13,7 @@ import com.smartscript.platform.trade.domain.SysWork;
 import com.smartscript.platform.trade.mapper.SysInquiryMapper;
 import com.smartscript.platform.trade.mapper.SysWorkCopyrightMapper;
 import com.smartscript.platform.trade.mapper.SysWorkMapper;
+import com.smartscript.platform.user.service.UserBlockService;
 
 /**
  * C module: inquiry management service.
@@ -57,6 +58,10 @@ public class TradeInquiryService
     /** 交易全生命周期站内通知统一出口。 */
     @Autowired
     private TradeNotifyService notifyService;
+
+    /** 用户个人黑名单：任一方拉黑后，双方不能再发起新的询盘。 */
+    @Autowired
+    private UserBlockService userBlockService;
 
     public List<SysInquiry> selectInquiryList(SysInquiry inquiry)
     {
@@ -110,6 +115,8 @@ public class TradeInquiryService
         }
         // 以作品归属为准回填卖方，避免调用方传入的 sellerId 与实际作者不一致
         inquiry.setSellerId(work.getAuthorId());
+        // 个人黑名单：任一方拉黑后，均不能向对方发起询盘
+        userBlockService.requireNotBlocked(inquiry.getBuyerId(), inquiry.getSellerId(), "发起询盘");
         // 授权类型按版权分流：有版权必填（现状流程）；无版权不要求授权类型，归一置 null 防前端误传
         if (hasCopyright(work.getWorkId()))
         {

@@ -28,6 +28,7 @@ import com.smartscript.platform.trade.mapper.SysOrderMapper;
 import com.smartscript.platform.trade.mapper.SysOrderStatusLogMapper;
 import com.smartscript.platform.trade.mapper.SysWorkCopyrightMapper;
 import com.smartscript.platform.trade.mapper.SysWorkMapper;
+import com.smartscript.platform.user.service.UserBlockService;
 
 /**
  * 无版权作品简化交易流程分流单元测试。
@@ -70,6 +71,7 @@ class TradeNoCopyrightFlowTest
         ReflectionTestUtils.setField(inquiryService, "inquiryMapper", inquiryMapper);
         ReflectionTestUtils.setField(inquiryService, "workMapper", workMapper);
         ReflectionTestUtils.setField(inquiryService, "notifyService", notifyService);
+        ReflectionTestUtils.setField(inquiryService, "userBlockService", mock(UserBlockService.class));
 
         orderMapper = mock(SysOrderMapper.class);
         logMapper = mock(SysOrderStatusLogMapper.class);

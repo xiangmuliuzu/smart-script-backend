@@ -19,7 +19,8 @@ class ChatWorkflowTest
     private final ChatSessionMapper sessions = mock(ChatSessionMapper.class);
     private final ChatMessageMapper messages = mock(ChatMessageMapper.class);
     private final ChatTradeTemplateMapper templates = mock(ChatTradeTemplateMapper.class);
-    private final ChatService service = new ChatService(sessions, messages, templates);
+    private final UserBlockService blocks = mock(UserBlockService.class);
+    private final ChatService service = new ChatService(sessions, messages, templates, blocks);
 
     private ChatSession session()
     {
@@ -109,5 +110,20 @@ class ChatWorkflowTest
         when(sessions.selectById(17L)).thenReturn(session);
         assertEquals(1L, service.sessionDetail(17L, 12L).get("peerId"));
         assertEquals(12L, service.sessionDetail(17L, 1L).get("peerId"));
+    }
+
+    @Test
+    void blockedCounterpartCannotSendUserToUserMessages()
+    {
+        ChatSession session = session();
+        session.setSessionType("TRADE"); session.setAssignedAdminId(null);
+        session.setUser1Id(12L); session.setUser2Id(34L);
+        when(sessions.selectForUpdate(17L)).thenReturn(session);
+        doThrow(new AppAuthException(40300, 403, "对方已将你加入黑名单，无法发送消息"))
+                .when(blocks).requireNotBlocked(12L, 34L, "发送消息");
+        ChatMessageSendRequest request = new ChatMessageSendRequest();
+        request.setContent("你好");
+        assertThrows(AppAuthException.class, () -> service.sendMessage(17L, 12L, request));
+        verify(messages, never()).insertMessage(any(ChatMessage.class));
     }
 }

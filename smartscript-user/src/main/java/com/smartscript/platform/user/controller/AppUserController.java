@@ -36,6 +36,7 @@ import com.smartscript.platform.user.service.AppFileUploadService;
 import com.smartscript.platform.user.service.AppPhoneChangeService;
 import com.smartscript.platform.user.service.AppRealNameService;
 import com.smartscript.platform.user.service.CreatorApplyService;
+import com.smartscript.platform.user.service.UserBlockService;
 import com.smartscript.platform.user.service.UserSocialService;
 import com.smartscript.platform.user.service.AppUserProfileService;
 import com.smartscript.platform.user.service.UserMessageService;
@@ -63,6 +64,7 @@ public class AppUserController
     private final AppFileUploadService uploadService;
     private final CreatorApplyService creatorApplyService;
     private final UserSocialService socialService;
+    private final UserBlockService blockService;
 
     public AppUserController(AppUserProfileService profileService,
             AppRealNameService realNameService,
@@ -70,7 +72,8 @@ public class AppUserController
             UserMessageService messageService,
             AppFileUploadService uploadService,
             CreatorApplyService creatorApplyService,
-            UserSocialService socialService)
+            UserSocialService socialService,
+            UserBlockService blockService)
     {
         this.profileService = profileService;
         this.realNameService = realNameService;
@@ -79,6 +82,7 @@ public class AppUserController
         this.uploadService = uploadService;
         this.creatorApplyService = creatorApplyService;
         this.socialService = socialService;
+        this.blockService = blockService;
     }
 
     // ------------------------------------------------------------------
@@ -201,6 +205,22 @@ public class AppUserController
         UserPublicProfileDto profile = socialService.publicProfile(currentUserId(), userId);
         return AppApiResponse.ok(Map.of("following", false, "changed", changed,
                 "followerCount", profile.getFollowerCount()));
+    }
+
+    /** 将指定用户加入黑名单（幂等）：被拉黑方无法再发起询盘、会话、消息与关注。 */
+    @PostMapping("/{userId}/block")
+    public AppApiResponse<Map<String, Object>> block(@PathVariable Long userId)
+    {
+        boolean changed = blockService.block(currentUserId(), userId);
+        return AppApiResponse.ok(Map.of("blocked", true, "changed", changed));
+    }
+
+    /** 解除对指定用户的拉黑（幂等）。 */
+    @DeleteMapping("/{userId}/block")
+    public AppApiResponse<Map<String, Object>> unblock(@PathVariable Long userId)
+    {
+        boolean changed = blockService.unblock(currentUserId(), userId);
+        return AppApiResponse.ok(Map.of("blocked", false, "changed", changed));
     }
 
     // ------------------------------------------------------------------

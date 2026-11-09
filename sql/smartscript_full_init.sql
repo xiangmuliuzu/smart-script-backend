@@ -1001,6 +1001,23 @@ CREATE TABLE IF NOT EXISTS user_notification_preference (
   UNIQUE KEY uk_user_notification_pref (user_id, channel, type)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户通知偏好';
 
+-- A5+ 用户个人黑名单：用户拉黑其他用户后，被拉黑方无法对其发起询盘/会话/消息与关注。
+-- 唯一键保证重复拉黑幂等；关系由拉黑方删除记录解除。
+CREATE TABLE IF NOT EXISTS sys_user_block (
+  id BIGINT NOT NULL AUTO_INCREMENT,
+  user_id BIGINT NOT NULL COMMENT '拉黑发起人 user_id',
+  blocked_user_id BIGINT NOT NULL COMMENT '被拉黑的用户 user_id',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  create_by VARCHAR(64) NULL,
+  create_time DATETIME NULL,
+  update_by VARCHAR(64) NULL,
+  update_time DATETIME NULL,
+  remark VARCHAR(500) NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_user_block_user (user_id, blocked_user_id),
+  KEY idx_user_block_blocked (blocked_user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户个人黑名单';
+
 CREATE TABLE IF NOT EXISTS user_feedback (
   id BIGINT NOT NULL AUTO_INCREMENT,
   user_id BIGINT NOT NULL,

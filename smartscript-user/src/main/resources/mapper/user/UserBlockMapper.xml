@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.user.mapper.UserBlockMapper">
+
+    <!--
+      A5+ 用户个人黑名单关系。
+
+      安全约束：
+        1. 关系唯一键 (user_id, blocked_user_id) 由数据库强制；重复拉黑用 INSERT IGNORE 幂等。
+        2. 拉黑自己由服务层拒绝（此处不额外设限，避免与 404 语义混淆）。
+        3. 只按发起方向计数；双向判断由 UserBlockService 组合两次查询。
+    -->
+
+    <insert id="insertBlock">
+        INSERT IGNORE INTO sys_user_block (user_id, blocked_user_id, created_at, create_by, create_time)
+        VALUES (#{userId}, #{blockedUserId}, NOW(), 'app-user-center', NOW())
+    </insert>
+
+    <delete id="deleteBlock">
+        DELETE FROM sys_user_block
+        WHERE user_id = #{userId} AND blocked_user_id = #{blockedUserId}
+    </delete>
+
+    <select id="countBlockRelation" resultType="int">
+        SELECT COUNT(*) FROM sys_user_block
+        WHERE user_id = #{userId} AND blocked_user_id = #{blockedUserId}
+    </select>
+
+</mapper>

@@ -15,6 +15,7 @@ import org.mockito.Mockito;
 import com.smartscript.platform.user.domain.AppUserRecord;
 import com.smartscript.platform.user.dto.UserPublicProfileDto;
 import com.smartscript.platform.user.exception.AppAuthException;
+import com.smartscript.platform.user.mapper.UserBlockMapper;
 import com.smartscript.platform.user.mapper.UserFollowMapper;
 
 /**
@@ -24,7 +25,9 @@ class UserSocialServiceTest
 {
     private final UserFollowMapper followMapper = Mockito.mock(UserFollowMapper.class);
     private final AppUserProfileService profileService = Mockito.mock(AppUserProfileService.class);
-    private final UserSocialService service = new UserSocialService(followMapper, profileService);
+    private final UserBlockMapper blockMapper = Mockito.mock(UserBlockMapper.class);
+    private final UserBlockService blockService = new UserBlockService(blockMapper, followMapper);
+    private final UserSocialService service = new UserSocialService(followMapper, profileService, blockService);
 
     private AppUserRecord user(long id)
     {
@@ -95,5 +98,24 @@ class UserSocialServiceTest
         when(followMapper.deleteFollow(100L, 200L)).thenReturn(1).thenReturn(0);
         assertTrue(service.unfollow(100L, 200L));
         assertFalse(service.unfollow(100L, 200L));
+    }
+
+    @Test
+    void publicProfileCarriesViewerBlockState()
+    {
+        when(followMapper.selectPublicUser(200L)).thenReturn(user(200L));
+        when(blockMapper.countBlockRelation(100L, 200L)).thenReturn(1);
+        UserPublicProfileDto dto = service.publicProfile(100L, 200L);
+        assertTrue(dto.getIsBlocked(), "100 已拉黑 200");
+    }
+
+    @Test
+    void followRejectedWhenEitherSideBlocked()
+    {
+        when(followMapper.selectPublicUser(200L)).thenReturn(user(200L));
+        when(blockMapper.countBlockRelation(100L, 200L)).thenReturn(1);
+        AppAuthException e = assertThrows(AppAuthException.class, () -> service.follow(100L, 200L));
+        assertEquals(403, e.getHttpStatus());
+        verify(followMapper, never()).insertFollow(any(), any());
     }
 }
