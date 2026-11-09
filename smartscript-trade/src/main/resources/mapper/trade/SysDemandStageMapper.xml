@@ -124,11 +124,14 @@
         ORDER BY s.stage_id ASC
     </select>
 
-    <!-- AI 审核取文：交付作品的章节正文（含富文本标记，由服务层转纯文本） -->
+    <!-- AI 审核取文：交付作品在本轮验收集数内的章节正文（含富文本标记，由服务层转纯文本）；不看草稿/试读标记 -->
     <select id="selectChapterContents" resultType="java.lang.String">
         SELECT COALESCE(content, '')
         FROM sys_work_chapter
         WHERE work_id = #{workId}
+        <if test="episodeTo != null">
+            AND chapter_no &lt;= #{episodeTo}
+        </if>
         ORDER BY chapter_no ASC, chapter_id ASC
     </select>
 
@@ -152,7 +155,8 @@
       发布者验收查看：章节目录 + 本轮集数内的正文。
       一章即一集（sys_work.episode_count 由本表行数汇总），所以 episodeTo 直接当可读上界；
       chapter_no 超出本轮的 content 在 SQL 里就置 NULL，而不是查全量再在服务层筛，
-      避免后续改动漏判把未交付轮次的全文发给发布者。status='0' 与 content 域取正常章节的口径一致。
+      避免后续改动漏判把未交付轮次的全文发给发布者。
+      交付即验收：不看章节 status/is_free 与作品试读设置，草稿章节同样按集数开放正文。
     -->
     <select id="selectChaptersForReview" resultType="java.util.HashMap">
         SELECT c.chapter_id AS chapterId, c.chapter_no AS chapterNo,
@@ -161,7 +165,6 @@
                CASE WHEN #{episodeTo} IS NULL OR c.chapter_no &lt;= #{episodeTo} THEN c.content ELSE NULL END AS content
         FROM sys_work_chapter c
         WHERE c.work_id = #{workId}
-          AND c.status = '0'
         ORDER BY c.chapter_no ASC, c.chapter_id ASC
     </select>
 

@@ -322,11 +322,16 @@ public class TradeDemandService
     @Transactional
     public int insertDemand(SysDemand demand, List<SysDemandStage> stages)
     {
-        // 验收轮次校验（stages 非空时）
-        if (stages != null && !stages.isEmpty())
+        // 总集数必填；未显式配置轮次时也固定生成最后一轮验收
+        if (demand.getTotalEpisodes() == null || demand.getTotalEpisodes() <= 0)
         {
-            validateStages(demand, stages);
+            throw new RuntimeException("请填写总集数");
         }
+        if (stages == null || stages.isEmpty())
+        {
+            stages = buildFinalAcceptanceOnly(demand, null);
+        }
+        validateStages(demand, stages);
 
         // 接单制：完成时限。未传时给默认值，传入时必须 >0。
         if (demand.getDurationHours() == null)
@@ -466,11 +471,16 @@ public class TradeDemandService
 
         // 基础字段校验（标题/截止/联系电话）
         validateDemandBasics(demand);
-        // 轮次校验（若提供）
-        if (stages != null && !stages.isEmpty())
+        // 总集数必填；未显式配置轮次时也固定生成最后一轮验收
+        if (demand.getTotalEpisodes() == null || demand.getTotalEpisodes() <= 0)
         {
-            validateStages(demand, stages);
+            throw new RuntimeException("请填写总集数");
         }
+        if (stages == null || stages.isEmpty())
+        {
+            stages = buildFinalAcceptanceOnly(demand, existing);
+        }
+        validateStages(demand, stages);
         // 预算变更时同步托管额（仍为待付托管，不改变 escrow_status）
         if (demand.getBudget() != null)
         {
@@ -580,7 +590,7 @@ public class TradeDemandService
             int hours = s.getDurationHours() == null ? 0 : s.getDurationHours();
             if (days < 0 || hours < 0 || (days + hours) <= 0)
             {
-                throw new RuntimeException("每轮验收时限(天+小时)必须大于0");
+                throw new RuntimeException("每轮验收时限（小时）必须大于0");
             }
             prevEpisode = s.getEpisodeTo();
             totalAmount = totalAmount.add(s.getAmount());
@@ -589,6 +599,39 @@ public class TradeDemandService
         {
             throw new RuntimeException("各填写轮金额之和不能超过预算，最后一轮金额须等于预算减去其余轮次之和");
         }
+    }
+
+    /**
+     * 未配置中间轮次时的最后一轮验收：集数=总集数、金额=预算余额（即全额）、时限按小时兜底。
+     * 编辑场景下预算/时限可能未传，回落到原任务值。
+     */
+    private static List<SysDemandStage> buildFinalAcceptanceOnly(SysDemand demand, SysDemand fallback)
+    {
+        BigDecimal budget = demand.getBudget() != null
+                ? demand.getBudget()
+                : (fallback == null ? null : fallback.getBudget());
+        int hours;
+        if (demand.getDurationHours() != null && demand.getDurationHours() > 0)
+        {
+            hours = demand.getDurationHours();
+        }
+        else if (fallback != null && fallback.getDurationHours() != null && fallback.getDurationHours() > 0)
+        {
+            hours = fallback.getDurationHours();
+        }
+        else
+        {
+            hours = DEFAULT_DURATION_HOURS;
+        }
+        SysDemandStage stage = new SysDemandStage();
+        stage.setStageOrder(1);
+        stage.setEpisodeTo(demand.getTotalEpisodes());
+        stage.setAmount(budget == null ? BigDecimal.ZERO : budget);
+        stage.setDurationDays(0);
+        stage.setDurationHours(hours);
+        List<SysDemandStage> stages = new ArrayList<>();
+        stages.add(stage);
+        return stages;
     }
 
     /** 取 stage_order 最小的首轮；无则 null。 */
@@ -810,7 +853,7 @@ public class TradeDemandService
         SysDemandStage active = requireActiveStage(demandId, stageId);
         if (days < 0 || hours < 0 || days + hours <= 0)
         {
-            throw new RuntimeException("延时时长(天+小时)必须大于0");
+            throw new RuntimeException("延时时长（小时）必须大于0");
         }
         // 只在尚在计时的轮次上申请：已提交/AI审核中计时已暂停，此时申请延时没有意义
         requireDeliverableStage(active);
@@ -949,7 +992,7 @@ public class TradeDemandService
         SysDemandStage stage = requireActiveStage(demandId, stageId);
         if (days < 0 || hours < 0 || days + hours <= 0)
         {
-            throw new RuntimeException("延时时长(天+小时)必须大于0");
+            throw new RuntimeException("延时时长（小时）必须大于0");
         }
         // 与申请延时同口径：已提交/AI审核中计时已暂停，此时挪 due_at 会与恢复计时的补时叠加
         requireDeliverableStage(stage);

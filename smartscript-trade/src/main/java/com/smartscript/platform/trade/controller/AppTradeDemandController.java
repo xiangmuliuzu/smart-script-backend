@@ -208,6 +208,11 @@ public class AppTradeDemandController
         demand.setContactInfo(str(body, "contactInfo"));
         demand.setTotalEpisodes(intVal(body, "totalEpisodes"));
         demand.setDurationHours(intVal(body, "durationHours"));
+        // 总集数必填：最后一轮验收依赖总集数固定生成
+        if (demand.getTotalEpisodes() == null || demand.getTotalEpisodes() <= 0)
+        {
+            return AppApiResponse.fail(400, "请填写总集数");
+        }
         String deadlineStr = str(body, "deadline");
         if (deadlineStr != null && !deadlineStr.isEmpty())
         {
@@ -221,17 +226,9 @@ public class AppTradeDemandController
             }
         }
 
-        // 解析验收轮次
+        // 解析验收轮次；未传轮次时由 Service 固定兜底生成最后一轮验收
         List<SysDemandStage> stages = parseStages(body.get("stages"));
-
-        if (stages != null && !stages.isEmpty())
-        {
-            demandService.insertDemand(demand, stages);
-        }
-        else
-        {
-            demandService.insertDemand(demand);
-        }
+        demandService.insertDemand(demand, stages);
         applyFen(demand);
         return AppApiResponse.ok(demand);
     }
@@ -254,6 +251,11 @@ public class AppTradeDemandController
         demand.setContactInfo(str(body, "contactInfo"));
         demand.setTotalEpisodes(intVal(body, "totalEpisodes"));
         demand.setDurationHours(intVal(body, "durationHours"));
+        // 总集数必填：最后一轮验收依赖总集数固定生成
+        if (demand.getTotalEpisodes() == null || demand.getTotalEpisodes() <= 0)
+        {
+            return AppApiResponse.fail(400, "请填写总集数");
+        }
         String deadlineStr = str(body, "deadline");
         if (deadlineStr != null && !deadlineStr.isEmpty())
         {
@@ -609,7 +611,7 @@ public class AppTradeDemandController
 
     /**
      * 创作者对活动轮发起延时申请（每次新增一条历史记录，既往申请不覆盖；同轮同时只允许一个待处理）。
-     * Body: {days, hours, reason(可选)}，days+hours 必须大于 0
+     * Body: {hours, reason(可选)}，前端只填小时；兼容按天数传的旧客户端（按 days*24+hours 折算，须大于 0）
      */
     @PostMapping("/{demandId}/stage/{stageId}/extend/request")
     public AppApiResponse<SysDemandStage> requestExtend(
@@ -693,7 +695,7 @@ public class AppTradeDemandController
 
     /**
      * 发布者自主延时：不经申请直接顺延活动轮截止，并同时写入一条延时记录（展示为“自主延时”）。
-     * Body: {days, hours}，days+hours 必须大于 0
+     * Body: {hours}，前端只填小时；兼容按天数传的旧客户端（按 days*24+hours 折算，须大于 0）
      */
     @PutMapping("/{demandId}/stage/{stageId}/extend")
     public AppApiResponse<SysDemandStage> selfExtend(

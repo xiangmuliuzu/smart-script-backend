@@ -59,8 +59,9 @@ public interface SysDemandStageMapper
      */
     List<SysDemandStage> selectOverdueActiveStages();
 
-    /** AI 审核取文：交付作品的章节正文列表（原始富文本，服务层转纯文本） */
-    List<String> selectChapterContents(@Param("workId") Long workId);
+    /** AI 审核取文：交付作品在本轮验收集数内的章节正文列表（原始富文本，服务层转纯文本） */
+    List<String> selectChapterContents(@Param("workId") Long workId,
+                                       @Param("episodeTo") Integer episodeTo);
 
     /** 发布者验收查看：交付作品概要（不含正文） */
     Map<String, Object> selectDeliveredWorkBrief(@Param("workId") Long workId);

@@ -272,7 +272,8 @@ public class DemandStageAiReviewService
         }
         if (stage.getWorkId() != null)
         {
-            List<String> chapters = stageMapper.selectChapterContents(stage.getWorkId());
+            // 只送本轮验收集数内的正文：后续轮次尚未交付，不纳入本轮 AI 审核
+            List<String> chapters = stageMapper.selectChapterContents(stage.getWorkId(), stage.getEpisodeTo());
             if (chapters != null)
             {
                 for (String raw : chapters)
