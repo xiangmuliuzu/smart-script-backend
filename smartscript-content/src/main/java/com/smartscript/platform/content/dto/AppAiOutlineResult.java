@@ -27,6 +27,9 @@ public class AppAiOutlineResult
     /** 是否因字数上限被截断 */
     private boolean truncated;
 
+    /** 流式生成的完整文本（已规整集号行；非流式为 null） */
+    private String content;
+
     public AppAiOutlineResult()
     {
     }
@@ -82,5 +85,15 @@ public class AppAiOutlineResult
     public void setTruncated(boolean truncated)
     {
         this.truncated = truncated;
+    }
+
+    public String getContent()
+    {
+        return content;
+    }
+
+    public void setContent(String content)
+    {
+        this.content = content;
     }
 }

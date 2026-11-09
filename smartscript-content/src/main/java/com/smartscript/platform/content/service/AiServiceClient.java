@@ -167,8 +167,12 @@ public class AiServiceClient
     public AiCallResult writeStream(String prompt, String type, String skillContent, Consumer<String> onDelta)
     {
         String typeHint = (type == null || type.isBlank()) ? "" : "\n写作类型：" + type;
-        String system = "你是一名资深网络小说写手，擅长创作节奏紧凑、画面感强、对话自然的小说正文。"
-                + "请根据用户的要求直接创作小说正文，不要解释、不要标题、不要任何前后缀。";
+        String system = "你是一名资深短剧编剧，擅长把分集事件写成一集可直接排演的剧本正文。"
+                + "写法要求：开头一句自然交代本集发生的地点和时间（如“顾家老宅的院子里，午后的日头正毒”），"
+                + "不要写“场景1”“内景/外景”这类场景头，也不要写镜号、景别、运镜、转场，这些交给分镜环节；"
+                + "正文以人物动作和对白推进，对白用“角色：台词”格式，句子短、有来有回；"
+                + "篇幅 700-900 字，只写这一集，本集要有完整结果，结尾留一个具体钩子（一个动作、一句关键台词或一个未解的画面）；"
+                + "不要解释、不要章节标题、不要任何前后缀。";
         return streamChat(appendSkill(system, skillContent), prompt + typeHint, onDelta);
     }
 
@@ -195,15 +199,177 @@ public class AiServiceClient
      */
     public AiCallResult outlineStream(String inspiration, String genre, String style, String skillContent, Consumer<String> onDelta)
     {
+        return outlineStreamBatched(inspiration, genre, style, skillContent, onDelta, null, null, null);
+    }
+
+    /**
+     * 分集事件卡分批生成：单次输出有 token 上限（8192），30/50 集一次性写会被截断，
+     * 因此按 10 集一批连续生成，后续批次带上已生成部分的结尾作为前情，逐批通过 onDelta 推送。
+     */
+    private AiCallResult outlineStreamBatched(String inspiration, String genre, String style,
+                                              String skillContent, Consumer<String> onDelta,
+                                              String baseUrl, String apiKey, String model)
+    {
         String genreHint = (genre == null || genre.isBlank()) ? "不限" : genre;
         String styleHint = (style == null || style.isBlank()) ? "不限" : style;
         String insp = (inspiration == null || inspiration.isBlank()) ? "" : inspiration;
-        String system = "你是一名资深网文策划编辑，擅长帮完全不懂创作的普通人快速产出专业级剧本大纲。"
-                + "请根据故事灵感、题材与风格生成小说剧本大纲，依次包含书名、一句话简介、角色、分幕剧情和关键情节，"
-                + "用通俗易懂的语言，让新手照着写也能写成不错的故事。以中文标题分段输出可读文本。"
-                + "直接从书名开始，不要解释，不要 JSON，不要 Markdown 代码块。";
-        String user = "故事灵感：" + insp + "\n题材：" + genreHint + "\n风格：" + styleHint;
-        return streamChat(appendSkill(system, skillContent), user, onDelta);
+        String base = "你是一名资深短剧编剧兼分集策划，擅长把灵感拆成一集一集、每集都能独立成片的完整小事件。"
+                + "输出格式严格如下："
+                + "第N集：事件名\n本集事件：……\n冲突与推进：……\n结果或反转：……\n结尾钩子：……"
+                + "事件名要短（4-8字）且点明本集核心事件；每项 30-60 字，写具体的人做什么、说什么，"
+                + "不要写场景头、镜号、景别、运镜（这些交给后续分镜环节）。"
+                + "每集必须是一件完整的事：有开场、有交锋、有结果；结尾钩子要具体（一个动作、一句关键台词或一个未解的画面）；"
+                + "集与集之间因果承接、冲突逐集升级。"
+                + "直接输出中文可读文本，不要解释，不要 JSON，不要 Markdown 代码块。";
+        String headSystem = base + "正文最前面另起两段：『故事简介』（100字内）和『主要人物』"
+                + "（每行一人：姓名（年龄）：身份、性格、核心动机）。";
+        String contSystem = base + "本次只输出指定集号区间的事件卡，不要重复故事简介与主要人物，不要重写前情，"
+                + "直接从指定集号开始编号。";
+
+        int total = parseTotalEpisodes(styleHint + "\n" + insp);
+        int batchSize = 6;
+        if (total <= batchSize)
+        {
+            String user = "故事灵感：" + insp + "\n题材：" + genreHint + "\n风格：" + styleHint;
+            AiCallResult single = streamChat(appendSkill(headSystem, skillContent), user, onDelta, baseUrl, apiKey, model);
+            return new AiCallResult(normalizeEpisodeLines(single.getContent()),
+                    single.getTotalTokens(), single.getModel());
+        }
+
+        StringBuilder all = new StringBuilder();
+        int totalTokens = 0;
+        String modelName = null;
+        int start = 1;
+        int guard = 0;
+        while (start <= total && guard++ < 40)
+        {
+            int end = Math.min(total, start + batchSize - 1);
+            String user;
+            if (start == 1)
+            {
+                user = "故事灵感：" + insp + "\n题材：" + genreHint + "\n风格：" + styleHint
+                        + "\n请输出第1集到第" + end + "集的事件卡（共 " + total + " 集，本次只写这一段）。";
+            }
+            else
+            {
+                // 只带最近一集多的前情，既保证承接，也避免重复长文本推高 token。
+                int tailLen = Math.min(all.length(), 600);
+                String prev = all.substring(all.length() - tailLen);
+                user = "故事灵感：" + insp + "\n题材：" + genreHint + "\n风格：" + styleHint
+                        + "\n【前情结尾（勿重复）】\n" + prev
+                        + "\n请接着输出第" + start + "集到第" + end + "集的事件卡（共 " + total + " 集）。";
+            }
+            AiCallResult r = streamChat(appendSkill(start == 1 ? headSystem : contSystem, skillContent),
+                    user, onDelta, baseUrl, apiKey, model);
+            if (start > 1)
+            {
+                onDelta.accept("\n\n");
+            }
+            all.append(r.getContent()).append("\n\n");
+            totalTokens += r.getTotalTokens();
+            modelName = r.getModel();
+
+            // 自适应续写：按实际输出的最大集号推进，避免模型少写时后面的集整段丢失。
+            int reached = lastEpisodeNumber(r.getContent());
+            if (reached < start)
+            {
+                throw new AiServiceUnavailableException("AI 未能输出第" + start + "集，请稍后重试");
+            }
+            if (reached < end)
+            {
+                // 末集可能被截断：丢掉残块，下一批从这一集重写。
+                all = trimIncompleteTail(all, reached);
+                start = reached;
+            }
+            else
+            {
+                start = end + 1;
+            }
+        }
+        return new AiCallResult(normalizeEpisodeLines(all.toString().trim()), totalTokens,
+                modelName == null ? resolveModel(model) : modelName);
+    }
+
+    /**
+     * 规整集号标题：把「第7集：」统一成独占一行的「第7集：」。
+     * 模型偶尔会把下一集标题接在上一集钩子后面，前端按行解析会漏集。
+     */
+    static String normalizeEpisodeLines(String text)
+    {
+        if (text == null || text.isBlank())
+        {
+            return text == null ? "" : text;
+        }
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("第\\s*(\\d{1,3})\\s*集\\s*[：:]").matcher(text);
+        StringBuilder out = new StringBuilder();
+        int last = 0;
+        while (m.find())
+        {
+            String before = text.substring(last, m.start());
+            out.append(before);
+            if (out.length() > 0 && !before.endsWith("\n"))
+            {
+                out.append("\n");
+            }
+            out.append("第").append(m.group(1)).append("集：");
+            last = m.end();
+        }
+        out.append(text.substring(last));
+        return out.toString();
+    }
+
+    /** 取文本中行首出现的最大集号（"第N集"）；找不到返回 0。 */
+    static int lastEpisodeNumber(String text)
+    {
+        if (text == null || text.isBlank())
+        {
+            return 0;
+        }
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("(?m)^\\s*第(\\d{1,3})集").matcher(text);
+        int max = 0;
+        while (m.find())
+        {
+            max = Math.max(max, Integer.parseInt(m.group(1)));
+        }
+        return max;
+    }
+
+    /** 若最后一集块没有"结尾钩子"（被截断），删掉该残块，等待下一批重写。 */
+    static StringBuilder trimIncompleteTail(StringBuilder sb, int ep)
+    {
+        String s = sb.toString();
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("(?m)^\\s*第" + ep + "集").matcher(s);
+        int idx = -1;
+        while (m.find())
+        {
+            idx = m.start();
+        }
+        if (idx < 0)
+        {
+            return sb;
+        }
+        String tail = s.substring(idx);
+        return tail.contains("结尾钩子") ? sb : new StringBuilder(s.substring(0, idx));
+    }
+
+    /** 从「共 30 集」「按 30 集」等文本里取目标集数，取不到返回 0（按单批处理）。 */
+    static int parseTotalEpisodes(String text)
+    {
+        if (text == null || text.isBlank())
+        {
+            return 0;
+        }
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("共?\\s*(\\d{1,3})\\s*集").matcher(text);
+        int found = 0;
+        while (m.find())
+        {
+            found = Integer.parseInt(m.group(1));
+        }
+        return found;
     }
 
     /**
@@ -266,7 +432,7 @@ public class AiServiceClient
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("model", resolvedModel);
         body.put("messages", messages);
-        body.put("max_tokens", 4096);
+        body.put("max_tokens", 8192);
         body.put("temperature", 0.8);
         body.put("stream", true);
         try
@@ -274,7 +440,7 @@ public class AiServiceClient
             String payload = objectMapper.writeValueAsString(body);
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(url + "/v1/chat/completions"))
-                    .timeout(java.time.Duration.ofSeconds(120))
+                    .timeout(java.time.Duration.ofSeconds(600))
                     .header("Content-Type", "application/json")
                     .header("Authorization", "Bearer " + key)
                     .header("Accept", "text/event-stream")
@@ -288,7 +454,6 @@ public class AiServiceClient
             }
             StringBuilder full = new StringBuilder();
             boolean completed = false;
-            String errorMessage = "AI 未返回有效内容，请稍后重试";
             int totalTokens = 0;
             String modelName = resolvedModel;
             try (BufferedReader reader = new BufferedReader(
@@ -332,13 +497,18 @@ public class AiServiceClient
                 }
             }
             String content = full.toString().trim();
+            if (content.isEmpty())
+            {
+                // 推理模型（如 deepseek-flash）的流式响应会先输出 reasoning_content，
+                // 若思维链耗尽预算，正文 content 会为空。此时回退到非流式请求拿正文，避免用户看到失败。
+                log.warn("AI stream returned empty content, fallback to non-stream call");
+                AiCallResult fallback = chat(system, user, baseUrl, apiKey, model);
+                onDelta.accept(fallback.getContent());
+                return fallback;
+            }
             if (!completed)
             {
                 throw new AiServiceUnavailableException("AI 生成中断，请稍后重试");
-            }
-            if (content.isEmpty())
-            {
-                throw new AiServiceUnavailableException(errorMessage);
             }
             return new AiCallResult(content, totalTokens, modelName);
         }
@@ -461,7 +631,7 @@ public class AiServiceClient
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("model", m);
         body.put("messages", messages);
-        body.put("max_tokens", 4096);
+        body.put("max_tokens", 8192);
         body.put("temperature", 0.8);
         body.put("stream", false);
         try
@@ -554,8 +724,12 @@ public class AiServiceClient
                                     String baseUrl, String apiKey, String model)
     {
         String typeHint = (type == null || type.isBlank()) ? "" : "\n写作类型：" + type;
-        String system = "你是一名资深网络小说写手，擅长创作节奏紧凑、画面感强、对话自然的小说正文。"
-                + "请根据用户的要求直接创作小说正文，不要解释、不要标题、不要任何前后缀。";
+        String system = "你是一名资深短剧编剧，擅长把分集事件写成一集可直接排演的剧本正文。"
+                + "写法要求：开头一句自然交代本集发生的地点和时间（如“顾家老宅的院子里，午后的日头正毒”），"
+                + "不要写“场景1”“内景/外景”这类场景头，也不要写镜号、景别、运镜、转场，这些交给分镜环节；"
+                + "正文以人物动作和对白推进，对白用“角色：台词”格式，句子短、有来有回；"
+                + "篇幅 700-900 字，只写这一集，本集要有完整结果，结尾留一个具体钩子（一个动作、一句关键台词或一个未解的画面）；"
+                + "不要解释、不要章节标题、不要任何前后缀。";
         return streamChat(appendSkill(system, skillContent), prompt + typeHint, onDelta, baseUrl, apiKey, model);
     }
 
@@ -572,15 +746,7 @@ public class AiServiceClient
     public AiCallResult outlineStream(String inspiration, String genre, String style, String skillContent, Consumer<String> onDelta,
                                       String baseUrl, String apiKey, String model)
     {
-        String genreHint = (genre == null || genre.isBlank()) ? "不限" : genre;
-        String styleHint = (style == null || style.isBlank()) ? "不限" : style;
-        String insp = (inspiration == null || inspiration.isBlank()) ? "" : inspiration;
-        String system = "你是一名资深网文策划编辑，擅长帮完全不懂创作的普通人快速产出专业级剧本大纲。"
-                + "请根据故事灵感、题材与风格生成小说剧本大纲，依次包含书名、一句话简介、角色、分幕剧情和关键情节，"
-                + "用通俗易懂的语言，让新手照着写也能写成不错的故事。以中文标题分段输出可读文本。"
-                + "直接从书名开始，不要解释，不要 JSON，不要 Markdown 代码块。";
-        String user = "故事灵感：" + insp + "\n题材：" + genreHint + "\n风格：" + styleHint;
-        return streamChat(appendSkill(system, skillContent), user, onDelta, baseUrl, apiKey, model);
+        return outlineStreamBatched(inspiration, genre, style, skillContent, onDelta, baseUrl, apiKey, model);
     }
 
     public AiCallResult storyboardStream(String script, String style, String skillContent, Consumer<String> onDelta,

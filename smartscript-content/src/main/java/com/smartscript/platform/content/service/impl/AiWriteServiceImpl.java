@@ -311,10 +311,13 @@ public class AiWriteServiceImpl implements IAiWriteService
                 CAPABILITY_OUTLINE, Math.max(1, r.getTotalTokens()), STATUS_SUCCESS, resolveProvider(),
                 sha256(buildOutlinePrompt(request)), startedAt, finishedAt);
         Long recordId = saveRecord(identityProvider.currentUserId(), request.getWorkId(),
-                CAPABILITY_OUTLINE, buildOutlineInputText(request), outlineToText(outline),
+                CAPABILITY_OUTLINE, buildOutlineInputText(request), r.getContent(),
                 resolveModel(r), r.getTotalTokens());
         consumePoints(identityProvider.currentUserId(), "outline", recordId, r.getTotalTokens());
-        return new AppAiOutlineResult(outline, requestNo, Math.max(1, r.getTotalTokens()), false);
+        AppAiOutlineResult result = new AppAiOutlineResult(outline, requestNo,
+                Math.max(1, r.getTotalTokens()), false);
+        result.setContent(r.getContent());
+        return result;
     }
 
     /** 把 AI 流式返回的完整大纲文本解析为 JsonNode（与同步路径共用 parseJson 语义）。 */

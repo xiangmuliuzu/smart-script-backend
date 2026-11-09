@@ -319,7 +319,9 @@ public class AppAiController
             AppAiOutlineResult result = aiWriteService.outlineStream(request, delta);
             return "{\"done\":true,\"quotaUsed\":" + result.getQuotaUsed() + ",\"requestNo\":"
                     + jsonEscape(result.getRequestNo() == null ? "" : result.getRequestNo())
-                    + ",\"truncated\":" + result.isTruncated() + "}";
+                    + ",\"truncated\":" + result.isTruncated()
+                    + ",\"content\":" + jsonEscape(result.getContent() == null ? "" : result.getContent())
+                    + "}";
         });
     }
 
@@ -331,7 +333,7 @@ public class AppAiController
                 .header("Cache-Control", "no-cache, no-transform")
                 .header("X-Accel-Buffering", "no")
                 .body(output -> {
-                    request.getAsyncContext().setTimeout(120_000L);
+                    request.getAsyncContext().setTimeout(600_000L);
                     output.write(": connected\n\n".getBytes(StandardCharsets.UTF_8));
                     output.flush();
                     try
