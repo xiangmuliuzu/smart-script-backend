@@ -47,4 +47,14 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		order by created_at desc, record_id desc
 	</select>
 
+	<!-- 删除只作用于本人记录：user_id 条件与 record_id 范围同时命中才删除，越权 ID 静默无效。 -->
+	<delete id="deleteWriteRecords">
+		delete from sys_ai_write_record
+		where user_id = #{userId}
+		  and record_id in
+		<foreach collection="recordIds" item="recordId" open="(" separator="," close=")">
+			#{recordId}
+		</foreach>
+	</delete>
+
 </mapper>

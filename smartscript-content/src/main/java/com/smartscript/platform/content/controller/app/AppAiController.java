@@ -11,6 +11,7 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -159,6 +160,34 @@ public class AppAiController
         int pageNum = page == null ? 1 : page;
         int size = pageSize == null ? 20 : pageSize;
         return AppApiResponse.ok(aiWriteService.pageWriteRecords(pageNum, size));
+    }
+
+    /**
+     * 删除本人的 AI 记录（批量）
+     *
+     * @param body {recordIds: [1,2,3]}，只删除当前登录用户自己的记录
+     * @return data = 实际删除条数
+     */
+    @DeleteMapping("/write-records")
+    public AppApiResponse<Integer> deleteWriteRecords(@RequestBody(required = false) Map<String, Object> body)
+    {
+        List<Long> ids = new java.util.ArrayList<>();
+        Object raw = body == null ? null : body.get("recordIds");
+        if (raw instanceof List<?> list)
+        {
+            for (Object item : list)
+            {
+                try
+                {
+                    ids.add(Long.valueOf(String.valueOf(item)));
+                }
+                catch (NumberFormatException ignored)
+                {
+                    // 非法ID直接忽略，不因单条脏数据拒绝整批删除。
+                }
+            }
+        }
+        return AppApiResponse.ok(aiWriteService.deleteWriteRecords(ids));
     }
 
     /**

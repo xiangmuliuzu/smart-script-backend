@@ -56,6 +56,14 @@ public interface IAiWriteService
     public AppPageResult<AppAiWriteRecordItem> pageWriteRecords(int pageNum, int pageSize);
 
     /**
+     * 删除当前登录用户自己的若干条 AI 记录（批量）
+     *
+     * @param recordIds 记录ID集合；为空时直接返回 0
+     * @return 实际删除条数
+     */
+    public int deleteWriteRecords(List<Long> recordIds);
+
+    /**
      * AI 大纲生成（2.9.13）
      *
      * @param request 大纲请求（四个入参均可空）

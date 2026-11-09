@@ -215,6 +215,27 @@ public class AiWriteServiceImpl implements IAiWriteService
     }
 
     @Override
+    public int deleteWriteRecords(List<Long> recordIds)
+    {
+        if (recordIds == null || recordIds.isEmpty())
+        {
+            return 0;
+        }
+        // 去重并只保留合法主键，避免生成 IN () 或负值条件。
+        List<Long> ids = recordIds.stream().filter(id -> id != null && id > 0).distinct().toList();
+        if (ids.isEmpty())
+        {
+            return 0;
+        }
+        Long userId = identityProvider.currentUserId();
+        if (userId == null)
+        {
+            return 0;
+        }
+        return writeRecordMapper.deleteWriteRecords(userId, ids);
+    }
+
+    @Override
     public AppPageResult<AppAiOutlineRecordItem> pageOutlineRecords(int pageNum, int pageSize)
     {
         int safePageNum = pageNum < 1 ? DEFAULT_PAGE_NUM : pageNum;

@@ -37,4 +37,13 @@ public interface AppAiWriteRecordMapper
      * @return 记录条目集合
      */
     public List<AppAiWriteRecordItem> selectWriteRecordsByUser(@Param("userId") Long userId);
+
+    /**
+     * 删除当前用户自己的若干条 AI 记录（归属条件写在 SQL 里，跨用户无效）
+     *
+     * @param userId    当前登录用户ID
+     * @param recordIds 待删除记录ID，调用方保证非空
+     * @return 实际删除行数
+     */
+    public int deleteWriteRecords(@Param("userId") Long userId, @Param("recordIds") List<Long> recordIds);
 }
