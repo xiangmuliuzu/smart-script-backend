@@ -114,6 +114,7 @@ public class AppChapterAuthorServiceImpl implements IAppChapterAuthorService
             item.setChapterNo(row.getChapterNo());
             item.setChapterTitle(row.getChapterTitle());
             item.setWordCount(row.getWordCount());
+            item.setSummary(row.getSummary());
             item.setIsFree(row.getIsFree());
             item.setStatus(row.getStatus());
             items.add(item);
@@ -132,6 +133,7 @@ public class AppChapterAuthorServiceImpl implements IAppChapterAuthorService
         chapter.setChapterTitle(request.getChapterTitle());
         chapter.setContent(request.getContent());
         chapter.setWordCount(countWords(request.getContent()));
+        chapter.setSummary(clipSummary(request.getSummary()));
         chapter.setIsFree(request.getIsFree() == null ? DEFAULT_IS_FREE : request.getIsFree());
         chapter.setStatus(DEFAULT_STATUS);
         chapter.setCreateBy(userId == null ? null : String.valueOf(userId));
@@ -155,6 +157,7 @@ public class AppChapterAuthorServiceImpl implements IAppChapterAuthorService
         update.setChapterId(chapterId);
         update.setChapterTitle(request.getChapterTitle());
         update.setContent(request.getContent());
+        update.setSummary(clipSummary(request.getSummary()));
         // 仅在更新正文时重算字数；只改标题/状态时保留原 word_count
         if (request.getContent() != null)
         {
@@ -191,6 +194,21 @@ public class AppChapterAuthorServiceImpl implements IAppChapterAuthorService
         {
             workMapper.refreshWorkAggregates(meta.getWorkId());
         }
+    }
+
+    /** 摘要落库前截断到 500 字符（列 varchar(500)）；空白按 null 处理 */
+    private static String clipSummary(String summary)
+    {
+        if (summary == null)
+        {
+            return null;
+        }
+        String trimmed = summary.trim();
+        if (trimmed.isEmpty())
+        {
+            return null;
+        }
+        return trimmed.length() > 500 ? trimmed.substring(0, 500) : trimmed;
     }
 
     /** 按内容字符长度计算字数（null/空记为 0） */

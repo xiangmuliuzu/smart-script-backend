@@ -32,9 +32,12 @@ import com.smartscript.platform.content.dto.AppPageResult;
 import com.smartscript.platform.content.mapper.AppAiRequestMapper;
 import com.smartscript.platform.content.mapper.AppAiWriteRecordMapper;
 import com.smartscript.platform.content.exception.AiQuotaInsufficientException;
+import com.smartscript.platform.content.exception.AiServiceUnavailableException;
 import com.smartscript.platform.content.domain.AiChannel;
+import com.smartscript.platform.content.domain.SysWorkLedger;
 import com.smartscript.platform.content.service.AiCallResult;
 import com.smartscript.platform.content.service.AiServiceClient;
+import com.smartscript.platform.content.service.ChapterSummarySupport;
 import com.smartscript.platform.content.service.IAiChannelService;
 import com.smartscript.platform.content.service.IAiWriteService;
 import com.smartscript.platform.identity.IdentityProvider;
@@ -99,6 +102,9 @@ public class AiWriteServiceImpl implements IAiWriteService
     /** 分镜能力标识（E 模块：剧本→分镜一条龙） */
     private static final String CAPABILITY_STORYBOARD = "storyboard";
 
+    /** 本章摘要回写能力标识（write_type / 积分流水 remark） */
+    private static final String CAPABILITY_CHAPTER_SUMMARY = "chapter-summary";
+
     /** 大纲消耗额度（本批固定 1） */
     private static final int QUOTA_COST_OUTLINE = 1;
 
@@ -141,6 +147,9 @@ public class AiWriteServiceImpl implements IAiWriteService
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    @Autowired
+    private com.smartscript.platform.content.service.IAppWorkLedgerService workLedgerService;
+
     @Autowired(required = false)
     private com.smartscript.platform.review.service.RiskCheckService riskCheckService;
 
@@ -179,7 +188,7 @@ public class AiWriteServiceImpl implements IAiWriteService
                 resolveWriteType(request.getType()), request.getPrompt(), content,
                 resolveModel(data), data.getTotalTokens());
         consumePoints(identityProvider.currentUserId(), "write", recordId, data.getTotalTokens());
-        return new AppAiWriteResult(content, recordId, false);
+        return new AppAiWriteResult(content, recordId, data.isTruncated());
     }
 
     @Override
@@ -199,7 +208,7 @@ public class AiWriteServiceImpl implements IAiWriteService
                 WRITE_TYPE_POLISH, request.getContent(), content,
                 resolveModel(data), data.getTotalTokens());
         consumePoints(identityProvider.currentUserId(), "polish", recordId, data.getTotalTokens());
-        return new AppAiWriteResult(content, recordId, false);
+        return new AppAiWriteResult(content, recordId, data.isTruncated());
     }
 
     @Override
@@ -265,7 +274,7 @@ public class AiWriteServiceImpl implements IAiWriteService
                 resolveWriteType(request.getType()), request.getPrompt(), content,
                 resolveModel(r), r.getTotalTokens());
         consumePoints(identityProvider.currentUserId(), "write", recordId, r.getTotalTokens());
-        return new AppAiWriteResult(content, recordId, false);
+        return new AppAiWriteResult(content, recordId, r.isTruncated());
     }
 
     @Override
@@ -285,7 +294,54 @@ public class AiWriteServiceImpl implements IAiWriteService
                 WRITE_TYPE_POLISH, request.getContent(), content,
                 resolveModel(r), r.getTotalTokens());
         consumePoints(identityProvider.currentUserId(), "polish", recordId, r.getTotalTokens());
-        return new AppAiWriteResult(content, recordId, false);
+        return new AppAiWriteResult(content, recordId, r.isTruncated());
+    }
+
+    /**
+     * 大纲生成前拼创作台账上下文（只取当前用户自己的作品，避免把他人台账带进提示词）。
+     * 无 workId、非本人作品或台账为空时返回 null，此时 AI 只按灵感与风格生成。
+     */
+    private String buildLedgerContext(Long userId, Long workId)
+    {
+        if (workId == null || userId == null)
+        {
+            return null;
+        }
+        Long authorId;
+        try
+        {
+            List<Long> rows = jdbcTemplate.queryForList(
+                    "SELECT author_id FROM sys_work WHERE work_id = ? AND is_deleted = 0", Long.class, workId);
+            authorId = rows.isEmpty() ? null : rows.get(0);
+        }
+        catch (Exception e)
+        {
+            log.warn("读取作品归属失败 workId={}：{}", workId, e.getMessage());
+            return null;
+        }
+        if (authorId == null || !authorId.equals(userId))
+        {
+            return null;
+        }
+        SysWorkLedger ledger = workLedgerService.getLedger(workId);
+        StringBuilder sb = new StringBuilder();
+        appendLedgerLine(sb, "故事简介", ledger.getStorySummary());
+        appendLedgerLine(sb, "人物卡", ledger.getCharacters());
+        appendLedgerLine(sb, "关系状态", ledger.getRelations());
+        appendLedgerLine(sb, "伏笔（埋在哪章/计划回收章/是否回收）", ledger.getForeshadow());
+        appendLedgerLine(sb, "时间线", ledger.getTimeline());
+        appendLedgerLine(sb, "物品位置", ledger.getItems());
+        appendLedgerLine(sb, "未解线索", ledger.getThreads());
+        return sb.length() == 0 ? null : sb.toString();
+    }
+
+    /** 台账单类拼接（空值跳过）。 */
+    private static void appendLedgerLine(StringBuilder sb, String label, String value)
+    {
+        if (value != null && !value.isBlank())
+        {
+            sb.append(label).append('：').append(value.trim()).append('\n');
+        }
     }
 
     @Override
@@ -296,11 +352,12 @@ public class AiWriteServiceImpl implements IAiWriteService
                 (request.getInspiration() == null ? "" : request.getInspiration()));
         Date startedAt = new Date();
         AiChannel channel = resolveChannel(request.getModel());
+        String ledgerContext = buildLedgerContext(identityProvider.currentUserId(), request.getWorkId());
         AiCallResult r = (channel == null)
                 ? aiServiceClient.outlineStream(request.getInspiration(), request.getGenre(), request.getStyle(),
-                        resolveSkillContent(request.getSkillId()), onDelta)
+                        resolveSkillContent(request.getSkillId()), ledgerContext, onDelta)
                 : aiServiceClient.outlineStream(request.getInspiration(), request.getGenre(), request.getStyle(),
-                        resolveSkillContent(request.getSkillId()), onDelta,
+                        resolveSkillContent(request.getSkillId()), ledgerContext, onDelta,
                         channel.getBaseUrl(), channel.getApiKey(), request.getModel());
         Date finishedAt = new Date();
         JsonNode outlineNode = parseOutlineJson(r.getContent());
@@ -760,6 +817,119 @@ public class AiWriteServiceImpl implements IAiWriteService
     public List<Map<String, Object>> listEnabledModels()
     {
         return aiChannelService.listEnabledModels();
+    }
+
+    /**
+     * 本章摘要 + 台账回写（方案 2）：正文定稿后单独一次非流式调用，
+     * 读本集正文产出「本章摘要 + 七类台账更新后的完整文本」，
+     * 由后端写 summary 并合并台账；正文完全不动。
+     */
+    @Override
+    public Map<String, Object> summarizeChapter(Long workId, Long chapterId, String content, String model)
+    {
+        Long userId = identityProvider.currentUserId();
+        if (workId == null || chapterId == null)
+        {
+            throw new IllegalArgumentException("缺少作品或章节");
+        }
+        List<Map<String, Object>> rows;
+        try
+        {
+            rows = jdbcTemplate.queryForList(
+                    "SELECT w.author_id, c.chapter_no, c.chapter_title, c.content "
+                            + "FROM sys_work w JOIN sys_work_chapter c ON c.work_id = w.work_id "
+                            + "WHERE w.work_id = ? AND c.chapter_id = ? AND w.is_deleted = 0",
+                    workId, chapterId);
+        }
+        catch (Exception e)
+        {
+            log.warn("读取章节失败 workId={} chapterId={}：{}", workId, chapterId, e.getMessage());
+            throw new IllegalArgumentException("章节不存在或不属于该作品");
+        }
+        if (rows.isEmpty())
+        {
+            throw new IllegalArgumentException("章节不存在或不属于该作品");
+        }
+        Map<String, Object> row = rows.get(0);
+        Object authorObj = row.get("author_id");
+        Long authorId = authorObj instanceof Number number ? number.longValue() : null;
+        if (authorId == null || !authorId.equals(userId))
+        {
+            throw new IllegalArgumentException("无权操作该作品");
+        }
+        String chapterNo = String.valueOf(row.get("chapter_no"));
+        String chapterTitle = row.get("chapter_title") == null ? BLANK : String.valueOf(row.get("chapter_title"));
+        // 章节标题通常已是「第 N 集」，直接用；为空才用集号兜底，避免「第5集 第 5 集」这类重复。
+        String displayTitle = chapterTitle.isBlank() ? ("第" + chapterNo + "集") : chapterTitle;
+        String dbContent = row.get("content") == null ? BLANK : String.valueOf(row.get("content"));
+        // 前端刚把 AI 续写插入正文、尚未保存时会传 content；为空则用库中正文。
+        String body = (content == null || content.isBlank()) ? dbContent : content;
+        body = body == null ? BLANK : body.trim();
+        if (body.length() < ChapterSummarySupport.MIN_BODY)
+        {
+            throw new IllegalArgumentException("本章正文过短（不足 " + ChapterSummarySupport.MIN_BODY
+                    + " 字），先写完再生成摘要");
+        }
+        checkPoints(userId);
+        checkContent(userId, body);
+        String ledgerText = buildLedgerContext(userId, workId);
+        String userPrompt = "本集：" + displayTitle + "\n\n"
+                + "【已有创作台账】\n"
+                + (ledgerText == null ? "（暂无，请按本集正文新建七类台账）" : ledgerText)
+                + "【本集正文】\n" + ChapterSummarySupport.clipBody(body, ChapterSummarySupport.BODY_CLIP);
+        AiChannel channel = resolveChannel(model);
+        AiCallResult r = (channel == null)
+                ? aiServiceClient.chatText(buildSummarySystemPrompt(), userPrompt)
+                : aiServiceClient.chatText(buildSummarySystemPrompt(), userPrompt,
+                        channel.getBaseUrl(), channel.getApiKey(), model);
+        JsonNode root = ChapterSummarySupport.parseJson(r.getContent());
+        String summary = ChapterSummarySupport.summaryOf(root);
+        if (summary.isBlank())
+        {
+            throw new AiServiceUnavailableException("AI 未返回可用的本章摘要，请重试");
+        }
+        jdbcTemplate.update(
+                "UPDATE sys_work_chapter SET summary = ?, update_time = NOW() WHERE chapter_id = ? AND work_id = ?",
+                summary, chapterId, workId);
+        SysWorkLedger ledger = workLedgerService.getLedger(workId);
+        boolean ledgerUpdated = ChapterSummarySupport.mergeLedger(ledger,
+                ChapterSummarySupport.ledgerPatch(root));
+        if (ledgerUpdated)
+        {
+            workLedgerService.saveLedger(workId, ledger);
+        }
+        Long recordId = saveRecord(userId, workId, CAPABILITY_CHAPTER_SUMMARY,
+                displayTitle, summary, resolveModel(r), r.getTotalTokens());
+        consumePoints(userId, CAPABILITY_CHAPTER_SUMMARY, recordId, r.getTotalTokens());
+        Map<String, Object> result = new java.util.LinkedHashMap<>();
+        result.put("summary", summary);
+        result.put("ledgerUpdated", ledgerUpdated);
+        result.put("recordId", recordId);
+        result.put("tokens", Math.max(1, r.getTotalTokens()));
+        return result;
+    }
+
+    /** 摘要/台账抽取的系统提示（固定输出 JSON，禁止改写正文）。 */
+    private static String buildSummarySystemPrompt()
+    {
+        return "你是剧本统筹，负责把一集正文整理成「本章摘要」和「创作台账更新」，供下一集续写参考。\n"
+                + "要求：\n"
+                + "1. 只依据给出的正文与既有台账，不编造未出现的人物、设定或情节。\n"
+                + "2. summary：本集摘要，120~200 字，写清本集发生的事件、冲突推进、人物状态变化与结尾钩子；不写评价或推荐语。\n"
+                + "3. ledger：只写本集新增或需要修改的条目，不要复述既有台账原文——"
+                + "每类给出若干行短句，一行一条（全书主线、人物身份状态、关系变化、本集埋设/推进的伏笔、"
+                + "本集的时间地点、关键道具去向、新出现的悬念）。本集没有涉及的类别填空字符串 \"\"。\n"
+                + "    七个键的含义：\n"
+                + "    storySummary 故事简介：主线推进到哪一步；\n"
+                + "    characters 人物卡：出场人物的身份、性格、当前状态；\n"
+                + "    relations 关系状态：人物关系及其变化；\n"
+                + "    foreshadow 伏笔：埋在哪一集、计划或是否回收；\n"
+                + "    timeline 时间线：按集记录时间与地点；\n"
+                + "    items 物品位置：关键道具在谁手里、在哪；\n"
+                + "    threads 未解线索：尚未解释的悬念。\n"
+                + "4. summary 必须放在 JSON 最前面、写完整；严格输出一个 JSON 对象，结构如下（值替换为实际内容）：\n"
+                + ChapterSummarySupport.emptyLedgerJson() + "\n"
+                + "不要 Markdown 代码块，不要任何解释文字。";
     }
 
     private String resolveSkillContent(Long skillId)

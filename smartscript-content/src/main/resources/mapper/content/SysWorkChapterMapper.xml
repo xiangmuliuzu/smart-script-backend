@@ -16,6 +16,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		<result property="chapterTitle"  column="chapter_title"  />
 		<result property="storageContent" column="content"       />
 		<result property="wordCount"     column="word_count"     />
+		<result property="summary"       column="summary"        />
 		<result property="isFree"        column="is_free"        />
 		<result property="status"        column="status"         />
 		<result property="createBy"      column="create_by"      />
@@ -27,7 +28,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 
 	<!-- 章节列表：不返回 content 全文，仅摘要字段 -->
 	<sql id="selectChapterVo">
-		select chapter_id, work_id, chapter_no, chapter_title, word_count, is_free, status,
+		select chapter_id, work_id, chapter_no, chapter_title, word_count, summary, is_free, status,
 		       create_by, create_time, update_by, update_time, remark
 		from sys_work_chapter
 	</sql>
@@ -50,7 +51,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 	  不带作品可见性条件，由服务层判定作品是否上架后决定 404 语义。
 	-->
 	<select id="selectChapterDetail" parameterType="Long" resultMap="SysWorkChapterResult">
-		select chapter_id, work_id, chapter_no, chapter_title, content, word_count, is_free, status,
+		select chapter_id, work_id, chapter_no, chapter_title, content, word_count, summary, is_free, status,
 		       create_by, create_time, update_by, update_time, remark
 		from sys_work_chapter
 		where chapter_id = #{chapterId}
@@ -58,7 +59,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 
 	<!-- 用户端编辑：章节列表含 content 全文，按章节序号升序 -->
 	<select id="selectChapterListWithContentByWorkId" parameterType="Long" resultMap="SysWorkChapterResult">
-		select chapter_id, work_id, chapter_no, chapter_title, content, word_count, is_free, status,
+		select chapter_id, work_id, chapter_no, chapter_title, content, word_count, summary, is_free, status,
 		       create_by, create_time, update_by, update_time, remark
 		from sys_work_chapter
 		where work_id = #{workId}
@@ -83,7 +84,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 	  App 章节编辑：归属判定只取元信息（不含 content 长文本）。
 	-->
 	<select id="selectChapterMeta" parameterType="Long" resultMap="SysWorkChapterResult">
-		select chapter_id, work_id, chapter_no, chapter_title, word_count, is_free, status
+		select chapter_id, work_id, chapter_no, chapter_title, word_count, summary, is_free, status
 		from sys_work_chapter
 		where chapter_id = #{chapterId}
 	</select>
@@ -108,6 +109,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 			<if test="chapterTitle != null">chapter_title,</if>
 			<if test="content != null">content,</if>
 			<if test="wordCount != null">word_count,</if>
+			<if test="summary != null">summary,</if>
 			<if test="isFree != null">is_free,</if>
 			<if test="status != null">status,</if>
 			<if test="createBy != null">create_by,</if>
@@ -120,6 +122,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 			<if test="chapterTitle != null">#{chapterTitle},</if>
 			<if test="storageContent != null">#{storageContent},</if>
 			<if test="wordCount != null">#{wordCount},</if>
+			<if test="summary != null">#{summary},</if>
 			<if test="isFree != null">#{isFree},</if>
 			<if test="status != null">#{status},</if>
 			<if test="createBy != null">#{createBy},</if>
@@ -136,6 +139,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 			<if test="chapterTitle != null">chapter_title = #{chapterTitle},</if>
 			<if test="storageContent != null">content = #{storageContent},</if>
 			<if test="wordCount != null">word_count = #{wordCount},</if>
+			<if test="summary != null">summary = #{summary},</if>
 			<if test="isFree != null">is_free = #{isFree},</if>
 			<if test="status != null">status = #{status},</if>
 			<if test="updateBy != null">update_by = #{updateBy},</if>

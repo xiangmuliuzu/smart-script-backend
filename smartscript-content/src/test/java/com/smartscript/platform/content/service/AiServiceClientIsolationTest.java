@@ -30,6 +30,7 @@ class AiServiceClientIsolationTest
     private AiServiceClient client;
     private volatile CountDownLatch bothRequests;
     private boolean truncateStream;
+    private boolean lengthFinish;
 
     @BeforeEach
     void start() throws Exception
@@ -58,7 +59,8 @@ class AiServiceClientIsolationTest
                     int middle = content.length() / 2;
                     response = delta(content.substring(0, middle));
                     if (!truncateStream) response += delta(content.substring(middle))
-                            + "data: {\"choices\":[{\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n";
+                            + "data: {\"choices\":[{\"finish_reason\":\""
+                            + (lengthFinish ? "length" : "stop") + "\"}]}\n\ndata: [DONE]\n\n";
                 }
                 else
                 {
@@ -102,13 +104,34 @@ class AiServiceClientIsolationTest
     }
 
     @Test
+    void lengthFinishIsReportedAsTruncatedInsteadOfSuccess()
+    {
+        lengthFinish = true;
+        StringBuilder received = new StringBuilder();
+        AiCallResult r = client.writeStream("写到一半的故事", null, null, received::append);
+        assertFalse(received.isEmpty(), "截断前已收到的内容仍要回显");
+        assertTrue(r.isTruncated(), "finish_reason=length 必须标记为截断");
+    }
+
+    @Test
+    void stopFinishIsNotReportedAsTruncated()
+    {
+        StringBuilder received = new StringBuilder();
+        AiCallResult r = client.writeStream("完整的故事", null, null, received::append);
+        assertFalse(r.isTruncated());
+    }
+
+    @Test
     void streamingOutlineRequestsReadableTextRatherThanWaitingForJson()
     {
         StringBuilder received = new StringBuilder();
         AiCallResult r = client.outlineStream("雨夜故事", "悬疑", "紧凑", null, received::append);
         String result = r.getContent();
-        assertEquals(result, received.toString());
-        assertTrue(captured.get(0).path("messages").path(0).path("content").asText().contains("分段输出可读文本"));
+        // 设定块与事件卡块之间用 "\n\n" 分隔推送，最终 content 会 trim 首尾空白，比较时同样 trim。
+        assertEquals(result, received.toString().trim());
+        // 两阶段（设定块 + 事件卡）都必须要求可读中文文本，而不是 JSON。
+        assertTrue(captured.get(0).path("messages").path(0).path("content").asText()
+                .contains("直接输出中文可读文本"));
     }
 
     @Test

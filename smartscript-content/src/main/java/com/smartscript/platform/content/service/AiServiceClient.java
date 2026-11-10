@@ -199,17 +199,44 @@ public class AiServiceClient
      */
     public AiCallResult outlineStream(String inspiration, String genre, String style, String skillContent, Consumer<String> onDelta)
     {
-        return outlineStreamBatched(inspiration, genre, style, skillContent, onDelta, null, null, null);
+        return outlineStreamBatched(inspiration, genre, style, skillContent, null, onDelta, null, null, null);
     }
 
     /**
-     * 分集事件卡分批生成：单次输出有 token 上限（8192），30/50 集一次性写会被截断，
-     * 因此按 10 集一批连续生成，后续批次带上已生成部分的结尾作为前情，逐批通过 onDelta 推送。
+     * 剧本大纲（流式，带创作台账）。台账内容会注入到设定与每批事件卡，保证跨批人物关系一致。
+     *
+     * @param ledgerContext 创作台账文本（人物卡/关系/伏笔/时间线/物品/线索，可空）
+     */
+    public AiCallResult outlineStream(String inspiration, String genre, String style, String skillContent,
+            String ledgerContext, Consumer<String> onDelta)
+    {
+        return outlineStreamBatched(inspiration, genre, style, skillContent, ledgerContext, onDelta, null, null, null);
+    }
+
+    /**
+     * 剧本大纲分批生成（两阶段，各自独立额度）：
+     *   阶段1：三块设定（故事简介 / 主要人物 / 人物关系）单独一次调用，额度独立（4096），
+     *          不再与每集事件卡挤在同一次输出里；
+     *   阶段2：分集事件卡按 6 集一批，每批独立调用（8192），
+     *          每批注入设定精简版 + 创作台账（人物/关系/伏笔/时间线/物品/线索），
+     *          保证跨批人物、关系、伏笔不跑偏。
      */
     private AiCallResult outlineStreamBatched(String inspiration, String genre, String style,
-                                              String skillContent, Consumer<String> onDelta,
+                                              String skillContent, String ledgerContext,
+                                              Consumer<String> onDelta,
                                               String baseUrl, String apiKey, String model)
     {
+        /** 设定块单次额度（与事件卡额度互不占用） */
+        final int settingMaxTokens = 4096;
+        /** 事件卡单批额度 */
+        final int episodeMaxTokens = 8192;
+        /** 首批事件卡注入设定原文的上限 */
+        final int settingClipFirst = 3000;
+        /** 后续批注入设定摘要的上限 */
+        final int settingClipCont = 1200;
+        /** 台账注入上限 */
+        final int ledgerClip = 2000;
+
         String genreHint = (genre == null || genre.isBlank()) ? "不限" : genre;
         String styleHint = (style == null || style.isBlank()) ? "不限" : style;
         String insp = (inspiration == null || inspiration.isBlank()) ? "" : inspiration;
@@ -221,24 +248,52 @@ public class AiServiceClient
                 + "每集必须是一件完整的事：有开场、有交锋、有结果；结尾钩子要具体（一个动作、一句关键台词或一个未解的画面）；"
                 + "集与集之间因果承接、冲突逐集升级。"
                 + "直接输出中文可读文本，不要解释，不要 JSON，不要 Markdown 代码块。";
-        String headSystem = base + "正文最前面另起两段：『故事简介』（100字内）和『主要人物』"
-                + "（每行一人：姓名（年龄）：身份、性格、核心动机）。";
-        String contSystem = base + "本次只输出指定集号区间的事件卡，不要重复故事简介与主要人物，不要重写前情，"
+        String settingSystem = "你是一名资深短剧编剧兼分集策划。本次只输出三段设定，不要输出任何分集事件卡。"
+                + "三个段的标题各自单独占一行（带书名号），段与段之间空一行，顺序固定："
+                + "『故事简介』：120-200 字，写清主角是谁、核心冲突是什么、故事往哪走、结局是什么基调；不分集，不写事件卡。"
+                + "『主要人物』：主要人物 5-8 人，每人一块，格式为"
+                + "「姓名（年龄/性别）：身份与处境｜外貌与气质｜性格与说话方式｜核心动机与软肋｜成长线（从什么状态变成什么状态）」，"
+                + "每人不少于 80 字，写成能直接写戏的具体描述，不要只堆标签，也不要把人物写成一模一样的模板。"
+                + "『人物关系』：逐条写关键人物关系，每条格式为"
+                + "「A ↔ B：关系性质（血亲/仇敌/师徒/暗恋/利益同盟等）+ 情感张力 + 藏着的事或未了的债」，"
+                + "至少 6 条，覆盖主角与所有主要人物的关系，并交代关系链（谁欠谁、谁瞒谁、谁在等谁）。"
+                + "直接输出中文可读文本，不要解释，不要 JSON，不要 Markdown 代码块。";
+        String episodeSystem = base + "本次只输出分集事件卡，不要重复故事简介、主要人物与人物关系，直接从第1集开始编号。";
+        String contSystem = base + "本次只输出指定集号区间的事件卡，不要重复故事简介、主要人物与人物关系，不要重写前情，"
                 + "直接从指定集号开始编号。";
 
+        // ---------- 阶段1：三块设定，独立一次调用 ----------
+        String settingUser = "故事灵感：" + insp + "\n题材：" + genreHint + "\n风格：" + styleHint
+                + ledgerBlock(ledgerContext, ledgerClip)
+                + "\n请输出故事简介、主要人物、人物关系三段设定。";
+        AiCallResult setting = streamChat(appendSkill(settingSystem, skillContent), settingUser, onDelta,
+                baseUrl, apiKey, model, settingMaxTokens);
+        String settingText = setting.getContent();
+        onDelta.accept("\n\n");
+        StringBuilder all = new StringBuilder(settingText == null ? "" : settingText).append("\n\n");
+        int totalTokens = setting.getTotalTokens();
+        String modelName = setting.getModel();
+
+        // ---------- 阶段2：分集事件卡，按批独立调用 ----------
         int total = parseTotalEpisodes(styleHint + "\n" + insp);
         int batchSize = 6;
-        if (total <= batchSize)
+        if (total <= 0)
         {
-            String user = "故事灵感：" + insp + "\n题材：" + genreHint + "\n风格：" + styleHint;
-            AiCallResult single = streamChat(appendSkill(headSystem, skillContent), user, onDelta, baseUrl, apiKey, model);
-            return new AiCallResult(normalizeEpisodeLines(single.getContent()),
-                    single.getTotalTokens(), single.getModel());
+            // 未指定集数：与旧行为一致，单批输出，集数由模型决定
+            String user = "故事灵感：" + insp + "\n题材：" + genreHint + "\n风格：" + styleHint
+                    + "\n【设定（已在上文输出，人物与关系必须与此一致）】\n" + clipText(settingText, settingClipFirst)
+                    + ledgerBlock(ledgerContext, ledgerClip)
+                    + "\n请从第1集开始输出分集事件卡。";
+            AiCallResult r = streamChat(appendSkill(episodeSystem, skillContent), user, onDelta,
+                    baseUrl, apiKey, model, episodeMaxTokens);
+            onDelta.accept("\n\n");
+            all.append(r.getContent()).append("\n\n");
+            totalTokens += r.getTotalTokens();
+            modelName = r.getModel();
+            return new AiCallResult(normalizeEpisodeLines(all.toString().trim()), totalTokens,
+                    modelName == null ? resolveModel(model) : modelName);
         }
 
-        StringBuilder all = new StringBuilder();
-        int totalTokens = 0;
-        String modelName = null;
         int start = 1;
         int guard = 0;
         while (start <= total && guard++ < 40)
@@ -248,6 +303,8 @@ public class AiServiceClient
             if (start == 1)
             {
                 user = "故事灵感：" + insp + "\n题材：" + genreHint + "\n风格：" + styleHint
+                        + "\n【设定（已在上文输出，人物与关系必须与此一致）】\n" + clipText(settingText, settingClipFirst)
+                        + ledgerBlock(ledgerContext, ledgerClip)
                         + "\n请输出第1集到第" + end + "集的事件卡（共 " + total + " 集，本次只写这一段）。";
             }
             else
@@ -257,10 +314,12 @@ public class AiServiceClient
                 String prev = all.substring(all.length() - tailLen);
                 user = "故事灵感：" + insp + "\n题材：" + genreHint + "\n风格：" + styleHint
                         + "\n【前情结尾（勿重复）】\n" + prev
+                        + "\n【设定摘要（人物与关系必须与此一致）】\n" + clipText(settingText, settingClipCont)
+                        + ledgerBlock(ledgerContext, ledgerClip)
                         + "\n请接着输出第" + start + "集到第" + end + "集的事件卡（共 " + total + " 集）。";
             }
-            AiCallResult r = streamChat(appendSkill(start == 1 ? headSystem : contSystem, skillContent),
-                    user, onDelta, baseUrl, apiKey, model);
+            AiCallResult r = streamChat(appendSkill(start == 1 ? episodeSystem : contSystem, skillContent),
+                    user, onDelta, baseUrl, apiKey, model, episodeMaxTokens);
             if (start > 1)
             {
                 onDelta.accept("\n\n");
@@ -390,6 +449,27 @@ public class AiServiceClient
         return streamChat(appendSkill(system, skillContent), user, onDelta);
     }
 
+    /** 截断文本到 max 字符（null 视为空串）；用于把设定/台账压到可控篇幅。 */
+    private static String clipText(String text, int max)
+    {
+        if (text == null)
+        {
+            return "";
+        }
+        String trimmed = text.trim();
+        return trimmed.length() <= max ? trimmed : trimmed.substring(0, max);
+    }
+
+    /** 台账注入块：无内容时返回空串，非空时加标题并截断。 */
+    private static String ledgerBlock(String ledgerContext, int max)
+    {
+        if (ledgerContext == null || ledgerContext.isBlank())
+        {
+            return "";
+        }
+        return "\n【创作台账（已定事实，不得与之冲突）】\n" + clipText(ledgerContext, max);
+    }
+
     /** 导演(skill) 指令追加到 system prompt 末尾（skill 内容非空时生效）。 */
     private static String appendSkill(String system, String skillContent)
     {
@@ -419,6 +499,13 @@ public class AiServiceClient
     private AiCallResult streamChat(String system, String user, Consumer<String> onDelta,
                                     String baseUrl, String apiKey, String model)
     {
+        return streamChat(system, user, onDelta, baseUrl, apiKey, model, 8192);
+    }
+
+    /** 流式调用（可指定本次输出额度：设定块与事件卡各用各的 token 预算）。 */
+    private AiCallResult streamChat(String system, String user, Consumer<String> onDelta,
+                                    String baseUrl, String apiKey, String model, int maxTokens)
+    {
         String url = resolveBaseUrl(baseUrl);
         String key = resolveApiKey(apiKey);
         String resolvedModel = resolveModel(model);
@@ -432,7 +519,7 @@ public class AiServiceClient
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("model", resolvedModel);
         body.put("messages", messages);
-        body.put("max_tokens", 8192);
+        body.put("max_tokens", maxTokens);
         body.put("temperature", 0.8);
         body.put("stream", true);
         try
@@ -454,6 +541,8 @@ public class AiServiceClient
             }
             StringBuilder full = new StringBuilder();
             boolean completed = false;
+            // length 表示输出被长度上限截断，正文常停在半句，必须如实上报
+            boolean truncated = false;
             int totalTokens = 0;
             String modelName = resolvedModel;
             try (BufferedReader reader = new BufferedReader(
@@ -489,9 +578,11 @@ public class AiServiceClient
                         full.append(delta);
                         onDelta.accept(delta);
                     }
-                    if (isSseFinish(data))
+                    String finishReason = parseSseFinishReason(data);
+                    if (finishReason != null)
                     {
                         completed = true;
+                        truncated = "length".equals(finishReason);
                         break;
                     }
                 }
@@ -510,7 +601,7 @@ public class AiServiceClient
             {
                 throw new AiServiceUnavailableException("AI 生成中断，请稍后重试");
             }
-            return new AiCallResult(content, totalTokens, modelName);
+            return new AiCallResult(content, totalTokens, modelName, truncated);
         }
         catch (AiServiceUnavailableException e)
         {
@@ -548,19 +639,33 @@ public class AiServiceClient
     /** 是否 SSE 终止块（finish_reason=stop/length）。 */
     static boolean isSseFinish(String data)
     {
+        return parseSseFinishReason(data) != null;
+    }
+
+    /**
+     * 解析 SSE 块的 finish_reason（取不到返回 null）。
+     *
+     * stop=正常结束；length=输出被长度上限截断（正文常停在半句，需提示重试）。
+     */
+    static String parseSseFinishReason(String data)
+    {
         if (data == null || data.isEmpty())
         {
-            return false;
+            return null;
         }
         try
         {
             JsonNode root = new ObjectMapper().readTree(data);
             String reason = root.path("choices").path(0).path("finish_reason").asText("");
-            return "stop".equals(reason) || "length".equals(reason);
+            if ("stop".equals(reason) || "length".equals(reason))
+            {
+                return reason;
+            }
+            return null;
         }
         catch (Exception e)
         {
-            return false;
+            return null;
         }
     }
 
@@ -603,6 +708,21 @@ public class AiServiceClient
         {
             return null;
         }
+    }
+
+    /**
+     * 非流式调用（结构化输出场景，如「本章摘要 + 台账变更」需要一次性拿完整 JSON）。
+     * 用于不需要打字机效果、但对完整性与可解析性要求更高的调用。
+     */
+    public AiCallResult chatText(String system, String user)
+    {
+        return chat(system, user, null, null, null);
+    }
+
+    /** 同上，可按渠道覆盖 baseUrl / apiKey / model（传 null 用构造默认）。 */
+    public AiCallResult chatText(String system, String user, String baseUrl, String apiKey, String model)
+    {
+        return chat(system, user, baseUrl, apiKey, model);
     }
 
     /**
@@ -656,7 +776,9 @@ public class AiServiceClient
             int totalTokens = root.path("usage").path("total_tokens").asInt(0);
             // 落库统一用请求模型名（DeepSeek 响应 model 会回显别名，如 deepseek-chat → deepseek-flash）
             String modelName = m;
-            return new AiCallResult(content.trim(), totalTokens, modelName);
+            boolean truncated = "length".equals(
+                    root.path("choices").path(0).path("finish_reason").asText(""));
+            return new AiCallResult(content.trim(), totalTokens, modelName, truncated);
         }
         catch (AiServiceUnavailableException e)
         {
@@ -746,7 +868,16 @@ public class AiServiceClient
     public AiCallResult outlineStream(String inspiration, String genre, String style, String skillContent, Consumer<String> onDelta,
                                       String baseUrl, String apiKey, String model)
     {
-        return outlineStreamBatched(inspiration, genre, style, skillContent, onDelta, baseUrl, apiKey, model);
+        return outlineStreamBatched(inspiration, genre, style, skillContent, null, onDelta, baseUrl, apiKey, model);
+    }
+
+    /** 同上，带创作台账（PC/App 传作品台账文本）。 */
+    public AiCallResult outlineStream(String inspiration, String genre, String style, String skillContent,
+                                      String ledgerContext, Consumer<String> onDelta,
+                                      String baseUrl, String apiKey, String model)
+    {
+        return outlineStreamBatched(inspiration, genre, style, skillContent, ledgerContext, onDelta,
+                baseUrl, apiKey, model);
     }
 
     public AiCallResult storyboardStream(String script, String style, String skillContent, Consumer<String> onDelta,

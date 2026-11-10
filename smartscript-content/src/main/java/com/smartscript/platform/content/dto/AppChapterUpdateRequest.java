@@ -16,6 +16,9 @@ public class AppChapterUpdateRequest
     /** 章节内容（可选；更新时重算 word_count） */
     private String content;
 
+    /** 章节摘要（可选，≤500；只记本集推进了什么） */
+    private String summary;
+
     /** 是否免费（可选 "0"/"1"） */
     private String isFree;
 
@@ -40,6 +43,16 @@ public class AppChapterUpdateRequest
     public void setContent(String content)
     {
         this.content = content;
+    }
+
+    public String getSummary()
+    {
+        return summary;
+    }
+
+    public void setSummary(String summary)
+    {
+        this.summary = summary;
     }
 
     public String getIsFree()

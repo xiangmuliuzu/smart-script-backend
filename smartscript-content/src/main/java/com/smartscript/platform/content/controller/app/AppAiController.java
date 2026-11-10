@@ -113,6 +113,44 @@ public class AppAiController
     }
 
     /**
+     * 本章摘要 + 台账回写（方案 2）
+     *
+     * 正文定稿后单独调用一次：读本集正文（前端刚插入、未保存时可传 content），
+     * AI 产出「本章摘要 + 七类台账更新」，后端写 sys_work_chapter.summary 并合并
+     * sys_work_ledger；正文不发生任何改动。成功才扣积分。
+     *
+     * @param body {workId 必填, chapterId 必填, content 可选, model 可选}
+     * @return data = {summary, ledgerUpdated, recordId, tokens}
+     */
+    @PostMapping("/chapter-summary")
+    public AppApiResponse<Map<String, Object>> chapterSummary(@RequestBody(required = false) Map<String, Object> body)
+    {
+        Long workId = asLong(body, "work_id", "workId");
+        Long chapterId = asLong(body, "chapter_id", "chapterId");
+        if (workId == null || chapterId == null)
+        {
+            return AppApiResponse.fail(CODE_BAD_REQUEST, "缺少作品或章节标识");
+        }
+        try
+        {
+            return AppApiResponse.ok(aiWriteService.summarizeChapter(workId, chapterId,
+                    asString(body, "content"), trimToNull(asString(body, "model"))));
+        }
+        catch (AiQuotaInsufficientException e)
+        {
+            return AppApiResponse.fail(CODE_BAD_REQUEST, e.getMessage());
+        }
+        catch (AiServiceUnavailableException e)
+        {
+            return AppApiResponse.fail(CODE_SERVICE_UNAVAILABLE, e.getMessage());
+        }
+        catch (IllegalArgumentException e)
+        {
+            return AppApiResponse.fail(CODE_BAD_REQUEST, e.getMessage());
+        }
+    }
+
+    /**
      * AI 润色（2.9.11）
      *
      * @param body 请求体 {content 必填, style 可选}

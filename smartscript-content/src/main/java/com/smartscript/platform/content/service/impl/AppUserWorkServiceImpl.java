@@ -192,7 +192,7 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
 
     @Override
     @Transactional
-    public SysWorkChapter addChapter(Long userId, Long workId, String chapterTitle, String content, String isFree)
+    public SysWorkChapter addChapter(Long userId, Long workId, String chapterTitle, String content, String summary, String isFree)
     {
         requireOwnWork(userId, workId);
         requireEditable(workId, userId);
@@ -207,6 +207,7 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
         chapter.setChapterNo(maxNo + 1);
         chapter.setChapterTitle(chapterTitle == null ? "" : chapterTitle);
         chapter.setContent(content == null ? "" : content);
+        chapter.setSummary(clipChapterSummary(summary));
         chapter.setWordCount(countWords(chapter.getContent()));
         chapter.setIsFree(isFree == null ? "0" : isFree);
         // 章节两态：新增即草稿（仅作者可见），作者写完再发布（PUT 传 status='0'）
@@ -221,7 +222,7 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
 
     @Override
     @Transactional
-    public void updateChapter(Long userId, Long workId, Long chapterId, String chapterTitle, String content, String isFree)
+    public void updateChapter(Long userId, Long workId, Long chapterId, String chapterTitle, String content, String summary, String isFree)
     {
         requireOwnWork(userId, workId);
         requireEditable(workId, userId);
@@ -237,6 +238,11 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
         update.setChapterTitle(mergedTitle);
         update.setContent(mergedContent);
         update.setWordCount(countWords(update.getContent()));
+        // 摘要：null 表示本次不修改；空串按清空（落库 null），超过 500 字符截断
+        if (summary != null)
+        {
+            update.setSummary(clipChapterSummaryForUpdate(summary));
+        }
         update.setIsFree(isFree);
         update.setUpdateBy(String.valueOf(userId));
         update.setUpdateTime(new Date());
@@ -554,6 +560,32 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
     private String deriveStatus(SysWorkReviewRecord latest)
     {
         return WorkStatusDeriver.derive(latest == null ? null : latest.getStatus());
+    }
+
+    /** 章节摘要：新增时空白按 null；超过 500 字符截断（列 varchar(500)） */
+    private static String clipChapterSummary(String summary)
+    {
+        if (summary == null)
+        {
+            return null;
+        }
+        String trimmed = summary.trim();
+        if (trimmed.isEmpty())
+        {
+            return null;
+        }
+        return trimmed.length() > 500 ? trimmed.substring(0, 500) : trimmed;
+    }
+
+    /** 章节摘要：更新时空串保留为空串（表示清空），超过 500 字符截断 */
+    private static String clipChapterSummaryForUpdate(String summary)
+    {
+        if (summary == null)
+        {
+            return null;
+        }
+        String trimmed = summary.trim();
+        return trimmed.length() > 500 ? trimmed.substring(0, 500) : trimmed;
     }
 
     /** 统计字数（按非空白字符数近似） */

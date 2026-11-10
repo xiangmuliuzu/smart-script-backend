@@ -26,6 +26,9 @@ public class AppAuthorChapterItem
     /** 字数 */
     private Integer wordCount;
 
+    /** 章节摘要（只记本集推进了什么，供后续章节续写注入） */
+    private String summary;
+
     /** 是否免费（"0"=否 "1"=是） */
     private String isFree;
 
@@ -70,6 +73,16 @@ public class AppAuthorChapterItem
     public void setWordCount(Integer wordCount)
     {
         this.wordCount = wordCount;
+    }
+
+    public String getSummary()
+    {
+        return summary;
+    }
+
+    public void setSummary(String summary)
+    {
+        this.summary = summary;
     }
 
     public String getIsFree()

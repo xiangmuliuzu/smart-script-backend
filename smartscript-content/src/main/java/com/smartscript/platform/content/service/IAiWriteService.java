@@ -156,4 +156,20 @@ public interface IAiWriteService
      * @return 渠道 + 模型列表
      */
     public List<Map<String, Object>> listEnabledModels();
+
+    /**
+     * 本章摘要 + 台账回写（方案 2：正文定稿后单独一次 AI 调用）。
+     *
+     * 读本集正文（优先用入参 content，便于前端刚插入正文、尚未保存时立即生成），
+     * 让模型产出「本章摘要 + 更新后的七类创作台账」JSON；后端把摘要写入
+     * sys_work_chapter.summary，台账按字段合并进 sys_work_ledger（人工内容不被清空）。
+     * 调用成功才扣积分（按实际 token）。正文不受任何改动。
+     *
+     * @param workId    作品ID（必填，且必须属于当前登录用户）
+     * @param chapterId 章节ID（必填，且必须属于该作品）
+     * @param content   待总结的正文（可为空，为空时读库中正文）
+     * @param model     模型名（可选，空则用默认渠道）
+     * @return {summary, ledgerUpdated, recordId, tokens}
+     */
+    public Map<String, Object> summarizeChapter(Long workId, Long chapterId, String content, String model);
 }
