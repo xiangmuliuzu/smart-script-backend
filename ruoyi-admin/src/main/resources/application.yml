@@ -147,6 +147,13 @@ app:
       privacy-url: ${APP_AGREEMENT_PRIVACY_URL:https://example.invalid/app/privacy-policy}
       user-title: ${APP_AGREEMENT_USER_TITLE:用户协议}
       privacy-title: ${APP_AGREEMENT_PRIVACY_TITLE:隐私政策}
+  # 任务托管/押金"点一下"开发直通（APP 主按钮打的是 /pay/escrow/dev-pass 等直通端点）。
+  # 默认开启：本地与测试服务器无需支付宝沙箱密钥即可完成托管、付押金接单。
+  # 生产部署务必显式关闭（APP_DEMAND_ESCROW_MOCK_PASS=false），且当 app.auth.env=prod
+  # （即 APP_AUTH_ENV=prod）时代码层强制失效，误开也不会放行。
+  demand:
+    escrow:
+      mock-pass: ${APP_DEMAND_ESCROW_MOCK_PASS:true}
 
 # 积分充值（模拟支付壳子；真实微信/支付宝支付由支付组接入）
 # 换算比例：1 元 = points-per-yuan 积分，改这里即可调整（默认 1 元 100 积分）。

@@ -50,9 +50,27 @@ public class AppTradeDemandController
     private static final String BIDDING_OFFLINE_MSG =
             "招标制已下线，本任务仅支持接单制（付押金接单、逐轮交付验收）";
 
-    /** 开发直通托管开关：本地/演示环境置 true 时，允许"点一下即完成托管"（不走支付宝沙箱）。 */
-    @Value("${APP_DEMAND_ESCROW_MOCK_PASS:false}")
+    /** 开发直通托管开关：yml 键 app.demand.escrow.mock-pass（默认开），环境变量 APP_DEMAND_ESCROW_MOCK_PASS 可覆盖。 */
+    @Value("${app.demand.escrow.mock-pass:true}")
     private boolean mockPassEnabled;
+
+    /** 运行环境标识：prod 时直通端点强制失效，防止生产误开。 */
+    @Value("${app.auth.env:local}")
+    private String appAuthEnv;
+
+    /** 直通可用性判定：返回 null 表示允许直通，否则返回拒绝原因。 */
+    private String devPassBlockReason()
+    {
+        if ("prod".equalsIgnoreCase(appAuthEnv))
+        {
+            return "生产环境已强制关闭开发直通，请使用正式支付";
+        }
+        if (!mockPassEnabled)
+        {
+            return "开发直通未开启，请使用支付宝沙箱付款";
+        }
+        return null;
+    }
 
     public AppTradeDemandController(TradeDemandService demandService, DemandSandboxPaymentService demandSandbox,
             IdentityProvider identityProvider, ChatService chatService)
@@ -387,14 +405,16 @@ public class AppTradeDemandController
     /**
      * 开发直通托管（"点一下即完成"）：不走支付宝沙箱查单，直接把托管置为已到账。
      *
-     * <p>仅在 {@code APP_DEMAND_ESCROW_MOCK_PASS=true}（本地/演示默认开）时可用，供沙箱密钥
+     * <p>受配置 {@code app.demand.escrow.mock-pass}（环境变量 APP_DEMAND_ESCROW_MOCK_PASS，默认开）
+     * 控制，且 {@code APP_AUTH_ENV=prod} 时强制失效，供沙箱密钥
      * 尚未接入时打通"发布→托管→广场曝光"链路。正式扫码收款请由队友接入上方
      * {@code /pay/escrow} + {@code /pay/escrow/confirm} 两个沙箱端点。</p>
      */
     @PostMapping("/{demandId}/pay/escrow/dev-pass")
     public AppApiResponse<SysDemand> devPassEscrow(@PathVariable Long demandId)
     {
-        if (!mockPassEnabled) return AppApiResponse.fail(400, "开发直通未开启，请使用支付宝沙箱付款");
+        String blocked = devPassBlockReason();
+        if (blocked != null) return AppApiResponse.fail(400, blocked);
         try
         {
             SysDemand d = demandService.mockPassEscrow(demandId, currentUserId());
@@ -431,14 +451,15 @@ public class AppTradeDemandController
     /**
      * 开发直通押金（“点一下即付款接单”）：不走支付宝沙箱查单，直接记账押金并原子完成抢单。
      *
-     * <p>与发布者托管直通共用开关 {@code APP_DEMAND_ESCROW_MOCK_PASS}，处理口径对齐：
-     * 本地/演示环境沙箱密钥未接入时一键打通“付押金→接单”；正式收款请走
+     * <p>与发布者托管直通共用开关 {@code app.demand.escrow.mock-pass}，处理口径对齐：
+     * 本地/测试环境沙箱密钥未接入时一键打通“付押金→接单”；正式收款请走
      * {@code /pay/deposit} + {@code /pay/deposit/confirm} 两个沙箱端点。</p>
      */
     @PostMapping("/{demandId}/pay/deposit/dev-pass")
     public AppApiResponse<SysDemand> devPassDeposit(@PathVariable Long demandId)
     {
-        if (!mockPassEnabled) return AppApiResponse.fail(400, "开发直通未开启，请使用支付宝沙箱付款");
+        String blocked = devPassBlockReason();
+        if (blocked != null) return AppApiResponse.fail(400, blocked);
         if (!hasCreatorCapability()) return AppApiResponse.fail(403, "请先开通创作者资格再接单");
         try
         {
