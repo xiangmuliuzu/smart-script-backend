@@ -41,9 +41,11 @@
         WHERE out_trade_no = #{outTradeNo} AND status = 'PENDING'
     </update>
 
-    <update id="reactivateClosed">
-        UPDATE demand_sandbox_payment SET out_trade_no = #{newOutTradeNo}, status = 'PENDING', trade_no = NULL, updated_at = NOW()
-        WHERE demand_id = #{demandId} AND purpose = #{purpose} AND status = 'CLOSED'
+    <update id="rotatePending">
+        UPDATE demand_sandbox_payment
+        SET out_trade_no = #{newOutTradeNo}, payer_id = #{payerId}, amount = #{amount},
+            status = 'PENDING', trade_no = NULL, updated_at = NOW()
+        WHERE demand_id = #{demandId} AND purpose = #{purpose} AND status IN ('PENDING', 'CLOSED')
     </update>
 
 </mapper>

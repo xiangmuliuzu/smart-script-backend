@@ -10,8 +10,10 @@ import org.springframework.transaction.annotation.Transactional;
 import com.alipay.api.AlipayApiException;
 import com.alipay.api.AlipayClient;
 import com.alipay.api.DefaultAlipayClient;
+import com.alipay.api.domain.AlipayTradeCloseModel;
 import com.alipay.api.domain.AlipayTradePrecreateModel;
 import com.alipay.api.domain.AlipayTradeQueryModel;
+import com.alipay.api.request.AlipayTradeCloseRequest;
 import com.alipay.api.request.AlipayTradePrecreateRequest;
 import com.alipay.api.request.AlipayTradeQueryRequest;
 import com.alipay.api.response.AlipayTradePrecreateResponse;
@@ -22,6 +24,9 @@ import com.smartscript.platform.trade.domain.SysOrder;
 @Service
 public class AlipaySandboxPaymentService {
     static final String GATEWAY = "https://openapi-sandbox.dl.alipaydev.com/gateway.do";
+
+    /** 扫码收款单号超过该时长视为可能失效，再次发起时自动换新码。 */
+    private static final long QR_STALE_MILLIS = 10 * 60 * 1000L;
     private final JdbcTemplate jdbc;
     private final TradeOrderService orders;
     private final boolean enabled;
@@ -66,8 +71,37 @@ public class AlipaySandboxPaymentService {
         return new DefaultAlipayClient(GATEWAY, appId, privateKey, "json", "UTF-8", publicKey, "RSA2");
     }
 
+    /** 旧收款码是否可能已失效；没有落时间戳的记录按不过期处理，交由「刷新」按钮换号。 */
+    private static boolean isStale(Object updatedAt) {
+        return updatedAt instanceof java.util.Date date
+                && date.getTime() < System.currentTimeMillis() - QR_STALE_MILLIS;
+    }
+
+    /** 尽力关闭旧单让旧码失效；沙箱里未成过交易的单返回 TRADE_NOT_EXIST 属正常，不影响换新码。 */
+    private void closeQuietly(String outTradeNo) {
+        try {
+            AlipayTradeCloseModel model = new AlipayTradeCloseModel();
+            model.setOutTradeNo(outTradeNo);
+            AlipayTradeCloseRequest request = new AlipayTradeCloseRequest();
+            request.setBizModel(model);
+            client().execute(request);
+        } catch (AlipayApiException e) {
+            // 关闭失败只是旧码延后自然过期，新码照常可用
+        }
+    }
+
     @Transactional
     public Map<String, Object> create(Long orderId, Long buyerId) {
+        return create(orderId, buyerId, false);
+    }
+
+    /**
+     * 生成扫码收款二维码。同一订单重复发起时，若旧单号已超过 {@link #QR_STALE_MILLIS}
+     * 或前端点了「刷新」，先查单结算旧码（可能已被扫付），再换新商户单号重新预下单，
+     * 避免反复展示支付宝侧早已失效的收款码。
+     */
+    @Transactional
+    public Map<String, Object> create(Long orderId, Long buyerId, boolean refresh) {
         requireSandbox();
         SysOrder order = buyerOrder(orderId, buyerId);
         if (!TradeOrderService.ORDER_STATUS_PAYING.equals(order.getStatus()))
@@ -78,14 +112,28 @@ public class AlipaySandboxPaymentService {
         String candidate = "SSSB" + java.util.UUID.randomUUID().toString().replace("-", "");
         jdbc.update("INSERT INTO sandbox_alipay_payment(order_id,out_trade_no,buyer_id,amount) VALUES(?,?,?,?) "
                 + "ON DUPLICATE KEY UPDATE order_id=order_id", orderId, candidate, buyerId, amount);
-        Map<String, Object> row = jdbc.queryForMap("SELECT out_trade_no,buyer_id,amount,status FROM sandbox_alipay_payment WHERE order_id=? FOR UPDATE", orderId);
+        Map<String, Object> row = jdbc.queryForMap("SELECT out_trade_no,buyer_id,amount,status,updated_at FROM sandbox_alipay_payment WHERE order_id=? FOR UPDATE", orderId);
         if (((Number) row.get("buyer_id")).longValue() != buyerId || amount.compareTo((BigDecimal) row.get("amount")) != 0)
             throw new IllegalStateException("支付记录与订单不一致");
         String outTradeNo = (String) row.get("out_trade_no");
-        if ("CLOSED".equals(row.get("status"))) {
-            jdbc.update("UPDATE sandbox_alipay_payment SET out_trade_no=?,status='PENDING' WHERE order_id=? AND status='CLOSED'", candidate, orderId);
+        String status = (String) row.get("status");
+        boolean closed = "CLOSED".equals(status);
+        if (!closed && !"PENDING".equals(status)) throw new IllegalStateException("订单已支付");
+        if (refresh || closed || isStale(row.get("updated_at")))
+        {
+            if (!closed)
+            {
+                // 换号前先查一次旧单：旧码若已被扫付，就地结算并把结算结果返回前端，
+                // 此处不能抛异常，否则同事务内的结算会被回滚，钱到账却漏单。
+                Map<String, Object> settled = confirm(orderId, buyerId);
+                if (Boolean.TRUE.equals(settled.get("paid"))) return settled;
+                // 支付宝侧还活着的旧单要主动关掉，旧码才真正失效
+                if (!Boolean.TRUE.equals(settled.get("closed"))) closeQuietly(outTradeNo);
+            }
+            jdbc.update("UPDATE sandbox_alipay_payment SET out_trade_no=?,status='PENDING',trade_no=NULL,updated_at=NOW() "
+                    + "WHERE order_id=? AND status IN ('PENDING','CLOSED')", candidate, orderId);
             outTradeNo = candidate;
-        } else if (!"PENDING".equals(row.get("status"))) throw new IllegalStateException("订单已支付");
+        }
         try {
             AlipayTradePrecreateModel model = new AlipayTradePrecreateModel();
             model.setOutTradeNo(outTradeNo); model.setTotalAmount(amount.toPlainString());

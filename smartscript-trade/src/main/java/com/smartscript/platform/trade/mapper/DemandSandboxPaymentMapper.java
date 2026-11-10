@@ -31,8 +31,10 @@ public interface DemandSandboxPaymentMapper
     /** 交易关闭：置 CLOSED。 */
     int markClosed(@Param("outTradeNo") String outTradeNo);
 
-    /** 已关闭记录重新发起：换新商户单号并置回 PENDING。 */
-    int reactivateClosed(@Param("demandId") Long demandId,
-                         @Param("purpose") String purpose,
-                         @Param("newOutTradeNo") String newOutTradeNo);
+    /** 旧码失效后换新：仅待支付/已关闭记录可换商户单号并置回 PENDING。 */
+    int rotatePending(@Param("demandId") Long demandId,
+                      @Param("purpose") String purpose,
+                      @Param("newOutTradeNo") String newOutTradeNo,
+                      @Param("payerId") Long payerId,
+                      @Param("amount") BigDecimal amount);
 }

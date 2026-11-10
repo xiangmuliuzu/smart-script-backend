@@ -384,9 +384,10 @@ public class AppTradeDemandController
      * 发起托管付款（发布者）：生成扫码收款二维码，将预算全额付入平台第三方托管。
      */
     @PostMapping("/{demandId}/pay/escrow")
-    public AppApiResponse<Map<String, Object>> payEscrow(@PathVariable Long demandId)
+    public AppApiResponse<Map<String, Object>> payEscrow(@PathVariable Long demandId,
+            @RequestParam(name = "refresh", defaultValue = "false") boolean refresh)
     {
-        try { return AppApiResponse.ok(payFen(demandSandbox.createEscrow(demandId, currentUserId()))); }
+        try { return AppApiResponse.ok(payFen(demandSandbox.createEscrow(demandId, currentUserId(), refresh))); }
         catch (IllegalArgumentException | IllegalStateException e) { return AppApiResponse.fail(400, e.getMessage()); }
         catch (RuntimeException e) { return AppApiResponse.fail(500, "沙箱支付暂不可用"); }
     }
@@ -428,10 +429,11 @@ public class AppTradeDemandController
      * 发起押金付款（创作者）：生成扫码收款二维码，付完押金后调 confirm 自动接单。
      */
     @PostMapping("/{demandId}/pay/deposit")
-    public AppApiResponse<Map<String, Object>> payDeposit(@PathVariable Long demandId)
+    public AppApiResponse<Map<String, Object>> payDeposit(@PathVariable Long demandId,
+            @RequestParam(name = "refresh", defaultValue = "false") boolean refresh)
     {
         if (!hasCreatorCapability()) return AppApiResponse.fail(403, "请先开通创作者资格再接单");
-        try { return AppApiResponse.ok(payFen(demandSandbox.createDeposit(demandId, currentUserId()))); }
+        try { return AppApiResponse.ok(payFen(demandSandbox.createDeposit(demandId, currentUserId(), refresh))); }
         catch (IllegalArgumentException | IllegalStateException e) { return AppApiResponse.fail(400, e.getMessage()); }
         catch (RuntimeException e) { return AppApiResponse.fail(500, "沙箱支付暂不可用"); }
     }

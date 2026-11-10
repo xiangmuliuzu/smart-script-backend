@@ -12,9 +12,11 @@ import org.springframework.transaction.annotation.Transactional;
 import com.alipay.api.AlipayApiException;
 import com.alipay.api.AlipayClient;
 import com.alipay.api.DefaultAlipayClient;
+import com.alipay.api.domain.AlipayTradeCloseModel;
 import com.alipay.api.domain.AlipayTradePrecreateModel;
 import com.alipay.api.domain.AlipayTradeQueryModel;
 import com.alipay.api.internal.util.AlipaySignature;
+import com.alipay.api.request.AlipayTradeCloseRequest;
 import com.alipay.api.request.AlipayTradePrecreateRequest;
 import com.alipay.api.request.AlipayTradeQueryRequest;
 import com.alipay.api.response.AlipayTradePrecreateResponse;
@@ -37,6 +39,9 @@ import com.smartscript.platform.trade.mapper.DemandSandboxPaymentMapper;
 public class DemandSandboxPaymentService
 {
     static final String GATEWAY = "https://openapi-sandbox.dl.alipaydev.com/gateway.do";
+
+    /** 扫码收款单号超过该时长视为可能失效，同一付款人再次发起时自动换新码。 */
+    private static final long QR_STALE_MILLIS = 10 * 60 * 1000L;
 
     private final JdbcTemplate jdbc;
     private final DemandSandboxPaymentMapper paymentMapper;
@@ -92,7 +97,7 @@ public class DemandSandboxPaymentService
     /* ==================== 托管付款（发布者） ==================== */
 
     @Transactional
-    public Map<String, Object> createEscrow(Long demandId, Long publisherId)
+    public Map<String, Object> createEscrow(Long demandId, Long publisherId, boolean refresh)
     {
         requireSandbox();
         SysDemand demand = loadDemand(demandId);
@@ -105,7 +110,7 @@ public class DemandSandboxPaymentService
         BigDecimal amount = demand.getBudget();
         assertAmount(amount);
         return precreate(demandId, DemandSandboxPayment.PURPOSE_ESCROW, publisherId, amount,
-                "剧云策任务托管 " + demandId);
+                "剧云策任务托管 " + demandId, refresh, () -> demandService.markEscrowed(demandId));
     }
 
     @Transactional
@@ -122,7 +127,7 @@ public class DemandSandboxPaymentService
     /* ==================== 押金付款（创作者） ==================== */
 
     @Transactional
-    public Map<String, Object> createDeposit(Long demandId, Long creatorId)
+    public Map<String, Object> createDeposit(Long demandId, Long creatorId, boolean refresh)
     {
         requireSandbox();
         SysDemand demand = loadDemand(demandId);
@@ -136,7 +141,7 @@ public class DemandSandboxPaymentService
         BigDecimal amount = TradeDemandService.computeDepositAmount(demand.getBudget());
         assertAmount(amount);
         return precreate(demandId, DemandSandboxPayment.PURPOSE_DEPOSIT, creatorId, amount,
-                "剧云策任务押金 " + demandId);
+                "剧云策任务押金 " + demandId, refresh, () -> demandService.claimDemand(demandId, creatorId));
     }
 
     @Transactional
@@ -205,8 +210,15 @@ public class DemandSandboxPaymentService
 
     /* ==================== 内部通用流程 ==================== */
 
-    /** 生成二维码：幂等落 PENDING 记录，必要时重开已关闭记录，然后调沙箱预下单。 */
-    private Map<String, Object> precreate(Long demandId, String purpose, Long payerId, BigDecimal amount, String subject)
+    /**
+     * 生成二维码：同一付款人重复发起时，待支付单号超过 {@link #QR_STALE_MILLIS} 或前端点「刷新」
+     * 就换新商户单号重新预下单，避免拿到支付宝侧已失效的旧码。
+     *
+     * <p>押金码按(任务+用途)全局共用，因此只有记录里的付款人本人才能触发换号，
+     * 其他创作者重复发起时继续复用同一码，保持"先付先确认"的抢单口径。</p>
+     */
+    private Map<String, Object> precreate(Long demandId, String purpose, Long payerId, BigDecimal amount,
+            String subject, boolean refresh, Runnable settle)
     {
         String prefix = DemandSandboxPayment.PURPOSE_ESCROW.equals(purpose) ? "SDESC" : "SDDEP";
         String candidate = prefix + java.util.UUID.randomUUID().toString().replace("-", "");
@@ -216,9 +228,22 @@ public class DemandSandboxPaymentService
         if (DemandSandboxPayment.STATUS_PAID.equals(row.getStatus()))
             throw new IllegalStateException("该笔款项已支付");
         String outTradeNo = row.getOutTradeNo();
-        if (DemandSandboxPayment.STATUS_CLOSED.equals(row.getStatus()))
+        boolean samePayer = payerId.equals(row.getPayerId());
+        boolean stale = row.getUpdatedAt() == null
+                || row.getUpdatedAt().getTime() < System.currentTimeMillis() - QR_STALE_MILLIS;
+        boolean closed = DemandSandboxPayment.STATUS_CLOSED.equals(row.getStatus());
+        if (samePayer && (refresh || stale || closed))
         {
-            paymentMapper.reactivateClosed(demandId, purpose, candidate);
+            if (!closed)
+            {
+                // 换号前先查一次旧单：旧码若已被扫付，就地结算并把结算结果返回前端，
+                // 这里不能抛异常，否则同事务内的结算会被回滚，钱到账却漏单。
+                Map<String, Object> settled = confirm(demandId, purpose, amount, settle);
+                if (Boolean.TRUE.equals(settled.get("paid"))) return settled;
+                // 支付宝侧还活着的旧单要主动关掉，旧码才真正失效
+                if (!Boolean.TRUE.equals(settled.get("closed"))) closeQuietly(outTradeNo);
+            }
+            paymentMapper.rotatePending(demandId, purpose, candidate, payerId, amount);
             outTradeNo = candidate;
         }
         try
@@ -244,6 +269,23 @@ public class DemandSandboxPaymentService
         catch (AlipayApiException e)
         {
             throw new IllegalStateException("支付宝沙箱服务暂不可用");
+        }
+    }
+
+    /** 尽力关闭旧单让旧码失效；沙箱里未成过交易的单会返回 TRADE_NOT_EXIST，属正常，不影响换新码。 */
+    private void closeQuietly(String outTradeNo)
+    {
+        try
+        {
+            AlipayTradeCloseModel model = new AlipayTradeCloseModel();
+            model.setOutTradeNo(outTradeNo);
+            AlipayTradeCloseRequest request = new AlipayTradeCloseRequest();
+            request.setBizModel(model);
+            client().execute(request);
+        }
+        catch (AlipayApiException e)
+        {
+            // 关闭失败只是旧码延后自然过期，新码照常可用
         }
     }
 

@@ -121,9 +121,10 @@ public class AppTradeOrderController
 
     /** 发起支付宝沙箱支付；不会直接推进订单状态。 */
     @PostMapping("/{orderId}/pay")
-    public AppApiResponse<Map<String, Object>> pay(@PathVariable Long orderId)
+    public AppApiResponse<Map<String, Object>> pay(@PathVariable Long orderId,
+            @RequestParam(name = "refresh", defaultValue = "false") boolean refresh)
     {
-        try { return AppApiResponse.ok(sandboxPayment.create(orderId, currentUserId())); }
+        try { return AppApiResponse.ok(sandboxPayment.create(orderId, currentUserId(), refresh)); }
         catch (IllegalArgumentException | IllegalStateException e) { return AppApiResponse.fail(400, e.getMessage()); }
         catch (RuntimeException e) { return AppApiResponse.fail(500, "沙箱支付暂不可用"); }
     }
