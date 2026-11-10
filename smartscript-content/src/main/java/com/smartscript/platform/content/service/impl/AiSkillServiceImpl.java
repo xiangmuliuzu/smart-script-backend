@@ -5,6 +5,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import com.smartscript.platform.content.domain.AiSkill;
 import com.smartscript.platform.content.mapper.AiSkillMapper;
+import com.smartscript.platform.content.service.AiSkillBundleSupport;
 import com.smartscript.platform.content.service.IAiSkillService;
 
 /**
@@ -80,6 +81,12 @@ public class AiSkillServiceImpl implements IAiSkillService
         if (skill == null || !"0".equals(skill.getStatus()))
         {
             return null;
+        }
+        // 多文件 skill 包（整目录上传）：全包拼装后注入，单文件 skill 仍走原逻辑
+        String prompt = AiSkillBundleSupport.toPrompt(skill.getSkillName(), skill.getFileTree());
+        if (prompt != null && !prompt.isBlank())
+        {
+            return prompt;
         }
         String content = skill.getFileContent();
         return (content == null || content.isBlank()) ? null : content.trim();

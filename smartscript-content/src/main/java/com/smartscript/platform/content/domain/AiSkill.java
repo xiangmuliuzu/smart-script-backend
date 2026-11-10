@@ -25,8 +25,17 @@ public class AiSkill
     /** 上传的原始文件名 */
     private String fileName;
 
-    /** skill 文件文本内容 */
+    /** skill 文件文本内容（单文件 skill；多文件包时为 SKILL.md 入口内容） */
     private String fileContent;
+
+    /**
+     * 多文件 skill 包：整目录内容，按「@@@FILE:相对路径@@@」分段顺序拼接。
+     * 单文件 skill 为空，此时仅用 fileContent。
+     */
+    private String fileTree;
+
+    /** skill 包内文件数（单文件 = 1） */
+    private Integer fileCount;
 
     /** 状态：0正常 1停用 */
     private String status;
@@ -94,6 +103,26 @@ public class AiSkill
     public void setFileContent(String fileContent)
     {
         this.fileContent = fileContent;
+    }
+
+    public String getFileTree()
+    {
+        return fileTree;
+    }
+
+    public void setFileTree(String fileTree)
+    {
+        this.fileTree = fileTree;
+    }
+
+    public Integer getFileCount()
+    {
+        return fileCount;
+    }
+
+    public void setFileCount(Integer fileCount)
+    {
+        this.fileCount = fileCount;
     }
 
     public String getStatus()

@@ -8,6 +8,8 @@
         <result property="skillType"   column="skill_type" />
         <result property="fileName"    column="file_name" />
         <result property="fileContent" column="file_content" />
+        <result property="fileTree"    column="file_tree" />
+        <result property="fileCount"   column="file_count" />
         <result property="status"      column="status" />
         <result property="createBy"    column="create_by" />
         <result property="createTime"  column="create_time" />
@@ -17,13 +19,13 @@
     </resultMap>
 
     <sql id="selectAiSkillVo">
-        select id, skill_name, skill_type, file_name, file_content, status,
+        select id, skill_name, skill_type, file_name, file_content, file_tree, file_count, status,
                create_by, create_time, update_by, update_time, remark
         from sys_ai_skill
     </sql>
 
     <sql id="selectAiSkillBriefVo">
-        select id, skill_name, skill_type, file_name, status,
+        select id, skill_name, skill_type, file_name, file_count, status,
                create_by, create_time, update_by, update_time, remark
         from sys_ai_skill
     </sql>
@@ -72,6 +74,8 @@
             <if test="skillType != null">skill_type,</if>
             <if test="fileName != null">file_name,</if>
             <if test="fileContent != null">file_content,</if>
+            <if test="fileTree != null">file_tree,</if>
+            <if test="fileCount != null">file_count,</if>
             <if test="status != null">status,</if>
             <if test="createBy != null">create_by,</if>
             <if test="remark != null">remark,</if>
@@ -82,6 +86,8 @@
             <if test="skillType != null">#{skillType},</if>
             <if test="fileName != null">#{fileName},</if>
             <if test="fileContent != null">#{fileContent},</if>
+            <if test="fileTree != null">#{fileTree},</if>
+            <if test="fileCount != null">#{fileCount},</if>
             <if test="status != null">#{status},</if>
             <if test="createBy != null">#{createBy},</if>
             <if test="remark != null">#{remark},</if>
@@ -96,6 +102,10 @@
             <if test="skillType != null">skill_type = #{skillType},</if>
             <if test="fileName != null">file_name = #{fileName},</if>
             <if test="fileContent != null">file_content = #{fileContent},</if>
+            <if test="fileTree != null">file_tree = #{fileTree},</if>
+            <!-- 改为上传单文件（fileContent 有值而 fileTree 为空）时，清空旧的多文件包，避免旧包继续被注入 -->
+            <if test="fileTree == null and fileContent != null">file_tree = NULL,</if>
+            <if test="fileCount != null">file_count = #{fileCount},</if>
             <if test="status != null">status = #{status},</if>
             <if test="updateBy != null">update_by = #{updateBy},</if>
             <if test="remark != null">remark = #{remark},</if>
