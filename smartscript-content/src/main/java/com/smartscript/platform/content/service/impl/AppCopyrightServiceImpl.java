@@ -15,6 +15,7 @@ import com.smartscript.platform.content.dto.AppPageResult;
 import com.smartscript.platform.content.dto.copyright.*;
 import com.smartscript.platform.content.mapper.*;
 import com.smartscript.platform.content.service.*;
+import com.smartscript.platform.content.util.CopyrightStatusUtil;
 import com.ruoyi.common.utils.StringUtils;
 
 /**
@@ -29,17 +30,20 @@ public class AppCopyrightServiceImpl implements IAppCopyrightService
     private final ISysCopyrightCertService copyrightCertService;
     private final ISysCopyrightCenterConfigService centerConfigService;
     private final ISysWorkService workService;
+    private final ICopyrightPayOrderService copyrightPayOrderService;
 
     public AppCopyrightServiceImpl(
             ISysCopyrightApplicationService copyrightApplicationService,
             ISysCopyrightCertService copyrightCertService,
             ISysCopyrightCenterConfigService centerConfigService,
-            ISysWorkService workService)
+            ISysWorkService workService,
+            ICopyrightPayOrderService copyrightPayOrderService)
     {
         this.copyrightApplicationService = copyrightApplicationService;
         this.copyrightCertService = copyrightCertService;
         this.centerConfigService = centerConfigService;
         this.workService = workService;
+        this.copyrightPayOrderService = copyrightPayOrderService;
     }
 
     @Override
@@ -49,7 +53,21 @@ public class AppCopyrightServiceImpl implements IAppCopyrightService
         log.info("查询用户版权申请列表: userId={}, status={}, workName={}, pageNum={}, pageSize={}", 
                  userId, status, workName, pageNum, pageSize);
 
-        // 构建查询条件
+        int safePageNum = (pageNum != null && pageNum > 0) ? pageNum : 1;
+        int safePageSize = (pageSize != null && pageSize > 0) ? pageSize : 10;
+
+        // 待付款：只查未关闭支付单
+        if (CopyrightStatusUtil.STATUS_UNPAID.equals(status))
+        {
+            List<AppCopyrightApplicationDto> unpaid = copyrightPayOrderService
+                    .listOpenPayOrders(userId, workName).stream()
+                    .map(this::convertPayOrderToApplicationDto)
+                    .collect(Collectors.toList());
+            int from = Math.min((safePageNum - 1) * safePageSize, unpaid.size());
+            int to = Math.min(from + safePageSize, unpaid.size());
+            return new AppPageResult<>(unpaid.size(), unpaid.subList(from, to));
+        }
+
         SysCopyrightApplication query = new SysCopyrightApplication();
         query.setUserId(userId);
         if (StringUtils.isNotBlank(status))
@@ -61,25 +79,33 @@ public class AppCopyrightServiceImpl implements IAppCopyrightService
             query.setWorkName(workName);
         }
 
-        // 安全处理分页参数
-        int safePageNum = (pageNum != null && pageNum > 0) ? pageNum : 1;
-        int safePageSize = (pageSize != null && pageSize > 0) ? pageSize : 10;
-
-        // 启动分页
         PageHelper.startPage(safePageNum, safePageSize);
         List<SysCopyrightApplication> list = copyrightApplicationService.selectCopyrightApplicationList(query);
         PageInfo<SysCopyrightApplication> pageInfo = new PageInfo<>(list);
 
-        log.info("数据库查询结果: total={}, listSize={}", pageInfo.getTotal(), list.size());
-
-        // 转换 DTO
         List<AppCopyrightApplicationDto> dtoList = list.stream()
                 .map(this::convertToApplicationDto)
-                .collect(Collectors.toList());
+                .collect(Collectors.toCollection(ArrayList::new));
 
-        log.info("DTO转换完成: dtoListSize={}", dtoList.size());
+        // 全部：第一页前置待付款支付单
+        int unpaidCount = 0;
+        if (StringUtils.isBlank(status))
+        {
+            List<AppCopyrightApplicationDto> unpaid = copyrightPayOrderService
+                    .listOpenPayOrders(userId, workName).stream()
+                    .map(this::convertPayOrderToApplicationDto)
+                    .collect(Collectors.toList());
+            unpaidCount = unpaid.size();
+            if (safePageNum == 1 && !unpaid.isEmpty())
+            {
+                List<AppCopyrightApplicationDto> merged = new ArrayList<>(unpaid.size() + dtoList.size());
+                merged.addAll(unpaid);
+                merged.addAll(dtoList);
+                dtoList = merged;
+            }
+        }
 
-        return new AppPageResult<>((int) pageInfo.getTotal(), dtoList);
+        return new AppPageResult<>((int) pageInfo.getTotal() + unpaidCount, dtoList);
     }
 
     @Override
@@ -97,133 +123,34 @@ public class AppCopyrightServiceImpl implements IAppCopyrightService
     }
 
     @Override
-    @Transactional(rollbackFor = Exception.class)
-    public void submitApplication(Long userId, AppCopyrightApplyRequest request)
+    public AppCopyrightFeeQuoteDto quoteFee(Long userId, Long workId, String copyrightCenter)
     {
-        log.info("提交版权申请: userId={}, workId={}", userId, request.getWorkId());
+        return copyrightPayOrderService.quoteFee(userId, workId, copyrightCenter);
+    }
 
-        // 验证作品是否存在且属于该用户
-        SysWork work = workService.selectWorkById(request.getWorkId());
-        if (work == null)
-        {
-            throw new IllegalArgumentException("作品不存在");
-        }
-        if (!userId.equals(work.getAuthorId()))
-        {
-            throw new IllegalArgumentException("无权限申请该作品版权");
-        }
+    @Override
+    public AppCopyrightPayOrderDto createPayOrder(Long userId, AppCopyrightApplyRequest request)
+    {
+        return copyrightPayOrderService.createPayOrder(userId, request);
+    }
 
-        // 检查是否已有进行中的申请
-        SysCopyrightApplication existQuery = new SysCopyrightApplication();
-        existQuery.setUserId(userId);
-        existQuery.setWorkId(request.getWorkId());
-        List<SysCopyrightApplication> existList = copyrightApplicationService
-                .selectCopyrightApplicationList(existQuery);
-        
-        for (SysCopyrightApplication exist : existList)
-        {
-            String status = exist.getStatus();
-            if ("pending".equals(status) || "approved".equals(status) || 
-                "submitted".equals(status) || "reviewing".equals(status))
-            {
-                throw new IllegalArgumentException("该作品已有进行中的版权申请");
-            }
-        }
+    @Override
+    public AppCopyrightPayOrderDto createResubmitPayOrder(Long userId, AppCopyrightResubmitRequest request)
+    {
+        return copyrightPayOrderService.createResubmitPayOrder(userId, request);
+    }
 
-        // 验证版权中心配置（通过 centerCode 查找 configId）
-        SysCopyrightCenterConfig centerConfig = findCenterByCode(request.getCopyrightCenter());
-        if (centerConfig == null || !"enabled".equals(centerConfig.getStatus()))
-        {
-            throw new IllegalArgumentException("版权中心不可用");
-        }
-
-        // 创建申请记录（包含所有必填字段）
-        SysCopyrightApplication application = new SysCopyrightApplication();
-        application.setUserId(userId);
-        application.setWorkId(request.getWorkId());
-        application.setConfigId(centerConfig.getConfigId());
-        application.setCopyrightCenter(centerConfig.getCenterCode());  // 版权中心代码（必填）
-        application.setStatus("pending");
-        application.setSyncStatus("pending");  // 同步状态（必填）
-        
-        // 生成申请编号（必填字段）
-        String applyNo = "CA" + System.currentTimeMillis() + String.format("%04d", new Random().nextInt(10000));
-        application.setApplyNo(applyNo);
-        
-        // 设置提交时间（必填字段）
-        application.setSubmitTime(new Date());
-        application.setCreateTime(new Date());
-        application.setRemark(request.getRemark());
-        
-        // 保存申请材料文件URL
-        if (request.getFileUrl() != null && !request.getFileUrl().isEmpty()) {
-            application.setAttachmentUrl(request.getFileUrl());
-        }
-        
-        // 保存分类材料（新版本）
-        if (request.getOriginalityProofUrls() != null && !request.getOriginalityProofUrls().isEmpty()) {
-            application.setOriginalityProof(request.getOriginalityProofUrls());
-        }
-        if (request.getAuthorIdentityDocUrls() != null && !request.getAuthorIdentityDocUrls().isEmpty()) {
-            application.setAuthorIdentityDoc(request.getAuthorIdentityDocUrls());
-        }
-        if (request.getCreationProcessUrls() != null && !request.getCreationProcessUrls().isEmpty()) {
-            application.setCreationProcess(request.getCreationProcessUrls());
-        }
-        if (request.getOtherProofUrls() != null && !request.getOtherProofUrls().isEmpty()) {
-            application.setOtherProof(request.getOtherProofUrls());
-        }
-
-        copyrightApplicationService.insertCopyrightApplication(application);
-        log.info("版权申请创建成功: applyId={}, applyNo={}", application.getApplyId(), applyNo);
+    @Override
+    public AppCopyrightPayOrderDto getPayOrder(Long payOrderId, Long userId)
+    {
+        return copyrightPayOrderService.getPayOrder(payOrderId, userId);
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void resubmitApplication(Long userId, AppCopyrightResubmitRequest request)
+    public Map<String, Object> directPay(Long userId, Long payOrderId)
     {
-        log.info("重新提交版权申请: userId={}, originalApplyId={}", userId, request.getOriginalApplyId());
-
-        // 查询原申请
-        SysCopyrightApplication originalApplication = copyrightApplicationService
-                .selectCopyrightApplicationByApplyId(request.getOriginalApplyId());
-        
-        if (originalApplication == null)
-        {
-            throw new IllegalArgumentException("原申请记录不存在");
-        }
-        if (!userId.equals(originalApplication.getUserId()))
-        {
-            throw new IllegalArgumentException("无权限操作该申请");
-        }
-        if (!"rejected".equals(originalApplication.getStatus()))
-        {
-            throw new IllegalArgumentException("只有已驳回的申请才能重新提交");
-        }
-
-        // 创建新申请记录（包含所有必填字段）
-        SysCopyrightApplication newApplication = new SysCopyrightApplication();
-        newApplication.setUserId(originalApplication.getUserId());
-        newApplication.setWorkId(originalApplication.getWorkId());
-        newApplication.setConfigId(originalApplication.getConfigId());
-        newApplication.setCopyrightCenter(originalApplication.getCopyrightCenter());  // 版权中心代码（必填）
-        newApplication.setStatus("pending");
-        newApplication.setSyncStatus("pending");  // 同步状态（必填）
-        
-        // 生成新的申请编号（必填字段）
-        String applyNo = "CA" + System.currentTimeMillis() + String.format("%04d", new Random().nextInt(10000));
-        newApplication.setApplyNo(applyNo);
-        
-        // 设置提交时间（必填字段）
-        newApplication.setSubmitTime(new Date());
-        newApplication.setCreateTime(new Date());
-        newApplication.setRemark(request.getRemark());
-        
-        newApplication.setExternalNo(null);  // 清空外部申请号
-        newApplication.setRejectReason(null); // 清空拒绝原因
-
-        copyrightApplicationService.insertCopyrightApplication(newApplication);
-        log.info("重新提交成功: applyId={}, applyNo={}", newApplication.getApplyId(), applyNo);
+        return copyrightPayOrderService.directPay(payOrderId, userId);
     }
 
     @Override
@@ -379,6 +306,38 @@ public class AppCopyrightServiceImpl implements IAppCopyrightService
     // ==================== 私有辅助方法 ====================
 
     /**
+     * 待支付单转列表项（status=unpaid，尚无 applyId）。
+     */
+    private AppCopyrightApplicationDto convertPayOrderToApplicationDto(AppCopyrightPayOrderDto order)
+    {
+        AppCopyrightApplicationDto dto = new AppCopyrightApplicationDto();
+        dto.setApplyId(null);
+        dto.setApplyNo(order.getPayNo());
+        dto.setWorkId(order.getWorkId());
+        dto.setWorkName(order.getWorkName());
+        dto.setCopyrightCenter(order.getCopyrightCenter());
+        dto.setCenterName(order.getCenterName());
+        dto.setStatus(CopyrightStatusUtil.STATUS_UNPAID);
+        dto.setDisplayStatus(CopyrightStatusUtil.STATUS_UNPAID);
+        dto.setDisplayStatusText(CopyrightStatusUtil.toDisplayStatusText(CopyrightStatusUtil.STATUS_UNPAID));
+        dto.setWordCount(order.getWordCount());
+        dto.setFeeAmount(order.getFeeAmount());
+        dto.setPayOrderId(order.getPayOrderId());
+        dto.setCreateTime(order.getCreateTime());
+        if (order.getWorkId() != null)
+        {
+            SysWork work = workService.selectWorkById(order.getWorkId());
+            if (work != null)
+            {
+                dto.setWorkType(work.getWorkType());
+                dto.setWorkSummary(work.getSummary());
+                dto.setWorkCoverUrl(work.getCover());
+            }
+        }
+        return dto;
+    }
+
+    /**
      * 转换为申请 DTO。
      */
     private AppCopyrightApplicationDto convertToApplicationDto(SysCopyrightApplication application)
@@ -425,6 +384,12 @@ public class AppCopyrightServiceImpl implements IAppCopyrightService
         if (StringUtils.isNotBlank(application.getOtherProof())) {
             dto.setOtherProof(application.getOtherProof());
         }
+
+        dto.setWordCount(application.getWordCount());
+        dto.setFeeAmount(application.getFeeAmount());
+        dto.setPayOrderId(application.getPayOrderId());
+        dto.setDisplayStatus(CopyrightStatusUtil.toDisplayStatus(application.getStatus()));
+        dto.setDisplayStatusText(CopyrightStatusUtil.toDisplayStatusText(application.getStatus()));
         
         return dto;
     }

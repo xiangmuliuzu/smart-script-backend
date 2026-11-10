@@ -98,7 +98,8 @@ public class SysCopyrightApplicationServiceImpl implements ISysCopyrightApplicat
         }
         
         app.setExternalApplyNo(app.getExternalNo());
-        app.setStatusText(CopyrightStatusUtil.getStatusText(app.getStatus()));
+        // Admin/App 统一：历史 pending/approved/submitted 展示为「审核中」
+        app.setStatusText(CopyrightStatusUtil.toDisplayStatusText(app.getStatus()));
         
         if (app.getCenterName() == null || app.getCenterName().isEmpty()) {
             app.setCenterName(app.getConfigId() == null ? DEFAULT_CENTER_UNASSIGNED : DEFAULT_CENTER_UNKNOWN);
@@ -367,6 +368,11 @@ public class SysCopyrightApplicationServiceImpl implements ISysCopyrightApplicat
         dto.setSubmitTime(application.getSubmitTime());
         dto.setCertTime(application.getCertTime());
         dto.setRemark(application.getRemark());
+        dto.setWordCount(application.getWordCount());
+        dto.setFeeAmount(application.getFeeAmount());
+        dto.setPayOrderId(application.getPayOrderId());
+        dto.setDisplayStatus(CopyrightStatusUtil.toDisplayStatus(application.getStatus()));
+        dto.setDisplayStatusText(CopyrightStatusUtil.toDisplayStatusText(application.getStatus()));
         
         // 填充申请人信息（从用户表查询）
         dto.setUserId(application.getUserId());

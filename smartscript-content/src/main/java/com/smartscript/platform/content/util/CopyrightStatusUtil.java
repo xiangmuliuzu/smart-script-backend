@@ -24,6 +24,8 @@ public class CopyrightStatusUtil
     public static final String STATUS_REVIEWING = "reviewing";
     public static final String STATUS_REJECTED = "rejected";
     public static final String STATUS_CERTIFICATED = "certificated";
+    /** App 列表展示用：待支付单尚未履约（非申请表真实状态） */
+    public static final String STATUS_UNPAID = "unpaid";
     
     /** 状态码到中文映射（不可变） */
     private static final Map<String, String> STATUS_TEXT_MAP;
@@ -39,6 +41,7 @@ public class CopyrightStatusUtil
         textMap.put(STATUS_REVIEWING, "审核中");
         textMap.put(STATUS_REJECTED, "已拒绝");
         textMap.put(STATUS_CERTIFICATED, "已发证");
+        textMap.put(STATUS_UNPAID, "待付款");
         STATUS_TEXT_MAP = Collections.unmodifiableMap(textMap);
         
         Map<String, String> remarkMap = new HashMap<>();
@@ -101,5 +104,41 @@ public class CopyrightStatusUtil
     public static boolean isValidStatus(String status) 
     {
         return STATUS_TEXT_MAP.containsKey(status);
+    }
+
+    /**
+     * App 端展示状态：历史 pending/approved/submitted 统一展示为审核中。
+     */
+    public static String toDisplayStatus(String status)
+    {
+        if (STATUS_UNPAID.equals(status))
+        {
+            return STATUS_UNPAID;
+        }
+        if (STATUS_PENDING.equals(status)
+                || STATUS_APPROVED.equals(status)
+                || STATUS_SUBMITTED.equals(status)
+                || STATUS_REVIEWING.equals(status))
+        {
+            return STATUS_REVIEWING;
+        }
+        return status;
+    }
+
+    /**
+     * App 端展示文案。
+     */
+    public static String toDisplayStatusText(String status)
+    {
+        String display = toDisplayStatus(status);
+        if (STATUS_REVIEWING.equals(display))
+        {
+            return "审核中";
+        }
+        if (STATUS_UNPAID.equals(display))
+        {
+            return "待付款";
+        }
+        return getStatusText(display);
     }
 }

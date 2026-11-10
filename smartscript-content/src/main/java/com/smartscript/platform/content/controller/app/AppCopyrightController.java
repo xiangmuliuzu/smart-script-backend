@@ -14,9 +14,11 @@ import com.smartscript.platform.identity.IdentityProvider;
  * 鉴权：App 凭证域私有接口，需登录；用户 ID 只取自 {@link IdentityProvider}。
  * 返回：App 信封 {@link AppApiResponse}（{code, message, data}）。
  *
- * 申请状态机（status）：
- *   pending（待审核）→ approved（待提交）→ submitted（待提交到第三方）
- *   → reviewing（审核中）→ certificated（已发证）或 rejected（已驳回）
+ * 申请主路径（缴费后）：
+ *   待支付单 unpaid → 直付履约 → 创建申请并提交第三方 → reviewing
+ *   → certificated（已发证）或 rejected（已驳回，需重新缴费申请）
+ * 历史中间态 pending/approved/submitted 对 App 展示为「审核中」。
+ * 列表筛选 unpaid 时返回待付款支付单；全部时第一页前置待付款项。
  *
  * @author smartscript
  */
@@ -44,7 +46,7 @@ public class AppCopyrightController
     /**
      * 我的版权申请列表（分页）。
      *
-     * @param status 状态筛选（可选：pending/approved/submitted/reviewing/certificated/rejected）
+     * @param status 状态筛选（可选：unpaid/pending/approved/submitted/reviewing/certificated/rejected）
      * @param workName 作品名称关键词（可选，模糊搜索）
      * @param pageNum 页码（默认 1）
      * @param pageSize 每页条数（默认 10）
@@ -99,23 +101,21 @@ public class AppCopyrightController
     }
 
     /**
-     * 提交版权申请。
-     *
-     * @param request 申请信息
+     * 登记费询价（支付前）。
      */
-    @PostMapping("/application/apply")
-    public AppApiResponse<Void> submitApplication(@RequestBody AppCopyrightApplyRequest request)
+    @GetMapping("/application/fee-quote")
+    public AppApiResponse<AppCopyrightFeeQuoteDto> feeQuote(
+            @RequestParam Long workId,
+            @RequestParam String copyrightCenter)
     {
         Long userId = identityProvider.currentUserId();
         if (userId == null)
         {
             return AppApiResponse.fail(CODE_UNAUTHORIZED, "请先登录");
         }
-
         try
         {
-            copyrightService.submitApplication(userId, request);
-            return AppApiResponse.ok();
+            return AppApiResponse.ok(copyrightService.quoteFee(userId, workId, copyrightCenter));
         }
         catch (IllegalArgumentException e)
         {
@@ -123,17 +123,16 @@ public class AppCopyrightController
         }
         catch (Exception e)
         {
-            return AppApiResponse.fail(CODE_BAD_REQUEST, "提交申请失败：" + e.getMessage());
+            return AppApiResponse.fail(CODE_BAD_REQUEST, "询价失败：" + e.getMessage());
         }
     }
 
     /**
-     * 重新提交版权申请（驳回后）。
-     *
-     * @param request 重新提交信息
+     * 创建待支付单（支付前校验；付完后才创建申请）。
+     * 兼容旧路径 /application/apply。
      */
-    @PostMapping("/application/resubmit")
-    public AppApiResponse<Void> resubmitApplication(@RequestBody AppCopyrightResubmitRequest request)
+    @PostMapping({"/application/pay-order", "/application/apply"})
+    public AppApiResponse<AppCopyrightPayOrderDto> createPayOrder(@RequestBody AppCopyrightApplyRequest request)
     {
         Long userId = identityProvider.currentUserId();
         if (userId == null)
@@ -143,8 +142,7 @@ public class AppCopyrightController
 
         try
         {
-            copyrightService.resubmitApplication(userId, request);
-            return AppApiResponse.ok();
+            return AppApiResponse.ok(copyrightService.createPayOrder(userId, request));
         }
         catch (IllegalArgumentException e)
         {
@@ -152,7 +150,82 @@ public class AppCopyrightController
         }
         catch (Exception e)
         {
-            return AppApiResponse.fail(CODE_BAD_REQUEST, "重新提交失败：" + e.getMessage());
+            return AppApiResponse.fail(CODE_BAD_REQUEST, "创建支付单失败：" + e.getMessage());
+        }
+    }
+
+    /**
+     * 查询待支付单。
+     */
+    @GetMapping("/application/pay-order/{payOrderId}")
+    public AppApiResponse<AppCopyrightPayOrderDto> getPayOrder(@PathVariable Long payOrderId)
+    {
+        Long userId = identityProvider.currentUserId();
+        if (userId == null)
+        {
+            return AppApiResponse.fail(CODE_UNAUTHORIZED, "请先登录");
+        }
+        AppCopyrightPayOrderDto dto = copyrightService.getPayOrder(payOrderId, userId);
+        if (dto == null)
+        {
+            return AppApiResponse.fail(CODE_NOT_FOUND, "支付单不存在");
+        }
+        return AppApiResponse.ok(dto);
+    }
+
+    /**
+     * 临时直付：跳过支付宝沙箱，直接履约建申请并提交第三方。
+     */
+    @PostMapping("/application/pay-order/{payOrderId}/direct-pay")
+    public AppApiResponse<java.util.Map<String, Object>> directPay(@PathVariable Long payOrderId)
+    {
+        Long userId = identityProvider.currentUserId();
+        if (userId == null)
+        {
+            return AppApiResponse.fail(CODE_UNAUTHORIZED, "请先登录");
+        }
+        try
+        {
+            return AppApiResponse.ok(copyrightService.directPay(userId, payOrderId));
+        }
+        catch (IllegalArgumentException e)
+        {
+            return AppApiResponse.fail(CODE_BAD_REQUEST, e.getMessage());
+        }
+        catch (IllegalStateException e)
+        {
+            return AppApiResponse.fail(CODE_CONFLICT, e.getMessage());
+        }
+        catch (Exception e)
+        {
+            return AppApiResponse.fail(CODE_BAD_REQUEST, "付款提交失败：" + e.getMessage());
+        }
+    }
+
+    /**
+     * 驳回后重新缴费下单。兼容旧路径 /application/resubmit。
+     */
+    @PostMapping({"/application/pay-order/resubmit", "/application/resubmit"})
+    public AppApiResponse<AppCopyrightPayOrderDto> createResubmitPayOrder(
+            @RequestBody AppCopyrightResubmitRequest request)
+    {
+        Long userId = identityProvider.currentUserId();
+        if (userId == null)
+        {
+            return AppApiResponse.fail(CODE_UNAUTHORIZED, "请先登录");
+        }
+
+        try
+        {
+            return AppApiResponse.ok(copyrightService.createResubmitPayOrder(userId, request));
+        }
+        catch (IllegalArgumentException e)
+        {
+            return AppApiResponse.fail(CODE_BAD_REQUEST, e.getMessage());
+        }
+        catch (Exception e)
+        {
+            return AppApiResponse.fail(CODE_BAD_REQUEST, "重新下单失败：" + e.getMessage());
         }
     }
 

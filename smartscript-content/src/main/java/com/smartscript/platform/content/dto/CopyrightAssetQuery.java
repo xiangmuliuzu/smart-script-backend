@@ -5,6 +5,8 @@ public class CopyrightAssetQuery
 {
     private String keyword;
     private String status;
+    /** 作品类型筛选（如 script/novel） */
+    private String workType;
     /** 创作者侧：按作者过滤；Admin 不传则查全平台。 */
     private Long authorId;
     /** 创作者侧：仅已发布（最新审核 approved 且 status 为上架/下架）；Admin 不传。 */
@@ -28,6 +30,16 @@ public class CopyrightAssetQuery
     public void setStatus(String status)
     {
         this.status = status;
+    }
+
+    public String getWorkType()
+    {
+        return workType;
+    }
+
+    public void setWorkType(String workType)
+    {
+        this.workType = workType;
     }
 
     public Long getAuthorId()

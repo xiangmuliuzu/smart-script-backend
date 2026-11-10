@@ -86,6 +86,21 @@ public class AppCopyrightApplicationDto
     /** 状态：pending/approved/submitted/reviewing/certificated/rejected */
     private String status;
 
+    /** App 展示状态（历史中间态映射为 reviewing） */
+    private String displayStatus;
+
+    /** App 展示状态文案 */
+    private String displayStatusText;
+
+    /** 计价字数快照 */
+    private Integer wordCount;
+
+    /** 已付登记费 */
+    private java.math.BigDecimal feeAmount;
+
+    /** 来源支付单 */
+    private Long payOrderId;
+
     /** 证书编号 */
     private String certNo;
 
@@ -273,6 +288,46 @@ public class AppCopyrightApplicationDto
 
     public void setStatus(String status) {
         this.status = status;
+    }
+
+    public String getDisplayStatus() {
+        return displayStatus;
+    }
+
+    public void setDisplayStatus(String displayStatus) {
+        this.displayStatus = displayStatus;
+    }
+
+    public String getDisplayStatusText() {
+        return displayStatusText;
+    }
+
+    public void setDisplayStatusText(String displayStatusText) {
+        this.displayStatusText = displayStatusText;
+    }
+
+    public Integer getWordCount() {
+        return wordCount;
+    }
+
+    public void setWordCount(Integer wordCount) {
+        this.wordCount = wordCount;
+    }
+
+    public java.math.BigDecimal getFeeAmount() {
+        return feeAmount;
+    }
+
+    public void setFeeAmount(java.math.BigDecimal feeAmount) {
+        this.feeAmount = feeAmount;
+    }
+
+    public Long getPayOrderId() {
+        return payOrderId;
+    }
+
+    public void setPayOrderId(Long payOrderId) {
+        this.payOrderId = payOrderId;
     }
 
     public String getCertNo() {

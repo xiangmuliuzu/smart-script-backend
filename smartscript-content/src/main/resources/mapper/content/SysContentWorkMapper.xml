@@ -527,6 +527,9 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		<if test="status != null and status != ''">
 			and w.status = #{status}
 		</if>
+		<if test="workType != null and workType != ''">
+			and w.work_type = #{workType}
+		</if>
 		order by w.create_time desc
 	</select>
 

@@ -92,6 +92,15 @@ public class SysCopyrightApplication extends BaseEntity
     /** 配置ID */
     private Long configId;
 
+    /** 计价字数快照 */
+    private Integer wordCount;
+
+    /** 已付登记费快照 */
+    private java.math.BigDecimal feeAmount;
+
+    /** 来源支付单ID */
+    private Long payOrderId;
+
     /** 作品名称 */
     @Excel(name = "作品名称")
     private String workTitle;
@@ -344,6 +353,36 @@ public class SysCopyrightApplication extends BaseEntity
     public Long getConfigId() 
     {
         return configId;
+    }
+
+    public Integer getWordCount()
+    {
+        return wordCount;
+    }
+
+    public void setWordCount(Integer wordCount)
+    {
+        this.wordCount = wordCount;
+    }
+
+    public java.math.BigDecimal getFeeAmount()
+    {
+        return feeAmount;
+    }
+
+    public void setFeeAmount(java.math.BigDecimal feeAmount)
+    {
+        this.feeAmount = feeAmount;
+    }
+
+    public Long getPayOrderId()
+    {
+        return payOrderId;
+    }
+
+    public void setPayOrderId(Long payOrderId)
+    {
+        this.payOrderId = payOrderId;
     }
 
     public void setWorkTitle(String workTitle) 

@@ -32,22 +32,49 @@ public interface IAppCopyrightService
     AppCopyrightApplicationDto getApplicationDetail(Long applyId, Long userId);
 
     /**
-     * 提交版权申请。
-     *
-     * @param userId 用户ID
-     * @param request 申请信息
-     * @throws IllegalArgumentException 参数错误
+     * 询价：按作品字数 + 版权中心计算登记费。
      */
-    void submitApplication(Long userId, AppCopyrightApplyRequest request);
+    AppCopyrightFeeQuoteDto quoteFee(Long userId, Long workId, String copyrightCenter);
 
     /**
-     * 重新提交版权申请（驳回后）。
-     *
-     * @param userId 用户ID
-     * @param request 重新提交信息
-     * @throws IllegalArgumentException 参数错误或状态不允许
+     * 创建待支付单（支付前校验；付完后再创建申请）。
      */
-    void resubmitApplication(Long userId, AppCopyrightResubmitRequest request);
+    AppCopyrightPayOrderDto createPayOrder(Long userId, AppCopyrightApplyRequest request);
+
+    /**
+     * 驳回后重新缴费下单。
+     */
+    AppCopyrightPayOrderDto createResubmitPayOrder(Long userId, AppCopyrightResubmitRequest request);
+
+    /**
+     * 查询待支付单。
+     */
+    AppCopyrightPayOrderDto getPayOrder(Long payOrderId, Long userId);
+
+    /**
+     * 临时直付（跳过支付宝沙箱）：履约建申请并提交第三方。
+     *
+     * @return paid/applyId 等
+     */
+    java.util.Map<String, Object> directPay(Long userId, Long payOrderId);
+
+    /**
+     * @deprecated 请走 createPayOrder；保留兼容时内部转调建支付单。
+     */
+    @Deprecated
+    default AppCopyrightPayOrderDto submitApplication(Long userId, AppCopyrightApplyRequest request)
+    {
+        return createPayOrder(userId, request);
+    }
+
+    /**
+     * @deprecated 请走 createResubmitPayOrder。
+     */
+    @Deprecated
+    default AppCopyrightPayOrderDto resubmitApplication(Long userId, AppCopyrightResubmitRequest request)
+    {
+        return createResubmitPayOrder(userId, request);
+    }
 
     /**
      * 删除版权申请（仅限pending状态）。

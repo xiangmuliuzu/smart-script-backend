@@ -20,9 +20,20 @@ public class AppCopyrightResubmitRequest
     @NotBlank(message = "完成时间不能为空")
     private String completeTime;
 
-    /** 申请材料文件URL */
-    @NotBlank(message = "申请材料不能为空")
+    /** 申请材料文件URL（兼容旧版） */
     private String fileUrl;
+
+    /** 原创性证明材料URL（JSON数组字符串） */
+    private String originalityProofUrls;
+
+    /** 作者身份证明材料URL（JSON数组字符串） */
+    private String authorIdentityDocUrls;
+
+    /** 创作过程材料URL（JSON数组字符串） */
+    private String creationProcessUrls;
+
+    /** 其他辅助证明材料URL（JSON数组字符串） */
+    private String otherProofUrls;
 
     /** 说明（必填，说明修改内容） */
     @NotBlank(message = "说明不能为空")
@@ -60,6 +71,38 @@ public class AppCopyrightResubmitRequest
 
     public void setFileUrl(String fileUrl) {
         this.fileUrl = fileUrl;
+    }
+
+    public String getOriginalityProofUrls() {
+        return originalityProofUrls;
+    }
+
+    public void setOriginalityProofUrls(String originalityProofUrls) {
+        this.originalityProofUrls = originalityProofUrls;
+    }
+
+    public String getAuthorIdentityDocUrls() {
+        return authorIdentityDocUrls;
+    }
+
+    public void setAuthorIdentityDocUrls(String authorIdentityDocUrls) {
+        this.authorIdentityDocUrls = authorIdentityDocUrls;
+    }
+
+    public String getCreationProcessUrls() {
+        return creationProcessUrls;
+    }
+
+    public void setCreationProcessUrls(String creationProcessUrls) {
+        this.creationProcessUrls = creationProcessUrls;
+    }
+
+    public String getOtherProofUrls() {
+        return otherProofUrls;
+    }
+
+    public void setOtherProofUrls(String otherProofUrls) {
+        this.otherProofUrls = otherProofUrls;
     }
 
     public String getRemark() {

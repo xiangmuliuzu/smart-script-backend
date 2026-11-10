@@ -23,6 +23,9 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         <result property="creationProcess"    column="creation_process"    />
         <result property="otherProof"    column="other_proof"    />
         <result property="configId"    column="config_id"    />
+        <result property="wordCount"    column="word_count"    />
+        <result property="feeAmount"    column="fee_amount"    />
+        <result property="payOrderId"    column="pay_order_id"    />
         <result property="centerName"    column="center_name"    />
         <result property="workName"    column="work_name"    />
         <result property="remark"    column="remark"    />
@@ -33,7 +36,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
     <sql id="selectCopyrightApplicationVo">
         select a.apply_id, a.work_id, a.user_id, a.apply_no, a.copyright_center, a.status, a.sync_status, a.external_apply_no, a.submit_time, 
                a.cert_no, a.cert_time, a.reject_reason, a.attachment_url, a.originality_proof, a.author_identity_doc, a.creation_process, a.other_proof,
-               a.config_id, a.remark, a.create_time, a.update_time,
+               a.config_id, a.word_count, a.fee_amount, a.pay_order_id, a.remark, a.create_time, a.update_time,
                c.center_name,
                w.title as work_name
         from sys_copyright_application a
@@ -92,6 +95,9 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             <if test="creationProcess != null">creation_process,</if>
             <if test="otherProof != null">other_proof,</if>
             <if test="configId != null">config_id,</if>
+            <if test="wordCount != null">word_count,</if>
+            <if test="feeAmount != null">fee_amount,</if>
+            <if test="payOrderId != null">pay_order_id,</if>
             <if test="remark != null">remark,</if>
             <if test="createTime != null">create_time,</if>
             <if test="updateTime != null">update_time,</if>
@@ -114,6 +120,9 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             <if test="creationProcess != null">#{creationProcess},</if>
             <if test="otherProof != null">#{otherProof},</if>
             <if test="configId != null">#{configId},</if>
+            <if test="wordCount != null">#{wordCount},</if>
+            <if test="feeAmount != null">#{feeAmount},</if>
+            <if test="payOrderId != null">#{payOrderId},</if>
             <if test="remark != null">#{remark},</if>
             <if test="createTime != null">#{createTime},</if>
             <if test="updateTime != null">#{updateTime},</if>
@@ -137,6 +146,9 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             <if test="creationProcess != null">creation_process = #{creationProcess},</if>
             <if test="otherProof != null">other_proof = #{otherProof},</if>
             <if test="configId != null">config_id = #{configId},</if>
+            <if test="wordCount != null">word_count = #{wordCount},</if>
+            <if test="feeAmount != null">fee_amount = #{feeAmount},</if>
+            <if test="payOrderId != null">pay_order_id = #{payOrderId},</if>
             <if test="remark != null">remark = #{remark},</if>
             <if test="updateTime != null">update_time = #{updateTime},</if>
         </trim>
