@@ -130,7 +130,23 @@ class ChapterSummarySupportTest
     }
 
     @Test
-    void emptyLedgerJsonHasAllSevenKeys()
+    void mergePropsReplacesSamePropAndKeepsOtherRows()
+    {
+        SysWorkLedger ledger = new SysWorkLedger();
+        ledger.setProps("傩面具｜十二面｜顾守山｜在手｜明代木雕\n铜钥匙｜1把｜雷老幺｜已交付给吴德贵｜黄铜");
+        assertTrue(ChapterSummarySupport.mergeLedger(ledger, Map.of("props",
+                "傩面具｜十三面｜顾守山｜在手｜明代木雕\n开山面具｜1面｜顾守山｜在手｜新修")));
+        String props = ledger.getProps();
+        // 同名道具整行替换，不能出现「十二面」「十三面」两行并存
+        assertEquals(1, props.split("傩面具").length - 1);
+        assertTrue(props.contains("十三面"));
+        // 模型这集没提到的道具必须原样保留
+        assertTrue(props.contains("铜钥匙"));
+        assertTrue(props.contains("开山面具"));
+    }
+
+    @Test
+    void emptyLedgerJsonHasAllNineKeys()
     {
         JsonNode root = ChapterSummarySupport.parseJson(ChapterSummarySupport.emptyLedgerJson());
         for (String key : ChapterSummarySupport.LEDGER_KEYS)

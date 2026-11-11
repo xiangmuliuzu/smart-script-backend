@@ -338,6 +338,8 @@ public class AiWriteServiceImpl implements IAiWriteService
         appendLedgerLine(sb, "伏笔（埋在哪章/计划回收章/是否回收）", ledger.getForeshadow());
         appendLedgerLine(sb, "时间线", ledger.getTimeline());
         appendLedgerLine(sb, "物品位置", ledger.getItems());
+        appendLedgerLine(sb, "重要道具档案（件数、持有人、是否已交付以它为准）", truncate(ledger.getProps(), 2000));
+        appendLedgerLine(sb, "写法基线（沿用既有文风，不得中途换写法）", truncate(ledger.getStyleGuide(), 800));
         appendLedgerLine(sb, "未解线索", ledger.getThreads());
         return sb.length() == 0 ? null : sb.toString();
     }
@@ -1192,6 +1194,8 @@ public class AiWriteServiceImpl implements IAiWriteService
         appendLedgerLine(sb, "故事简介", ledger.getStorySummary());
         appendLedgerLine(sb, "人物卡", ledger.getCharacters());
         appendLedgerLine(sb, "关系状态", ledger.getRelations());
+        appendLedgerLine(sb, "重要道具档案（件数、持有人、是否已交付以它为准）", truncate(ledger.getProps(), 2000));
+        appendLedgerLine(sb, "写法基线（验收文风是否漂移的依据）", truncate(ledger.getStyleGuide(), 800));
         return sb.length() == 0 ? null : sb.toString();
     }
 
@@ -1214,17 +1218,24 @@ public class AiWriteServiceImpl implements IAiWriteService
                 + "要求：\n"
                 + "1. 只依据给出的正文与既有台账，不编造未出现的人物、设定或情节。\n"
                 + "2. summary：本集摘要，120~200 字，写清本集发生的事件、冲突推进、人物状态变化与结尾钩子；不写评价或推荐语。\n"
-                + "3. ledger：只写本集新增或需要修改的条目，不要复述既有台账原文——"
-                + "每类给出若干行短句，一行一条（全书主线、人物身份状态、关系变化、本集埋设/推进的伏笔、"
-                + "本集的时间地点、关键道具去向、新出现的悬念）。本集没有涉及的类别填空字符串 \"\"。\n"
-                + "    七个键的含义：\n"
+                + "3. ledger：只写本集新增或需要修改的条目，不要复述既有台账原文；"
+                + "但 props 例外——每次都要输出完整道具档案。"
+                + "每类给出若干行短句，一行一条（全书主线、人物身份状态、关系变化、伏笔、"
+                + "本集的时间地点、关键道具去向、重要道具档案、写法基线、新出现的悬念）。本集没有涉及的类别填空字符串 \"\"。\n"
+                + "    台账是全书唯一事实源：正文与台账冲突时以台账为准，不得顺着正文改数字。\n"
+                + "    九个键的含义：\n"
                 + "    storySummary 故事简介：主线推进到哪一步；\n"
                 + "    characters 人物卡：出场人物的身份、性格、当前状态；\n"
                 + "    relations 关系状态：人物关系及其变化；\n"
                 + "    foreshadow 伏笔：埋在哪一集、计划或是否回收；\n"
                 + "    timeline 时间线：按集记录时间与地点；\n"
-                + "    items 物品位置：关键道具在谁手里、在哪、共几件；数量一律沿用既有台账里的数字，"
-                + "正文没写清、或与台账不一致时以台账为准，不得改写件数；\n"
+                + "    items 物品位置：本集关键道具在谁手里、在哪（逐集流水）；件数不写在这里，也不得改动件数，件数以 props 为准；\n"
+                + "    props 重要道具档案：一行一件，格式「名称｜件数｜当前持有人｜状态（在手/已交付/已损毁/下落不明）｜外观或特殊能力」；"
+                + "每次输出完整档案（含本集没变化的道具），同名道具只保留一行；件数只能沿用旧值，"
+                + "正文没有明确写增减时不得改数字；已交付过的道具状态保持「已交付给某某」，"
+                + "不得无过渡地退回「在手」，除非正文明确写被退回；\n"
+                + "    styleGuide 写法基线：叙述人称、每集字数区间、对白与叙述比例、标点与段落规则、禁用写法（括注体/心理独白/场景头/镜头术语等）；"
+                + "首次生成时从正文提取并固定，之后只在正文确实改了写法时才更新，与基线一致就填空串；\n"
                 + "    threads 未解线索：尚未解释的悬念。\n"
                 + "4. summary 必须放在 JSON 最前面、写完整；严格输出一个 JSON 对象，结构如下（值替换为实际内容）：\n"
                 + ChapterSummarySupport.emptyLedgerJson() + "\n"

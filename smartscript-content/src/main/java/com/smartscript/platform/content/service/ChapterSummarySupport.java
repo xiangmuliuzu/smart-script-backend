@@ -125,7 +125,7 @@ public final class ChapterSummarySupport
         return text.length() <= SUMMARY_MAX ? text : text.substring(0, SUMMARY_MAX);
     }
 
-    /** 台账补丁：仅取 ledger 对象里七类非空文本。 */
+    /** 台账补丁：仅取 ledger 对象里九类非空文本。 */
     public static Map<String, String> ledgerPatch(JsonNode root)
     {
         Map<String, String> patch = new LinkedHashMap<>();
@@ -144,6 +144,8 @@ public final class ChapterSummarySupport
         putIfText(patch, ledger, "foreshadow");
         putIfText(patch, ledger, "timeline");
         putIfText(patch, ledger, "items");
+        putIfText(patch, ledger, "props");
+        putIfText(patch, ledger, "styleGuide");
         putIfText(patch, ledger, "threads");
         return patch;
     }
@@ -179,6 +181,8 @@ public final class ChapterSummarySupport
         changed |= apply(ledger.getForeshadow(), patch.get("foreshadow"), ledger::setForeshadow);
         changed |= apply(ledger.getTimeline(), patch.get("timeline"), ledger::setTimeline);
         changed |= apply(ledger.getItems(), patch.get("items"), ledger::setItems);
+        changed |= mergeProps(ledger, patch.get("props"));
+        changed |= apply(ledger.getStyleGuide(), patch.get("styleGuide"), ledger::setStyleGuide);
         changed |= apply(ledger.getThreads(), patch.get("threads"), ledger::setThreads);
         return changed;
     }
@@ -237,11 +241,83 @@ public final class ChapterSummarySupport
         return sb.toString();
     }
 
-    /** 七类字段名（供提示词与测试复用）。 */
-    public static final String[] LEDGER_KEYS = {
-            "storySummary", "characters", "relations", "foreshadow", "timeline", "items", "threads"};
+    /**
+     * 道具档案按「道具名」合并：同名行用新行整行替换，旧档案里没提到的道具原样保留，新道具追加。
+     *
+     * 不能走 apply 的整段追加：同一件道具若每集各追加一行，久而久之会出现
+     * 「十二面」「十三面」并存的矛盾（实测 45 集后 items/props 里 11/12/13 面混在一起）。
+     */
+    private static boolean mergeProps(SysWorkLedger ledger, String newValue)
+    {
+        if (newValue == null || newValue.isBlank())
+        {
+            return false;
+        }
+        String oldText = ledger.getProps() == null ? "" : ledger.getProps().trim();
+        String newText = newValue.trim();
+        java.util.List<String> merged = new java.util.ArrayList<>();
+        java.util.Map<String, Integer> indexOf = new java.util.HashMap<>();
+        if (!oldText.isEmpty())
+        {
+            for (String line : oldText.split("\n"))
+            {
+                String l = line.trim();
+                if (l.isEmpty())
+                {
+                    continue;
+                }
+                indexOf.put(propsKey(l), merged.size());
+                merged.add(l);
+            }
+        }
+        for (String line : newText.split("\n"))
+        {
+            String l = line.trim();
+            if (l.isEmpty())
+            {
+                continue;
+            }
+            String key = propsKey(l);
+            Integer at = indexOf.get(key);
+            if (at == null)
+            {
+                indexOf.put(key, merged.size());
+                merged.add(l);
+            }
+            else
+            {
+                merged.set(at, l);
+            }
+        }
+        String result = String.join("\n", merged);
+        if (result.equals(oldText))
+        {
+            return false;
+        }
+        ledger.setProps(result);
+        return true;
+    }
 
-    /** 组装一段空 JSON 骨架提示（让模型知道必须给全七个键）；summary 放最前，便于截断时兜底。 */
+    /** 道具行的键：优先取第一个「｜」或「|」前的名称，没有分隔符时取前 12 字。 */
+    private static String propsKey(String line)
+    {
+        int bar = line.indexOf('｜');
+        int ascii = line.indexOf('|');
+        if (bar < 0 || (ascii >= 0 && ascii < bar))
+        {
+            bar = ascii;
+        }
+        String key = bar > 0 ? line.substring(0, bar) : line;
+        key = key.trim();
+        return key.length() <= 12 ? key : key.substring(0, 12);
+    }
+
+    /** 九类字段名（供提示词与测试复用）。 */
+    public static final String[] LEDGER_KEYS = {
+            "storySummary", "characters", "relations", "foreshadow", "timeline", "items", "props",
+            "styleGuide", "threads"};
+
+    /** 组装一段空 JSON 骨架提示（让模型知道必须给全九个键）；summary 放最前，便于截断时兜底。 */
     public static String emptyLedgerJson()
     {
         ObjectNode node = MAPPER.createObjectNode();

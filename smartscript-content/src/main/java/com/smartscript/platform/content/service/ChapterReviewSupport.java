@@ -8,7 +8,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
  * 「每集验收 + 卷级快照」的提示词组装与结果解析。
  *
  * 与 AI 调用解耦，便于单测：
- *   - 验收固定 5 项（人物/因果/连续/伏笔/结构），≥4 项无 fail 才通过；
+ *   - 验收固定 7 项（人物/因果/连续/道具/写法/伏笔/结构），≥5 项无 fail 才通过；
  *   - 快照只存当前值，长度上限 800 字（超长直接截断，不重试）。
  */
 public final class ChapterReviewSupport
@@ -18,14 +18,16 @@ public final class ChapterReviewSupport
     /** 卷快照落库上限（字符） */
     public static final int SNAPSHOT_MAX = 800;
 
-    /** 通过阈值：5 项中至少 4 项无 fail */
-    public static final int PASS_MIN = 4;
+    /** 通过阈值：7 项中至少 5 项无 fail */
+    public static final int PASS_MIN = 5;
 
-    /** 五项检查项的顺序与中文名 */
+    /** 七项检查项的顺序与中文名 */
     public static final String[][] ITEMS = {
             {"identity", "人物"},
             {"causality", "因果"},
             {"continuity", "连续性"},
+            {"props", "道具"},
+            {"style", "写法"},
             {"foreshadow", "伏笔"},
             {"structure", "结构"}
     };
@@ -38,15 +40,22 @@ public final class ChapterReviewSupport
     public static String reviewSystemPrompt()
     {
         return "你是短剧剧本连贯性审校，只做判定，不改写正文，不评价文采。\n"
-                + "逐项检查下面 5 条，每条给出 fail 或 ok：\n"
+                + "逐项检查下面 7 条，每条给出 fail 或 ok：\n"
                 + "1. identity 人物：是否出现设定外的新人物、改名、年龄/身份/性格突变；\n"
-                + "2. causality 因果：是否接住上一集结尾的钩子，本集开场是否由上一集结果推动；\n"
-                + "3. continuity 连续性：时间、地点、关键道具归属、伤病与衣着状态是否与台账一致；\n"
-                + "4. foreshadow 伏笔：是否只新增或推进，未到回收点的伏笔是否被提前揭晓；\n"
-                + "5. structure 结构：是否有完整的冲突推进与结尾钩子，不是流水账或纯对话堆叠。\n"
+                + "2. causality 因果：本集开场是否承接上一集结尾最后一个动作或悬念，并由它的结果推动；"
+                + "只有三种情况允许不承接：上一集事件已经收束、本集明确开启另一个过渡事件、本集切换到另一视角继续同一事件；"
+                + "除这三种，人物/事件/道具的状态不得在没有过渡的情况下突变；\n"
+                + "3. continuity 连续性：时间、地点、伤病、衣着、在场人物是否与台账一致，有没有跳过本集事件卡规定的进程；\n"
+                + "4. props 道具：件数、持有人、完好状态是否与「重要道具档案」一致；"
+                + "档案里已标记「已交付给某某」的道具，本集是否又被重新交付一次，"
+                + "或未经「退回/夺回/丢失」的明确情节就从对方手里回到原主手里；\n"
+                + "5. style 写法：是否沿用「写法基线」的人称、句式、对白比例与标点；"
+                + "有没有中途改成括注体、整段心理独白、场景头或镜头术语；\n"
+                + "6. foreshadow 伏笔：是否只新增或推进，未到回收点的伏笔是否被提前揭晓；\n"
+                + "7. structure 结构：是否有完整的冲突推进与结尾钩子，不是流水账或纯对话堆叠。\n"
                 + "输出一个 JSON 对象，结构如下：\n"
-                + "{\"score\":4,\"issues\":[{\"item\":\"identity\",\"level\":\"fail\",\"detail\":\"一句话指出问题所在\"}]}\n"
-                + "score 为未出现 fail 的项数（0-5）；每项最多写一条 issues，ok 的项不要输出。\n"
+                + "{\"score\":6,\"issues\":[{\"item\":\"identity\",\"level\":\"fail\",\"detail\":\"一句话指出问题所在\"}]}\n"
+                + "score 为未出现 fail 的项数（0-7）；每项最多写一条 issues，ok 的项不要输出。\n"
                 + "不要 Markdown 代码块，不要任何解释文字。";
     }
 
@@ -122,7 +131,7 @@ public final class ChapterReviewSupport
         return items.size();
     }
 
-    /** 通过项数（5 - 未通过项数，下限 0）。 */
+    /** 通过项数（7 - 未通过项数，下限 0）。 */
     public static int passScore(JsonNode root)
     {
         JsonNode score = root.path("score");
@@ -190,7 +199,7 @@ public final class ChapterReviewSupport
     public static String emptyReviewJson()
     {
         ObjectNode node = MAPPER.createObjectNode();
-        node.put("score", 5);
+        node.put("score", ITEMS.length);
         node.putArray("issues");
         return node.toString();
     }

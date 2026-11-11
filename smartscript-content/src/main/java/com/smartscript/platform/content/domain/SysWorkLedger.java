@@ -10,9 +10,13 @@ package com.smartscript.platform.content.domain;
  *   4. foreshadow：伏笔台账（埋在哪章 / 计划回收章 / 是否已回收）；
  *   5. timeline：时间线（关键事件发生的时间与地点）；
  *   6. items：物品位置（关键道具当前在谁手上 / 在哪）；
- *   7. threads：未解线索（尚未回收的悬念）。
+ *   7. props：重要道具档案（名称、件数、外观或能力、当前持有人、是否已交付）——
+ *      与 items 的逐集流水不同，这里是全书唯一的一份“道具主数据”，件数与归属以它为准；
+ *   8. styleGuide：写法基线（叙述人称、句式与对白比例、标点与禁用写法、单集字数区间）——
+ *      首次生成时固化，之后除用户明确要求改文风外不得变化，否则读者会感觉换了写手；
+ *   9. threads：未解线索（尚未回收的悬念）。
  *
- * 说明：七类均为自由文本，按“一行一条”的约定由前端维护，后端只存取不解析。
+ * 说明：九类均为自由文本，按“一行一条”的约定由前端维护，后端只存取不解析。
  *
  * @author smartscript
  */
@@ -38,6 +42,12 @@ public class SysWorkLedger
 
     /** 物品位置 */
     private String items;
+
+    /** 重要道具档案（全书唯一主数据：件数、持有人、是否已交付） */
+    private String props;
+
+    /** 写法基线（文风与版式口径，固化后不随意变化） */
+    private String styleGuide;
 
     /** 未解线索 */
     private String threads;
@@ -113,6 +123,26 @@ public class SysWorkLedger
     public void setItems(String items)
     {
         this.items = items;
+    }
+
+    public String getProps()
+    {
+        return props;
+    }
+
+    public void setProps(String props)
+    {
+        this.props = props;
+    }
+
+    public String getStyleGuide()
+    {
+        return styleGuide;
+    }
+
+    public void setStyleGuide(String styleGuide)
+    {
+        this.styleGuide = styleGuide;
     }
 
     public String getThreads()

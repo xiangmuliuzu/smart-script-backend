@@ -5,8 +5,11 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 <mapper namespace="com.smartscript.platform.content.mapper.SysWorkLedgerMapper">
 
 	<!--
-	  依据：B_20261110_001__work_ledger_and_chapter_summary.sql 新建的 sys_work_ledger。
-	  一作品一条；七类台账均为自由文本，后端只存取不解析。
+	  依据：B_20261110_001__work_ledger_and_chapter_summary.sql 新建的 sys_work_ledger，
+	  以及 B_20261111_002__ledger_props_and_style.sql 追加的 props / style_guide。
+	  一作品一条；九类台账均为自由文本，后端只存取不解析。
+	  props / style_guide 在冲突更新时「空串不覆盖旧值」：旧版 App 端保存台账不带这两列，
+	  若直接写空串会把道具档案和写法基线清掉。
 	-->
 	<resultMap type="SysWorkLedger" id="SysWorkLedgerResult">
 		<id     property="workId"        column="work_id"        />
@@ -16,12 +19,14 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		<result property="foreshadow"    column="foreshadow"     />
 		<result property="timeline"      column="timeline"       />
 		<result property="items"         column="items"          />
+		<result property="props"         column="props"          />
+		<result property="styleGuide"    column="style_guide"    />
 		<result property="threads"       column="threads"        />
 		<result property="updateTime"    column="update_time"    />
 	</resultMap>
 
 	<select id="selectByWorkId" parameterType="Long" resultMap="SysWorkLedgerResult">
-		select work_id, story_summary, characters, relations, foreshadow, timeline, items, threads,
+		select work_id, story_summary, characters, relations, foreshadow, timeline, items, props, style_guide, threads,
 		       date_format(update_time, '%Y-%m-%d %H:%i:%s') as update_time
 		from sys_work_ledger
 		where work_id = #{workId}
@@ -30,7 +35,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 	<!-- 整条覆盖写入；并发下由主键 work_id 保证只有一条 -->
 	<insert id="upsertLedger" parameterType="SysWorkLedger">
 		insert into sys_work_ledger
-			(work_id, story_summary, characters, relations, foreshadow, timeline, items, threads, create_time, update_time)
+			(work_id, story_summary, characters, relations, foreshadow, timeline, items, props, style_guide, threads, create_time, update_time)
 		values
 			(#{workId},
 			 ifnull(#{storySummary}, ''),
@@ -39,6 +44,8 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 			 ifnull(#{foreshadow}, ''),
 			 ifnull(#{timeline}, ''),
 			 ifnull(#{items}, ''),
+			 ifnull(#{props}, ''),
+			 ifnull(#{styleGuide}, ''),
 			 ifnull(#{threads}, ''),
 			 now(), now())
 		on duplicate key update
@@ -48,6 +55,8 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 			foreshadow    = values(foreshadow),
 			timeline      = values(timeline),
 			items         = values(items),
+			props         = coalesce(nullif(values(props), ''), props),
+			style_guide   = coalesce(nullif(values(style_guide), ''), style_guide),
 			threads       = values(threads),
 			update_time   = now()
 	</insert>
