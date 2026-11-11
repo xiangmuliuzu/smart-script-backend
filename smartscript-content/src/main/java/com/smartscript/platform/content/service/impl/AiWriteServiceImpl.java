@@ -38,6 +38,7 @@ import com.smartscript.platform.content.domain.SysWorkLedger;
 import com.smartscript.platform.content.service.AiCallResult;
 import com.smartscript.platform.content.service.AiServiceClient;
 import com.smartscript.platform.content.service.ChapterSummarySupport;
+import com.smartscript.platform.content.service.ChapterReviewSupport;
 import com.smartscript.platform.content.service.IAiChannelService;
 import com.smartscript.platform.content.service.IAiWriteService;
 import com.smartscript.platform.identity.IdentityProvider;
@@ -116,6 +117,12 @@ public class AiWriteServiceImpl implements IAiWriteService
 
     /** 标题长度上限（sys_ai_write_record.title 为 varchar(100)，按业务约定收紧到 50） */
     private static final int TITLE_MAX_LENGTH = 50;
+
+    /**
+     * input_prompt 落库上限（字符）。列已扩为 LONGTEXT，但长连载验收/卷快照的提示词会随集数增长，
+     * 这里再兜一层，避免旧库（TEXT，64KB）或异常超长输入把整条记录插入失败、连带 AI 结果丢失。
+     */
+    private static final int PROMPT_MAX_LENGTH = 60000;
 
     /** 填空串的占位值（用于 NOT NULL 且契约未提供的列） */
     private static final String BLANK = "";
@@ -344,6 +351,31 @@ public class AiWriteServiceImpl implements IAiWriteService
         }
     }
 
+    /**
+     * 归属校验只查 sys_work.author_id，不看台账是否有内容。
+     * buildLedgerContext 在台账为空时也返回 null，拿它当归属校验会把「台账空但确实是本人作品」
+     * 误判成「作品不存在」，导致卷快照永远生成不了。
+     */
+    private void assertWorkOwner(Long userId, Long workId)
+    {
+        Long authorId;
+        try
+        {
+            List<Long> rows = jdbcTemplate.queryForList(
+                    "SELECT author_id FROM sys_work WHERE work_id = ? AND is_deleted = 0", Long.class, workId);
+            authorId = rows.isEmpty() ? null : rows.get(0);
+        }
+        catch (Exception e)
+        {
+            log.warn("读取作品归属失败 workId={}：{}", workId, e.getMessage());
+            throw new IllegalArgumentException("读取作品归属失败");
+        }
+        if (authorId == null || userId == null || !authorId.equals(userId))
+        {
+            throw new IllegalArgumentException("作品不存在或不属于当前用户");
+        }
+    }
+
     @Override
     public AppAiOutlineResult outlineStream(AppAiOutlineRequest request, java.util.function.Consumer<String> onDelta)
     {
@@ -564,7 +596,7 @@ public class AiWriteServiceImpl implements IAiWriteService
         row.setPov(BLANK);
         row.setLanguageStyle(BLANK);
         row.setPace(BLANK);
-        row.setInputPrompt(inputPrompt == null ? BLANK : inputPrompt);
+        row.setInputPrompt(inputPrompt == null ? BLANK : truncate(inputPrompt, PROMPT_MAX_LENGTH));
         row.setOutputContent(outputContent == null ? BLANK : outputContent);
         row.setWordCount(outputContent == null ? 0 : outputContent.length());
         row.setAiModel(model);
@@ -909,6 +941,272 @@ public class AiWriteServiceImpl implements IAiWriteService
         return result;
     }
 
+    /** 卷级快照 / 每集验收的能力标识（积分流水 remark 用） */
+    private static final String CAPABILITY_CHAPTER_REVIEW = "chapter-review";
+
+    private static final String CAPABILITY_VOLUME_SNAPSHOT = "volume-snapshot";
+
+    /** 一卷的集数（50 集量级固定 10 集一卷） */
+    private static final int EPISODES_PER_VOLUME = 10;
+
+    @Override
+    public Map<String, Object> reviewChapter(Long workId, Long chapterId, String content, String model)
+    {
+        Long userId = identityProvider.currentUserId();
+        if (workId == null || chapterId == null)
+        {
+            throw new IllegalArgumentException("缺少作品或章节");
+        }
+        List<Map<String, Object>> rows;
+        try
+        {
+            rows = jdbcTemplate.queryForList(
+                    "SELECT w.author_id, c.chapter_no, c.chapter_title, c.content "
+                            + "FROM sys_work w JOIN sys_work_chapter c ON c.work_id = w.work_id "
+                            + "WHERE w.work_id = ? AND c.chapter_id = ? AND w.is_deleted = 0",
+                    workId, chapterId);
+        }
+        catch (Exception e)
+        {
+            throw new IllegalArgumentException("章节不存在或不属于该作品");
+        }
+        if (rows.isEmpty())
+        {
+            throw new IllegalArgumentException("章节不存在或不属于该作品");
+        }
+        Map<String, Object> row = rows.get(0);
+        Object authorObj = row.get("author_id");
+        Long authorId = authorObj instanceof Number number ? number.longValue() : null;
+        if (authorId == null || !authorId.equals(userId))
+        {
+            throw new IllegalArgumentException("无权操作该作品");
+        }
+        String chapterNo = String.valueOf(row.get("chapter_no"));
+        String chapterTitle = row.get("chapter_title") == null ? BLANK : String.valueOf(row.get("chapter_title"));
+        String displayTitle = chapterTitle.isBlank() ? ("第" + chapterNo + "集") : chapterTitle;
+        String body = (content == null || content.isBlank())
+                ? (row.get("content") == null ? BLANK : String.valueOf(row.get("content")))
+                : content;
+        body = body.trim();
+        if (body.length() < ChapterSummarySupport.MIN_BODY)
+        {
+            throw new IllegalArgumentException("本章正文过短（不足 " + ChapterSummarySupport.MIN_BODY + " 字），无需验收");
+        }
+        checkPoints(userId);
+        checkContent(userId, body);
+        // 上一集摘要：作为「因果衔接」的判定依据（本集与上集钩子是否接上）。
+        String prevSummary = BLANK;
+        try
+        {
+            List<Map<String, Object>> prev = jdbcTemplate.queryForList(
+                    "SELECT summary FROM sys_work_chapter WHERE work_id = ? AND chapter_no = ? AND summary IS NOT NULL",
+                    workId, (Integer.parseInt(chapterNo) - 1));
+            if (!prev.isEmpty() && prev.get(0).get("summary") != null)
+            {
+                prevSummary = String.valueOf(prev.get(0).get("summary"));
+            }
+        }
+        catch (Exception e)
+        {
+            log.debug("读取上一集摘要失败 workId={} chapterNo={}：{}", workId, chapterNo, e.getMessage());
+        }
+        String ledgerText = buildLedgerContext(userId, workId);
+        String settingText = buildSettingContext(userId, workId);
+        AiChannel channel = resolveChannel(model);
+        String system = ChapterReviewSupport.reviewSystemPrompt();
+        String user = ChapterReviewSupport.reviewUserPrompt(displayTitle, prevSummary, settingText, ledgerText,
+                ChapterSummarySupport.clipBody(body, ChapterSummarySupport.BODY_CLIP));
+        AiCallResult r = (channel == null)
+                ? aiServiceClient.chatText(system, user)
+                : aiServiceClient.chatText(system, user, channel.getBaseUrl(), channel.getApiKey(), model);
+        JsonNode root = ChapterReviewSupport.parse(r.getContent());
+        int score = ChapterReviewSupport.passScore(root);
+        boolean pass = ChapterReviewSupport.pass(root);
+        String issues = ChapterReviewSupport.issuesText(root);
+        try
+        {
+            jdbcTemplate.update(
+                    "INSERT INTO sys_chapter_review (chapter_id, work_id, episode_no, pass_flag, score, issues) "
+                            + "VALUES (?, ?, ?, ?, ?, ?) "
+                            + "ON DUPLICATE KEY UPDATE work_id = VALUES(work_id), episode_no = VALUES(episode_no), "
+                            + "pass_flag = VALUES(pass_flag), score = VALUES(score), issues = VALUES(issues), update_time = NOW()",
+                    chapterId, workId, parseIntSafe(chapterNo), pass ? 1 : 0, score, issues);
+        }
+        catch (Exception e)
+        {
+            log.warn("写入验收结果失败 workId={} chapterId={}：{}", workId, chapterId, e.getMessage());
+        }
+        Long recordId = saveRecord(userId, workId, CAPABILITY_CHAPTER_REVIEW, system + "\n\n" + user,
+                issues.isBlank() ? "通过 " + score + "/5" : issues, resolveModel(r), r.getTotalTokens());
+        consumePoints(userId, CAPABILITY_CHAPTER_REVIEW, recordId, r.getTotalTokens());
+        Map<String, Object> result = new java.util.LinkedHashMap<>();
+        result.put("pass", pass);
+        result.put("score", score);
+        result.put("issues", issues);
+        result.put("recordId", recordId);
+        result.put("tokens", Math.max(1, r.getTotalTokens()));
+        return result;
+    }
+
+    @Override
+    public Map<String, Object> buildVolumeSnapshot(Long workId, Integer volumeNo, String model)
+    {
+        Long userId = identityProvider.currentUserId();
+        if (workId == null)
+        {
+            throw new IllegalArgumentException("缺少作品标识");
+        }
+        int volume = (volumeNo == null || volumeNo <= 0) ? 1 : volumeNo;
+        assertWorkOwner(userId, workId);
+        String ledgerText = buildLedgerContext(userId, workId);
+        checkPoints(userId);
+        int start = (volume - 1) * EPISODES_PER_VOLUME + 1;
+        int end = volume * EPISODES_PER_VOLUME;
+        List<Map<String, Object>> chapters;
+        try
+        {
+            chapters = jdbcTemplate.queryForList(
+                    "SELECT chapter_no, chapter_title, summary FROM sys_work_chapter "
+                            + "WHERE work_id = ? AND chapter_no BETWEEN ? AND ? ORDER BY chapter_no",
+                    workId, start, end);
+        }
+        catch (Exception e)
+        {
+            throw new IllegalArgumentException("读取本卷章节失败");
+        }
+        StringBuilder summaries = new StringBuilder();
+        for (Map<String, Object> chapter : chapters)
+        {
+            Object summaryObj = chapter.get("summary");
+            if (summaryObj == null || String.valueOf(summaryObj).isBlank())
+            {
+                continue;
+            }
+            summaries.append("第").append(chapter.get("chapter_no")).append("集：")
+                    .append(String.valueOf(summaryObj).trim()).append('\n');
+        }
+        if (summaries.length() == 0)
+        {
+            throw new IllegalArgumentException("本卷还没有可用的章节摘要，先逐集生成摘要再建卷快照");
+        }
+        String system = ChapterReviewSupport.snapshotSystemPrompt(volume, start, end);
+        String user = ChapterReviewSupport.snapshotUserPrompt(ledgerText, summaries.toString());
+        checkContent(userId, summaries.toString());
+        AiChannel channel = resolveChannel(model);
+        AiCallResult r = (channel == null)
+                ? aiServiceClient.chatText(system, user)
+                : aiServiceClient.chatText(system, user, channel.getBaseUrl(), channel.getApiKey(), model);
+        String snapshot = ChapterReviewSupport.snapshotOf(ChapterReviewSupport.parse(r.getContent()));
+        if (snapshot.isBlank())
+        {
+            throw new AiServiceUnavailableException("AI 未返回可用的卷快照，请重试");
+        }
+        try
+        {
+            jdbcTemplate.update(
+                    "INSERT INTO sys_work_volume (work_id, volume_no, episode_start, episode_end, snapshot) "
+                            + "VALUES (?, ?, ?, ?, ?) "
+                            + "ON DUPLICATE KEY UPDATE episode_start = VALUES(episode_start), "
+                            + "episode_end = VALUES(episode_end), snapshot = VALUES(snapshot), update_time = NOW()",
+                    workId, volume, start, end, snapshot);
+        }
+        catch (Exception e)
+        {
+            throw new IllegalArgumentException("保存卷快照失败：" + e.getMessage());
+        }
+        Long recordId = saveRecord(userId, workId, CAPABILITY_VOLUME_SNAPSHOT, system + "\n\n" + user,
+                snapshot, resolveModel(r), r.getTotalTokens());
+        consumePoints(userId, CAPABILITY_VOLUME_SNAPSHOT, recordId, r.getTotalTokens());
+        Map<String, Object> result = new java.util.LinkedHashMap<>();
+        result.put("volumeNo", volume);
+        result.put("episodeStart", start);
+        result.put("episodeEnd", end);
+        result.put("snapshot", snapshot);
+        result.put("recordId", recordId);
+        result.put("tokens", Math.max(1, r.getTotalTokens()));
+        return result;
+    }
+
+    @Override
+    public List<Map<String, Object>> listVolumes(Long workId)
+    {
+        Long userId = identityProvider.currentUserId();
+        if (workId == null)
+        {
+            return java.util.Collections.emptyList();
+        }
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList(
+                "SELECT v.volume_no, v.episode_start, v.episode_end, v.snapshot, v.update_time "
+                        + "FROM sys_work_volume v JOIN sys_work w ON w.work_id = v.work_id "
+                        + "WHERE v.work_id = ? AND w.author_id = ? AND w.is_deleted = 0 "
+                        + "ORDER BY v.volume_no",
+                workId, userId);
+        List<Map<String, Object>> list = new java.util.ArrayList<>();
+        for (Map<String, Object> row : rows)
+        {
+            Map<String, Object> item = new java.util.LinkedHashMap<>();
+            item.put("volumeNo", row.get("volume_no"));
+            item.put("episodeStart", row.get("episode_start"));
+            item.put("episodeEnd", row.get("episode_end"));
+            item.put("snapshot", row.get("snapshot"));
+            item.put("updateTime", row.get("update_time"));
+            list.add(item);
+        }
+        return list;
+    }
+
+    @Override
+    public boolean saveVolume(Long workId, Integer volumeNo, String snapshot)
+    {
+        if (workId == null || volumeNo == null || volumeNo <= 0)
+        {
+            throw new IllegalArgumentException("缺少作品或卷号");
+        }
+        Long userId = identityProvider.currentUserId();
+        assertWorkOwner(userId, workId);
+        int start = (volumeNo - 1) * EPISODES_PER_VOLUME + 1;
+        int end = volumeNo * EPISODES_PER_VOLUME;
+        String text = snapshot == null ? BLANK : snapshot.trim();
+        if (text.length() > ChapterReviewSupport.SNAPSHOT_MAX)
+        {
+            text = text.substring(0, ChapterReviewSupport.SNAPSHOT_MAX);
+        }
+        jdbcTemplate.update(
+                "INSERT INTO sys_work_volume (work_id, volume_no, episode_start, episode_end, snapshot) "
+                        + "VALUES (?, ?, ?, ?, ?) "
+                        + "ON DUPLICATE KEY UPDATE episode_start = VALUES(episode_start), "
+                        + "episode_end = VALUES(episode_end), snapshot = VALUES(snapshot), update_time = NOW()",
+                workId, volumeNo, start, end, text);
+        return true;
+    }
+
+    /** 设定口径（写正文/验收判定用）：只取故事简介、人物卡、关系状态三类。 */
+    private String buildSettingContext(Long userId, Long workId)
+    {
+        SysWorkLedger ledger = workLedgerService.getLedger(workId);
+        if (ledger == null)
+        {
+            return null;
+        }
+        StringBuilder sb = new StringBuilder();
+        appendLedgerLine(sb, "故事简介", ledger.getStorySummary());
+        appendLedgerLine(sb, "人物卡", ledger.getCharacters());
+        appendLedgerLine(sb, "关系状态", ledger.getRelations());
+        return sb.length() == 0 ? null : sb.toString();
+    }
+
+    private static int parseIntSafe(String value)
+    {
+        try
+        {
+            return Integer.parseInt(value.trim());
+        }
+        catch (Exception e)
+        {
+            return 0;
+        }
+    }
+
     /** 摘要/台账抽取的系统提示（固定输出 JSON，禁止改写正文）。 */
     private static String buildSummarySystemPrompt()
     {
@@ -925,7 +1223,8 @@ public class AiWriteServiceImpl implements IAiWriteService
                 + "    relations 关系状态：人物关系及其变化；\n"
                 + "    foreshadow 伏笔：埋在哪一集、计划或是否回收；\n"
                 + "    timeline 时间线：按集记录时间与地点；\n"
-                + "    items 物品位置：关键道具在谁手里、在哪；\n"
+                + "    items 物品位置：关键道具在谁手里、在哪、共几件；数量一律沿用既有台账里的数字，"
+                + "正文没写清、或与台账不一致时以台账为准，不得改写件数；\n"
                 + "    threads 未解线索：尚未解释的悬念。\n"
                 + "4. summary 必须放在 JSON 最前面、写完整；严格输出一个 JSON 对象，结构如下（值替换为实际内容）：\n"
                 + ChapterSummarySupport.emptyLedgerJson() + "\n"
@@ -957,6 +1256,76 @@ public class AiWriteServiceImpl implements IAiWriteService
         return (key == null || key.isBlank()) ? null : channel;
     }
 
+    /** 推理模型：思维链与正文共用 max_tokens，长 skill 包场景会把额度吃满导致正文为空。 */
+    private static final java.util.Set<String> REASONING_MODELS = java.util.Set.of(
+            "deepseek-flash", "deepseek-reasoner", "deepseek-r1");
+
+    /** 推理模型场景优先换用的非推理模型 */
+    private static final String FALLBACK_NON_REASONING_MODEL = "deepseek-chat";
+
+    private static boolean isReasoningModel(String model)
+    {
+        if (model == null || model.isBlank())
+        {
+            return false;
+        }
+        String m = model.trim().toLowerCase();
+        return REASONING_MODELS.contains(m) || m.contains("reasoner") || m.contains("thinking")
+                || m.endsWith("-r1") || m.contains(":r1");
+    }
+
+    /**
+     * 分镜模型归一：分镜会带整包 skill（prompt 上万 token），推理模型的 reasoning 会吃满 max_tokens，
+     * 返回 content 为空（finish_reason=length）。用户选了推理模型或没选模型时，换成渠道内的非推理模型；
+     * 提高 max_tokens 无效（reasoning 同步增长），所以只改模型不改额度。
+     */
+    private String resolveStoryboardModel(String requested, AiChannel channel)
+    {
+        String model = requested == null ? "" : requested.trim();
+        if (!model.isEmpty() && !isReasoningModel(model))
+        {
+            return model;
+        }
+        String picked = pickNonReasoningModel(channel == null ? null : channel.getModels());
+        if (picked != null)
+        {
+            log.warn("分镜场景自动切非推理模型：{} -> {}", model.isEmpty() ? "(未指定)" : model, picked);
+            return picked;
+        }
+        if (!model.isEmpty())
+        {
+            log.warn("分镜场景自动切非推理模型：{} -> {}", model, FALLBACK_NON_REASONING_MODEL);
+            return FALLBACK_NON_REASONING_MODEL;
+        }
+        return null;
+    }
+
+    /** 在渠道模型列表里挑非推理模型：优先 deepseek-chat，否则第一个非推理模型；都没有返回 null。 */
+    private static String pickNonReasoningModel(String modelsCsv)
+    {
+        if (modelsCsv == null || modelsCsv.isBlank())
+        {
+            return null;
+        }
+        List<String> models = java.util.Arrays.stream(modelsCsv.split(","))
+                .map(String::trim).filter(s -> !s.isEmpty()).collect(Collectors.toList());
+        for (String m : models)
+        {
+            if (FALLBACK_NON_REASONING_MODEL.equalsIgnoreCase(m))
+            {
+                return m;
+            }
+        }
+        for (String m : models)
+        {
+            if (!isReasoningModel(m))
+            {
+                return m;
+            }
+        }
+        return null;
+    }
+
     // ================================================================
     // AI 分镜（E 模块）：剧本 → 分镜 一条龙，产出可直接出售的分镜剧本
     // ================================================================
@@ -969,12 +1338,12 @@ public class AiWriteServiceImpl implements IAiWriteService
                 (request.getScript() == null ? "" : request.getScript()));
         Date startedAt = new Date();
         AiChannel channel = resolveChannel(request.getModel());
-        AiCallResult r = (channel == null)
-                ? aiServiceClient.storyboard(request.getScript(), request.getStyle(),
-                        resolveSkillContent(request.getSkillId()))
-                : aiServiceClient.storyboard(request.getScript(), request.getStyle(),
-                        resolveSkillContent(request.getSkillId()),
-                        channel.getBaseUrl(), channel.getApiKey(), request.getModel());
+        String model = resolveStoryboardModel(request.getModel(), channel);
+        AiCallResult r = aiServiceClient.storyboard(request.getScript(), request.getStyle(),
+                resolveSkillContent(request.getSkillId()),
+                channel == null ? null : channel.getBaseUrl(),
+                channel == null ? null : channel.getApiKey(),
+                model);
         Date finishedAt = new Date();
         String content = r.getContent();
         String requestNo = generateRequestNo();
@@ -997,12 +1366,12 @@ public class AiWriteServiceImpl implements IAiWriteService
                 (request.getScript() == null ? "" : request.getScript()));
         Date startedAt = new Date();
         AiChannel channel = resolveChannel(request.getModel());
-        AiCallResult r = (channel == null)
-                ? aiServiceClient.storyboardStream(request.getScript(), request.getStyle(),
-                        resolveSkillContent(request.getSkillId()), onDelta)
-                : aiServiceClient.storyboardStream(request.getScript(), request.getStyle(),
-                        resolveSkillContent(request.getSkillId()), onDelta,
-                        channel.getBaseUrl(), channel.getApiKey(), request.getModel());
+        String model = resolveStoryboardModel(request.getModel(), channel);
+        AiCallResult r = aiServiceClient.storyboardStream(request.getScript(), request.getStyle(),
+                resolveSkillContent(request.getSkillId()), onDelta,
+                channel == null ? null : channel.getBaseUrl(),
+                channel == null ? null : channel.getApiKey(),
+                model);
         Date finishedAt = new Date();
         String content = r.getContent();
         String requestNo = generateRequestNo();

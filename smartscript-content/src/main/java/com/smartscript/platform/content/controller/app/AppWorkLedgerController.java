@@ -11,6 +11,9 @@ import com.smartscript.platform.api.AppApiResponse;
 import com.smartscript.platform.content.domain.SysWorkLedger;
 import com.smartscript.platform.content.service.IAppChapterAuthorService;
 import com.smartscript.platform.content.service.IAppWorkLedgerService;
+import com.smartscript.platform.content.service.IAiWriteService;
+import java.util.List;
+import java.util.Map;
 
 /**
  * 作品创作台账读写（PC 用户端与 App 共用）
@@ -50,11 +53,14 @@ public class AppWorkLedgerController
 
     private final IAppWorkLedgerService ledgerService;
 
+    private final IAiWriteService aiWriteService;
+
     public AppWorkLedgerController(IAppChapterAuthorService chapterService,
-            IAppWorkLedgerService ledgerService)
+            IAppWorkLedgerService ledgerService, IAiWriteService aiWriteService)
     {
         this.chapterService = chapterService;
         this.ledgerService = ledgerService;
+        this.aiWriteService = aiWriteService;
     }
 
     /**
@@ -123,5 +129,59 @@ public class AppWorkLedgerController
     private static boolean overLength(String value, int max)
     {
         return value != null && value.length() > max;
+    }
+
+    /**
+     * 查询作品全部卷快照（写正文时注入「本卷 + 上卷」）。
+     *
+     * @param workId 作品ID
+     * @return data = [{volumeNo, episodeStart, episodeEnd, snapshot, updateTime}]
+     */
+    @GetMapping("/works/{workId}/volumes")
+    public AppApiResponse<List<Map<String, Object>>> volumes(@PathVariable Long workId)
+    {
+        int access = chapterService.resolveWorkAccess(workId);
+        if (access == IAppChapterAuthorService.ACCESS_NOT_FOUND)
+        {
+            return AppApiResponse.fail(CODE_NOT_FOUND, "作品不存在");
+        }
+        if (access == IAppChapterAuthorService.ACCESS_DENIED)
+        {
+            return AppApiResponse.fail(CODE_FORBIDDEN, "无权操作该作品");
+        }
+        return AppApiResponse.ok(aiWriteService.listVolumes(workId));
+    }
+
+    /**
+     * 手工保存卷快照（覆盖写，不做 AI 调用）。
+     *
+     * @param workId   作品ID
+     * @param volumeNo 卷号（从 1 开始）
+     * @param body     {snapshot}
+     * @return data = null；快照超 800 字会自动截断
+     */
+    @PutMapping("/works/{workId}/volumes/{volumeNo}")
+    public AppApiResponse<Void> saveVolume(@PathVariable Long workId, @PathVariable Integer volumeNo,
+            @RequestBody(required = false) Map<String, Object> body)
+    {
+        int access = chapterService.resolveWorkAccess(workId);
+        if (access == IAppChapterAuthorService.ACCESS_NOT_FOUND)
+        {
+            return AppApiResponse.fail(CODE_NOT_FOUND, "作品不存在");
+        }
+        if (access == IAppChapterAuthorService.ACCESS_DENIED)
+        {
+            return AppApiResponse.fail(CODE_FORBIDDEN, "无权操作该作品");
+        }
+        if (volumeNo == null || volumeNo <= 0)
+        {
+            return AppApiResponse.fail(CODE_BAD_REQUEST, "卷号必须从 1 开始");
+        }
+        Object snapshot = body == null ? null : body.get("snapshot");
+        if (!aiWriteService.saveVolume(workId, volumeNo, snapshot == null ? null : String.valueOf(snapshot)))
+        {
+            return AppApiResponse.fail(500, "保存失败，请稍后重试");
+        }
+        return AppApiResponse.ok();
     }
 }

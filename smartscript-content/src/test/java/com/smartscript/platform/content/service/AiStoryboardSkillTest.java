@@ -47,6 +47,7 @@ class AiStoryboardSkillTest
     private AppAiRequestMapper aiRequestMapper;
     private AppAiWriteRecordMapper writeRecordMapper;
     private AiServiceClient aiServiceClient;
+    private com.smartscript.platform.content.service.IAiChannelService aiChannelService;
     private com.smartscript.platform.content.service.IAiSkillService aiSkillService;
     private com.smartscript.platform.review.service.RiskCheckService riskCheckService;
     private IdentityProvider identityProvider;
@@ -68,8 +69,8 @@ class AiStoryboardSkillTest
         setField(service, "writeRecordMapper", writeRecordMapper);
         setField(service, "aiServiceClient", aiServiceClient);
         setField(service, "aiSkillService", aiSkillService);
-        setField(service, "aiChannelService",
-                mock(com.smartscript.platform.content.service.IAiChannelService.class));
+        aiChannelService = mock(com.smartscript.platform.content.service.IAiChannelService.class);
+        setField(service, "aiChannelService", aiChannelService);
         setField(service, "riskCheckService", riskCheckService);
         setField(service, "identityProvider", identityProvider);
         setField(service, "jdbcTemplate", jdbcTemplate);
@@ -90,7 +91,8 @@ class AiStoryboardSkillTest
         String script = "第一幕：雨夜，女主在便利店躲雨，遇见男主。";
         String skillContent = "你是悬疑烧脑导演，要求每镜埋一个线索。";
         when(aiSkillService.resolveSkillContent(1L)).thenReturn(skillContent);
-        when(aiServiceClient.storyboard(eq(script), eq("电影感"), eq(skillContent)))
+        when(aiServiceClient.storyboard(eq(script), eq("电影感"), eq(skillContent),
+                nullable(String.class), nullable(String.class), nullable(String.class)))
                 .thenReturn(new AiCallResult("【第一场】便利店 夜\n镜1 全景...", 800, "deepseek-flash"));
 
         AppAiStoryboardRequest request = new AppAiStoryboardRequest();
@@ -128,7 +130,8 @@ class AiStoryboardSkillTest
     void storyboardWithoutSkillPassesNull() throws Exception
     {
         String script = "第二幕：两人在桥上重逢。";
-        when(aiServiceClient.storyboard(eq(script), nullable(String.class), nullable(String.class)))
+        when(aiServiceClient.storyboard(eq(script), nullable(String.class), nullable(String.class),
+                nullable(String.class), nullable(String.class), nullable(String.class)))
                 .thenReturn(new AiCallResult("【第二场】桥上 日\n镜1 中景...", 300, "deepseek-flash"));
 
         AppAiStoryboardRequest request = new AppAiStoryboardRequest();
@@ -136,13 +139,64 @@ class AiStoryboardSkillTest
 
         AppAiStoryboardResult result = service.storyboard(request);
         assertNotNull(result.getContent());
-        verify(aiServiceClient).storyboard(eq(script), nullable(String.class), nullable(String.class));
+        verify(aiServiceClient).storyboard(eq(script), nullable(String.class), nullable(String.class),
+                nullable(String.class), nullable(String.class), nullable(String.class));
         // 无 skillId 时不做 skill 解析
         verify(aiSkillService, never()).resolveSkillContent(any(Long.class));
     }
 
     @Test
-    @DisplayName("分镜：积分余额不足 → 抛积分不足，不调用 AI 服务、不落库")
+    @DisplayName("分镜：请求推理模型 → 自动切换渠道内非推理模型（deepseek-chat）")
+    void storyboardSwitchesReasoningModelToChat() throws Exception
+    {
+        String script = "第一幕：暴雨夜的车站，她提着箱子下车。";
+        com.smartscript.platform.content.domain.AiChannel channel =
+                new com.smartscript.platform.content.domain.AiChannel();
+        channel.setBaseUrl("https://api.deepseek.com");
+        channel.setApiKey("sk-test");
+        channel.setModels("deepseek-chat,deepseek-reasoner,deepseek-flash");
+        when(aiChannelService.resolveChannelByModel("deepseek-reasoner")).thenReturn(channel);
+        when(aiServiceClient.storyboard(eq(script), nullable(String.class), nullable(String.class),
+                eq("https://api.deepseek.com"), eq("sk-test"), eq("deepseek-chat")))
+                .thenReturn(new AiCallResult("【第一场】车站 夜\n镜1 全景...", 900, "deepseek-chat"));
+
+        AppAiStoryboardRequest request = new AppAiStoryboardRequest();
+        request.setScript(script);
+        request.setModel("deepseek-reasoner");
+
+        AppAiStoryboardResult result = service.storyboard(request);
+
+        assertTrue(result.getContent().contains("镜1"));
+        verify(aiServiceClient).storyboard(eq(script), nullable(String.class), nullable(String.class),
+                eq("https://api.deepseek.com"), eq("sk-test"), eq("deepseek-chat"));
+    }
+
+    @Test
+    @DisplayName("分镜：未指定模型 → 用渠道默认非推理模型")
+    void storyboardWithoutModelUsesChannelNonReasoningModel() throws Exception
+    {
+        String script = "第二幕：他在雨里等她。";
+        com.smartscript.platform.content.domain.AiChannel channel =
+                new com.smartscript.platform.content.domain.AiChannel();
+        channel.setBaseUrl("https://api.deepseek.com");
+        channel.setApiKey("sk-test");
+        channel.setModels("deepseek-chat,deepseek-flash");
+        when(aiChannelService.resolveDefaultChannel()).thenReturn(channel);
+        when(aiServiceClient.storyboard(eq(script), nullable(String.class), nullable(String.class),
+                eq("https://api.deepseek.com"), eq("sk-test"), eq("deepseek-chat")))
+                .thenReturn(new AiCallResult("【第二场】雨中 夜\n镜1 特写...", 700, "deepseek-chat"));
+
+        AppAiStoryboardRequest request = new AppAiStoryboardRequest();
+        request.setScript(script);
+
+        AppAiStoryboardResult result = service.storyboard(request);
+
+        assertTrue(result.getContent().contains("镜1"));
+        verify(aiServiceClient).storyboard(eq(script), nullable(String.class), nullable(String.class),
+                eq("https://api.deepseek.com"), eq("sk-test"), eq("deepseek-chat"));
+    }
+
+    @Test
     void storyboardQuotaZeroThrows() throws Exception
     {
         when(jdbcTemplate.queryForObject(anyString(), eq(Integer.class), eq(USER_ID))).thenReturn(0);
@@ -153,7 +207,7 @@ class AiStoryboardSkillTest
         AiQuotaInsufficientException ex = assertThrows(AiQuotaInsufficientException.class,
                 () -> service.storyboard(request));
         assertTrue(ex.getMessage().contains("积分不足"));
-        verify(aiServiceClient, never()).storyboard(any(), any(), any());
+        verify(aiServiceClient, never()).storyboard(any(), any(), any(), any(), any(), any());
         verify(aiRequestMapper, never()).insertAiRequest(any(), any(), any(), any(),
                 org.mockito.ArgumentMatchers.anyInt(), any(), any(), any(), any(), any());
         verify(writeRecordMapper, never()).insertWriteRecord(any());
@@ -166,7 +220,8 @@ class AiStoryboardSkillTest
         String script = "第四幕：女主决定离开。";
         String skillContent = "你是甜宠爆款导演，要求每镜突出心动细节。";
         when(aiSkillService.resolveSkillContent(2L)).thenReturn(skillContent);
-        when(aiServiceClient.storyboardStream(eq(script), nullable(String.class), eq(skillContent), any()))
+        when(aiServiceClient.storyboardStream(eq(script), nullable(String.class), eq(skillContent), any(),
+                nullable(String.class), nullable(String.class), nullable(String.class)))
                 .thenReturn(new AiCallResult("【第四场】车站 黄昏\n镜1 特写...", 500, "deepseek-flash"));
 
         AppAiStoryboardRequest request = new AppAiStoryboardRequest();
@@ -178,7 +233,8 @@ class AiStoryboardSkillTest
 
         assertTrue(result.getContent().contains("镜1"));
         assertEquals(500, result.getQuotaUsed());
-        verify(aiServiceClient).storyboardStream(eq(script), nullable(String.class), eq(skillContent), any());
+        verify(aiServiceClient).storyboardStream(eq(script), nullable(String.class), eq(skillContent), any(),
+                nullable(String.class), nullable(String.class), nullable(String.class));
         verify(aiRequestMapper, times(1)).insertAiRequest(
                 any(String.class), eq(USER_ID), nullable(Long.class),
                 eq("storyboard"), eq(500), eq("success"), eq("deepseek"), any(String.class),

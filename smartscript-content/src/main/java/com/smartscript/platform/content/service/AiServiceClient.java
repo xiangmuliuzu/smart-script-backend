@@ -13,6 +13,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -55,6 +56,10 @@ public class AiServiceClient
 
     /** 流式调用专用 HTTP 客户端（JDK 内置，支持 SSE 逐块读取）。 */
     private final HttpClient streamClient;
+
+    /** 单次生成 token 上限配置（sys_config 可调；缺失时回退内置默认）。 */
+    @Autowired(required = false)
+    private AiGenLimitConfig genLimitConfig;
 
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(AiServiceClient.class);
 
@@ -226,10 +231,10 @@ public class AiServiceClient
                                               Consumer<String> onDelta,
                                               String baseUrl, String apiKey, String model)
     {
-        /** 设定块单次额度（与事件卡额度互不占用） */
-        final int settingMaxTokens = 4096;
+        /** 设定块单次额度（与事件卡、正文额度互不占用，可在 sys_config 单独调整） */
+        final int settingMaxTokens = tokenLimit("setting", 8192);
         /** 事件卡单批额度 */
-        final int episodeMaxTokens = 8192;
+        final int episodeMaxTokens = tokenLimit("episode", 8192);
         /** 首批事件卡注入设定原文的上限 */
         final int settingClipFirst = 3000;
         /** 后续批注入设定摘要的上限 */
@@ -242,10 +247,12 @@ public class AiServiceClient
         String insp = (inspiration == null || inspiration.isBlank()) ? "" : inspiration;
         String base = "你是一名资深短剧编剧兼分集策划，擅长把灵感拆成一集一集、每集都能独立成片的完整小事件。"
                 + "输出格式严格如下："
-                + "第N集：事件名\n本集事件：……\n冲突与推进：……\n结果或反转：……\n结尾钩子：……"
+                + "第N集：事件名\n本集事件：……\n冲突与推进：……\n结果或反转：……\n结尾钩子：……\n本集出场：角色A、角色B"
                 + "事件名要短（4-8字）且点明本集核心事件；每项 30-60 字，写具体的人做什么、说什么，"
                 + "不要写场景头、镜号、景别、运镜（这些交给后续分镜环节）。"
                 + "每集必须是一件完整的事：有开场、有交锋、有结果；结尾钩子要具体（一个动作、一句关键台词或一个未解的画面）；"
+                + "「本集出场」只写本集真正出镜的 2-4 个人物姓名（用设定里的原名），没有出场的人物不要写，"
+                + "写正文时只注入这几个人的设定，出场名单必须与实际剧情一致。"
                 + "集与集之间因果承接、冲突逐集升级。"
                 + "直接输出中文可读文本，不要解释，不要 JSON，不要 Markdown 代码块。";
         String settingSystem = "你是一名资深短剧编剧兼分集策划。本次只输出三段设定，不要输出任何分集事件卡。"
@@ -296,6 +303,7 @@ public class AiServiceClient
 
         int start = 1;
         int guard = 0;
+        int sameEpisodeRetry = 0;
         while (start <= total && guard++ < 40)
         {
             int end = Math.min(total, start + batchSize - 1);
@@ -309,12 +317,11 @@ public class AiServiceClient
             }
             else
             {
-                // 只带最近一集多的前情，既保证承接，也避免重复长文本推高 token。
-                int tailLen = Math.min(all.length(), 600);
-                String prev = all.substring(all.length() - tailLen);
+                // 带上一批最后 2 集的完整事件卡：只取 600 字会把倒数第二集的钩子切掉，跨批因果断开。
+                String prev = lastEpisodes(all.toString(), 2, 1500);
                 user = "故事灵感：" + insp + "\n题材：" + genreHint + "\n风格：" + styleHint
                         + "\n【前情结尾（勿重复）】\n" + prev
-                        + "\n【设定摘要（人物与关系必须与此一致）】\n" + clipText(settingText, settingClipCont)
+                        + "\n【设定摘要（人物与关系必须与此一致）】\n" + settingContinuation(settingText, settingClipCont)
                         + ledgerBlock(ledgerContext, ledgerClip)
                         + "\n请接着输出第" + start + "集到第" + end + "集的事件卡（共 " + total + " 集）。";
             }
@@ -334,15 +341,23 @@ public class AiServiceClient
             {
                 throw new AiServiceUnavailableException("AI 未能输出第" + start + "集，请稍后重试");
             }
-            if (reached < end)
+            // 末集可能被截断：丢掉残块，从这一集重写；同一集连续两次仍不完整则跳过，避免原地死循环。
+            StringBuilder trimmed = trimIncompleteTail(all, reached);
+            boolean tailComplete = trimmed.length() == all.length();
+            all = trimmed;
+            if (tailComplete)
             {
-                // 末集可能被截断：丢掉残块，下一批从这一集重写。
-                all = trimIncompleteTail(all, reached);
-                start = reached;
+                sameEpisodeRetry = 0;
+                start = reached + 1;
+            }
+            else if (sameEpisodeRetry++ >= 1)
+            {
+                sameEpisodeRetry = 0;
+                start = reached + 1;
             }
             else
             {
-                start = end + 1;
+                start = reached;
             }
         }
         return new AiCallResult(normalizeEpisodeLines(all.toString().trim()), totalTokens,
@@ -410,25 +425,56 @@ public class AiServiceClient
         {
             return sb;
         }
-        String tail = s.substring(idx);
-        return tail.contains("结尾钩子") ? sb : new StringBuilder(s.substring(0, idx));
+        String tail = s.substring(idx).trim();
+        // 完整判据：写明钩子/悬念，或篇幅已足够且不是明显半句（模型未必按模板写"结尾钩子"）。
+        boolean hasHook = tail.contains("钩子") || tail.contains("悬念") || tail.contains("反转");
+        boolean longEnough = tail.length() >= 160 && !tail.endsWith("：") && !tail.endsWith("，");
+        return (hasHook || longEnough) ? sb : new StringBuilder(s.substring(0, idx));
     }
 
-    /** 从「共 30 集」「按 30 集」等文本里取目标集数，取不到返回 0（按单批处理）。 */
+    /** 从「共 30 集」「按 30 集」「30 集分集」等文本里取目标集数，取不到返回 0（按单批处理）。 */
     static int parseTotalEpisodes(String text)
     {
         if (text == null || text.isBlank())
         {
             return 0;
         }
+        // 明确写法：共 N 集 / N 集分集。必须先走这两条，避免把提示词模板里的「第1集：事件名」当成总集数。
         java.util.regex.Matcher m = java.util.regex.Pattern
-                .compile("共?\\s*(\\d{1,3})\\s*集").matcher(text);
-        int found = 0;
+                .compile("共\\s*(\\d{1,3})\\s*集").matcher(text);
+        if (m.find())
+        {
+            return clampEpisodes(m.group(1));
+        }
+        m = java.util.regex.Pattern.compile("(\\d{1,3})\\s*集\\s*分集").matcher(text);
+        if (m.find())
+        {
+            return clampEpisodes(m.group(1));
+        }
+        // 兜底：「写 N 集」「按 N 集」；跳过前面是「第」的集号（那是分集标题，不是总集数）。
+        m = java.util.regex.Pattern.compile("(\\d{1,3})\\s*集").matcher(text);
         while (m.find())
         {
-            found = Integer.parseInt(m.group(1));
+            int at = m.start(1) - 1;
+            while (at >= 0 && Character.isWhitespace(text.charAt(at)))
+            {
+                at--;
+            }
+            if (at >= 0 && text.charAt(at) == '第')
+            {
+                continue;
+            }
+            return clampEpisodes(m.group(1));
         }
-        return found;
+        return 0;
+    }
+
+    /** 单部作品集数硬上限：50 集（三端输入同口径，防止提示词写出超额分批）。 */
+    static final int MAX_EPISODES = 50;
+
+    private static int clampEpisodes(String s)
+    {
+        return Math.min(Integer.parseInt(s), MAX_EPISODES);
     }
 
     /**
@@ -449,7 +495,7 @@ public class AiServiceClient
         return streamChat(appendSkill(system, skillContent), user, onDelta);
     }
 
-    /** 截断文本到 max 字符（null 视为空串）；用于把设定/台账压到可控篇幅。 */
+    /** 截断文本到 max 字符（保留头部，null 视为空串）；用于设定原文（简介在前）这类「前面才是主线」的文本。 */
     private static String clipText(String text, int max)
     {
         if (text == null)
@@ -460,14 +506,178 @@ public class AiServiceClient
         return trimmed.length() <= max ? trimmed : trimmed.substring(0, max);
     }
 
-    /** 台账注入块：无内容时返回空串，非空时加标题并截断。 */
+    /**
+     * 取末尾 n 集的完整事件卡（按行首「第N集：」切块）。
+     *
+     * 续批前情只带 600 字会把倒数第二集的结果与钩子切掉，导致下一批接不上因果；
+     * 这里按整集取，最多 max 字符兜底（集数越多、单集越短时不会被切半）。
+     */
+    static String lastEpisodes(String text, int n, int max)
+    {
+        if (text == null || text.isBlank())
+        {
+            return "";
+        }
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("(?m)^\\s*第\\s*\\d{1,3}\\s*集\\s*[：:]").matcher(text);
+        java.util.List<Integer> starts = new java.util.ArrayList<>();
+        while (m.find())
+        {
+            starts.add(m.start());
+        }
+        if (starts.isEmpty())
+        {
+            return clipText(text, max);
+        }
+        int from = starts.size() >= n ? starts.get(starts.size() - n) : starts.get(0);
+        String block = text.substring(from).trim();
+        return block.length() <= max ? block : clipText(block, max);
+    }
+
+    /**
+     * 截断保留尾部（最新内容在尾部时使用）。
+     * 台账是追加式、设定续批只有人物/关系有意义，取尾部才能拿到最新状态。
+     */
+    static String clipTail(String text, int max)
+    {
+        if (text == null)
+        {
+            return "";
+        }
+        String trimmed = text.trim();
+        return trimmed.length() <= max ? trimmed : trimmed.substring(trimmed.length() - max);
+    }
+
+    /**
+     * 续批设定抽取：只保留『主要人物』与『人物关系』两段，各取尾部，合计不超过 max。
+     *
+     * 原实现从头部切 1200 字，只能拿到「故事简介」，人物关系整段丢失（实测 setting=200 时关系消失）。
+     * 找不到分段标题时回退为整体尾部。
+     */
+    static String settingContinuation(String settingText, int max)
+    {
+        if (settingText == null || settingText.isBlank())
+        {
+            return "";
+        }
+        String text = settingText.trim();
+        String characters = section(text, "主要人物");
+        String relations = section(text, "人物关系");
+        if (characters.isEmpty() && relations.isEmpty())
+        {
+            return clipTail(text, max);
+        }
+        // 关系与人物各占一半；缺失的一段额度让给另一段。
+        int half = max / 2;
+        String c = clipTail(characters, relations.isEmpty() ? max : half);
+        String r = clipTail(relations, characters.isEmpty() ? max : max - c.length() - 1);
+        StringBuilder sb = new StringBuilder();
+        if (!c.isBlank())
+        {
+            sb.append("『主要人物』：").append(c);
+        }
+        if (!r.isBlank())
+        {
+            if (sb.length() > 0)
+            {
+                sb.append('\n');
+            }
+            sb.append("『人物关系』：").append(r);
+        }
+        return sb.toString();
+    }
+
+    /** 取以『标题』开头的段落正文（到下一个『…』或结尾）。 */
+    private static String section(String text, String title)
+    {
+        int from = text.indexOf("『" + title + "』");
+        if (from < 0)
+        {
+            from = text.indexOf(title + "：");
+            if (from < 0)
+            {
+                from = text.indexOf(title);
+            }
+        }
+        if (from < 0)
+        {
+            return "";
+        }
+        int bodyStart = text.indexOf('』', from) >= 0 ? text.indexOf('』', from) + 1 : from + title.length();
+        int next = text.indexOf("『", bodyStart);
+        String body = text.substring(bodyStart, next > bodyStart ? next : text.length()).trim();
+        if (body.startsWith("：") || body.startsWith(":"))
+        {
+            body = body.substring(1).trim();
+        }
+        return body;
+    }
+
+    /**
+     * 台账注入块（按行取最新）：
+     *
+     * 台账每行是「标签：内容」，追加式，最新事实在尾部。原实现从头部截断，
+     * 集数越多注入的越是第 1 集旧状态。这里改为从最后一行往前累加，
+     * 超预算的那一行保留「标签：」前缀并标注前略，避免只剩半句没有归属。
+     */
+    static String clipLedgerLatest(String ledgerContext, int max)
+    {
+        if (ledgerContext == null || ledgerContext.isBlank())
+        {
+            return "";
+        }
+        String[] lines = ledgerContext.trim().split("\n");
+        StringBuilder out = new StringBuilder();
+        for (int i = lines.length - 1; i >= 0; i--)
+        {
+            String line = lines[i].trim();
+            if (line.isEmpty())
+            {
+                continue;
+            }
+            String joined = out.length() == 0 ? line : line + "\n" + out;
+            if (joined.length() <= max)
+            {
+                out.setLength(0);
+                out.append(joined);
+                continue;
+            }
+            int remain = max - out.length() - (out.length() == 0 ? 0 : 1);
+            if (remain > 20)
+            {
+                String head = tailWithLabel(line, remain);
+                out.insert(0, out.length() == 0 ? head : head + "\n");
+            }
+            break;
+        }
+        return out.toString();
+    }
+
+    /** 保留「标签：」前缀 + 内容尾部，前缀后标注（前略）。 */
+    private static String tailWithLabel(String line, int budget)
+    {
+        int colon = line.indexOf('：');
+        if (colon <= 0 || colon > 12)
+        {
+            return "（前略）" + clipTail(line, budget);
+        }
+        String label = line.substring(0, colon + 1);
+        int contentBudget = budget - label.length() - 4;
+        if (contentBudget <= 0)
+        {
+            return clipText(line, budget);
+        }
+        return label + "（前略）" + clipTail(line.substring(colon + 1), contentBudget);
+    }
+
+    /** 台账注入块：无内容时返回空串，非空时加标题并按「最新在尾部」截取。 */
     private static String ledgerBlock(String ledgerContext, int max)
     {
         if (ledgerContext == null || ledgerContext.isBlank())
         {
             return "";
         }
-        return "\n【创作台账（已定事实，不得与之冲突）】\n" + clipText(ledgerContext, max);
+        return "\n【创作台账（已定事实，不得与之冲突）】\n" + clipLedgerLatest(ledgerContext, max);
     }
 
     /** 导演(skill) 指令追加到 system prompt 末尾（skill 内容非空时生效）。 */
@@ -488,6 +698,24 @@ public class AiServiceClient
      * 逐块捕获，作为本次调用的精确 token 消耗用于按 token 扣积分。
      * 非 2xx / 无有效内容 / 网络异常抛 {@link AiServiceUnavailableException}。
      */
+    /** 读取单次生成 token 上限；0 表示不限（请求不传 max_tokens）。配置不可用时回退 fallback。 */
+    private int tokenLimit(String capability, int fallback)
+    {
+        if (genLimitConfig == null)
+        {
+            return fallback;
+        }
+        try
+        {
+            return genLimitConfig.maxTokens(capability);
+        }
+        catch (Exception e)
+        {
+            log.warn("读取生成 token 上限失败，使用默认 {}: {}", fallback, e.getMessage());
+            return fallback;
+        }
+    }
+
     private AiCallResult streamChat(String system, String user, Consumer<String> onDelta)
     {
         return streamChat(system, user, onDelta, null, null, null);
@@ -499,7 +727,7 @@ public class AiServiceClient
     private AiCallResult streamChat(String system, String user, Consumer<String> onDelta,
                                     String baseUrl, String apiKey, String model)
     {
-        return streamChat(system, user, onDelta, baseUrl, apiKey, model, 8192);
+        return streamChat(system, user, onDelta, baseUrl, apiKey, model, tokenLimit("write", 8192));
     }
 
     /** 流式调用（可指定本次输出额度：设定块与事件卡各用各的 token 预算）。 */
@@ -519,7 +747,11 @@ public class AiServiceClient
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("model", resolvedModel);
         body.put("messages", messages);
-        body.put("max_tokens", maxTokens);
+        // 0 = 不限：不传 max_tokens，交给模型默认上限。
+        if (maxTokens > 0)
+        {
+            body.put("max_tokens", maxTokens);
+        }
         body.put("temperature", 0.8);
         body.put("stream", true);
         try
@@ -751,7 +983,11 @@ public class AiServiceClient
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("model", m);
         body.put("messages", messages);
-        body.put("max_tokens", 8192);
+        int maxTokens = tokenLimit("write", 8192);
+        if (maxTokens > 0)
+        {
+            body.put("max_tokens", maxTokens);
+        }
         body.put("temperature", 0.8);
         body.put("stream", false);
         try

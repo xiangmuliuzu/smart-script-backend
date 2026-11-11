@@ -172,4 +172,48 @@ public interface IAiWriteService
      * @return {summary, ledgerUpdated, recordId, tokens}
      */
     public Map<String, Object> summarizeChapter(Long workId, Long chapterId, String content, String model);
+
+    /**
+     * 每集连贯性验收（正文定稿后一次小调用）。
+     *
+     * 固定 5 项判定：人物、因果、连续性、伏笔、结构；≥4 项无 fail 视为通过。
+     * 结果落 sys_chapter_review，不改正文、不改台账；调用成功才扣积分。
+     *
+     * @param workId    作品ID（必填，且属于当前登录用户）
+     * @param chapterId 章节ID（必填）
+     * @param content   待验收正文（可为空，为空读库中正文）
+     * @param model     模型名（可选）
+     * @return {pass, score, issues, recordId, tokens}
+     */
+    public Map<String, Object> reviewChapter(Long workId, Long chapterId, String content, String model);
+
+    /**
+     * 生成卷级状态快照（每 10 集一卷，覆盖式当前值）。
+     *
+     * 读该卷区间各集摘要 + 台账，压成 ≤800 字快照，写 sys_work_volume。
+     *
+     * @param workId   作品ID（必填，且属于当前登录用户）
+     * @param volumeNo 卷号（从 1 开始）
+     * @param model    模型名（可选）
+     * @return {volumeNo, episodeStart, episodeEnd, snapshot, recordId, tokens}
+     */
+    public Map<String, Object> buildVolumeSnapshot(Long workId, Integer volumeNo, String model);
+
+    /**
+     * 读取作品全部卷快照（写正文时注入「本卷 + 上卷」用）。
+     *
+     * @param workId 作品ID
+     * @return [{volumeNo, episodeStart, episodeEnd, snapshot, updateTime}]
+     */
+    public List<Map<String, Object>> listVolumes(Long workId);
+
+    /**
+     * 手工保存卷快照（无 AI 调用，便于人工修订）。
+     *
+     * @param workId   作品ID
+     * @param volumeNo 卷号
+     * @param snapshot 快照文本
+     * @return 是否写入成功
+     */
+    public boolean saveVolume(Long workId, Integer volumeNo, String snapshot);
 }

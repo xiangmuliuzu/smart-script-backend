@@ -34,6 +34,15 @@ public class AiGenLimitConfig
     /** 不限 */
     public static final int UNLIMITED = 0;
 
+    /** 设定块（故事简介 / 主要人物 / 人物关系）默认单次 token 上限 */
+    public static final int DEFAULT_SETTING_TOKENS = 8192;
+
+    /** 分集事件卡单批默认 token 上限 */
+    public static final int DEFAULT_EPISODE_TOKENS = 8192;
+
+    /** 正文单次默认 token 上限 */
+    public static final int DEFAULT_WRITE_TOKENS = 8192;
+
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
@@ -78,5 +87,49 @@ public class AiGenLimitConfig
             return DEFAULT_POLISH;
         }
         return DEFAULT_WRITE;
+    }
+
+    /**
+     * 读取单次生成 token 上限（设定 / 事件卡 / 正文三者各自独立，互不占用）。
+     *
+     * 存储于 sys_config，key = {@code ai.gen.max_tokens.{setting|episode|write}}；
+     * 0 表示不限（请求不传 max_tokens，交给模型默认）；配置缺失/非法回退默认值。
+     */
+    public int maxTokens(String capability)
+    {
+        int def = defaultTokensFor(capability);
+        try
+        {
+            List<Map<String, Object>> rows = jdbcTemplate.queryForList(
+                    "SELECT config_value FROM sys_config WHERE config_key = ? LIMIT 1",
+                    "ai.gen.max_tokens." + capability);
+            if (!rows.isEmpty() && rows.get(0).get("config_value") != null)
+            {
+                int v = Integer.parseInt(String.valueOf(rows.get(0).get("config_value")).trim());
+                if (v >= 0)
+                {
+                    return v;
+                }
+            }
+        }
+        catch (Exception e)
+        {
+            log.warn("读取 AI 生成 token 上限失败，使用默认值: {}", e.getMessage());
+        }
+        return def;
+    }
+
+    /** 能力对应的默认 token 上限。 */
+    public int defaultTokensFor(String capability)
+    {
+        if ("setting".equals(capability))
+        {
+            return DEFAULT_SETTING_TOKENS;
+        }
+        if ("episode".equals(capability))
+        {
+            return DEFAULT_EPISODE_TOKENS;
+        }
+        return DEFAULT_WRITE_TOKENS;
     }
 }

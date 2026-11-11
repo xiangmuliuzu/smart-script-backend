@@ -151,6 +151,77 @@ public class AppAiController
     }
 
     /**
+     * 每集连贯性验收（50 集线性结构：生成后跑一次小调用）。
+     *
+     * 固定 5 项判定（人物/因果/连续性/伏笔/结构），≥4 项无 fail 视为通过；
+     * 只判定不改写，结果落 sys_chapter_review。
+     *
+     * @param body {workId 必填, chapterId 必填, content 可选, model 可选}
+     * @return data = {pass, score, issues, recordId, tokens}
+     */
+    @PostMapping("/chapter-review")
+    public AppApiResponse<Map<String, Object>> chapterReview(@RequestBody(required = false) Map<String, Object> body)
+    {
+        Long workId = asLong(body, "work_id", "workId");
+        Long chapterId = asLong(body, "chapter_id", "chapterId");
+        if (workId == null || chapterId == null)
+        {
+            return AppApiResponse.fail(CODE_BAD_REQUEST, "缺少作品或章节标识");
+        }
+        try
+        {
+            return AppApiResponse.ok(aiWriteService.reviewChapter(workId, chapterId,
+                    asString(body, "content"), trimToNull(asString(body, "model"))));
+        }
+        catch (AiQuotaInsufficientException e)
+        {
+            return AppApiResponse.fail(CODE_BAD_REQUEST, e.getMessage());
+        }
+        catch (AiServiceUnavailableException e)
+        {
+            return AppApiResponse.fail(CODE_SERVICE_UNAVAILABLE, e.getMessage());
+        }
+        catch (IllegalArgumentException e)
+        {
+            return AppApiResponse.fail(CODE_BAD_REQUEST, e.getMessage());
+        }
+    }
+
+    /**
+     * 生成卷级状态快照（每 10 集一卷，覆盖式当前值）。
+     *
+     * @param body {workId 必填, volumeNo 可选（默认 1）, model 可选}
+     * @return data = {volumeNo, episodeStart, episodeEnd, snapshot, recordId, tokens}
+     */
+    @PostMapping("/volume-snapshot")
+    public AppApiResponse<Map<String, Object>> volumeSnapshot(@RequestBody(required = false) Map<String, Object> body)
+    {
+        Long workId = asLong(body, "work_id", "workId");
+        if (workId == null)
+        {
+            return AppApiResponse.fail(CODE_BAD_REQUEST, "缺少作品标识");
+        }
+        Long volumeNo = asLong(body, "volume_no", "volumeNo");
+        try
+        {
+            return AppApiResponse.ok(aiWriteService.buildVolumeSnapshot(workId,
+                    volumeNo == null ? null : volumeNo.intValue(), trimToNull(asString(body, "model"))));
+        }
+        catch (AiQuotaInsufficientException e)
+        {
+            return AppApiResponse.fail(CODE_BAD_REQUEST, e.getMessage());
+        }
+        catch (AiServiceUnavailableException e)
+        {
+            return AppApiResponse.fail(CODE_SERVICE_UNAVAILABLE, e.getMessage());
+        }
+        catch (IllegalArgumentException e)
+        {
+            return AppApiResponse.fail(CODE_BAD_REQUEST, e.getMessage());
+        }
+    }
+
+    /**
      * AI 润色（2.9.11）
      *
      * @param body 请求体 {content 必填, style 可选}

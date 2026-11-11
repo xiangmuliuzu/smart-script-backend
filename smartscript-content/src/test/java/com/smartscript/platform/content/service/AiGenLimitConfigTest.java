@@ -80,6 +80,39 @@ class AiGenLimitConfigTest
         assertEquals(2000, config.defaultFor("unknown"));
     }
 
+    @Test
+    @DisplayName("token 上限：设定/事件卡/正文各自独立读取")
+    void maxTokens_configuredIndependently()
+    {
+        when(jdbcTemplate.queryForList(anyString(), eq("ai.gen.max_tokens.setting")))
+                .thenReturn(singleRow("12000"));
+        when(jdbcTemplate.queryForList(anyString(), eq("ai.gen.max_tokens.episode")))
+                .thenReturn(singleRow("6000"));
+        when(jdbcTemplate.queryForList(anyString(), eq("ai.gen.max_tokens.write")))
+                .thenReturn(singleRow("4000"));
+        assertEquals(12000, config.maxTokens("setting"));
+        assertEquals(6000, config.maxTokens("episode"));
+        assertEquals(4000, config.maxTokens("write"));
+    }
+
+    @Test
+    @DisplayName("token 上限缺失：回退 8192（设定与正文互不影响）")
+    void maxTokens_missing_fallback8192()
+    {
+        when(jdbcTemplate.queryForList(anyString(), anyString())).thenReturn(Collections.emptyList());
+        assertEquals(8192, config.maxTokens("setting"));
+        assertEquals(8192, config.maxTokens("episode"));
+        assertEquals(8192, config.maxTokens("write"));
+    }
+
+    @Test
+    @DisplayName("token 上限配置为0：返回不限（0）")
+    void maxTokens_zero_unlimited()
+    {
+        when(jdbcTemplate.queryForList(anyString(), anyString())).thenReturn(singleRow("0"));
+        assertEquals(0, config.maxTokens("setting"));
+    }
+
     private static java.util.List<Map<String, Object>> singleRow(String value)
     {
         Map<String, Object> row = new HashMap<>();
