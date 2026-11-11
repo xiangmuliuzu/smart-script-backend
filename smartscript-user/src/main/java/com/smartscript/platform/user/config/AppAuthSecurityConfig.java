@@ -46,7 +46,8 @@ public class AppAuthSecurityConfig
     static final String[] APP_PATH_PREFIXES = {
             "/api/v1/auth/**", "/api/v1/users/**", "/api/v1/messages/**", "/api/v1/feedback/**",
             "/api/v1/content/**", "/api/v1/pc-auth/**", "/api/v1/announcements/**",
-            "/api/v1/trade/**", "/api/v1/welfare/**", "/api/v1/ad/**", "/api/v1/ai/**"
+            "/api/v1/trade/**", "/api/v1/welfare/**", "/api/v1/ad/**", "/api/v1/ai/**",
+            "/api/v1/open/**"
     };
 
     @Bean
@@ -74,6 +75,8 @@ public class AppAuthSecurityConfig
                                 "/api/v1/auth/register",
                                 "/api/v1/pc-auth/login").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/trade/alipay/sandbox/notify").permitAll()
+                        // 版权第三方代理回调（国版补正/结果消息）
+                        .requestMatchers(HttpMethod.POST, "/api/v1/open/copyright/third-party/messages").permitAll()
                         // 运维端忘记密码（A 模块）：匿名可达，只处理 user_type='00' 账号，
                         // 验证码复用 App 域 SmsCodeService（scene=RESET_PASSWORD）。
                         .requestMatchers(HttpMethod.POST,

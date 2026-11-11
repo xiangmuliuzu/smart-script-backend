@@ -101,6 +101,22 @@ public class SysCopyrightApplication extends BaseEntity
     /** 来源支付单ID */
     private Long payOrderId;
 
+    /** 当前补正截止时间 */
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+    private Date supplementDeadline;
+
+    /** 当前补正要求摘要 */
+    private String supplementNotice;
+
+    /** 权利人姓名 */
+    private String rightsHolderName;
+
+    /** 证件类型 */
+    private String idDocType;
+
+    /** 证件号码 */
+    private String idDocNo;
+
     /** 作品名称 */
     @Excel(name = "作品名称")
     private String workTitle;
@@ -383,6 +399,56 @@ public class SysCopyrightApplication extends BaseEntity
     public void setPayOrderId(Long payOrderId)
     {
         this.payOrderId = payOrderId;
+    }
+
+    public Date getSupplementDeadline()
+    {
+        return supplementDeadline;
+    }
+
+    public void setSupplementDeadline(Date supplementDeadline)
+    {
+        this.supplementDeadline = supplementDeadline;
+    }
+
+    public String getSupplementNotice()
+    {
+        return supplementNotice;
+    }
+
+    public void setSupplementNotice(String supplementNotice)
+    {
+        this.supplementNotice = supplementNotice;
+    }
+
+    public String getRightsHolderName()
+    {
+        return rightsHolderName;
+    }
+
+    public void setRightsHolderName(String rightsHolderName)
+    {
+        this.rightsHolderName = rightsHolderName;
+    }
+
+    public String getIdDocType()
+    {
+        return idDocType;
+    }
+
+    public void setIdDocType(String idDocType)
+    {
+        this.idDocType = idDocType;
+    }
+
+    public String getIdDocNo()
+    {
+        return idDocNo;
+    }
+
+    public void setIdDocNo(String idDocNo)
+    {
+        this.idDocNo = idDocNo;
     }
 
     public void setWorkTitle(String workTitle) 

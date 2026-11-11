@@ -230,6 +230,74 @@ public class AppCopyrightController
     }
 
     /**
+     * 提交补正材料（同一申请，不重交官费）。
+     */
+    @PostMapping("/application/{applyId}/supplement")
+    public AppApiResponse<java.util.Map<String, Object>> submitSupplement(
+            @PathVariable Long applyId,
+            @RequestBody AppCopyrightSupplementRequest request)
+    {
+        Long userId = identityProvider.currentUserId();
+        if (userId == null)
+        {
+            return AppApiResponse.fail(CODE_UNAUTHORIZED, "请先登录");
+        }
+        try
+        {
+            return AppApiResponse.ok(copyrightService.submitSupplement(userId, applyId, request));
+        }
+        catch (IllegalArgumentException e)
+        {
+            return AppApiResponse.fail(CODE_BAD_REQUEST, e.getMessage());
+        }
+        catch (IllegalStateException e)
+        {
+            return AppApiResponse.fail(CODE_CONFLICT, e.getMessage());
+        }
+        catch (Exception e)
+        {
+            // 不把 Java 异常细节拼进文案，避免 App FriendlyError 过滤后变成「操作未完成」
+            return AppApiResponse.fail(CODE_BAD_REQUEST, "提交补正失败，请稍后重试");
+        }
+    }
+
+    /**
+     * 同步第三方审核状态（与 Admin「状态查询」同一 Mock/真实链路）。
+     */
+    @PostMapping("/application/{applyId}/sync-status")
+    public AppApiResponse<java.util.Map<String, Object>> syncApplicationStatus(@PathVariable Long applyId)
+    {
+        Long userId = identityProvider.currentUserId();
+        if (userId == null)
+        {
+            return AppApiResponse.fail(CODE_UNAUTHORIZED, "请先登录");
+        }
+        try
+        {
+            return AppApiResponse.ok(copyrightService.syncApplicationStatus(userId, applyId));
+        }
+        catch (IllegalArgumentException e)
+        {
+            return AppApiResponse.fail(CODE_BAD_REQUEST, e.getMessage());
+        }
+        catch (Exception e)
+        {
+            return AppApiResponse.fail(CODE_BAD_REQUEST, "状态同步失败：" + e.getMessage());
+        }
+    }
+
+    /**
+     * 兼容旧联调入口：内部转 {@link #syncApplicationStatus}。
+     */
+    @PostMapping("/application/{applyId}/mock-push-supplement")
+    public AppApiResponse<java.util.Map<String, Object>> mockPushSupplement(
+            @PathVariable Long applyId,
+            @RequestParam(required = false) String content)
+    {
+        return syncApplicationStatus(applyId);
+    }
+
+    /**
      * 删除版权申请（仅限pending状态）。
      *
      * @param applyId 申请ID

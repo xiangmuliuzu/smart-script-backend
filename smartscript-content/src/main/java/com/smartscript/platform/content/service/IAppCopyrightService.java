@@ -58,6 +58,24 @@ public interface IAppCopyrightService
      */
     java.util.Map<String, Object> directPay(Long userId, Long payOrderId);
 
+    /** 用户提交补正材料（不缴费）。 */
+    java.util.Map<String, Object> submitSupplement(Long userId, Long applyId, AppCopyrightSupplementRequest request);
+
+    /**
+     * 同步第三方审核状态（与 Admin「状态查询」同一套 Mock/真实 API）。
+     * 联调期 Mock 可能返回 need_supplement / certificated / rejected / reviewing。
+     */
+    java.util.Map<String, Object> syncApplicationStatus(Long userId, Long applyId);
+
+    /**
+     * @deprecated 请用 {@link #syncApplicationStatus}；保留兼容，内部转同步状态。
+     */
+    @Deprecated
+    default java.util.Map<String, Object> mockPushSupplement(Long userId, Long applyId, String content)
+    {
+        return syncApplicationStatus(userId, applyId);
+    }
+
     /**
      * @deprecated 请走 createPayOrder；保留兼容时内部转调建支付单。
      */

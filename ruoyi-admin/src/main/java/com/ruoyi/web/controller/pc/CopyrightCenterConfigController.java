@@ -1,6 +1,7 @@
 package com.ruoyi.web.controller.pc;
 
 import java.util.List;
+import java.util.Map;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -20,8 +21,10 @@ import com.smartscript.platform.content.domain.SysCopyrightCenterConfig;
 import com.smartscript.platform.content.domain.SysCopyrightApplication;
 import com.smartscript.platform.content.service.ISysCopyrightCenterConfigService;
 import com.smartscript.platform.content.service.ISysCopyrightApplicationService;
+import com.smartscript.platform.content.service.ICopyrightThirdPartyMessageService;
 import com.ruoyi.common.utils.poi.ExcelUtil;
 import com.ruoyi.common.core.page.TableDataInfo;
+import org.springframework.web.bind.annotation.RequestParam;
 
 /**
  * 版权中心配置Controller
@@ -38,6 +41,9 @@ public class CopyrightCenterConfigController extends BaseController
 
     @Autowired
     private ISysCopyrightApplicationService copyrightApplicationService;
+
+    @Autowired
+    private ICopyrightThirdPartyMessageService thirdPartyMessageService;
 
     /**
      * 查询版权中心配置列表
@@ -152,5 +158,16 @@ public class CopyrightCenterConfigController extends BaseController
         startPage();
         List<SysCopyrightApplication> list = copyrightApplicationService.selectCopyrightApplicationList(copyrightApplication);
         return getDataTable(list);
+    }
+
+    /**
+     * 第三方消息流水（配置页抽屉，非独立菜单）。
+     */
+    @PreAuthorize("@ss.hasPermi('content:copyright:config:query')")
+    @GetMapping("/third-party/messages")
+    public AjaxResult listThirdPartyMessages(@RequestParam(required = false) Integer limit)
+    {
+        List<Map<String, Object>> rows = thirdPartyMessageService.listRecentMessages(limit);
+        return success(rows);
     }
 }

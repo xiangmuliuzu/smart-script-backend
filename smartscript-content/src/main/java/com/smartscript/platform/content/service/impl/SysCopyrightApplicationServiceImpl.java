@@ -6,6 +6,7 @@ import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import com.ruoyi.common.utils.DateUtils;
@@ -17,6 +18,7 @@ import com.smartscript.platform.content.mapper.SysCopyrightApplicationMapper;
 import com.smartscript.platform.content.service.ISysCopyrightApplicationService;
 import com.smartscript.platform.content.service.ISysCopyrightCenterConfigService;
 import com.smartscript.platform.content.service.ICopyrightCenterApiService;
+import com.smartscript.platform.content.service.ICopyrightThirdPartyMessageService;
 import com.smartscript.platform.content.service.ISysCopyrightCertService;
 import com.smartscript.platform.content.service.ISysWorkService;
 import com.smartscript.platform.content.service.ISysWorkFileService;
@@ -66,6 +68,10 @@ public class SysCopyrightApplicationServiceImpl implements ISysCopyrightApplicat
 
     @Autowired
     private ISysUserService userService;
+
+    @Lazy
+    @Autowired
+    private ICopyrightThirdPartyMessageService thirdPartyMessageService;
 
     @Override
     public SysCopyrightApplication selectCopyrightApplicationByApplyId(Long applyId)
@@ -257,6 +263,18 @@ public class SysCopyrightApplicationServiceImpl implements ISysCopyrightApplicat
             );
 
             String status = (String) statusInfo.get("status");
+
+            // Mock/第三方返回「要求补正」：走消息+补正单链路（截止+30天、不重交官费）
+            if (CopyrightStatusUtil.STATUS_NEED_SUPPLEMENT.equals(status))
+            {
+                String notice = statusInfo.get("supplementNotice") != null
+                        ? String.valueOf(statusInfo.get("supplementNotice"))
+                        : "版权中心要求补充材料";
+                thirdPartyMessageService.mockPushSupplement(applyId, notice);
+                log.info("同步申请状态为待补正: applyId={}", applyId);
+                return 1;
+            }
+
             application.setStatus(status);
             application.setUpdateTime(new Date());
             application.setRemark(CopyrightStatusUtil.getDefaultRemark(status));
@@ -373,6 +391,11 @@ public class SysCopyrightApplicationServiceImpl implements ISysCopyrightApplicat
         dto.setPayOrderId(application.getPayOrderId());
         dto.setDisplayStatus(CopyrightStatusUtil.toDisplayStatus(application.getStatus()));
         dto.setDisplayStatusText(CopyrightStatusUtil.toDisplayStatusText(application.getStatus()));
+        dto.setSupplementDeadline(application.getSupplementDeadline());
+        dto.setSupplementNotice(application.getSupplementNotice());
+        dto.setRightsHolderName(application.getRightsHolderName());
+        dto.setIdDocType(application.getIdDocType());
+        dto.setIdDocNo(application.getIdDocNo());
         
         // 填充申请人信息（从用户表查询）
         dto.setUserId(application.getUserId());
@@ -451,6 +474,13 @@ public class SysCopyrightApplicationServiceImpl implements ISysCopyrightApplicat
         }
         
         dto.setAttachmentUrl(application.getAttachmentUrl());  // 兼容更旧版本
+
+        if (thirdPartyMessageService != null)
+        {
+            dto.setOpenSupplement(thirdPartyMessageService.getOpenSupplement(applyId));
+            dto.setSupplements(thirdPartyMessageService.listSupplementsByApplyId(applyId));
+            dto.setThirdPartyMessages(thirdPartyMessageService.listMessagesByApplyId(applyId));
+        }
         
         return dto;
     }

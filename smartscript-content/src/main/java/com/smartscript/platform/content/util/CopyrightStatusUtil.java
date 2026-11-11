@@ -9,8 +9,10 @@ import java.util.Map;
  * 提供状态码与中文描述、备注信息的映射
  * 
  * 状态流转：
- * pending(待审核) → approved(待提交) → submitted(待提交到第三方) 
- * → reviewing(审核中) → certificated(已发证) | rejected(已拒绝)
+ * unpaid → reviewing → need_supplement ⇄ reviewing
+ *                  → supplement_overdue → rejected
+ *                  → certificated | rejected
+ * 历史：pending/approved/submitted 对 App 仍展示为审核中。
  * 
  * @author SmartScript Team
  * @date 2024-01
@@ -22,10 +24,15 @@ public class CopyrightStatusUtil
     public static final String STATUS_APPROVED = "approved";
     public static final String STATUS_SUBMITTED = "submitted";
     public static final String STATUS_REVIEWING = "reviewing";
+    public static final String STATUS_NEED_SUPPLEMENT = "need_supplement";
+    public static final String STATUS_SUPPLEMENT_OVERDUE = "supplement_overdue";
     public static final String STATUS_REJECTED = "rejected";
     public static final String STATUS_CERTIFICATED = "certificated";
     /** App 列表展示用：待支付单尚未履约（非申请表真实状态） */
     public static final String STATUS_UNPAID = "unpaid";
+
+    /** 补正默认天数（国版常见 30 天） */
+    public static final int SUPPLEMENT_DEADLINE_DAYS = 30;
     
     /** 状态码到中文映射（不可变） */
     private static final Map<String, String> STATUS_TEXT_MAP;
@@ -39,6 +46,8 @@ public class CopyrightStatusUtil
         textMap.put(STATUS_APPROVED, "待提交");
         textMap.put(STATUS_SUBMITTED, "待提交到第三方");
         textMap.put(STATUS_REVIEWING, "审核中");
+        textMap.put(STATUS_NEED_SUPPLEMENT, "待补正");
+        textMap.put(STATUS_SUPPLEMENT_OVERDUE, "逾期待驳回");
         textMap.put(STATUS_REJECTED, "已拒绝");
         textMap.put(STATUS_CERTIFICATED, "已发证");
         textMap.put(STATUS_UNPAID, "待付款");
@@ -49,6 +58,8 @@ public class CopyrightStatusUtil
         remarkMap.put(STATUS_APPROVED, "待提交到版权中心");
         remarkMap.put(STATUS_SUBMITTED, "已分配到版权中心配置页，等待提交到第三方API");
         remarkMap.put(STATUS_REVIEWING, "已提交到第三方API，等待审核");
+        remarkMap.put(STATUS_NEED_SUPPLEMENT, "版权中心要求补充材料，请在截止日前补正（不重交官费）");
+        remarkMap.put(STATUS_SUPPLEMENT_OVERDUE, "补正已超时，本轮可能不予登记");
         remarkMap.put(STATUS_REJECTED, "第三方审核驳回");
         remarkMap.put(STATUS_CERTIFICATED, "已通过第三方审核并发证");
         STATUS_REMARK_MAP = Collections.unmodifiableMap(remarkMap);
@@ -111,9 +122,13 @@ public class CopyrightStatusUtil
      */
     public static String toDisplayStatus(String status)
     {
-        if (STATUS_UNPAID.equals(status))
+        if (STATUS_UNPAID.equals(status)
+                || STATUS_NEED_SUPPLEMENT.equals(status)
+                || STATUS_SUPPLEMENT_OVERDUE.equals(status)
+                || STATUS_CERTIFICATED.equals(status)
+                || STATUS_REJECTED.equals(status))
         {
-            return STATUS_UNPAID;
+            return status;
         }
         if (STATUS_PENDING.equals(status)
                 || STATUS_APPROVED.equals(status)
@@ -135,10 +150,17 @@ public class CopyrightStatusUtil
         {
             return "审核中";
         }
-        if (STATUS_UNPAID.equals(display))
-        {
-            return "待付款";
-        }
         return getStatusText(display);
+    }
+
+    /** 是否算「进行中」（禁止同作品再建支付单） */
+    public static boolean isActiveApplicationStatus(String status)
+    {
+        return STATUS_PENDING.equals(status)
+                || STATUS_APPROVED.equals(status)
+                || STATUS_SUBMITTED.equals(status)
+                || STATUS_REVIEWING.equals(status)
+                || STATUS_NEED_SUPPLEMENT.equals(status)
+                || STATUS_SUPPLEMENT_OVERDUE.equals(status);
     }
 }

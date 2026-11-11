@@ -31,19 +31,22 @@ public class AppCopyrightServiceImpl implements IAppCopyrightService
     private final ISysCopyrightCenterConfigService centerConfigService;
     private final ISysWorkService workService;
     private final ICopyrightPayOrderService copyrightPayOrderService;
+    private final ICopyrightThirdPartyMessageService thirdPartyMessageService;
 
     public AppCopyrightServiceImpl(
             ISysCopyrightApplicationService copyrightApplicationService,
             ISysCopyrightCertService copyrightCertService,
             ISysCopyrightCenterConfigService centerConfigService,
             ISysWorkService workService,
-            ICopyrightPayOrderService copyrightPayOrderService)
+            ICopyrightPayOrderService copyrightPayOrderService,
+            ICopyrightThirdPartyMessageService thirdPartyMessageService)
     {
         this.copyrightApplicationService = copyrightApplicationService;
         this.copyrightCertService = copyrightCertService;
         this.centerConfigService = centerConfigService;
         this.workService = workService;
         this.copyrightPayOrderService = copyrightPayOrderService;
+        this.thirdPartyMessageService = thirdPartyMessageService;
     }
 
     @Override
@@ -52,6 +55,7 @@ public class AppCopyrightServiceImpl implements IAppCopyrightService
     {
         log.info("查询用户版权申请列表: userId={}, status={}, workName={}, pageNum={}, pageSize={}", 
                  userId, status, workName, pageNum, pageSize);
+        thirdPartyMessageService.closeOverdueSupplements();
 
         int safePageNum = (pageNum != null && pageNum > 0) ? pageNum : 1;
         int safePageSize = (pageSize != null && pageSize > 0) ? pageSize : 10;
@@ -112,6 +116,7 @@ public class AppCopyrightServiceImpl implements IAppCopyrightService
     public AppCopyrightApplicationDto getApplicationDetail(Long applyId, Long userId)
     {
         log.info("查询版权申请详情: applyId={}, userId={}", applyId, userId);
+        thirdPartyMessageService.closeOverdueSupplements();
 
         SysCopyrightApplication application = copyrightApplicationService.selectCopyrightApplicationByApplyId(applyId);
         if (application == null || !userId.equals(application.getUserId()))
@@ -119,7 +124,41 @@ public class AppCopyrightServiceImpl implements IAppCopyrightService
             return null;
         }
 
-        return convertToApplicationDto(application);
+        AppCopyrightApplicationDto dto = convertToApplicationDto(application);
+        dto.setOpenSupplement(thirdPartyMessageService.getOpenSupplement(applyId));
+        dto.setThirdPartyMessages(thirdPartyMessageService.listMessagesByApplyId(applyId));
+        return dto;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Map<String, Object> submitSupplement(Long userId, Long applyId, AppCopyrightSupplementRequest request)
+    {
+        return thirdPartyMessageService.submitSupplement(userId, applyId, request);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Map<String, Object> syncApplicationStatus(Long userId, Long applyId)
+    {
+        SysCopyrightApplication application = copyrightApplicationService.selectCopyrightApplicationByApplyId(applyId);
+        if (application == null || !userId.equals(application.getUserId()))
+        {
+            throw new IllegalArgumentException("申请不存在");
+        }
+        // 与 Admin 状态查询共用：MockCopyrightCenterApiServiceImpl → 可能落补正单
+        copyrightApplicationService.syncApplicationStatus(applyId);
+        AppCopyrightApplicationDto dto = getApplicationDetail(applyId, userId);
+        Map<String, Object> result = new HashMap<>();
+        result.put("applyId", applyId);
+        if (dto != null)
+        {
+            result.put("status", dto.getDisplayStatus() != null ? dto.getDisplayStatus() : dto.getStatus());
+            result.put("statusText", dto.getDisplayStatusText());
+            result.put("supplementDeadline", dto.getSupplementDeadline());
+            result.put("supplementNotice", dto.getSupplementNotice());
+        }
+        return result;
     }
 
     @Override
@@ -388,6 +427,11 @@ public class AppCopyrightServiceImpl implements IAppCopyrightService
         dto.setWordCount(application.getWordCount());
         dto.setFeeAmount(application.getFeeAmount());
         dto.setPayOrderId(application.getPayOrderId());
+        dto.setSupplementDeadline(application.getSupplementDeadline());
+        dto.setSupplementNotice(application.getSupplementNotice());
+        dto.setRightsHolderName(application.getRightsHolderName());
+        dto.setIdDocType(application.getIdDocType());
+        dto.setIdDocNo(application.getIdDocNo());
         dto.setDisplayStatus(CopyrightStatusUtil.toDisplayStatus(application.getStatus()));
         dto.setDisplayStatusText(CopyrightStatusUtil.toDisplayStatusText(application.getStatus()));
         

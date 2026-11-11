@@ -47,6 +47,7 @@ public class AppAuthAuthenticationFilter extends OncePerRequestFilter
             "/auth/sms/send",
             "/auth/email/send",
             "/trade/alipay/sandbox/notify",
+            "/open/copyright/third-party",
             "/auth/login",
             "/auth/captchaImage",
             "/auth/sms/login",

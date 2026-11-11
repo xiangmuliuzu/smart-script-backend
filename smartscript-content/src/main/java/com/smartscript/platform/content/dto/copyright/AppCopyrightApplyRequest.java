@@ -39,6 +39,15 @@ public class AppCopyrightApplyRequest
     /** 其他辅助证明材料URL（JSON数组字符串） */
     private String otherProofUrls;
 
+    /** 权利人姓名 */
+    private String rightsHolderName;
+
+    /** 证件类型：id_card/passport/other */
+    private String idDocType;
+
+    /** 证件号码 */
+    private String idDocNo;
+
     /** 备注 */
     private String remark;
 
@@ -114,6 +123,30 @@ public class AppCopyrightApplyRequest
 
     public void setOtherProofUrls(String otherProofUrls) {
         this.otherProofUrls = otherProofUrls;
+    }
+
+    public String getRightsHolderName() {
+        return rightsHolderName;
+    }
+
+    public void setRightsHolderName(String rightsHolderName) {
+        this.rightsHolderName = rightsHolderName;
+    }
+
+    public String getIdDocType() {
+        return idDocType;
+    }
+
+    public void setIdDocType(String idDocType) {
+        this.idDocType = idDocType;
+    }
+
+    public String getIdDocNo() {
+        return idDocNo;
+    }
+
+    public void setIdDocNo(String idDocNo) {
+        this.idDocNo = idDocNo;
     }
 
     public String getRemark() {

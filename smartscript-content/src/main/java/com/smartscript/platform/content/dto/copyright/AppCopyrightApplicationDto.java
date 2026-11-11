@@ -101,6 +101,28 @@ public class AppCopyrightApplicationDto
     /** 来源支付单 */
     private Long payOrderId;
 
+    /** 当前补正截止 */
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss", timezone = "GMT+8")
+    private Date supplementDeadline;
+
+    /** 当前补正要求摘要 */
+    private String supplementNotice;
+
+    /** 权利人姓名 */
+    private String rightsHolderName;
+
+    /** 证件类型 */
+    private String idDocType;
+
+    /** 证件号码 */
+    private String idDocNo;
+
+    /** 打开中的补正单（详情） */
+    private java.util.Map<String, Object> openSupplement;
+
+    /** 第三方消息列表（详情） */
+    private java.util.List<java.util.Map<String, Object>> thirdPartyMessages;
+
     /** 证书编号 */
     private String certNo;
 
@@ -328,6 +350,62 @@ public class AppCopyrightApplicationDto
 
     public void setPayOrderId(Long payOrderId) {
         this.payOrderId = payOrderId;
+    }
+
+    public Date getSupplementDeadline() {
+        return supplementDeadline;
+    }
+
+    public void setSupplementDeadline(Date supplementDeadline) {
+        this.supplementDeadline = supplementDeadline;
+    }
+
+    public String getSupplementNotice() {
+        return supplementNotice;
+    }
+
+    public void setSupplementNotice(String supplementNotice) {
+        this.supplementNotice = supplementNotice;
+    }
+
+    public String getRightsHolderName() {
+        return rightsHolderName;
+    }
+
+    public void setRightsHolderName(String rightsHolderName) {
+        this.rightsHolderName = rightsHolderName;
+    }
+
+    public String getIdDocType() {
+        return idDocType;
+    }
+
+    public void setIdDocType(String idDocType) {
+        this.idDocType = idDocType;
+    }
+
+    public String getIdDocNo() {
+        return idDocNo;
+    }
+
+    public void setIdDocNo(String idDocNo) {
+        this.idDocNo = idDocNo;
+    }
+
+    public java.util.Map<String, Object> getOpenSupplement() {
+        return openSupplement;
+    }
+
+    public void setOpenSupplement(java.util.Map<String, Object> openSupplement) {
+        this.openSupplement = openSupplement;
+    }
+
+    public java.util.List<java.util.Map<String, Object>> getThirdPartyMessages() {
+        return thirdPartyMessages;
+    }
+
+    public void setThirdPartyMessages(java.util.List<java.util.Map<String, Object>> thirdPartyMessages) {
+        this.thirdPartyMessages = thirdPartyMessages;
     }
 
     public String getCertNo() {

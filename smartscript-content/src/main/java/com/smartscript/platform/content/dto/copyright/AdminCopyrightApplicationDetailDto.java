@@ -141,6 +141,31 @@ public class AdminCopyrightApplicationDetailDto
     /** 申请材料附件URL（兼容旧版本，逗号分隔或JSON数组） */
     private String attachmentUrl;
 
+    /** 补正截止时间 */
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss", timezone = "GMT+8")
+    private Date supplementDeadline;
+
+    /** 补正要求摘要 */
+    private String supplementNotice;
+
+    /** 权利人姓名 */
+    private String rightsHolderName;
+
+    /** 证件类型 */
+    private String idDocType;
+
+    /** 证件号码 */
+    private String idDocNo;
+
+    /** 当前打开的补正单 */
+    private java.util.Map<String, Object> openSupplement;
+
+    /** 补正单列表 */
+    private java.util.List<java.util.Map<String, Object>> supplements;
+
+    /** 第三方消息流水 */
+    private java.util.List<java.util.Map<String, Object>> thirdPartyMessages;
+
     // ==================== Getters and Setters ====================
 
     public Long getApplyId() {
@@ -515,5 +540,69 @@ public class AdminCopyrightApplicationDetailDto
 
     public void setAttachmentUrl(String attachmentUrl) {
         this.attachmentUrl = attachmentUrl;
+    }
+
+    public Date getSupplementDeadline() {
+        return supplementDeadline;
+    }
+
+    public void setSupplementDeadline(Date supplementDeadline) {
+        this.supplementDeadline = supplementDeadline;
+    }
+
+    public String getSupplementNotice() {
+        return supplementNotice;
+    }
+
+    public void setSupplementNotice(String supplementNotice) {
+        this.supplementNotice = supplementNotice;
+    }
+
+    public String getRightsHolderName() {
+        return rightsHolderName;
+    }
+
+    public void setRightsHolderName(String rightsHolderName) {
+        this.rightsHolderName = rightsHolderName;
+    }
+
+    public String getIdDocType() {
+        return idDocType;
+    }
+
+    public void setIdDocType(String idDocType) {
+        this.idDocType = idDocType;
+    }
+
+    public String getIdDocNo() {
+        return idDocNo;
+    }
+
+    public void setIdDocNo(String idDocNo) {
+        this.idDocNo = idDocNo;
+    }
+
+    public java.util.Map<String, Object> getOpenSupplement() {
+        return openSupplement;
+    }
+
+    public void setOpenSupplement(java.util.Map<String, Object> openSupplement) {
+        this.openSupplement = openSupplement;
+    }
+
+    public java.util.List<java.util.Map<String, Object>> getSupplements() {
+        return supplements;
+    }
+
+    public void setSupplements(java.util.List<java.util.Map<String, Object>> supplements) {
+        this.supplements = supplements;
+    }
+
+    public java.util.List<java.util.Map<String, Object>> getThirdPartyMessages() {
+        return thirdPartyMessages;
+    }
+
+    public void setThirdPartyMessages(java.util.List<java.util.Map<String, Object>> thirdPartyMessages) {
+        this.thirdPartyMessages = thirdPartyMessages;
     }
 }

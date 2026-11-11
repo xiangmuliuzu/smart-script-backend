@@ -103,9 +103,9 @@ public class CopyrightPayOrderServiceImpl implements ICopyrightPayOrderService
         {
             throw new IllegalArgumentException("版权中心不能为空");
         }
-        requireMaterials(request.getFileUrl(), request.getOriginalityProofUrls(),
-                request.getAuthorIdentityDocUrls(), request.getCreationProcessUrls(),
-                request.getOtherProofUrls());
+        requireStrictMaterials(request.getFileUrl(), request.getOriginalityProofUrls(),
+                request.getAuthorIdentityDocUrls());
+        requireRightsHolder(request.getRightsHolderName(), request.getIdDocType(), request.getIdDocNo());
 
         SysWork work = requireOwnedWork(userId, request.getWorkId());
         assertNoActiveApplication(userId, request.getWorkId());
@@ -130,6 +130,9 @@ public class CopyrightPayOrderServiceImpl implements ICopyrightPayOrderService
         payload.put("authorIdentityDocUrls", request.getAuthorIdentityDocUrls());
         payload.put("creationProcessUrls", request.getCreationProcessUrls());
         payload.put("otherProofUrls", request.getOtherProofUrls());
+        payload.put("rightsHolderName", request.getRightsHolderName());
+        payload.put("idDocType", request.getIdDocType());
+        payload.put("idDocNo", request.getIdDocNo());
         payload.put("remark", request.getRemark());
         payload.put("resubmitFromApplyId", null);
 
@@ -155,9 +158,8 @@ public class CopyrightPayOrderServiceImpl implements ICopyrightPayOrderService
         {
             throw new IllegalArgumentException("只有已驳回的申请才能重新提交");
         }
-        requireMaterials(request.getFileUrl(), request.getOriginalityProofUrls(),
-                request.getAuthorIdentityDocUrls(), request.getCreationProcessUrls(),
-                request.getOtherProofUrls());
+        requireStrictMaterials(request.getFileUrl(), request.getOriginalityProofUrls(),
+                request.getAuthorIdentityDocUrls());
 
         SysWork work = requireOwnedWork(userId, original.getWorkId());
         assertNoActiveApplication(userId, original.getWorkId());
@@ -321,6 +323,9 @@ public class CopyrightPayOrderServiceImpl implements ICopyrightPayOrderService
         application.setAuthorIdentityDoc(asText(payload.get("authorIdentityDocUrls")));
         application.setCreationProcess(asText(payload.get("creationProcessUrls")));
         application.setOtherProof(asText(payload.get("otherProofUrls")));
+        application.setRightsHolderName(asText(payload.get("rightsHolderName")));
+        application.setIdDocType(asText(payload.get("idDocType")));
+        application.setIdDocNo(asText(payload.get("idDocNo")));
 
         copyrightApplicationService.insertCopyrightApplication(application);
         Long applyId = application.getApplyId();
@@ -419,11 +424,7 @@ public class CopyrightPayOrderServiceImpl implements ICopyrightPayOrderService
         List<SysCopyrightApplication> existList = copyrightApplicationService.selectCopyrightApplicationList(query);
         for (SysCopyrightApplication exist : existList)
         {
-            String status = exist.getStatus();
-            if (CopyrightStatusUtil.STATUS_PENDING.equals(status)
-                    || CopyrightStatusUtil.STATUS_APPROVED.equals(status)
-                    || CopyrightStatusUtil.STATUS_SUBMITTED.equals(status)
-                    || CopyrightStatusUtil.STATUS_REVIEWING.equals(status))
+            if (CopyrightStatusUtil.isActiveApplicationStatus(exist.getStatus()))
             {
                 throw new IllegalArgumentException("该作品已有进行中的版权申请");
             }
@@ -453,6 +454,36 @@ public class CopyrightPayOrderServiceImpl implements ICopyrightPayOrderService
         if (!has)
         {
             throw new IllegalArgumentException("请上传申请材料");
+        }
+    }
+
+    /** 首版必填加严：作品样本 + 身份证明 */
+    private void requireStrictMaterials(String fileUrl, String originality, String identity)
+    {
+        boolean sample = StringUtils.isNotBlank(fileUrl) || StringUtils.isNotBlank(originality);
+        if (!sample)
+        {
+            throw new IllegalArgumentException("请上传作品样本/原创性证明材料");
+        }
+        if (StringUtils.isBlank(identity))
+        {
+            throw new IllegalArgumentException("请上传作者身份证明材料");
+        }
+    }
+
+    private void requireRightsHolder(String name, String idType, String idNo)
+    {
+        if (StringUtils.isBlank(name))
+        {
+            throw new IllegalArgumentException("请填写权利人姓名");
+        }
+        if (StringUtils.isBlank(idType))
+        {
+            throw new IllegalArgumentException("请选择证件类型");
+        }
+        if (StringUtils.isBlank(idNo))
+        {
+            throw new IllegalArgumentException("请填写证件号码");
         }
     }
 

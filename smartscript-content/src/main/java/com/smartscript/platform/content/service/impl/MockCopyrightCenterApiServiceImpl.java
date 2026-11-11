@@ -31,11 +31,14 @@ public class MockCopyrightCenterApiServiceImpl implements ICopyrightCenterApiSer
     private static final int DOWNLOAD_DELAY_BASE = 1000;
     private static final int DOWNLOAD_DELAY_RANDOM = 1000;
     
-    // Mock状态概率配置
+    // Mock状态概率配置（累计阈值，random 0~99）
     private static final int CONNECTION_SUCCESS_PROBABILITY = 90;  // 90% 概率连接成功
-    private static final int REVIEWING_PROBABILITY = 60;           // 60% 概率返回审核中
-    private static final int CERTIFICATED_PROBABILITY = 90;        // 30% 概率返回已颁证 (90-60)
-    // 剩余 10% 概率返回已驳回 (100-90)
+    /** 0 ~ SUPPLEMENT：要求补正（20%） */
+    private static final int SUPPLEMENT_PROBABILITY = 20;
+    /** SUPPLEMENT ~ REVIEWING：仍审核中（50%，累计 70） */
+    private static final int REVIEWING_PROBABILITY = 70;
+    /** REVIEWING ~ CERTIFICATED：已发证（20%，累计 90）；其余 10% 驳回 */
+    private static final int CERTIFICATED_PROBABILITY = 90;
     
     // Mock数据前缀
     private static final String EXTERNAL_NO_PREFIX = "EXTMOCK";
@@ -88,8 +91,14 @@ public class MockCopyrightCenterApiServiceImpl implements ICopyrightCenterApiSer
             
             Map<String, Object> result = new HashMap<>();
             int statusRandom = random.nextInt(100);
-            
-            if (statusRandom < REVIEWING_PROBABILITY) {
+
+            if (statusRandom < SUPPLEMENT_PROBABILITY) {
+                result.put("status", "need_supplement");
+                result.put("supplementNotice",
+                        "【Mock补正】请补充：1) 作品样本清晰扫描件；2) 作者身份证明正反面。同一申请内补正，不重交官费。");
+                log.info("Mock: 状态=need_supplement");
+            }
+            else if (statusRandom < REVIEWING_PROBABILITY) {
                 result.put("status", "reviewing");
                 log.info("Mock: 状态=reviewing");
             }
