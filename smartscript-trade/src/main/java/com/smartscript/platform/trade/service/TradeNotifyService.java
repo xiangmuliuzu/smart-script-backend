@@ -324,12 +324,13 @@ public class TradeNotifyService
     }
 
     /** 任务广场：有新投稿时通知发布者。 */
-    public void notifyDemandSubmitted(Long demandId, String demandTitle, Long clientId)
+    public void notifyDemandSubmitted(Long submissionId, Long demandId, String demandTitle, Long clientId)
     {
         StringBuilder content = new StringBuilder("您发布的征集任务收到新的投稿，请查看。\n");
         line(content, "任务", titleOf(demandTitle));
         content.append("可前往「任务广场」查看投稿并进行评审。");
-        push("TRD-DM-SUB-" + demandId + "-" + System.currentTimeMillis(),
+        // requestId 用投稿ID做幂等键：同一投稿重试不重复通知，不同投稿各自独立
+        push("TRD-DM-SUB-" + submissionId,
                 "征集任务新投稿", content.toString(),
                 "DEMAND", str(demandId), one(clientId), "BOTH");
     }
@@ -355,7 +356,8 @@ public class TradeNotifyService
             line(content, "接单人", creatorName);
         }
         content.append("请前往「任务广场」关注交付进度并逐轮验收。");
-        push("TRD-DM-CLAIM-" + demandId + "-" + System.currentTimeMillis(),
+        // 一个任务只会被成功接单一次，demandId 即天然幂等键
+        push("TRD-DM-CLAIM-" + demandId,
                 "任务已被接单", content.toString(),
                 "DEMAND", str(demandId), one(clientId), "BOTH");
     }

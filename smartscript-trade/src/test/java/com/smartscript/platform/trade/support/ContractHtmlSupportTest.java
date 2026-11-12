@@ -35,6 +35,11 @@ class ContractHtmlSupportTest
         assertTrue(html.contains("display: table-cell;"));
         assertFalse(html.contains("display: flex"));
         assertTrue(html.contains("@page"));
+        // 富文本条款区的 PDF 友好样式随模板一起下发（无 flex，块级 + 行内样式）
+        assertTrue(html.contains(".clause-rich h1 { font-size: 20px; }"));
+        // 富文本段落与纯文本分支的 .content 同一口径：首行缩进两字，标题对齐 .section-title 的 16px
+        assertTrue(html.contains(".clause-rich p { margin: 15px 0; text-indent: 28px; }"));
+        assertTrue(html.contains(".clause-rich h3 { font-size: 16px; }"));
         assertTrue(html.contains("CT001"));
         assertTrue(html.contains("测试作品"));
     }

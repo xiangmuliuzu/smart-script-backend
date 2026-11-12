@@ -30,6 +30,14 @@ public class SysDemand extends BaseEntity
     private Integer totalEpisodes;
     private String status;
 
+    /** 任务类型: script=只征集剧本, script_storyboard=剧本+分镜, storyboard=提供剧本做分镜 */
+    private String taskType;
+
+    /** storyboard 类型：发布者提供的源剧本（本人作品 workId 与上传文件二选一或同时提供） */
+    private Long sourceWorkId;
+    private String sourceScriptUrl;
+    private String sourceScriptName;
+
     /** 接单制：抢单创作者、接单时间、完成时限(小时)、应完成时间、逾期标记 */
     private Long acceptedCreatorId;
 
@@ -71,6 +79,9 @@ public class SysDemand extends BaseEntity
 
     /** Transient: accepted creator (接单人) name */
     private String acceptedCreatorName;
+
+    /** Transient: 源剧本作品标题（storyboard 类型展示用） */
+    private String sourceWorkTitle;
 
     public Long getDemandId() { return demandId; }
     public void setDemandId(Long demandId) { this.demandId = demandId; }
@@ -132,6 +143,16 @@ public class SysDemand extends BaseEntity
     public void setFailReason(String failReason) { this.failReason = failReason; }
     public Date getFailAt() { return failAt; }
     public void setFailAt(Date failAt) { this.failAt = failAt; }
+    public String getTaskType() { return taskType; }
+    public void setTaskType(String taskType) { this.taskType = taskType; }
+    public Long getSourceWorkId() { return sourceWorkId; }
+    public void setSourceWorkId(Long sourceWorkId) { this.sourceWorkId = sourceWorkId; }
+    public String getSourceScriptUrl() { return sourceScriptUrl; }
+    public void setSourceScriptUrl(String sourceScriptUrl) { this.sourceScriptUrl = sourceScriptUrl; }
+    public String getSourceScriptName() { return sourceScriptName; }
+    public void setSourceScriptName(String sourceScriptName) { this.sourceScriptName = sourceScriptName; }
+    public String getSourceWorkTitle() { return sourceWorkTitle; }
+    public void setSourceWorkTitle(String sourceWorkTitle) { this.sourceWorkTitle = sourceWorkTitle; }
 
     /** Transient: unified fuzzy keyword for list filtering (not a column) */
     private String keyword;

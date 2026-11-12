@@ -1410,6 +1410,10 @@ CREATE TABLE IF NOT EXISTS sys_demand (
   `contact_info` varchar(255) COLLATE utf8mb4_general_ci NOT NULL,
   `submission_count` int NOT NULL,
   `status` varchar(20) COLLATE utf8mb4_general_ci NOT NULL,
+  `task_type` varchar(32) COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'script' COMMENT '任务类型: script=只征集剧本, script_storyboard=剧本+分镜, storyboard=提供剧本做分镜',
+  `source_work_id` bigint DEFAULT NULL COMMENT '源剧本作品ID（storyboard 类型，发布者选本人作品，与 source_script_url 至少其一）',
+  `source_script_url` varchar(500) COLLATE utf8mb4_general_ci DEFAULT NULL COMMENT '源剧本文件相对路径（storyboard 类型，上传的剧本文档）',
+  `source_script_name` varchar(255) COLLATE utf8mb4_general_ci DEFAULT NULL COMMENT '源剧本文件原始文件名（展示用）',
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   `create_by` varchar(64) COLLATE utf8mb4_general_ci DEFAULT NULL,
@@ -2404,3 +2408,51 @@ INSERT INTO sys_menu (menu_name,parent_id,order_num,path,menu_type,visible,statu
 SELECT '实名审核决定',m.menu_id,2,'#','F','0','0','user:realname:audit','#','migration' FROM sys_menu m
 WHERE m.perms = 'user:realname:list' AND NOT EXISTS (SELECT 1 FROM (SELECT perms FROM sys_menu) x WHERE x.perms = 'user:realname:audit');
 INSERT IGNORE INTO sys_role_menu (role_id,menu_id) SELECT 1,menu_id FROM sys_menu WHERE perms='user:realname:audit';
+
+
+-- =====================================================================
+-- 第 12 部分：交易域菜单收口、任务运营详情入口、需求超时定时任务（幂等）
+-- =====================================================================
+START TRANSACTION;
+
+-- 12.1 退役四个已下线页面的菜单：交易作品 / 合作方 / 需求标签 / 商务跟进。
+--      前端 component-map.js 只登记 AuthOrders / Inquiry / Quote / Demand 四页，
+--      留着这几行会让新库出现「点了进不去」的死菜单；云端库此前已人工清理，此处补齐脚本口径。
+DELETE FROM sys_role_menu WHERE menu_id IN (
+  SELECT doomed_id FROM (
+    SELECT menu_id AS doomed_id FROM sys_menu WHERE menu_id IN (5130, 5132, 5136, 5137)
+    UNION
+    SELECT child.menu_id FROM sys_menu child WHERE child.parent_id IN (5130, 5132, 5136, 5137)
+  ) t
+);
+DELETE FROM sys_menu WHERE parent_id IN (5130, 5132, 5136, 5137);
+DELETE FROM sys_menu WHERE menu_id IN (5130, 5132, 5136, 5137);
+
+-- 12.2 任务运营详情页（逐轮验收 / 资金流水 / 延时记录，只读）。
+--      隐藏菜单：列表页「运营详情」按钮按 query.demandId 跳入，不在侧边栏出现。
+--      权限沿用已有的 trade:demand:query，不新增权限位。
+INSERT INTO sys_menu (menu_id, menu_name, parent_id, order_num, path, component, query, is_frame, is_cache,
+                      menu_type, visible, status, perms, icon, create_by, remark)
+SELECT 5139, '任务运营详情', 5004, 9, 'demand-detail', 'trade/DemandDetail', '', 1, 0,
+       'C', '1', '0', 'trade:demand:query', '#', 'c-migration', '逐轮验收/资金流水/延时记录只读运营视图'
+FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM (SELECT menu_id FROM sys_menu) x WHERE x.menu_id = 5139);
+
+INSERT IGNORE INTO sys_role_menu (role_id, menu_id)
+SELECT r.role_id, 5139 FROM sys_role r WHERE r.role_key = 'admin' AND r.del_flag = '0';
+
+-- 12.3 征集任务超时实时处置定时任务：原单脚本迁移 C_20261103_003 并入初始化，
+--      否则新库只有询盘 job、没有需求超时 job，退回到「打开页面才判超时」的惰性口径。
+INSERT INTO sys_job
+  (job_name, job_group, invoke_target, cron_expression, misfire_policy, concurrent, status, create_by, create_time, remark)
+SELECT 'C-任务超时实时处置', 'DEFAULT', 'tradeDemandTask.expireOverdueRounds',
+       '0/10 * * * * ?', '3', '1', '0', 'c-quartz-migration', NOW(),
+       '每10秒扫描：①驳回发布者超24小时未处理的延时申请 ②终止已过截止且仍在计时的活动轮(押金没收/托管退回发布者)'
+FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM (SELECT invoke_target FROM sys_job) j WHERE j.invoke_target = 'tradeDemandTask.expireOverdueRounds');
+COMMIT;
+
+SELECT
+  (SELECT COUNT(*) FROM sys_menu WHERE menu_id IN (5130, 5132, 5136, 5137)) AS retired_trade_menus_should_be_0,
+  (SELECT COUNT(*) FROM sys_menu WHERE menu_id = 5139 AND component = 'trade/DemandDetail' AND visible = '1') AS demand_detail_menu_should_be_1,
+  (SELECT COUNT(*) FROM sys_job WHERE invoke_target = 'tradeDemandTask.expireOverdueRounds') AS demand_timeout_job_should_be_1;

@@ -54,12 +54,17 @@ public class ContractManageService {
         List<Object> args = new java.util.ArrayList<>(filter.args);
         args.add(pageSize);
         args.add((long) (pageNum - 1) * pageSize);
-        return jdbc.queryForList(CONTRACT_LIST_SELECT + filter.sql + " ORDER BY c.created_at DESC LIMIT ? OFFSET ?", args.toArray());
+        List<Map<String, Object>> rows = jdbc.queryForList(
+                CONTRACT_LIST_SELECT + filter.sql + " ORDER BY c.created_at DESC LIMIT ? OFFSET ?", args.toArray());
+        // 合同 PDF/签章图属私有材料，与 App 端同一套鉴权链接口径，否则管理端下载会撞上 403
+        rows.forEach(tradeContractService::guardArtifacts);
+        return rows;
     }
 
     public Map<String, Object> get(Long contractId) {
         try {
-            return jdbc.queryForMap(CONTRACT_SELECT + " WHERE c.contract_id = ?", contractId);
+            return tradeContractService.guardArtifacts(
+                    jdbc.queryForMap(CONTRACT_SELECT + " WHERE c.contract_id = ?", contractId));
         } catch (org.springframework.dao.EmptyResultDataAccessException e) {
             throw new IllegalArgumentException("合同记录不存在");
         }

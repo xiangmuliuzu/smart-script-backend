@@ -81,4 +81,9 @@ public class SysInquiry extends BaseEntity
     private String keyword;
     public String getKeyword() { return keyword; }
     public void setKeyword(String keyword) { this.keyword = keyword; }
+
+    /** Transient: match rows where this user is either buyer or seller (not a column) */
+    private Long relatedUserId;
+    public Long getRelatedUserId() { return relatedUserId; }
+    public void setRelatedUserId(Long relatedUserId) { this.relatedUserId = relatedUserId; }
 }

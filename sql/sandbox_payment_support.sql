@@ -521,7 +521,7 @@ CREATE TABLE IF NOT EXISTS `sys_contract` (
   `seller_id` bigint NOT NULL,
   `template_id` varchar(50) COLLATE utf8mb4_general_ci NOT NULL,
   `source_type` varchar(16) COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'template' COMMENT '合同来源: template平台模板/uploaded用户上传PDF',
-  `contract_content` longtext COLLATE utf8mb4_general_ci NOT NULL,
+  `contract_content` longtext COLLATE utf8mb4_general_ci NULL DEFAULT NULL COMMENT '合同正文HTML；用户上传原件时为空',
   `contract_url` varchar(500) COLLATE utf8mb4_general_ci NOT NULL,
   `buyer_sign_status` tinyint NOT NULL,
   `seller_sign_status` tinyint NOT NULL,

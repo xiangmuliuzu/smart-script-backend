@@ -197,6 +197,12 @@ public class DemandStageAiReviewService
             if (changed > 0)
             {
                 restorePausedDuration(stageId);
+                // 兜底转人工与 AI 通过同口径：通知发布者进入验收面板处理
+                SysDemandStage after = stageMapper.selectByStageId(stageId);
+                if (after != null)
+                {
+                    notifyAiOutcome(after, true, null, null);
+                }
             }
         }
         catch (Exception e)

@@ -40,6 +40,7 @@
         <where>
             <if test="buyerId != null">AND i.buyer_id = #{buyerId}</if>
             <if test="sellerId != null">AND i.seller_id = #{sellerId}</if>
+            <if test="relatedUserId != null">AND (i.buyer_id = #{relatedUserId} or i.seller_id = #{relatedUserId})</if>
             <if test="inquiryNo != null and inquiryNo != ''">AND i.inquiry_no like concat('%', #{inquiryNo}, '%')</if>
             <if test="status != null and status != ''">AND i.status = #{status}</if>
             <if test="licenseType != null and licenseType != ''">AND i.license_type = #{licenseType}</if>

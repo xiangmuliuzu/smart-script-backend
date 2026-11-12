@@ -75,6 +75,11 @@ public class AppTradeInquiryController
         {
             query.setSellerId(currentUserId);
         }
+        else
+        {
+            // APP 端「全部」= 我参与的（买方或卖方），不做零过滤
+            query.setRelatedUserId(currentUserId);
+        }
         if (status != null && !status.isEmpty())
         {
             query.setStatus(status);

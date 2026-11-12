@@ -23,7 +23,7 @@ import com.smartscript.platform.trade.domain.DemandSandboxPayment;
 import com.smartscript.platform.trade.domain.SysDemand;
 import com.smartscript.platform.trade.mapper.DemandSandboxPaymentMapper;
 
-/** 需求任务沙箱收款码换号逻辑：手动刷新、超时自动换号、共用押金码不越权换号、旧码已付就地结算。 */
+/** 需求任务沙箱收款码换号逻辑：手动刷新、超时自动换号、旧码已付就地结算、换人发起押金码先核旧码再换新码。 */
 class DemandSandboxPaymentServiceTest
 {
     static final long DEMAND_ID = 7L;
@@ -154,17 +154,65 @@ class DemandSandboxPaymentServiceTest
     }
 
     @Test
-    void anotherCreatorCannotRotateTheSharedDepositCode() throws Exception
+    void anotherCreatorGetsItsOwnDepositCodeWhenOldOneUnpaid() throws Exception
     {
         demand.setEscrowStatus("escrowed");
         when(paymentMapper.selectForUpdate(DEMAND_ID, "deposit"))
                 .thenReturn(record("deposit", "SDDEPOLD", CREATOR_A, "10.00", minutesAgo(30), "PENDING"));
 
+        Map<String, Object> result = service.createDeposit(DEMAND_ID, CREATOR_B, false);
+
+        // 押金码虽按任务共用，但复用他人未付的码会让新付款人扫完后资金记在原付款人名下，
+        // 所以换人发起时先关掉旧码，再把新码发给新付款人。
+        assertNotEquals("SDDEPOLD", result.get("outTradeNo"));
+        assertTrue(((String) result.get("outTradeNo")).startsWith("SDDEP"));
+        verify(client).execute(any(AlipayTradeQueryRequest.class));
+        verify(client).execute(any(AlipayTradeCloseRequest.class));
+        verify(paymentMapper).rotatePending(eq(DEMAND_ID), eq("deposit"),
+                eq((String) result.get("outTradeNo")), eq(CREATOR_B), eq(new BigDecimal("10.00")));
+    }
+
+    @Test
+    void anotherCreatorSettlesDepositToTheOriginalPayerWhenOldCodeAlreadyPaid() throws Exception
+    {
+        demand.setEscrowStatus("escrowed");
+        DemandSandboxPayment row = record("deposit", "SDDEPOLD", CREATOR_A, "10.00", minutesAgo(20), "PENDING");
+        when(paymentMapper.selectForUpdate(DEMAND_ID, "deposit")).thenReturn(row);
+        AlipayTradeQueryResponse paid = mock(AlipayTradeQueryResponse.class);
+        when(paid.isSuccess()).thenReturn(true);
+        when(paid.getTradeStatus()).thenReturn("TRADE_SUCCESS");
+        when(paid.getOutTradeNo()).thenReturn("SDDEPOLD");
+        when(paid.getTradeNo()).thenReturn("alipay-deposit-trade");
+        when(paid.getTotalAmount()).thenReturn("10.00");
+        when(client.execute(any(AlipayTradeQueryRequest.class))).thenReturn(paid);
+
         Map<String, Object> result = service.createDeposit(DEMAND_ID, CREATOR_B, true);
 
-        // 押金码按任务共用，非付款人只能沿用同一张码，保住"先付先确认"的抢单口径
-        assertEquals("SDDEPOLD", result.get("outTradeNo"));
+        // 旧码已收款就按真实付款人就地结算，不给后到者换码再付一次的机会
+        assertEquals(true, result.get("paid"));
+        // paid 只代表钱收到了，claimed 才代表单归谁：落败者必须看到「归付款人所有」而不是「接单成功」
+        assertEquals(false, result.get("claimed"));
+        assertNotNull(result.get("reason"));
+        verify(paymentMapper).markPaid("SDDEPOLD", "alipay-deposit-trade");
+        verify(demandService).claimDemand(DEMAND_ID, CREATOR_A);
+        verify(demandService, never()).claimDemand(DEMAND_ID, CREATOR_B);
         verify(paymentMapper, never()).rotatePending(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void editedBudgetRotatesThePendingCodeInsteadOfLockingThePayment() throws Exception
+    {
+        // 收款码按旧预算 100 出码后发布者把预算改成 200：若仍按新预算校验旧记录就会抛错，
+        // 换号分支永远走不到，这笔款项从此再也付不出去。
+        demand.setBudget(new BigDecimal("200.00"));
+        when(paymentMapper.selectForUpdate(DEMAND_ID, "escrow"))
+                .thenReturn(record("escrow", "SDESCOLD", PUBLISHER, "100.00", new Date(), "PENDING"));
+
+        Map<String, Object> result = service.createEscrow(DEMAND_ID, PUBLISHER, false);
+
+        assertNotEquals("SDESCOLD", result.get("outTradeNo"));
+        verify(paymentMapper).rotatePending(eq(DEMAND_ID), eq("escrow"),
+                eq((String) result.get("outTradeNo")), eq(PUBLISHER), eq(new BigDecimal("200.00")));
     }
 
     @Test

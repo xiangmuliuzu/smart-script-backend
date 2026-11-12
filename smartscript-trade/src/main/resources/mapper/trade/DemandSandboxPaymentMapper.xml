@@ -31,6 +31,13 @@
         SELECT * FROM demand_sandbox_payment WHERE out_trade_no = #{outTradeNo}
     </select>
 
+    <!-- 托管/押金按 (demand_id, purpose) 唯一，换号只覆盖当前行，因此这里给的是每种用途的最终态。 -->
+    <select id="selectListByDemandId" resultMap="PaymentResult">
+        SELECT * FROM demand_sandbox_payment
+        WHERE demand_id = #{demandId}
+        ORDER BY CASE purpose WHEN 'escrow' THEN 0 ELSE 1 END, updated_at DESC
+    </select>
+
     <update id="markPaid">
         UPDATE demand_sandbox_payment SET status = 'PAID', trade_no = #{tradeNo}, updated_at = NOW()
         WHERE out_trade_no = #{outTradeNo} AND status = 'PENDING'

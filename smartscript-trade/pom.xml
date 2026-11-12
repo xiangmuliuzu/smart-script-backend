@@ -58,6 +58,12 @@
             <artifactId>openhtmltopdf-pdfbox</artifactId>
             <version>1.0.10</version>
         </dependency>
+        <!-- 合同正文富文本条款的服务端白名单净化（前端 DOMPurify 只是体验层） -->
+        <dependency>
+            <groupId>org.jsoup</groupId>
+            <artifactId>jsoup</artifactId>
+            <version>1.17.2</version>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>

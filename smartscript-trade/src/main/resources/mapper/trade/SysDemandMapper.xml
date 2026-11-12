@@ -16,6 +16,11 @@
         <result property="submissionCount" column="submission_count" />
         <result property="totalEpisodes"    column="total_episodes" />
         <result property="status"          column="status" />
+        <result property="taskType"        column="task_type" />
+        <result property="sourceWorkId"    column="source_work_id" />
+        <result property="sourceScriptUrl" column="source_script_url" />
+        <result property="sourceScriptName" column="source_script_name" />
+        <result property="sourceWorkTitle" column="source_work_title" />
         <result property="acceptedCreatorId" column="accepted_creator_id" />
         <result property="acceptedAt"        column="accepted_at" />
         <result property="durationHours"     column="duration_hours" />
@@ -44,24 +49,28 @@
     <sql id="demandColumns">
         d.demand_id, d.demand_no, d.client_id, d.title, d.genre_id, d.tags, d.budget, d.deadline,
         d.requirement, d.contact_info, d.submission_count, d.total_episodes, d.status,
+        d.task_type, d.source_work_id, d.source_script_url, d.source_script_name,
         d.accepted_creator_id, d.accepted_at, d.duration_hours, d.due_at, d.is_overdue,
         d.escrow_amount, d.escrow_status, d.deposit_amount, d.deposit_status,
         d.deposit_paid_at, d.deposit_settled_at, d.fail_reason, d.fail_at,
         d.created_at, d.updated_at, d.create_by, d.create_time, d.update_by, d.update_time, d.remark,
         uc.nick_name as client_name,
-        ua.nick_name as accepted_creator_name
+        ua.nick_name as accepted_creator_name,
+        sw.title as source_work_title
     </sql>
 
     <sql id="demandJoins">
         from sys_demand d
         left join sys_user uc on d.client_id = uc.user_id
         left join sys_user ua on d.accepted_creator_id = ua.user_id
+        left join sys_work sw on d.source_work_id = sw.work_id
     </sql>
 
     <sql id="demandCriteriaWhere">
         <if test="title != null and title != ''">AND d.title like concat('%', #{title}, '%')</if>
         <if test="status != null and status != ''">AND d.status = #{status}</if>
         <if test="genreId != null">AND d.genre_id = #{genreId}</if>
+        <if test="taskType != null and taskType != ''">AND d.task_type = #{taskType}</if>
         <if test="clientId != null">AND d.client_id = #{clientId}</if>
         <if test="acceptedCreatorId != null">AND d.accepted_creator_id = #{acceptedCreatorId}</if>
         <if test="escrowStatus != null and escrowStatus != ''">AND d.escrow_status = #{escrowStatus}</if>
@@ -129,18 +138,38 @@
         group by genre_id
     </select>
 
+    <!-- 任务类型数量角标：与题材角标同口径（status=open ∧ escrow=escrowed） -->
+    <select id="selectTypeCounts" resultType="java.util.HashMap">
+        select task_type as taskType, count(*) as cnt
+        from sys_demand
+        where status = 'open' and escrow_status = 'escrowed'
+        group by task_type
+    </select>
+
+    <!-- 发布分镜任务时选择本人源剧本作品：本人未删除作品即可（不排除已上架，源剧本仅作参考不转移版权） -->
+    <select id="selectSourceWorks" resultType="java.util.HashMap">
+        select work_id as workId, title, status, update_time as updateTime
+        from sys_work
+        where author_id = #{authorId} and is_deleted = 0
+        order by update_time desc
+        limit 50
+    </select>
+
     <select id="selectDemandById" parameterType="Long" resultMap="SysDemandResult">
         select d.demand_id, d.demand_no, d.client_id, d.title, d.genre_id, d.tags, d.budget, d.deadline,
                d.requirement, d.contact_info, d.submission_count, d.total_episodes, d.status,
+               d.task_type, d.source_work_id, d.source_script_url, d.source_script_name,
                d.accepted_creator_id, d.accepted_at, d.duration_hours, d.due_at, d.is_overdue,
                d.escrow_amount, d.escrow_status, d.deposit_amount, d.deposit_status,
                d.deposit_paid_at, d.deposit_settled_at, d.fail_reason, d.fail_at,
                d.created_at, d.updated_at, d.create_by, d.create_time, d.update_by, d.update_time, d.remark,
                uc.nick_name as client_name,
-               ua.nick_name as accepted_creator_name
+               ua.nick_name as accepted_creator_name,
+               sw.title as source_work_title
         from sys_demand d
         left join sys_user uc on d.client_id = uc.user_id
         left join sys_user ua on d.accepted_creator_id = ua.user_id
+        left join sys_work sw on d.source_work_id = sw.work_id
         where d.demand_id = #{demandId}
     </select>
 
@@ -148,11 +177,13 @@
         insert into sys_demand (
             demand_no, client_id, title, genre_id, tags, budget, deadline,
             requirement, contact_info, submission_count, total_episodes, duration_hours, status,
+            task_type, source_work_id, source_script_url, source_script_name,
             escrow_amount, escrow_status,
             create_by, create_time, remark
         ) values (
             #{demandNo}, #{clientId}, #{title}, #{genreId}, #{tags}, #{budget}, #{deadline},
             #{requirement}, #{contactInfo}, #{submissionCount}, #{totalEpisodes}, #{durationHours}, #{status},
+            #{taskType}, #{sourceWorkId}, #{sourceScriptUrl}, #{sourceScriptName},
             #{escrowAmount}, #{escrowStatus},
             #{createBy}, #{createTime}, #{remark}
         )
@@ -171,6 +202,13 @@
             <if test="contactInfo != null">contact_info = #{contactInfo},</if>
             <if test="totalEpisodes != null">total_episodes = #{totalEpisodes},</if>
             <if test="durationHours != null">duration_hours = #{durationHours},</if>
+            <!-- 任务类型与源剧本成组更新：service 归一化后非 storyboard 类型源字段已清空，此处须允许置空 -->
+            <if test="taskType != null">
+                task_type = #{taskType},
+                source_work_id = #{sourceWorkId},
+                source_script_url = #{sourceScriptUrl},
+                source_script_name = #{sourceScriptName},
+            </if>
             <if test="escrowAmount != null">escrow_amount = #{escrowAmount},</if>
             <if test="escrowStatus != null">escrow_status = #{escrowStatus},</if>
             <if test="updateBy != null">update_by = #{updateBy},</if>
@@ -184,6 +222,20 @@
         update sys_demand set status = #{status}, update_by = #{updateBy}, update_time = NOW(), updated_at = NOW()
         where demand_id = #{demandId}
     </update>
+
+    <!-- 状态 CAS：仅当前状态仍为 expectStatus 时生效；返回 0 表示已被并发变更 -->
+    <update id="updateStatusCas">
+        update sys_demand set status = #{status}, update_by = #{updateBy}, update_time = NOW(), updated_at = NOW()
+        where demand_id = #{demandId} and status = #{expectStatus}
+    </update>
+
+    <!-- 行锁读取（编辑任务等与抢单串行化的前置）：须在事务内调用 -->
+    <select id="selectDemandForUpdate" parameterType="Long" resultMap="SysDemandResult">
+        select d.demand_id, d.client_id, d.status, d.escrow_status
+        from sys_demand d
+        where d.demand_id = #{demandId}
+        for update
+    </select>
 
     <!-- 抢单：原子锁定，仅当仍为 open 且已托管(escrowed) 才更新；同时置押金为 held 并记录入账时间 -->
     <update id="claimDemand">

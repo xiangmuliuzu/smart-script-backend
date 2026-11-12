@@ -280,7 +280,7 @@ public class TradeQuoteService
     /**
      * 接受报价（双向，2026-09-29 用户决策：直接成交或议价中任意一方接受都直接生成订单）。
      * 买方端接受卖方报价（pending）；卖方端（客户端）接受买方议价（pending_seller）。
-     * 流程：确认权校验 + 过期校验 → 生成订单（幂等）→ 报价置 accepted → 询盘置 deal。
+     * 流程：确认权校验 + 过期校验 → 报价 CAS 置 accepted → 生成订单（幂等）→ 询盘置 deal。
      *
      * @param operatorRole 操作端角色：{@link #OPERATOR_ROLE_BUYER} / {@link #OPERATOR_ROLE_SELLER}
      */
@@ -295,8 +295,8 @@ public class TradeQuoteService
         assertCanConfirm(quote, operatorRole, "接受");
         if (quote.getExpireAt() != null && quote.getExpireAt().before(new Date()))
         {
-            // 过期报价不可接受，顺带纠正状态
-            updateQuoteStatus(quoteId, QUOTE_EXPIRED);
+            // 过期报价不可接受，顺带纠正状态（CAS，并发已处理则静默跳过）
+            quoteMapper.updateQuoteStatusCas(quoteId, QUOTE_EXPIRED, quote.getStatus(), safeGetOperatorName());
             throw new RuntimeException("报价已过期，不可接受");
         }
 
@@ -307,10 +307,16 @@ public class TradeQuoteService
         }
         assertInquiryNegotiable(inquiry, "接受报价");
 
+        // 报价终态 CAS 写回：并发接受/拒绝只有一方生效；先翻转状态再生成订单，保证订单只建一次
+        int acceptChanged = quoteMapper.updateQuoteStatusCas(quoteId, QUOTE_ACCEPTED,
+                quote.getStatus(), safeGetOperatorName());
+        if (acceptChanged != 1)
+        {
+            throw new RuntimeException("该报价已被处理，请刷新后重试");
+        }
+
         SysOrder order = orderService.generateOrderFromInquiry(
                 inquiry, quoteId, quote.getPrice(), "quote", "Quote accepted, order generated");
-
-        updateQuoteStatus(quoteId, QUOTE_ACCEPTED);
 
         // 询盘置 deal（CAS：仅 pending/quoted/accepted 可置 deal，并发抢先接受则 0 行 → 抛错回滚本次接受，问题5）
         // 注：上一步 generateOrderFromInquiry 与本报错同属一个事务，回滚会一并撤销刚建的订单，不会残留脏单
@@ -362,7 +368,14 @@ public class TradeQuoteService
             throw new RuntimeException("报价不存在: " + quoteId);
         }
         assertCanConfirm(quote, operatorRole, "拒绝");
-        return updateQuoteStatus(quoteId, QUOTE_REJECTED);
+        // 状态 CAS：并发下对方已接受/拒绝则本次拒绝不生效，避免覆盖终态
+        int changed = quoteMapper.updateQuoteStatusCas(quoteId, QUOTE_REJECTED,
+                quote.getStatus(), safeGetOperatorName());
+        if (changed != 1)
+        {
+            throw new RuntimeException("该报价已被处理，不可拒绝");
+        }
+        return changed;
     }
 
     /**
@@ -435,16 +448,6 @@ public class TradeQuoteService
             throw new RuntimeException(action + "金额 " + price.toPlainString() + " 高于作品「"
                     + work.getTitle() + "」的议价上限 " + max.toPlainString() + "，请在议价范围内出价");
         }
-    }
-
-    public int updateQuoteStatus(Long quoteId, String status)
-    {
-        SysQuote quote = new SysQuote();
-        quote.setQuoteId(quoteId);
-        quote.setStatus(status);
-        quote.setUpdateBy(safeGetOperatorName());
-        quote.setUpdateTime(new Date());
-        return quoteMapper.updateQuote(quote);
     }
 
     /**

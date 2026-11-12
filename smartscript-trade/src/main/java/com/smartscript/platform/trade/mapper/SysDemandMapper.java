@@ -21,12 +21,25 @@ public interface SysDemandMapper
     /** 题材分类数量角标：公开可接单口径（status=open ∧ escrow=escrowed），与广场列表同口径。 */
     List<java.util.Map<String, Object>> selectGenreCounts();
 
+    /** 任务类型数量角标：与 selectGenreCounts 同口径。 */
+    List<java.util.Map<String, Object>> selectTypeCounts();
+
+    /** 发布分镜任务选择源剧本：本人未删除作品列表（workId/title/status/updateTime）。 */
+    List<java.util.Map<String, Object>> selectSourceWorks(@Param("authorId") Long authorId);
+
     SysDemand selectDemandById(Long demandId);
+
+    /** 行锁读取（仅 demand_id/client_id/status/escrow_status）：编辑任务与抢单串行化用，须在事务内调用。 */
+    SysDemand selectDemandForUpdate(Long demandId);
     int insertDemand(SysDemand demand);
 
     /** 编辑任务：仅更新非空可编辑字段（由 service 保证仅未托管未接单时可调） */
     int updateDemand(SysDemand demand);
     int updateStatus(@Param("demandId") Long demandId, @Param("status") String status, @Param("updateBy") String updateBy);
+
+    /** 状态 CAS：仅当当前状态仍为 expectStatus 时生效；返回 0 表示已被并发变更 */
+    int updateStatusCas(@Param("demandId") Long demandId, @Param("status") String status,
+                        @Param("updateBy") String updateBy, @Param("expectStatus") String expectStatus);
     int incrementSubmissionCount(@Param("demandId") Long demandId);
 
     /** 抢单：仅当任务仍为 open 且已托管(escrowed) 时原子锁定，同时置押金 held；返回受影响行数（0 表示已被抢） */

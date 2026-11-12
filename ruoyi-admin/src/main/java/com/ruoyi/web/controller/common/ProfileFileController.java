@@ -30,6 +30,7 @@ import org.springframework.web.util.UriUtils;
 import com.ruoyi.common.config.RuoYiConfig;
 import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.common.utils.file.FileUtils;
+import com.ruoyi.framework.storage.ProfileAccessSigner;
 import com.ruoyi.framework.storage.ProfileStorageService;
 
 /**
@@ -46,16 +47,19 @@ public class ProfileFileController
 
     private final ProfileStorageService storage;
 
+    private final ProfileAccessSigner accessSigner;
+
     /** 单测/无 Spring 环境：只读本地 profile 目录。 */
     public ProfileFileController()
     {
-        this(ProfileStorageService.localOnly());
+        this(ProfileStorageService.localOnly(), new ProfileAccessSigner("profile-file-controller-test-secret"));
     }
 
     @Autowired
-    public ProfileFileController(ProfileStorageService storage)
+    public ProfileFileController(ProfileStorageService storage, ProfileAccessSigner accessSigner)
     {
         this.storage = storage;
+        this.accessSigner = accessSigner;
     }
 
     /**
@@ -91,6 +95,20 @@ public class ProfileFileController
                 return;
             }
 
+            // 合同材料是私有件（双方真名 + 成交金额），而 /profile/** 在安全配置里匿名可访问：
+            // 没有未过期的签名就不给读，地址被转发或被爬虫顺走也不会长期有效。
+            boolean guarded = ProfileAccessSigner.isGuarded(filePath);
+            if (guarded && !accessSigner.verified(filePath,
+                    request.getParameter(ProfileAccessSigner.PARAM_EXPIRE),
+                    request.getParameter(ProfileAccessSigner.PARAM_SIGNATURE)))
+            {
+                // 直接置状态码，不能用 sendError：sendError 会转发到 /error，被安全入口改写成
+                // HTTP 200 + {"code":401}，前端与爬虫都分不出「被拒」和「拿到文件」
+                response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                response.setContentLength(0);
+                return;
+            }
+
             File file;
             try
             {
@@ -114,7 +132,12 @@ public class ProfileFileController
             // 只给图片加长缓存：同目录还有合同 PDF 等私有件，不该被中间缓存留存。
             long lastModified = file.lastModified() / 1000L * 1000L;
             response.setDateHeader("Last-Modified", lastModified);
-            if (isThumbnailSource(extension))
+            if (guarded)
+            {
+                // 鉴权链接每次都带新的过期时间，中间缓存留着旧副本等于绕过有效期
+                response.setHeader("Cache-Control", "private, no-store");
+            }
+            else if (isThumbnailSource(extension))
             {
                 response.setHeader("Cache-Control", "public, max-age=2592000");
             }

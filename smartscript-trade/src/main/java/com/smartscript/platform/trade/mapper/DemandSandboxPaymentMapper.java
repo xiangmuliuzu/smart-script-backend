@@ -1,6 +1,7 @@
 package com.smartscript.platform.trade.mapper;
 
 import java.math.BigDecimal;
+import java.util.List;
 import org.apache.ibatis.annotations.Param;
 import com.smartscript.platform.trade.domain.DemandSandboxPayment;
 
@@ -23,6 +24,9 @@ public interface DemandSandboxPaymentMapper
 
     /** 按商户订单号读取（异步通知路由用）。 */
     DemandSandboxPayment selectByOutTradeNo(@Param("outTradeNo") String outTradeNo);
+
+    /** 某任务的收款记录（托管/押金各一行，含金额、付款人、状态与支付宝交易号）。 */
+    List<DemandSandboxPayment> selectListByDemandId(@Param("demandId") Long demandId);
 
     /** 收款成功：置 PAID 并记录支付宝交易号。 */
     int markPaid(@Param("outTradeNo") String outTradeNo,

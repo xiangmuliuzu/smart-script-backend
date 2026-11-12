@@ -35,13 +35,14 @@ public final class ContractHtmlSupport
     }
 
     /**
-     * 生成版权授权/转让合同 HTML（签名区含占位注释），正文条款可传入自定义纯文本。
+     * 生成版权授权/转让合同 HTML（签名区含占位注释），正文条款可传入富文本或自定义纯文本。
      * <p>
-     * 信息区与签名占位区固定生成；正文区按 clausesText 逐行转义渲染，
-     * 为空时回退 {@link #defaultClausesText}。禁止注入原始 HTML（PDF/openhtmltopdf 兼容 + 安全）。
+     * 信息区与签名占位区固定生成；正文区见 {@link #renderClauseBody}：带版本标记的富文本经服务端
+     * 白名单净化后落位，纯文本逐行转义，为空时回退 {@link #defaultClausesText}。
+     * 除净化后的条款富文本外，其余内容不接受原始 HTML（PDF/openhtmltopdf 兼容 + 安全）。
      *
      * @param templateId  TPL_COPYRIGHT_TRANSFER / TPL_COPYRIGHT_LICENSE
-     * @param clausesText 可编辑正文条款纯文本；为空回退模板默认条款
+     * @param clausesText 可编辑正文条款：富文本标记串或纯文本；为空回退模板默认条款
      */
     public static String buildContractHtml(String contractNo, String orderNo, String workTitle,
                                            String buyerName, String sellerName, BigDecimal amount,
@@ -63,6 +64,20 @@ public final class ContractHtmlSupport
                 + ".info-row { margin-bottom: 8px; }"
                 + ".label { display: inline-block; width: 120px; font-weight: bold; }"
                 + ".content { margin: 15px 0; text-indent: 2em; text-align: justify; }"
+                // 富文本条款区：openhtmltopdf 不支持 flex，只用块级 + 行内样式
+                // 段落与标题的外边距逐条对齐上面纯文本分支的 .content / .section-title（标题前 20px 即 .section 的间距），
+                // 保证富文本合同与模板默认合同、以及编辑器里的观感是同一种排版。
+                // 缩进用固定 28px（正文 14px 的两字宽）而不是 2em：编辑器里整段字号落在段内 span 上，
+                // 若按 2em 计算，段落改了字号后编辑器缩进会小于合同上的缩进。
+                + ".clause-rich { margin: 15px 0; text-align: justify; }"
+                + ".clause-rich p { margin: 15px 0; text-indent: 28px; }"
+                + ".clause-rich h1, .clause-rich h2, .clause-rich h3 { font-weight: bold; margin: 20px 0 10px; }"
+                + ".clause-rich h1 { font-size: 20px; }"
+                + ".clause-rich h2 { font-size: 17px; }"
+                + ".clause-rich h3 { font-size: 16px; }"
+                + ".clause-rich ul, .clause-rich ol { margin: 15px 0; padding-left: 28px; }"
+                + ".clause-rich li { margin-bottom: 4px; }"
+                + ".clause-rich blockquote { margin: 15px 0 15px 16px; padding-left: 12px; border-left: 3px solid #999; color: #444; }"
                 + ".signature { margin-top: 60px; }"
                 + ".signature-row { margin-top: 40px; display: table; width: 100%; table-layout: fixed; }"
                 + ".signature-box { display: table-cell; width: 50%; vertical-align: top; padding-right: 24px; }"
@@ -101,12 +116,20 @@ public final class ContractHtmlSupport
     }
 
     /**
-     * 渲染正文条款区：clausesText 非空则逐行转义渲染，否则回退模板默认条款。
-     * 以「第…条」开头的行作为 section-title，其余行作为 content。
+     * 渲染正文条款区。
+     * <p>
+     * 带 {@link ContractClauseDocument} 版本标记的内容按富文本渲染：服务端二次白名单净化后整段落位，
+     * 排版交给条款自带标签与行内样式；未带标记的历史/纯文本内容维持逐行转义渲染，
+     * 为空时回退模板默认条款。
      */
     private static String renderClauseBody(String clausesText, String templateId, String workTitle,
                                            String licenseType, BigDecimal amount)
     {
+        if (ContractClauseDocument.isFormatted(clausesText))
+        {
+            String body = ContractClauseDocument.bodyHtml(clausesText);
+            return body.isEmpty() ? "" : "<div class=\"section clause-rich\">" + body + "</div>";
+        }
         String text = (clausesText == null || clausesText.trim().isEmpty())
                 ? defaultClausesText(templateId, workTitle, licenseType, amount)
                 : clausesText;

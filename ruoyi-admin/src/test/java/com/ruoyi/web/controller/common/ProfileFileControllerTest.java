@@ -14,6 +14,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import com.ruoyi.common.config.RuoYiConfig;
+import com.ruoyi.framework.storage.ProfileAccessSigner;
+import com.ruoyi.framework.storage.ProfileStorageService;
 
 /**
  * 封面上传后按需缩略 + 可缓存下发：直接回原图是列表首屏慢的主因，
@@ -21,8 +23,12 @@ import com.ruoyi.common.config.RuoYiConfig;
  */
 class ProfileFileControllerTest
 {
+    private static final String SECRET = "contract-artifact-test-secret-long-enough";
+
     private File root;
     private final ProfileFileController controller = new ProfileFileController();
+    private final ProfileFileController contractController = new ProfileFileController(
+            ProfileStorageService.localOnly(), new ProfileAccessSigner(SECRET));
 
     @BeforeEach
     void setUp() throws Exception
@@ -91,6 +97,65 @@ class ProfileFileControllerTest
         // 扩展名是图片、内容不是：必须回落原图而不是报错
         Files.write(broken.toPath(), new byte[] { 1, 2, 3, 4 });
         assertNull(ProfileFileController.thumbnailOf(broken, "upload/2026/10/27/broken.png", "png"));
+    }
+
+    @Test
+    void deniesContractArtifactsAnonymously() throws Exception
+    {
+        // 合同 PDF 里是双方真名与金额，目录可枚举时匿名 GET 就等于公开
+        writeContractFile("contract/9/CT20261020145911A006_signed.pdf", "%PDF-1.7".getBytes());
+        assertEquals(403, get("/profile/contract/9/CT20261020145911A006_signed.pdf", null).getStatus());
+    }
+
+    @Test
+    void rejectsTamperedSignature() throws Exception
+    {
+        writeContractFile("contract/9/page_0.png", "signature-image".getBytes());
+        String query = new ProfileAccessSigner(SECRET)
+                .sign("/profile/contract/9/page_0.png").split("\\?")[1];
+
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/profile/contract/9/page_0.png");
+        for (String pair : query.split("&"))
+        {
+            int equals = pair.indexOf('=');
+            // 换掉签名值：延长时间或改文件名都必须被拒
+            String value = ProfileAccessSigner.PARAM_SIGNATURE.equals(pair.substring(0, equals))
+                    ? "AA" + pair.substring(equals + 1).substring(2) : pair.substring(equals + 1);
+            request.addParameter(pair.substring(0, equals), value);
+        }
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        contractController.getFile(response, request);
+
+        assertEquals(403, response.getStatus());
+    }
+
+    @Test
+    void servesContractArtifactWithSignatureAndKeepsItOutOfSharedCaches() throws Exception
+    {
+        writeContractFile("contract/9/page_0.png", "signature-image".getBytes());
+        String url = "/profile/contract/9/page_0.png";
+        String query = new ProfileAccessSigner(SECRET).sign(url).split("\\?")[1];
+
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", url);
+        for (String pair : query.split("&"))
+        {
+            int equals = pair.indexOf('=');
+            request.addParameter(pair.substring(0, equals), pair.substring(equals + 1));
+        }
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        contractController.getFile(response, request);
+
+        assertEquals(200, response.getStatus());
+        assertEquals("signature-image", response.getContentAsString());
+        // 鉴权链接每次签出的地址都不同，缓存住旧副本等于绕过有效期
+        assertEquals("private, no-store", response.getHeader("Cache-Control"));
+    }
+
+    private void writeContractFile(String relative, byte[] bytes) throws Exception
+    {
+        File file = new File(root, relative);
+        Files.createDirectories(file.getParentFile().toPath());
+        Files.write(file.toPath(), bytes);
     }
 
     private MockHttpServletResponse get(String uri, String ifModifiedSince) throws Exception

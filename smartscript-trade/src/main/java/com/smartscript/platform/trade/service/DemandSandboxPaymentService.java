@@ -3,8 +3,10 @@ package com.smartscript.platform.trade.service;
 import java.math.BigDecimal;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.function.Consumer;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -110,7 +112,7 @@ public class DemandSandboxPaymentService
         BigDecimal amount = demand.getBudget();
         assertAmount(amount);
         return precreate(demandId, DemandSandboxPayment.PURPOSE_ESCROW, publisherId, amount,
-                "剧云策任务托管 " + demandId, refresh, () -> demandService.markEscrowed(demandId));
+                "剧云策任务托管 " + demandId, refresh, payer -> demandService.markEscrowed(demandId));
     }
 
     @Transactional
@@ -121,7 +123,7 @@ public class DemandSandboxPaymentService
         if (publisherId == null || !publisherId.equals(demand.getClientId()))
             throw new IllegalArgumentException("只有发布者可确认托管款");
         return confirm(demandId, DemandSandboxPayment.PURPOSE_ESCROW, amountOf(demand, true),
-                () -> demandService.markEscrowed(demandId));
+                payer -> demandService.markEscrowed(demandId));
     }
 
     /* ==================== 押金付款（创作者） ==================== */
@@ -141,7 +143,7 @@ public class DemandSandboxPaymentService
         BigDecimal amount = TradeDemandService.computeDepositAmount(demand.getBudget());
         assertAmount(amount);
         return precreate(demandId, DemandSandboxPayment.PURPOSE_DEPOSIT, creatorId, amount,
-                "剧云策任务押金 " + demandId, refresh, () -> demandService.claimDemand(demandId, creatorId));
+                "剧云策任务押金 " + demandId, refresh, payer -> demandService.claimDemand(demandId, payer));
     }
 
     @Transactional
@@ -164,10 +166,28 @@ public class DemandSandboxPaymentService
             taken.put("reason", "该任务已被其他创作者接单，您的押金未扣款，请另选任务");
             return taken;
         }
+        // 结算归属取支付记录里的付款人：confirm 内查单若命中他人已扫付的旧码，
+        // 应结算给真实付款人，而不是误把任务判给后到的确认者。
+        DemandSandboxPayment depositRow = paymentMapper.selectForUpdate(demandId, DemandSandboxPayment.PURPOSE_DEPOSIT);
+        Long recordPayerId = depositRow == null ? creatorId : depositRow.getPayerId();
         Map<String, Object> result = new HashMap<>(confirm(demandId, DemandSandboxPayment.PURPOSE_DEPOSIT, amount,
-                () -> demandService.claimDemand(demandId, creatorId)));
-        result.put("claimed", Boolean.TRUE.equals(result.get("paid")));
+                payer -> demandService.claimDemand(demandId, payer)));
+        boolean paid = Boolean.TRUE.equals(result.get("paid"));
+        result.put("claimed", paid && creatorId.equals(recordPayerId));
+        if (paid && !creatorId.equals(recordPayerId))
+            result.put("reason", "该押金已由其他创作者支付并结算，任务归付款人所有");
         return result;
+    }
+
+    /* ==================== 管理端只读 ==================== */
+
+    /**
+     * 某任务的沙箱收款记录（托管/押金各一行）。纯读，不做沙箱护栏校验，
+     * 否则管理端在未开启沙箱的环境里连历史资金都查不到。
+     */
+    public List<DemandSandboxPayment> listPayments(Long demandId)
+    {
+        return paymentMapper.selectListByDemandId(demandId);
     }
 
     /* ==================== 异步通知（可选，验签后主动查单为准） ==================== */
@@ -191,14 +211,14 @@ public class DemandSandboxPaymentService
             {
                 SysDemand demand = loadDemand(rec.getDemandId());
                 confirm(rec.getDemandId(), DemandSandboxPayment.PURPOSE_ESCROW, demand.getBudget(),
-                        () -> demandService.markEscrowed(rec.getDemandId()));
+                        payer -> demandService.markEscrowed(rec.getDemandId()));
             }
             else
             {
                 SysDemand demand = loadDemand(rec.getDemandId());
                 BigDecimal deposit = TradeDemandService.computeDepositAmount(demand.getBudget());
                 confirm(rec.getDemandId(), DemandSandboxPayment.PURPOSE_DEPOSIT, deposit,
-                        () -> demandService.claimDemand(rec.getDemandId(), rec.getPayerId()));
+                        payer -> demandService.claimDemand(rec.getDemandId(), payer));
             }
             return true;
         }
@@ -214,11 +234,16 @@ public class DemandSandboxPaymentService
      * 生成二维码：同一付款人重复发起时，待支付单号超过 {@link #QR_STALE_MILLIS} 或前端点「刷新」
      * 就换新商户单号重新预下单，避免拿到支付宝侧已失效的旧码。
      *
-     * <p>押金码按(任务+用途)全局共用，因此只有记录里的付款人本人才能触发换号，
-     * 其他创作者重复发起时继续复用同一码，保持"先付先确认"的抢单口径。</p>
+     * <p>押金码按(任务+用途)全局共用。同一付款人再次发起按上述规则换号；
+     * 换人发起时先核验旧码：旧码已被原付款人支付则按其归属就地结算，
+     * 未支付则关旧码并把单号换给新付款人，避免新付款人扫旧码付款后资金记在他人名下。</p>
+     *
+     * <p>预算被编辑过也必须换号：待支付记录里的金额是旧预算，若仍按新预算校验就会先抛错、
+     * 换号分支永远走不到，这笔款项从此再也付不出去。旧码确实已付时照常结算（钱是真的，
+     * 不能搁置），并在返回体里标出金额已变更，由管理端资金流水核对差额。</p>
      */
     private Map<String, Object> precreate(Long demandId, String purpose, Long payerId, BigDecimal amount,
-            String subject, boolean refresh, Runnable settle)
+            String subject, boolean refresh, Consumer<Long> settle)
     {
         String prefix = DemandSandboxPayment.PURPOSE_ESCROW.equals(purpose) ? "SDESC" : "SDDEP";
         String candidate = prefix + java.util.UUID.randomUUID().toString().replace("-", "");
@@ -229,17 +254,32 @@ public class DemandSandboxPaymentService
             throw new IllegalStateException("该笔款项已支付");
         String outTradeNo = row.getOutTradeNo();
         boolean samePayer = payerId.equals(row.getPayerId());
+        boolean amountChanged = amount.compareTo(row.getAmount()) != 0;
         boolean stale = row.getUpdatedAt() == null
                 || row.getUpdatedAt().getTime() < System.currentTimeMillis() - QR_STALE_MILLIS;
         boolean closed = DemandSandboxPayment.STATUS_CLOSED.equals(row.getStatus());
-        if (samePayer && (refresh || stale || closed))
+        if (!samePayer || refresh || stale || closed || amountChanged)
         {
             if (!closed)
             {
                 // 换号前先查一次旧单：旧码若已被扫付，就地结算并把结算结果返回前端，
                 // 这里不能抛异常，否则同事务内的结算会被回滚，钱到账却漏单。
-                Map<String, Object> settled = confirm(demandId, purpose, amount, settle);
-                if (Boolean.TRUE.equals(settled.get("paid"))) return settled;
+                // 传 null 表示「以记录里的金额为准结算」：预算变更时旧码可能真被按旧金额扫付，
+                // 按新预算校验会抛错并卡死整条付款链路。
+                Map<String, Object> settled = confirm(demandId, purpose, null, settle);
+                if (Boolean.TRUE.equals(settled.get("paid")))
+                {
+                    if (!DemandSandboxPayment.PURPOSE_ESCROW.equals(purpose) && !samePayer)
+                    {
+                        // 旧码由他人扫付：单已归付款人，这里必须像 confirmDeposit 一样将
+                        // paid 与 claimed 分开，否则落败者会收到「接单成功」的错误提示。
+                        Map<String, Object> taken = new HashMap<>(settled);
+                        taken.put("claimed", false);
+                        taken.put("reason", "该押金已由其他创作者支付并结算，任务归付款人所有");
+                        return taken;
+                    }
+                    return amountChanged ? withAmountChanged(settled) : settled;
+                }
                 // 支付宝侧还活着的旧单要主动关掉，旧码才真正失效
                 if (!Boolean.TRUE.equals(settled.get("closed"))) closeQuietly(outTradeNo);
             }
@@ -272,6 +312,14 @@ public class DemandSandboxPaymentService
         }
     }
 
+    /** 结算金额与任务当前应缴金额不一致时打标，供前端与管理端核对差额。 */
+    private Map<String, Object> withAmountChanged(Map<String, Object> settled)
+    {
+        Map<String, Object> result = new HashMap<>(settled);
+        result.put("amountChanged", true);
+        return result;
+    }
+
     /** 尽力关闭旧单让旧码失效；沙箱里未成过交易的单会返回 TRADE_NOT_EXIST，属正常，不影响换新码。 */
     private void closeQuietly(String outTradeNo)
     {
@@ -289,15 +337,15 @@ public class DemandSandboxPaymentService
         }
     }
 
-    /** 查单确认：以支付宝主动查询结果为准，成功则结算并回调业务动作。 */
-    private Map<String, Object> confirm(Long demandId, String purpose, BigDecimal expectedAmount, Runnable settle)
+    /** 查单确认：以支付宝主动查询结果为准，成功则结算并回调业务动作（结算对象为记录中的付款人）。 */
+    private Map<String, Object> confirm(Long demandId, String purpose, BigDecimal expectedAmount, Consumer<Long> settle)
     {
         DemandSandboxPayment row = paymentMapper.selectForUpdate(demandId, purpose);
         if (row == null) throw new IllegalStateException("请先发起沙箱支付");
         if (DemandSandboxPayment.STATUS_PAID.equals(row.getStatus()))
             return Map.of("paid", true, "sandbox", true);
         if (expectedAmount != null && row.getAmount().compareTo(expectedAmount) != 0)
-            throw new IllegalStateException("支付记录金额与当前任务不一致");
+            throw new IllegalStateException("任务金额已变更，请点「刷新收款码」按新金额重新付款");
         String outTradeNo = row.getOutTradeNo();
         try
         {
@@ -324,7 +372,7 @@ public class DemandSandboxPaymentService
                     || response.getTotalAmount() == null || row.getAmount().compareTo(new BigDecimal(response.getTotalAmount())) != 0)
                 throw new IllegalStateException("支付宝返回的订单或金额不匹配");
             paymentMapper.markPaid(outTradeNo, response.getTradeNo());
-            settle.run();
+            settle.accept(row.getPayerId());
             return Map.of("paid", true, "sandbox", true);
         }
         catch (AlipayApiException e)

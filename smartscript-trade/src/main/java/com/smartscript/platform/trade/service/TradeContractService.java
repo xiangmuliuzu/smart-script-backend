@@ -2,12 +2,14 @@ package com.smartscript.platform.trade.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.ruoyi.common.constant.Constants;
+import com.ruoyi.framework.storage.ProfileAccessSigner;
 import com.ruoyi.framework.storage.ProfileStorageService;
 import com.ruoyi.common.utils.SecurityUtils;
 import com.ruoyi.common.utils.uuid.Seq;
+import com.smartscript.platform.trade.support.ContractClauseDocument;
 import com.smartscript.platform.trade.support.ContractHtmlSupport;
 import com.smartscript.platform.trade.support.ContractPdfRenderer;
+import com.smartscript.platform.trade.support.ContractStoragePaths;
 import com.smartscript.platform.trade.domain.SysOrderStatusLog;
 import com.smartscript.platform.trade.mapper.SysOrderStatusLogMapper;
 import com.smartscript.platform.user.mapper.AppUserCenterMapper;
@@ -114,6 +116,10 @@ public class TradeContractService
     @Autowired
     private ProfileStorageService storage;
 
+    /** 合同材料私有链接签发：地址带有效期与签名，避免匿名永久可读。 */
+    @Autowired
+    private ProfileAccessSigner accessSigner;
+
     /**
      * 按订单 ID 取合同详情。
      */
@@ -121,7 +127,7 @@ public class TradeContractService
     {
         try
         {
-            return decorateSource(enrichWithSignatures(jdbc.queryForMap(CONTRACT_SELECT + " WHERE c.order_id = ?", orderId)));
+            return guardArtifacts(decorateSource(enrichWithSignatures(jdbc.queryForMap(CONTRACT_SELECT + " WHERE c.order_id = ?", orderId))));
         }
         catch (org.springframework.dao.EmptyResultDataAccessException e)
         {
@@ -136,7 +142,7 @@ public class TradeContractService
     {
         try
         {
-            return decorateSource(enrichWithSignatures(jdbc.queryForMap(CONTRACT_SELECT + " WHERE c.contract_id = ?", contractId)));
+            return guardArtifacts(decorateSource(enrichWithSignatures(jdbc.queryForMap(CONTRACT_SELECT + " WHERE c.contract_id = ?", contractId))));
         }
         catch (org.springframework.dao.EmptyResultDataAccessException e)
         {
@@ -204,6 +210,10 @@ public class TradeContractService
         listArgs.add(offset);
         java.util.List<Map<String, Object>> list = jdbc.queryForList(
                 CONTRACT_LIST_SELECT + where + " ORDER BY c.created_at DESC LIMIT ? OFFSET ?", listArgs.toArray());
+        for (Map<String, Object> row : list)
+        {
+            guardArtifacts(row);
+        }
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("total", total == null ? 0L : total);
@@ -665,13 +675,12 @@ public class TradeContractService
         {
             throw new IllegalArgumentException("印章/签名图片仅支持 PNG/JPG/BMP/GIF/WebP 格式");
         }
-        // 保存到 profile 命名空间（contract/{id}），本地落盘后同步 MinIO，经 /profile/** 对外可访问
-        // 文件名不使用用户提供的原始文件名，扩展名由魔数校验推导
-        String fileName = prefix + "_" + System.currentTimeMillis() + ext;
-        String key = "contract/" + contractId + "/" + fileName;
+        // 保存到 profile 存储（upload/contract/{yyyy}/{MM}/c{id}/stamp/），本地落盘后同步 MinIO
+        // 文件名不使用用户提供的原始文件名，扩展名由魔数校验推导；随机段代替时间戳，避免按名枚举
+        String key = ContractStoragePaths.stampKey(contractId, prefix, ext);
         storage.write(key, file.getBytes(), file.getContentType());
 
-        return Constants.RESOURCE_PREFIX + "/" + key;
+        return ContractStoragePaths.urlOf(key);
     }
 
     /**
@@ -789,11 +798,10 @@ public class TradeContractService
 
         // 保存 PDF（本地 + MinIO）
         String contractNo = String.valueOf(contract.get("contractNo"));
-        String fileName = contractNo + "_signed.pdf";
-        String key = "contract/" + contractId + "/" + fileName;
+        String key = ContractStoragePaths.signedPdfKey(contractId, contractNo);
         storage.write(key, pdfBytes, "application/pdf");
 
-        String pdfUrl = Constants.RESOURCE_PREFIX + "/" + key;
+        String pdfUrl = ContractStoragePaths.urlOf(key);
         jdbc.update("UPDATE sys_contract SET signed_pdf_url = ?, update_time = NOW() WHERE contract_id = ?",
                 pdfUrl, contractId);
 
@@ -879,12 +887,12 @@ public class TradeContractService
      * <p>
      * 校验当前用户为该订单买/卖；SELECT ... FOR UPDATE；
      * 门禁：status='pending' 且双方 sign_status=0，否则抛 IllegalStateException（锁定）；
-     * 校验 templateId 属于平台模板集、clausesText 去空限长；
+     * 校验 templateId 属于平台模板集、clausesText 去空限长（富文本按净化后纯文本计字并附 HTML 体积上限）；
      * 以订单/合同的固定信息重渲染 HTML，CAS UPDATE（WHERE 再带锁定条件），命中 0 行按锁定报错。
      *
      * @param contractId   合同 ID
      * @param templateId   目标模板
-     * @param clausesText  编辑后的正文条款纯文本
+     * @param clausesText  编辑后的正文条款（富文本标记串或纯文本）
      * @return 更新后的合同详情
      */
     @Transactional
@@ -903,9 +911,23 @@ public class TradeContractService
         {
             throw new IllegalArgumentException("合同正文条款不能为空");
         }
-        if (text.length() > MAX_CLAUSES_LENGTH)
+        // 富文本条款先净化再校验：入库的是规范串，字数口径仍按净化后的纯文本计
+        if (ContractClauseDocument.isFormatted(text))
+        {
+            text = ContractClauseDocument.sanitize(text);
+        }
+        String plainText = ContractClauseDocument.text(text);
+        if (plainText.trim().isEmpty())
+        {
+            throw new IllegalArgumentException("合同正文条款不能为空");
+        }
+        if (plainText.length() > MAX_CLAUSES_LENGTH)
         {
             throw new IllegalArgumentException("合同正文条款过长（最多 " + MAX_CLAUSES_LENGTH + " 字）");
+        }
+        if (ContractClauseDocument.htmlBytes(text) > ContractClauseDocument.MAX_HTML_BYTES)
+        {
+            throw new IllegalArgumentException("合同排版格式过多，请减少颜色、字号等格式后重试");
         }
 
         Long currentUserId = getCurrentUserId();
@@ -1076,33 +1098,46 @@ public class TradeContractService
             throw new IllegalArgumentException("PDF 页数过多（最多 " + MAX_PAGE_COUNT + " 页）");
         }
 
-        cleanContractUploadArtifacts(contractId);
-        String sourceFileName = "source_" + System.currentTimeMillis() + ".pdf";
+        // 先写新批次、后删旧批次：反过来一旦写库失败回滚，库里指着的旧文件已经被删了，历史合同当场打不开
+        String previousSourcePdfUrl = previousSourcePdfUrl(contractId);
+        String batch = ContractStoragePaths.newBatch();
+        String sourceKey = ContractStoragePaths.sourcePdfKey(contractId, batch);
+        String sourcePdfUrl = ContractStoragePaths.urlOf(sourceKey);
         try
         {
-            storage.write("contract/" + contractId + "/" + sourceFileName, pdfBytes, "application/pdf");
+            storage.write(sourceKey, pdfBytes, "application/pdf");
             List<byte[]> pagePngs = pdfRenderer.renderAllPagesToPng(pdfBytes, SOURCE_PAGE_DPI);
             for (int i = 0; i < pagePngs.size(); i++)
             {
-                storage.write("contract/" + contractId + "/page_" + i + ".png", pagePngs.get(i), "image/png");
+                storage.write(ContractStoragePaths.pagePngKey(contractId, batch, i), pagePngs.get(i), "image/png");
             }
         }
         catch (IOException e)
         {
+            cleanContractUploadArtifacts(sourcePdfUrl);
             throw new RuntimeException("保存合同 PDF 或渲染分页图失败: " + e.getMessage());
         }
 
-        String sourcePdfUrl = Constants.RESOURCE_PREFIX + "/contract/" + contractId + "/" + sourceFileName;
-        int updated = jdbc.update(
-                "UPDATE sys_contract SET source_type = 'uploaded', source_pdf_url = ?, pdf_page_count = ?, "
-                        + "contract_content = NULL, clauses_text = NULL, buyer_sign_pos = NULL, seller_sign_pos = NULL, "
-                        + "signed_pdf_url = NULL, update_by = ?, update_time = NOW() "
-                        + "WHERE contract_id = ? AND status = 'pending' AND buyer_sign_status = 0 AND seller_sign_status = 0",
-                sourcePdfUrl, pageCount, String.valueOf(currentUserId), contractId);
-        if (updated == 0)
+        try
         {
-            throw new IllegalStateException("合同已进入签署，内容已锁定，不可修改");
+            int updated = jdbc.update(
+                    "UPDATE sys_contract SET source_type = 'uploaded', source_pdf_url = ?, pdf_page_count = ?, "
+                            + "contract_content = NULL, clauses_text = NULL, buyer_sign_pos = NULL, seller_sign_pos = NULL, "
+                            + "signed_pdf_url = NULL, update_by = ?, update_time = NOW() "
+                            + "WHERE contract_id = ? AND status = 'pending' AND buyer_sign_status = 0 AND seller_sign_status = 0",
+                    sourcePdfUrl, pageCount, String.valueOf(currentUserId), contractId);
+            if (updated == 0)
+            {
+                throw new IllegalStateException("合同已进入签署，内容已锁定，不可修改");
+            }
         }
+        catch (RuntimeException e)
+        {
+            // 事务回滚后这批文件不再被任何记录引用，抛错前先按批次清走，别在目录里攒孤儿
+            cleanContractUploadArtifacts(sourcePdfUrl);
+            throw e;
+        }
+        cleanContractUploadArtifacts(previousSourcePdfUrl);
         log.info("合同 {} 已上传 PDF 替换模板，页数={}，操作人={}", contractId, pageCount, currentUserId);
         return getById(contractId);
     }
@@ -1146,14 +1181,8 @@ public class TradeContractService
         {
             throw new IllegalStateException("合同已进入签署，内容已锁定，不可修改");
         }
-        try
-        {
-            cleanContractUploadArtifacts(contractId);
-        }
-        catch (Exception e)
-        {
-            log.warn("合同 {} 切回模板后清理上传件失败（不影响切换结果）: {}", contractId, e.getMessage());
-        }
+        // detail 是改库前查出来的，原件地址只在这里还有用（库里已被置空）；清理内部已兜住失败
+        cleanContractUploadArtifacts(str(detail.get("sourcePdfUrl")));
         log.info("合同 {} 已从上传件切回模板 templateId={}，操作人={}", contractId, templateId, currentUserId);
         return getById(contractId);
     }
@@ -1301,9 +1330,9 @@ public class TradeContractService
         }
 
         byte[] stamped = pdfRenderer.stampImages(pdf, stamps);
-        String fileName = str(row.get("contractNo")) + "_signed.pdf";
-        storage.write("contract/" + contractId + "/" + fileName, stamped, "application/pdf");
-        String pdfUrl = Constants.RESOURCE_PREFIX + "/contract/" + contractId + "/" + fileName;
+        String key = ContractStoragePaths.signedPdfKey(contractId, str(row.get("contractNo")));
+        storage.write(key, stamped, "application/pdf");
+        String pdfUrl = ContractStoragePaths.urlOf(key);
         jdbc.update("UPDATE sys_contract SET signed_pdf_url = ?, update_time = NOW() WHERE contract_id = ?",
                 pdfUrl, contractId);
         log.info("合同 {} 上传件签署完成，已盖章生成 PDF: {}（共 {} 枚签章）", str(row.get("contractNo")), pdfUrl, stamps.size());
@@ -1357,6 +1386,43 @@ public class TradeContractService
     }
 
     /**
+     * 出口签发：合同材料地址带有效期与签名后才下发。
+     *
+     * <p>库里存的仍是干净相对路径（服务端自己读文件不经过 HTTP，无需签名），
+     * 只在返回给前端时拼参数；前端 mediaUrl 只做域名拼接、查询串原样带上，三端不用改。</p>
+     *
+     * <p>管理端合同页（ContractManageService）共用本方法，避免两处各写一份签发口径。</p>
+     */
+    public Map<String, Object> guardArtifacts(Map<String, Object> row)
+    {
+        if (row == null)
+        {
+            return null;
+        }
+        signField(row, "signedPdfUrl");
+        signField(row, "sourcePdfUrl");
+        signField(row, "buyerSignatureImage");
+        signField(row, "buyerSealImage");
+        signField(row, "sellerSignatureImage");
+        signField(row, "sellerSealImage");
+        Object content = row.get("content");
+        if (content instanceof String)
+        {
+            row.put("content", accessSigner.signHtml((String) content));
+        }
+        return row;
+    }
+
+    private void signField(Map<String, Object> row, String field)
+    {
+        Object value = row.get(field);
+        if (value instanceof String && !((String) value).isEmpty())
+        {
+            row.put(field, accessSigner.sign((String) value));
+        }
+    }
+
+    /**
      * 详情出口分叉：上传件不返回 HTML 正文，改返回分页图 URL 列表供前端翻页拖拽。
      */
     private Map<String, Object> decorateSource(Map<String, Object> detail)
@@ -1369,11 +1435,16 @@ public class TradeContractService
         {
             Object pc = detail.get("pageCount");
             int count = pc instanceof Number ? ((Number) pc).intValue() : 0;
-            Long id = toLong(detail.get("contractId"));
+            // 分页图不入库，按存量原件地址反推：新版在批次目录下，旧版平铺在 contract/{id}/
+            String sourcePdfUrl = str(detail.get("sourcePdfUrl"));
             List<String> pageUrls = new ArrayList<>();
             for (int i = 0; i < count; i++)
             {
-                pageUrls.add(Constants.RESOURCE_PREFIX + "/contract/" + id + "/page_" + i + ".png");
+                String pageUrl = ContractStoragePaths.pageUrlOf(sourcePdfUrl, i);
+                if (!pageUrl.isEmpty())
+                {
+                    pageUrls.add(accessSigner.sign(pageUrl));
+                }
             }
             detail.put("pageImageUrls", pageUrls);
             detail.put("content", null);
@@ -1385,11 +1456,34 @@ public class TradeContractService
         return detail;
     }
 
-    /** 删除合同目录下的源 PDF 与分页图（source_*.pdf / page_*.png），用于重新上传或切回模板前清场；保留最终 signed pdf。 */
-    private void cleanContractUploadArtifacts(Long contractId)
+    /**
+     * 删除该批次上传产生的源 PDF 与分页图，用于重新上传或切回模板前清场；保留签章图与最终 signed PDF。
+     *
+     * @param sourcePdfUrl 清理前的存量原件地址，空串表示没有上传件
+     */
+    private void cleanContractUploadArtifacts(String sourcePdfUrl)
     {
-        storage.deletePrefix("contract/" + contractId + "/page_");
-        storage.deletePrefix("contract/" + contractId + "/source_");
+        for (String key : ContractStoragePaths.cleanupKeysOf(sourcePdfUrl))
+        {
+            try
+            {
+                storage.deletePrefix(key);
+            }
+            catch (RuntimeException e)
+            {
+                // 清理是收尾动作：删不掉只留个孤儿文件，不该把已经成功的业务请求改成失败
+                log.warn("清理合同上传件 {} 失败（不影响业务结果）: {}", key, e.getMessage());
+            }
+        }
+    }
+
+    /** 读取当前存量的上传件原件地址（未上传过返回空串）。 */
+    private String previousSourcePdfUrl(Long contractId)
+    {
+        List<String> urls = jdbc.query(
+                "SELECT source_pdf_url FROM sys_contract WHERE contract_id = ?",
+                (java.sql.ResultSet rs, int rowNum) -> rs.getString(1), contractId);
+        return urls.isEmpty() ? "" : str(urls.get(0));
     }
 
     /** 把 /profile 图片物化到本地并转成渲染器可读取的 URI；图片缺失时保留原地址。 */

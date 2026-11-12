@@ -2,6 +2,7 @@ package com.smartscript.platform.trade.service;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Date;
@@ -15,7 +16,13 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.web.multipart.MultipartFile;
+import com.ruoyi.common.config.RuoYiConfig;
+import com.ruoyi.common.exception.file.FileNameLengthLimitExceededException;
+import com.ruoyi.common.exception.file.FileSizeLimitExceededException;
+import com.ruoyi.common.exception.file.InvalidExtensionException;
 import com.ruoyi.common.utils.SecurityUtils;
+import com.ruoyi.common.utils.file.FileUploadUtils;
 import com.ruoyi.common.utils.uuid.Seq;
 import com.smartscript.platform.trade.domain.SysDemand;
 import com.smartscript.platform.trade.domain.SysDemandExtendApply;
@@ -64,6 +71,11 @@ public class TradeDemandService
     public static final String DEPOSIT_HELD = "held";
     public static final String DEPOSIT_REFUNDED = "refunded";
     public static final String DEPOSIT_FORFEITED = "forfeited";
+
+    /** 任务类型：只征集剧本 / 剧本+分镜都要 / 提供剧本做分镜 */
+    public static final String TASK_TYPE_SCRIPT = "script";
+    public static final String TASK_TYPE_SCRIPT_STORYBOARD = "script_storyboard";
+    public static final String TASK_TYPE_STORYBOARD = "storyboard";
 
     public static final String SUBMISSION_STATUS_SUBMITTED = "submitted";
     public static final String SUBMISSION_STATUS_SHORTLISTED = "shortlisted";
@@ -136,6 +148,54 @@ public class TradeDemandService
     public List<Map<String, Object>> selectGenreCounts()
     {
         return demandMapper.selectGenreCounts();
+    }
+
+    /** 任务类型数量角标：与 selectGenreCounts 同口径。 */
+    public List<Map<String, Object>> selectTypeCounts()
+    {
+        return demandMapper.selectTypeCounts();
+    }
+
+    /** 发布分镜任务时选择源剧本：本人未删除作品列表（源剧本仅作参考，不排除已上架作品）。 */
+    public List<Map<String, Object>> selectSourceWorks(Long authorId)
+    {
+        return demandMapper.selectSourceWorks(authorId);
+    }
+
+    /** 源剧本上传大小上限：与容器 max-file-size 一致（10MB）。 */
+    private static final long MAX_SOURCE_SCRIPT_BYTES = 10 * 1024 * 1024L;
+
+    /** 源剧本文件扩展名白名单（与内容域剧本上传同口径）。 */
+    private static final String[] SOURCE_SCRIPT_EXTENSIONS = { "txt", "doc", "docx", "pdf" };
+
+    /**
+     * 上传分镜任务的源剧本文件。发布者是买方角色、可能无创作者资格，走不了 content 域上传口，
+     * 故在交易域开口；复用若依存储实现（同一上传目录与扩展名校验）。
+     * url 下发相对路径（/profile/upload/...），由客户端按自身 baseUrl 解析，
+     * 避免把上传者机器地址写进共享库（与内容域上传同一约定）。
+     */
+    public Map<String, Object> uploadSourceScript(MultipartFile file)
+    {
+        if (file == null || file.isEmpty()) throw new RuntimeException("文件不能为空");
+        if (file.getSize() > MAX_SOURCE_SCRIPT_BYTES) throw new RuntimeException("剧本文件不能超过10MB");
+        final String storedPath;
+        try
+        {
+            storedPath = FileUploadUtils.upload(RuoYiConfig.getUploadPath(), file, SOURCE_SCRIPT_EXTENSIONS);
+        }
+        catch (InvalidExtensionException | FileSizeLimitExceededException | FileNameLengthLimitExceededException e)
+        {
+            throw new RuntimeException("仅支持 txt/doc/docx/pdf 格式的剧本文件");
+        }
+        catch (IOException e)
+        {
+            log.warn("源剧本上传失败: {}", e.getClass().getSimpleName());
+            throw new RuntimeException("上传失败，请稍后重试");
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("url", storedPath);
+        result.put("fileName", file.getOriginalFilename());
+        return result;
     }
 
     public SysDemand selectDemandById(Long demandId)
@@ -453,7 +513,7 @@ public class TradeDemandService
         {
             throw new RuntimeException("任务ID缺失");
         }
-        SysDemand existing = demandMapper.selectDemandById(demand.getDemandId());
+        SysDemand existing = demandMapper.selectDemandForUpdate(demand.getDemandId());
         if (existing == null) throw new RuntimeException("任务不存在");
         if (operatorId == null || !operatorId.equals(existing.getClientId()))
         {
@@ -471,6 +531,17 @@ public class TradeDemandService
 
         // 基础字段校验（标题/截止/联系电话）
         validateDemandBasics(demand);
+        // 任务类型校验的作品归属以发布者为口径（上面已确认 operatorId 即发布者）
+        demand.setClientId(existing.getClientId());
+        // 未显式传类型时沿用原任务及其源剧本（兼容不带任务类型的旧客户端编辑）
+        if (demand.getTaskType() == null)
+        {
+            demand.setTaskType(existing.getTaskType());
+            demand.setSourceWorkId(existing.getSourceWorkId());
+            demand.setSourceScriptUrl(existing.getSourceScriptUrl());
+            demand.setSourceScriptName(existing.getSourceScriptName());
+        }
+        normalizeAndValidateTaskType(demand);
         // 总集数必填；未显式配置轮次时也固定生成最后一轮验收
         if (demand.getTotalEpisodes() == null || demand.getTotalEpisodes() <= 0)
         {
@@ -522,6 +593,49 @@ public class TradeDemandService
                 && !contact.matches("^(1[3-9]\\d{9}|0\\d{2,3}-?\\d{7,8}|(400|800)-?\\d{3}-?\\d{4})$"))
         {
             throw new RuntimeException("联系电话格式不正确");
+        }
+    }
+
+    /**
+     * 任务类型归一与校验（建单/改单共用，须在 clientId 确定后调用）：
+     * 缺省回落 script；storyboard 必须至少提供一种源剧本（本人作品或上传文件），
+     * 选作品时校验存在且归发布者本人；非 storyboard 类型清空源剧本字段，防止改类型后残留。
+     */
+    private void normalizeAndValidateTaskType(SysDemand demand)
+    {
+        String type = demand.getTaskType() == null || demand.getTaskType().trim().isEmpty()
+                ? TASK_TYPE_SCRIPT : demand.getTaskType().trim();
+        if (!TASK_TYPE_SCRIPT.equals(type) && !TASK_TYPE_SCRIPT_STORYBOARD.equals(type)
+                && !TASK_TYPE_STORYBOARD.equals(type))
+        {
+            throw new RuntimeException("任务类型不正确");
+        }
+        demand.setTaskType(type);
+        String url = demand.getSourceScriptUrl() == null ? "" : demand.getSourceScriptUrl().trim();
+        demand.setSourceScriptUrl(url.isEmpty() ? null : url);
+        String name = demand.getSourceScriptName() == null ? "" : demand.getSourceScriptName().trim();
+        demand.setSourceScriptName(name.isEmpty() ? null : name);
+        if (!TASK_TYPE_STORYBOARD.equals(type))
+        {
+            demand.setSourceWorkId(null);
+            demand.setSourceScriptUrl(null);
+            demand.setSourceScriptName(null);
+            return;
+        }
+        if (demand.getSourceWorkId() == null && demand.getSourceScriptUrl() == null)
+        {
+            throw new RuntimeException("提供剧本做分镜的任务，请选择本人作品或上传剧本文件作为源剧本");
+        }
+        if (demand.getSourceWorkId() != null)
+        {
+            Map<String, Object> work = stageMapper.selectWorkBrief(demand.getSourceWorkId());
+            if (work == null) throw new RuntimeException("源剧本作品不存在");
+            Object authorId = work.get("authorId");
+            if (authorId == null || demand.getClientId() == null
+                    || !demand.getClientId().equals(((Number) authorId).longValue()))
+            {
+                throw new RuntimeException("源剧本只能选择自己创作的作品");
+            }
         }
     }
 
@@ -667,9 +781,12 @@ public class TradeDemandService
     }
 
     /**
-     * 创作者提交本轮交付物：必须携带本人作品（work_id），已上架售卖（on_shelf）作品不得用于交付。
+     * 创作者提交本轮交付物。
+     * script/script_storyboard：必须携带本人作品（work_id），已上架售卖（on_shelf）作品不得用于交付；
      * 提交后本轮先进入 AI 审核（ai_reviewing）：计时暂停，后台 AI 打分 >=60 自动转人工验收(submitted)，
      * <60 自动打回(rejected)，AI 审核本身不需要人工介入。
+     * storyboard（提供剧本做分镜）：分镜无剧本正文可审，作品可选（未选作品时须给文件链接或交付说明），
+     * 跳过 AI 审核直接进入人工验收(submitted)，计时暂停口径与 AI 审核一致。
      */
     @Transactional
     public SysDemandStage deliverStage(Long demandId, Long stageId, Long creatorId,
@@ -698,25 +815,65 @@ public class TradeDemandService
             throw new RuntimeException("当前轮次状态不可提交");
         }
 
-        // 交付作品校验：必选、存在、本人、非已上架售卖
-        if (workId == null) throw new RuntimeException("请选择要交付的作品");
-        Map<String, Object> work = stageMapper.selectWorkBrief(workId);
-        if (work == null) throw new RuntimeException("交付作品不存在");
-        Object authorId = work.get("authorId");
-        if (authorId == null || !creatorId.equals(((Number) authorId).longValue()))
+        // 只允许交付当前生效轮次：防止越轮交付到尚未激活或已被驳回终止的轮次
+        SysDemandStage active = stageMapper.selectActiveStage(demandId);
+        if (active == null || !active.getStageId().equals(stageId))
         {
-            throw new RuntimeException("只能交付自己创作的作品");
-        }
-        if ("on_shelf".equals(String.valueOf(work.get("status"))))
-        {
-            throw new RuntimeException("作品已上架售卖，不能用于任务交付；请先下架后再提交");
+            throw new RuntimeException("只能交付当前进行中的轮次");
         }
 
-        stageMapper.updateDeliverable(stageId, SysDemandStage.STAGE_STATUS_AI_REVIEWING,
-                deliverableDesc, deliverableUrl, workId, String.valueOf(creatorId));
-        // 交付事务提交后再触发后台 AI 审核，避免异步线程读到旧状态
-        triggerAiReviewAfterCommit(stageId);
-        return stageMapper.selectByStageId(stageId);
+        boolean storyboardOnly = TASK_TYPE_STORYBOARD.equals(demand.getTaskType());
+        if (storyboardOnly)
+        {
+            deliverableDesc = deliverableDesc == null || deliverableDesc.trim().isEmpty() ? null : deliverableDesc.trim();
+            deliverableUrl = deliverableUrl == null || deliverableUrl.trim().isEmpty() ? null : deliverableUrl.trim();
+        }
+        // 交付作品校验：剧本类必选；分镜类可选，未选作品时须给分镜文件链接或交付说明
+        if (workId == null)
+        {
+            if (!storyboardOnly) throw new RuntimeException("请选择要交付的作品");
+            if (deliverableUrl == null && deliverableDesc == null)
+            {
+                throw new RuntimeException("请上传分镜文件链接或填写交付说明");
+            }
+        }
+        else
+        {
+            Map<String, Object> work = stageMapper.selectWorkBrief(workId);
+            if (work == null) throw new RuntimeException("交付作品不存在");
+            Object authorId = work.get("authorId");
+            if (authorId == null || !creatorId.equals(((Number) authorId).longValue()))
+            {
+                throw new RuntimeException("只能交付自己创作的作品");
+            }
+            if ("on_shelf".equals(String.valueOf(work.get("status"))))
+            {
+                throw new RuntimeException("作品已上架售卖，不能用于任务交付；请先下架后再提交");
+            }
+        }
+
+        if (storyboardOnly)
+        {
+            // 分镜交付跳过 AI 剧本审核，直接待人工验收（submitted_at 由 updateDeliverable 统一写入）
+            int changed = stageMapper.updateDeliverable(stageId, SysDemandStage.STAGE_STATUS_SUBMITTED,
+                    deliverableDesc, deliverableUrl, workId, String.valueOf(creatorId));
+            if (changed == 0) throw new RuntimeException("本轮状态已被变更，请刷新后重新提交");
+        }
+        else
+        {
+            int changed = stageMapper.updateDeliverable(stageId, SysDemandStage.STAGE_STATUS_AI_REVIEWING,
+                    deliverableDesc, deliverableUrl, workId, String.valueOf(creatorId));
+            if (changed == 0) throw new RuntimeException("本轮状态已被变更，请刷新后重新提交");
+            // 交付事务提交后再触发后台 AI 审核，避免异步线程读到旧状态
+            triggerAiReviewAfterCommit(stageId);
+        }
+        SysDemandStage delivered = stageMapper.selectByStageId(stageId);
+        if (storyboardOnly)
+        {
+            // 分镜直达人工验收：与 AI 审核通过转人工同口径通知发布者
+            notifyService.notifyStageReadyForReview(demand, delivered);
+        }
+        return delivered;
     }
 
     /** 注册事务提交后回调触发 AI 审核（无事务时直接触发）。 */
@@ -973,6 +1130,14 @@ public class TradeDemandService
     }
 
     /**
+     * 管理端整单延时记录：运营要看的是「谁申请、是否压着未处理」，不受买卖双方身份限制。
+     */
+    public List<SysDemandExtendApply> selectExtendHistoryForAdmin(Long demandId)
+    {
+        return extendApplyMapper.selectByDemandId(demandId);
+    }
+
+    /**
      * 发布者自主延时：不经申请直接顺延活动轮截止时间，
      * 同时往延时记录表落一行（apply_type=self、写入即生效、due_after=新截止），与申请延时同格式展示。
      */
@@ -1094,7 +1259,26 @@ public class TradeDemandService
         {
             throw new RuntimeException("只有发布者可以查看交付作品");
         }
-        if (stage.getWorkId() == null) throw new RuntimeException("本轮尚未交付作品");
+        if (stage.getWorkId() == null)
+        {
+            // 分镜任务允许纯文件/说明交付：无作品时返回交付说明与文件链接供验收
+            if (TASK_TYPE_STORYBOARD.equals(demand.getTaskType())
+                    && (stage.getDeliverableUrl() != null || stage.getDeliverableDesc() != null))
+            {
+                Map<String, Object> result = new LinkedHashMap<>();
+                result.put("stageId", stageId);
+                result.put("stageOrder", stage.getStageOrder());
+                result.put("episodeTo", stage.getEpisodeTo());
+                result.put("stageStatus", stage.getStatus());
+                result.put("submittedAt", stage.getSubmittedAt());
+                result.put("deliverableDesc", stage.getDeliverableDesc());
+                result.put("deliverableUrl", stage.getDeliverableUrl());
+                result.put("chapters", new ArrayList<>());
+                result.put("readableCount", 0);
+                return result;
+            }
+            throw new RuntimeException("本轮尚未交付作品");
+        }
 
         Map<String, Object> work = stageMapper.selectDeliveredWorkBrief(stage.getWorkId());
         if (work == null) throw new RuntimeException("交付作品不存在或已删除");
@@ -1136,6 +1320,61 @@ public class TradeDemandService
     }
 
     /**
+     * 查看分镜任务的源剧本（任何登录用户可看：潜在接单者需先评估剧本再决定是否付押金接单）。
+     * 作品源：全文可读（复用验收章节查询，episodeTo 传 null 即不截断）；
+     * 文件源：下发上传时落库的相对地址与文件名；两种源可同时存在。
+     * 正文统一过 ReviewContentText.plain，与验收/AI 审核同一口径，避免富文本原样下发（XSS 面）。
+     */
+    public Map<String, Object> selectSourceScript(Long demandId)
+    {
+        SysDemand demand = demandMapper.selectDemandById(demandId);
+        if (demand == null) throw new RuntimeException("任务不存在");
+        if (!TASK_TYPE_STORYBOARD.equals(demand.getTaskType()))
+        {
+            throw new RuntimeException("该任务未提供源剧本");
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("demandId", demandId);
+        result.put("taskType", demand.getTaskType());
+        if (demand.getSourceWorkId() != null)
+        {
+            Map<String, Object> work = stageMapper.selectDeliveredWorkBrief(demand.getSourceWorkId());
+            if (work != null)
+            {
+                result.put("work", work);
+                List<Map<String, Object>> rawChapters = stageMapper.selectChaptersForReview(demand.getSourceWorkId(), null);
+                List<Map<String, Object>> chapters = new ArrayList<>();
+                if (rawChapters != null)
+                {
+                    for (Map<String, Object> row : rawChapters)
+                    {
+                        Map<String, Object> item = new LinkedHashMap<>();
+                        item.put("chapterId", row.get("chapterId"));
+                        item.put("chapterNo", row.get("chapterNo"));
+                        item.put("chapterTitle", row.get("chapterTitle"));
+                        item.put("wordCount", row.get("wordCount"));
+                        // 源剧本供接单方整体评估，全本可读，与轮次交付的按集数截断不同
+                        item.put("readable", Boolean.TRUE);
+                        item.put("content", ReviewContentText.plain((String) row.get("content")));
+                        chapters.add(item);
+                    }
+                }
+                result.put("chapters", chapters);
+            }
+        }
+        if (demand.getSourceScriptUrl() != null)
+        {
+            result.put("fileUrl", demand.getSourceScriptUrl());
+            result.put("fileName", demand.getSourceScriptName());
+        }
+        if (!result.containsKey("work") && !result.containsKey("fileUrl"))
+        {
+            throw new RuntimeException("源剧本已失效，请联系发布者");
+        }
+        return result;
+    }
+
+    /**
      * 发布征集令（无验收轮次，兼容原调用）。
      */
     public int insertDemand(SysDemand demand)
@@ -1149,6 +1388,8 @@ public class TradeDemandService
         {
             demand.setClientId(SecurityUtils.getUserId());
         }
+        // 任务类型与源剧本校验依赖 clientId（作品归属），须在 clientId 确定后执行
+        normalizeAndValidateTaskType(demand);
         if (demand.getDemandNo() == null || demand.getDemandNo().isEmpty())
         {
             demand.setDemandNo("DM" + Seq.getId());
@@ -1211,7 +1452,15 @@ public class TradeDemandService
         if (demand == null) throw new RuntimeException("征集不存在");
         if (!operatorId.equals(demand.getClientId())) throw new RuntimeException("只有发布者可以关闭");
         if (!DEMAND_STATUS_OPEN.equals(demand.getStatus())) throw new RuntimeException("当前状态不可关闭");
-        return demandMapper.updateStatus(demandId, DEMAND_STATUS_CLOSED, String.valueOf(operatorId));
+        if (ESCROW_ESCROWED.equals(demand.getEscrowStatus()))
+        {
+            throw new RuntimeException("托管款已入账，关闭会导致资金搁置，不可关闭");
+        }
+        // CAS：判 open 与写入之间可能被并发抢单/编辑，状态已变则放弃关闭
+        int changed = demandMapper.updateStatusCas(demandId, DEMAND_STATUS_CLOSED,
+                String.valueOf(operatorId), DEMAND_STATUS_OPEN);
+        if (changed == 0) throw new RuntimeException("任务状态已变更，请刷新后重试");
+        return changed;
     }
 
     /**
@@ -1246,7 +1495,7 @@ public class TradeDemandService
         demandMapper.incrementSubmissionCount(demandId);
 
         // 通知发布者
-        notifyService.notifyDemandSubmitted(demandId, demand.getTitle(), demand.getClientId());
+        notifyService.notifyDemandSubmitted(sub.getSubmissionId(), demandId, demand.getTitle(), demand.getClientId());
         return sub;
     }
 

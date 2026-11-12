@@ -70,7 +70,8 @@
         WHERE s.stage_id = #{stageId}
     </select>
 
-    <!-- 交付写入：同时清除上一轮 AI 审核结果，避免重新交付时面板展示旧分数 -->
+    <!-- 交付写入：同时清除上一轮 AI 审核结果，避免重新交付时面板展示旧分数。
+         仅待交付/已驳回轮次可写入（并发重复提交或轮次已被处理时返回 0 行，调用方须校验）。 -->
     <update id="updateDeliverable">
         UPDATE sys_demand_stage
         SET status = #{status},
@@ -84,6 +85,7 @@
             update_by = #{updateBy},
             updated_at = NOW()
         WHERE stage_id = #{stageId}
+          AND status IN ('pending', 'rejected')
     </update>
 
     <!-- 人工验收写回：仅当本轮仍为 submitted 时生效（业务状态当版本号）。

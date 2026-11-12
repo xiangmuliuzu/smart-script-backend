@@ -1,6 +1,8 @@
 package com.ruoyi.web.controller.trade;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -27,9 +29,11 @@ import com.smartscript.platform.trade.domain.SysOrderStatusLog;
 import com.smartscript.platform.trade.domain.SysPartner;
 import com.smartscript.platform.trade.domain.SysQuote;
 import com.smartscript.platform.trade.domain.SysWork;
+import com.smartscript.platform.trade.service.DemandSandboxPaymentService;
 import com.smartscript.platform.trade.service.TradeCooperationService;
 import com.smartscript.platform.trade.service.TradeDemandService;
 import com.smartscript.platform.trade.service.TradeDemandTagService;
+import com.smartscript.platform.trade.service.TradeFinanceService;
 import com.smartscript.platform.trade.service.TradeFollowUpService;
 import com.smartscript.platform.trade.service.TradeInquiryService;
 import com.smartscript.platform.trade.service.TradeOrderService;
@@ -59,6 +63,8 @@ public class TradeController extends BaseController
     @Autowired private TradeQuoteService quoteService;
     @Autowired private TradeDemandService demandService;
     @Autowired private TradeCooperationService cooperationService;
+    @Autowired private DemandSandboxPaymentService sandboxPaymentService;
+    @Autowired private TradeFinanceService financeService;
 
     /* ==================== 2.25 / 2.26 / 2.27 Trade Works ==================== */
 
@@ -465,5 +471,52 @@ public class TradeController extends BaseController
         // 默认值与必填校验统一收敛到 Service.insertDemand（含 client_id NOT NULL 兜底，修复 COLLECT_001）
         int rows = demandService.insertDemand(demand);
         return toAjax(rows);
+    }
+
+    /* ==================== 需求任务运营视图（只读，金额均为库内「元」口径） ==================== */
+
+    /**
+     * 任务详情：含发布者/接单人昵称与托管、押金、轮次计时状态（selectDemandById 已 JOIN 用户表）。
+     */
+    @PreAuthorize("@ss.hasPermi('trade:demand:query')")
+    @GetMapping("/trade/demand/{demandId}")
+    public AjaxResult demandDetail(@PathVariable Long demandId)
+    {
+        SysDemand demand = demandService.selectDemandById(demandId);
+        if (demand == null) return AjaxResult.error("任务不存在");
+        return AjaxResult.success(demand);
+    }
+
+    /**
+     * 逐轮验收明细：每轮的截止集数、应放款金额、交付物、AI 分数与结论、驳回原因、
+     * 是否已放款（release_flag）、计时与逾期状态。运营据此判断任务卡在哪一轮。
+     */
+    @PreAuthorize("@ss.hasPermi('trade:demand:query')")
+    @GetMapping("/trade/demand/{demandId}/stages")
+    public AjaxResult demandStages(@PathVariable Long demandId)
+    {
+        return AjaxResult.success(demandService.selectStagesByDemandId(demandId));
+    }
+
+    /**
+     * 资金流水：沙箱实收（托管/押金）+ 逐轮放款结算单。
+     * 入账是沙箱真实收款，出账目前仅记账，两张表合起来才是运营要看的资金全貌。
+     */
+    @PreAuthorize("@ss.hasPermi('trade:demand:query')")
+    @GetMapping("/trade/demand/{demandId}/payments")
+    public AjaxResult demandPayments(@PathVariable Long demandId)
+    {
+        Map<String, Object> result = new HashMap<>();
+        result.put("sandboxPayments", sandboxPaymentService.listPayments(demandId));
+        result.put("stageSettles", financeService.listDemandStageSettles(demandId));
+        return AjaxResult.success(result);
+    }
+
+    /** 延时记录（申请延时 + 发布者自主延时，含各轮），供运营核对是否压着未处理。 */
+    @PreAuthorize("@ss.hasPermi('trade:demand:query')")
+    @GetMapping("/trade/demand/{demandId}/extend-applies")
+    public AjaxResult demandExtendApplies(@PathVariable Long demandId)
+    {
+        return AjaxResult.success(demandService.selectExtendHistoryForAdmin(demandId));
     }
 }

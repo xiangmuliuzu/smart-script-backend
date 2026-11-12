@@ -340,6 +340,17 @@ public class TradeFinanceService
         return rows;
     }
 
+    /**
+     * 管理端：某任务已生成的逐轮放款结算单（按轮次序号排列）。
+     * 出账目前是记账，运营要靠这张表核对「哪一轮放了多少钱、是否已被创作者确认入账」。
+     */
+    public List<Map<String, Object>> listDemandStageSettles(Long demandId)
+    {
+        return jdbc.queryForList(SETTLE_SELECT
+                + " WHERE biz_type = ? AND demand_id = ? ORDER BY stage_order ASC, created_at ASC",
+                SETTLE_BIZ_DEMAND_STAGE, demandId);
+    }
+
     public Map<String, Object> getSettleDetail(Long userId, Long settleId)
     {
         List<Map<String, Object>> rows = jdbc.queryForList(

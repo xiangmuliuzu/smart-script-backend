@@ -91,6 +91,7 @@ public class AppTradeDemandController
     public AppApiResponse<Map<String, Object>> list(
             @RequestParam(required = false) String status,
             @RequestParam(required = false) Integer genreId,
+            @RequestParam(required = false) String taskType,
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) String mine,
             @RequestParam(required = false, defaultValue = "created") String sortBy,
@@ -103,6 +104,7 @@ public class AppTradeDemandController
     {
         SysDemand query = new SysDemand();
         if (genreId != null) query.setGenreId(genreId);
+        if (taskType != null && !taskType.isEmpty()) query.setTaskType(taskType);
         if (keyword != null && !keyword.isEmpty()) query.setKeyword(keyword);
         if ("published".equals(mine))
         {
@@ -149,7 +151,7 @@ public class AppTradeDemandController
      * 任务广场轻量统计（供 Hero 横幅与题材 chip 角标）。
      *
      * <p>广场与角标统一"公开可接单"口径（status=open ∧ escrow=escrowed），与登录无关：
-     * availableCount/prizePoolFen/todayNewCount/genreCounts 均按此口径，
+     * availableCount/prizePoolFen/todayNewCount/genreCounts/typeCounts 均按此口径，
      * 角标总数=可接单总数，与广场列表可见集合一致。</p>
      */
     @GetMapping("/stats")
@@ -168,12 +170,22 @@ public class AppTradeDemandController
             item.put("count", toLong(row.get("cnt")));
             genreCounts.add(item);
         }
+        List<Map<String, Object>> typeRows = demandService.selectTypeCounts();
+        List<Map<String, Object>> typeCounts = new ArrayList<>();
+        for (Map<String, Object> row : typeRows)
+        {
+            Map<String, Object> item = new HashMap<>();
+            item.put("taskType", row.get("taskType"));
+            item.put("count", toLong(row.get("cnt")));
+            typeCounts.add(item);
+        }
         Map<String, Object> result = new HashMap<>();
         result.put("availableCount", availableCount);
         // 与 /list 一致：聚合 SQL 按元求和，出参统一转分（APP 以分交互的全局约定）
         result.put("prizePoolFen", yuanToFen(prizePoolYuan));
         result.put("todayNewCount", todayNewCount);
         result.put("genreCounts", genreCounts);
+        result.put("typeCounts", typeCounts);
         return AppApiResponse.ok(result);
     }
 
@@ -209,7 +221,9 @@ public class AppTradeDemandController
 
     /**
      * 发布任务（企业/买方角色）。
-     * Body: {title, genreId, budget(分), deadline, requirement, contactInfo, tags, totalEpisodes, stages:[{stageOrder,episodeTo,amount(元)}]}
+     * Body: {title, genreId, budget(分), deadline, requirement, contactInfo, tags, totalEpisodes,
+     *        taskType(script/script_storyboard/storyboard), sourceWorkId, sourceScriptUrl, sourceScriptName,
+     *        stages:[{stageOrder,episodeTo,amount(元)}]}
      */
     @PostMapping
     public AppApiResponse<SysDemand> create(@RequestBody Map<String, Object> body)
@@ -226,6 +240,10 @@ public class AppTradeDemandController
         demand.setContactInfo(str(body, "contactInfo"));
         demand.setTotalEpisodes(intVal(body, "totalEpisodes"));
         demand.setDurationHours(intVal(body, "durationHours"));
+        demand.setTaskType(str(body, "taskType"));
+        demand.setSourceWorkId(longVal(body, "sourceWorkId"));
+        demand.setSourceScriptUrl(str(body, "sourceScriptUrl"));
+        demand.setSourceScriptName(str(body, "sourceScriptName"));
         // 总集数必填：最后一轮验收依赖总集数固定生成
         if (demand.getTotalEpisodes() == null || demand.getTotalEpisodes() <= 0)
         {
@@ -246,14 +264,23 @@ public class AppTradeDemandController
 
         // 解析验收轮次；未传轮次时由 Service 固定兜底生成最后一轮验收
         List<SysDemandStage> stages = parseStages(body.get("stages"));
-        demandService.insertDemand(demand, stages);
+        try
+        {
+            demandService.insertDemand(demand, stages);
+        }
+        catch (RuntimeException e)
+        {
+            return AppApiResponse.fail(400, e.getMessage());
+        }
         applyFen(demand);
         return AppApiResponse.ok(demand);
     }
 
     /**
      * 编辑任务（仅发布者、仅未托管未接单可改）。
-     * Body 同发布：{title, genreId, budget(分), deadline, requirement, contactInfo, tags, totalEpisodes, durationHours, stages:[...]}。
+     * Body 同发布：{title, genreId, budget(分), deadline, requirement, contactInfo, tags, totalEpisodes, durationHours,
+     *              taskType, sourceWorkId, sourceScriptUrl, sourceScriptName, stages:[...]}。
+     * 不传 taskType 时沿用原任务类型与源剧本（兼容旧客户端）。
      */
     @PutMapping("/{demandId}")
     public AppApiResponse<SysDemand> update(@PathVariable Long demandId, @RequestBody Map<String, Object> body)
@@ -269,6 +296,10 @@ public class AppTradeDemandController
         demand.setContactInfo(str(body, "contactInfo"));
         demand.setTotalEpisodes(intVal(body, "totalEpisodes"));
         demand.setDurationHours(intVal(body, "durationHours"));
+        demand.setTaskType(str(body, "taskType"));
+        demand.setSourceWorkId(longVal(body, "sourceWorkId"));
+        demand.setSourceScriptUrl(str(body, "sourceScriptUrl"));
+        demand.setSourceScriptName(str(body, "sourceScriptName"));
         // 总集数必填：最后一轮验收依赖总集数固定生成
         if (demand.getTotalEpisodes() == null || demand.getTotalEpisodes() <= 0)
         {
@@ -560,8 +591,53 @@ public class AppTradeDemandController
     }
 
     /**
-     * 创作者提交本轮交付物（选定本人作品，提交后本轮计时暂停待审核）。
-     * Body: {workId(必填), deliverableDesc, deliverableUrl(可选)}
+     * 源剧本作品候选（发布分镜任务时选择本人作品；本人未删除作品即可，不排除已上架）。
+     */
+    @GetMapping("/source-works")
+    public AppApiResponse<List<Map<String, Object>>> sourceWorks()
+    {
+        return AppApiResponse.ok(demandService.selectSourceWorks(currentUserId()));
+    }
+
+    /**
+     * 上传源剧本文件（发布分镜任务用，发布者无需创作者资格）。
+     * multipart 字段名 file；返回 {url(相对路径，客户端按 baseUrl 解析), fileName}。
+     */
+    @PostMapping("/upload-script")
+    public AppApiResponse<Map<String, Object>> uploadScript(@RequestParam("file") org.springframework.web.multipart.MultipartFile file)
+    {
+        try
+        {
+            return AppApiResponse.ok(demandService.uploadSourceScript(file));
+        }
+        catch (RuntimeException e)
+        {
+            return AppApiResponse.fail(400, e.getMessage());
+        }
+    }
+
+    /**
+     * 查看分镜任务的源剧本（任何登录用户可看：潜在接单者先评估剧本再决定是否付押金）。
+     * 返回 {demandId, taskType, work?, chapters?, fileUrl?, fileName?}：作品源给全文，文件源给下载地址。
+     */
+    @GetMapping("/{demandId}/source-script")
+    public AppApiResponse<Map<String, Object>> sourceScript(@PathVariable Long demandId)
+    {
+        try
+        {
+            return AppApiResponse.ok(demandService.selectSourceScript(demandId));
+        }
+        catch (RuntimeException e)
+        {
+            return AppApiResponse.fail(400, e.getMessage());
+        }
+    }
+
+    /**
+     * 创作者提交本轮交付物（提交后本轮计时暂停待审核）。
+     * Body: {workId, deliverableDesc, deliverableUrl}
+     * 剧本类任务 workId 必填；分镜类（storyboard）作品可选，未选作品时须给文件链接或交付说明，
+     * 且跳过 AI 审核直接进入人工验收。
      */
     @PostMapping("/{demandId}/stage/{stageId}/deliver")
     public AppApiResponse<SysDemandStage> deliver(
