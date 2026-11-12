@@ -149,13 +149,100 @@ public final class WorkGenPromptSupport
         appendBlock(prompt, summaryBlock);
         appendBlock(prompt, volumeText);
         appendBlock(prompt, ledgerText);
+        prompt.append(threadScheduleBlock(ledger == null ? "" : ledger.getThreads(), episode.getNo()));
         if (!prevText.isEmpty())
         {
             prompt.append("\n\n【上一章结尾（本集第一段从这里往下接着写）】\n").append(prevText)
-                    .append("\n本集开场直接承接上面最后一个动作或悬念，用它的结果往下推；人物、事件、道具的状态只能通过情节自然过渡变化。")
+                    .append("\n本集开场必须回应上面最后一个动作或悬念：给出结果、推进到下一步、或明确交代它被搁置的原因，不能当作没发生过；")
+                    .append("允许该悬念跨集延续，不要求在本集收尾。人物、事件、道具的状态只能通过情节自然过渡变化。")
                     .append("只有三种情况可以直接换场：上一集事件已经收束、本集开启另一个过渡事件、本集切到另一视角继续同一事件。");
         }
         return prompt.toString();
+    }
+
+    /**
+     * 悬念排期：把未解线索按「计划兑现点」分成两类。
+     *
+     * 到期项（兑现点 <= 本集）要求本集给出进展或结果；
+     * 未到期项只作背景，明确禁止提前解决——长线悬念（如三年之约）不能因为写到了下一集就被迫收线。
+     * 台账里的兑现点统一写成「第N集」，取行内最后出现的集号（兼容「第3集埋下、第8集兑现」）。
+     */
+    public static String threadScheduleBlock(String threads, int currentNo)
+    {
+        String text = safe(threads).trim();
+        if (text.isEmpty())
+        {
+            return "";
+        }
+        List<String> due = new ArrayList<>();
+        List<String> later = new ArrayList<>();
+        for (String raw : text.split("\\n"))
+        {
+            String line = raw.trim();
+            if (line.isEmpty())
+            {
+                continue;
+            }
+            line = line.replaceFirst("^(未解线索|线索)[：:]", "").trim();
+            if (line.contains("已结") || line.contains("已回收") || line.contains("已兑现"))
+            {
+                continue;
+            }
+            int dueNo = lastEpisodeNo(line);
+            if (dueNo > 0 && dueNo <= currentNo)
+            {
+                due.add(line);
+            }
+            else
+            {
+                later.add(line);
+            }
+        }
+        StringBuilder block = new StringBuilder();
+        if (!due.isEmpty())
+        {
+            block.append("\n\n【本集必须处理（已到期未结的悬念/约定）】\n")
+                    .append(clipLines(due, 600))
+                    .append("\n这些项在本集必须给出进展或结果，不能整集不提；若本集事件卡没安排，就用一到两句交代推进到哪一步。");
+        }
+        if (!later.isEmpty())
+        {
+            block.append("\n\n【背景悬念（未到期，不得提前解决）】\n")
+                    .append(clipLines(later, 600))
+                    .append("\n这些项只需保持存在感（可提一句、可作动机），不得在本集提前收线或给出答案。");
+        }
+        return block.toString();
+    }
+
+    /** 取一段文本里最后出现的「第N集」集号，取不到返回 0。 */
+    private static int lastEpisodeNo(String line)
+    {
+        Matcher matcher = Pattern.compile("第\\s*(\\d{1,3})\\s*集").matcher(safe(line));
+        int no = 0;
+        while (matcher.find())
+        {
+            no = Integer.parseInt(matcher.group(1));
+        }
+        return no;
+    }
+
+    /** 按行拼接到字数上限，超出即停（不截半行）。 */
+    private static String clipLines(List<String> lines, int limit)
+    {
+        StringBuilder sb = new StringBuilder();
+        for (String line : lines)
+        {
+            if (sb.length() + line.length() + 1 > limit)
+            {
+                break;
+            }
+            if (sb.length() > 0)
+            {
+                sb.append('\n');
+            }
+            sb.append("- ").append(line);
+        }
+        return sb.toString();
     }
 
     /** 续写提示词（单集触达长度上限时补一次）。 */
@@ -295,7 +382,8 @@ public final class WorkGenPromptSupport
         lines.add("道具：件数、持有人、完好状态一律沿用下面的道具档案，不得改数、不得凭空多出或少掉；"
                 + "档案里已写「已交付给某某」的道具，本集不得再交付一次，也不得在没有「退回/夺回/丢失」情节的情况下回到原主手里；"
                 + "本集事件卡没写“丢失/拿走/损坏/交出”，正文不得改变它的状态。");
-        lines.add("状态过渡：本集开场必须接着上一集结尾最后一个动作或悬念往下写，人物、事件、道具的状态只能通过情节自然过渡发生变化；"
+        lines.add("状态过渡：本集开场必须回应上一集结尾最后一个动作或悬念（给出结果、推进到下一步，或用一句话交代它为何被搁置），不能当作没发生过；"
+                + "允许该悬念跨集延续，不要求在本集收尾；人物、事件、道具的状态只能通过情节自然过渡发生变化；"
                 + "只有三种情况可以直接换场——上一集事件已经收束、本集开启另一个过渡事件、本集切到另一视角继续同一事件；"
                 + "除这三种，不得让人物立场、伤势、在场关系或道具归属在没有过渡的情况下突变。");
         lines.add("事件：只承接下列已发生的事实；本集事件卡规定的进程不得跳过，已发生的事不得再写一遍。");
@@ -303,8 +391,8 @@ public final class WorkGenPromptSupport
                 + "文风一旦变化，读者会以为换了写手。");
         List<String> data = new ArrayList<>();
         String propText = head(safe(props), 1100);
-        String itemText = head(safe(items), 240);
-        String eventText = head(safe(timeline), 320);
+        String itemText = tail(safe(items), 240);
+        String eventText = tail(safe(timeline), 320);
         String styleText = head(safe(styleGuide), 400);
         if (!propText.isEmpty())
         {

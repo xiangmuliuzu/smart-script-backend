@@ -183,8 +183,56 @@ public final class ChapterSummarySupport
         changed |= apply(ledger.getItems(), patch.get("items"), ledger::setItems);
         changed |= mergeProps(ledger, patch.get("props"));
         changed |= apply(ledger.getStyleGuide(), patch.get("styleGuide"), ledger::setStyleGuide);
-        changed |= apply(ledger.getThreads(), patch.get("threads"), ledger::setThreads);
+        changed |= mergeThreads(ledger, patch.get("threads"));
         return changed;
+    }
+
+    /**
+     * 未解线索按条目合并：同一悬念以新状态覆盖旧条目（未结→已结），不同悬念保留。
+     *
+     * 普通 apply 只会追加，旧行「未结」会一直和新行「已结」并存，
+     * 导致已兑现的悬念仍被当成未结、持续注入后续集。
+     */
+    public static boolean mergeThreads(SysWorkLedger ledger, String patch)
+    {
+        if (ledger == null || patch == null || patch.isBlank())
+        {
+            return false;
+        }
+        String oldText = ledger.getThreads() == null ? "" : ledger.getThreads().trim();
+        Map<String, String> items = new LinkedHashMap<>();
+        for (String line : oldText.split("\\n"))
+        {
+            if (!line.isBlank())
+            {
+                items.put(threadKey(line), line.trim());
+            }
+        }
+        for (String line : patch.trim().split("\\n"))
+        {
+            if (!line.isBlank())
+            {
+                items.put(threadKey(line), line.trim());
+            }
+        }
+        String merged = String.join("\n", items.values());
+        if (merged.equals(oldText))
+        {
+            return false;
+        }
+        ledger.setThreads(merged);
+        return true;
+    }
+
+    /** 线索条目主键：取第一个「｜」前的悬念名；没有分隔符时取前 12 字。 */
+    private static String threadKey(String line)
+    {
+        String text = line == null ? "" : line.trim();
+        text = text.replaceFirst("^(未解线索|线索)[：:]", "").trim();
+        int bar = text.indexOf('｜');
+        String key = bar > 0 ? text.substring(0, bar) : text;
+        key = key.trim();
+        return key.length() <= 12 ? key : key.substring(0, 12);
     }
 
     /** 单字段合并：模型没给、给了空串、或与现值相同都不动；增量条目追加到旧值后面。 */

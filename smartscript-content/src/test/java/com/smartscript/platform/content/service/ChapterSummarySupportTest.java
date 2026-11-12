@@ -155,4 +155,20 @@ class ChapterSummarySupportTest
         }
         assertTrue(root.has("summary"));
     }
+
+    @Test
+    void mergeThreadsReplacesSameThreadStatusAndKeepsOthers()
+    {
+        SysWorkLedger ledger = new SysWorkLedger();
+        ledger.setThreads("月圆夜告知锁灵钉来历｜孙婆婆｜第3集｜未结\n三年之约｜柳青梧｜未定｜未结");
+        assertTrue(ChapterSummarySupport.mergeLedger(ledger, Map.of("threads",
+                "月圆夜告知锁灵钉来历｜孙婆婆｜第5集｜已结\n掌门为何落锁｜陈铁柱｜第9集｜未结")));
+        String threads = ledger.getThreads();
+        // 同一悬念只保留最新状态，不能「未结/已结」两行并存
+        assertEquals(1, threads.split("月圆夜告知锁灵钉来历").length - 1);
+        assertTrue(threads.contains("第5集｜已结"));
+        // 未被提及的长线悬念必须保留，不能因为合并被清掉
+        assertTrue(threads.contains("三年之约"));
+        assertTrue(threads.contains("掌门为何落锁"));
+    }
 }
