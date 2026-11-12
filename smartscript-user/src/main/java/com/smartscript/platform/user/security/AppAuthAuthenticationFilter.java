@@ -88,6 +88,9 @@ public class AppAuthAuthenticationFilter extends OncePerRequestFilter
             "/content/drama-feed",
             "/content/external-dramas",
             "/content/episodes",
+            // 任务广场仅开放公开列表和统计，游客可读；详情、会话、支付与接单仍需身份。
+            "/trade/demand/list",
+            "/trade/demand/stats",
     };
 
     public AppAuthAuthenticationFilter(AppRuoYiSessionService accessTokenService)

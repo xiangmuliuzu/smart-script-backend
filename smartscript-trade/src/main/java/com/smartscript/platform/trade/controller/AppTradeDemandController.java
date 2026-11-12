@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Value;
@@ -102,6 +103,11 @@ public class AppTradeDemandController
             @RequestParam(defaultValue = "1") Integer pageNum,
             @RequestParam(defaultValue = "20") Integer pageSize)
     {
+        boolean authenticated = identityProvider.currentIdentity().isAuthenticated();
+        if (!authenticated && mine != null && !mine.isBlank())
+        {
+            return AppApiResponse.fail(401, "请登录后查看个人任务");
+        }
         SysDemand query = new SysDemand();
         if (genreId != null) query.setGenreId(genreId);
         if (taskType != null && !taskType.isEmpty()) query.setTaskType(taskType);
@@ -141,9 +147,33 @@ public class AppTradeDemandController
         {
             applyFen(d);
         }
+        List<?> responseList = list;
+        if (!authenticated)
+        {
+            // 游客只拿到公开任务展示字段，避免原始 SysDemand 带出联系方式、用户编号及资金状态。
+            List<Map<String, Object>> publicList = new ArrayList<>(list.size());
+            for (SysDemand demand : list)
+            {
+                Map<String, Object> item = new LinkedHashMap<>();
+                item.put("demandId", demand.getDemandId());
+                item.put("demandNo", demand.getDemandNo());
+                item.put("title", demand.getTitle());
+                item.put("genreId", demand.getGenreId());
+                item.put("tags", demand.getTags());
+                item.put("budget", demand.getBudget());
+                item.put("deadline", demand.getDeadline());
+                item.put("requirement", demand.getRequirement());
+                item.put("totalEpisodes", demand.getTotalEpisodes());
+                item.put("durationHours", demand.getDurationHours());
+                item.put("status", demand.getStatus());
+                item.put("createdAt", demand.getCreatedAt());
+                publicList.add(item);
+            }
+            responseList = publicList;
+        }
         Map<String, Object> result = new HashMap<>();
         result.put("total", total);
-        result.put("list", list);
+        result.put("list", responseList);
         return AppApiResponse.ok(result);
     }
 
