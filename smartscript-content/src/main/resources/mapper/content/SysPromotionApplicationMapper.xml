@@ -16,6 +16,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		<result property="days"           column="days"            />
 		<result property="amount"         column="amount"          />
 		<result property="source"         column="source"          />
+		<result property="exclusive"      column="exclusive"       />
 		<result property="status"         column="status"          />
 		<result property="payStatus"      column="pay_status"      />
 		<result property="payTime"        column="pay_time"        />
@@ -37,7 +38,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 
 	<sql id="selectApplicationVo">
 		select a.apply_id, a.apply_no, a.work_id, a.author_id, a.slot_type, a.slot_no,
-		       a.start_time, a.end_time, a.days, a.amount, a.source, a.status, a.pay_status,
+		       a.start_time, a.end_time, a.days, a.amount, a.source, a.exclusive, a.status, a.pay_status,
 		       a.pay_time, a.banner_id, a.material_url, a.reject_reason, a.lock_expire_at, a.audit_by, a.audit_time,
 		       a.remark, a.create_by, a.create_time, a.update_by, a.update_time,
 		       w.title as work_title, w.cover as work_cover, u.nick_name as author_name
@@ -100,6 +101,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		select count(*) from sys_promotion_application
 		where slot_type = #{slotType} and slot_no = #{slotNo}
 		  and start_time &lt; #{endTime} and end_time &gt; #{startTime}
+		  and exclusive = #{exclusive}
 		  and (status = 'paid' or (status = 'approved' and lock_expire_at &gt; #{now}))
 		<if test="excludeId != null">and apply_id != #{excludeId}</if>
 	</select>
@@ -108,11 +110,11 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 	        useGeneratedKeys="true" keyProperty="applyId">
 		insert into sys_promotion_application(
 			apply_no, work_id, author_id, slot_type, slot_no, start_time, end_time, days, amount,
-			source, status, pay_status, pay_time, banner_id, material_url, reject_reason, lock_expire_at,
+			source, exclusive, status, pay_status, pay_time, banner_id, material_url, reject_reason, lock_expire_at,
 			audit_by, audit_time, remark, create_by, create_time
 		) values (
 			#{applyNo}, #{workId}, #{authorId}, #{slotType}, #{slotNo}, #{startTime}, #{endTime}, #{days}, #{amount},
-			#{source}, #{status}, #{payStatus}, #{payTime}, #{bannerId}, #{materialUrl}, #{rejectReason}, #{lockExpireAt},
+			#{source}, #{exclusive}, #{status}, #{payStatus}, #{payTime}, #{bannerId}, #{materialUrl}, #{rejectReason}, #{lockExpireAt},
 			#{auditBy}, #{auditTime}, #{remark}, #{createBy}, sysdate()
 		)
 	</insert>
@@ -146,6 +148,14 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		where apply_id = #{applyId} and status in ('pending', 'approved', 'paid')
 	</update>
 
+	<update id="updateExclusive">
+		update sys_promotion_application
+		set exclusive = #{exclusive},
+		    update_by = #{updateBy},
+		    update_time = sysdate()
+		where apply_id = #{applyId} and status = 'paid'
+	</update>
+
 	<select id="selectMonthRevenue" resultType="java.math.BigDecimal">
 		select coalesce(sum(amount), 0) from sys_promotion_application
 		where slot_type = #{slotType}
@@ -164,7 +174,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 
 	<select id="selectActiveBannerApplications" resultMap="PromotionApplicationResult">
 		select a.apply_id, a.apply_no, a.work_id, a.author_id, a.slot_type, a.slot_no,
-		       a.start_time, a.end_time, a.material_url, a.banner_id,
+		       a.start_time, a.end_time, a.material_url, a.banner_id, a.exclusive,
 		       w.title as work_title, w.cover as work_cover
 		from sys_promotion_application a
 		join sys_work w on w.work_id = a.work_id and w.is_deleted = 0
@@ -172,7 +182,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		  and a.start_time &lt;= #{now} and a.end_time &gt;= #{now}
 		  and (a.material_url is not null or a.banner_id is not null)
 		  and w.status = 'on_shelf'
-		order by a.slot_no asc, a.apply_id asc
+		order by a.slot_no asc, a.exclusive desc, a.apply_id asc
 	</select>
 
 	<select id="selectActiveSlotApplications" resultMap="PromotionApplicationResult">
@@ -183,7 +193,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		join sys_work w on w.work_id = a.work_id and w.is_deleted = 0 and w.status = 'on_shelf'
 		where a.slot_type = #{slotType} and a.status = 'paid'
 		  and a.start_time &lt;= #{now} and a.end_time &gt;= #{now}
-		order by a.slot_no asc, a.apply_id asc
+		order by a.slot_no asc, a.exclusive desc, a.apply_id asc
 	</select>
 
 </mapper>

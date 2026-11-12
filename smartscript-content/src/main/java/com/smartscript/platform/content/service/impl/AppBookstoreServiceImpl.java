@@ -149,8 +149,8 @@ public class AppBookstoreServiceImpl implements IAppBookstoreService
             return rows;
         }
 
-        // 首页轮播：已支付的推广申请在投放时间窗内直接派生为 Banner，按位次覆盖运营素材；
-        // 没有付费投放的位次继续展示运营 Banner。上线/下线完全由时间窗决定。
+        // 首页轮播完全由推广申请派生：同位次锁定单优先，其次是运营兜底单（exclusive=0）。
+        // 旧 sys_banner 兜底素材已随 Banner 管理页下线清理，不再读取。上下线完全由时间窗决定。
         Map<Integer, SysBanner> bySortOrder = new TreeMap<>();
         int maxSlotNo = maxSlotNo("banner");
         for (SysPromotionApplication app : promotionApplicationMapper.selectActiveBannerApplications(new Date()))
@@ -178,17 +178,8 @@ public class AppBookstoreServiceImpl implements IAppBookstoreService
             bySortOrder.putIfAbsent(app.getSlotNo(), banner);
         }
 
-        // 轮播展示严格按坑位配置位次取数：付费投放覆盖同位次运营素材，
-        // 超出坑位数量或未配置位次的运营 Banner 不再下发，避免 App 比 PC 多出轮播图。
-        for (SysBanner row : rows)
-        {
-            Integer sortOrder = row.getSortOrder();
-            if (sortOrder == null || sortOrder < 1 || (maxSlotNo > 0 && sortOrder > maxSlotNo))
-            {
-                continue;
-            }
-            bySortOrder.putIfAbsent(sortOrder, row);
-        }
+        // 轮播展示严格按坑位配置位次取数，超出坑位数量的投放不再下发，
+        // 避免 App 比 PC 多出轮播图。
         return new ArrayList<>(bySortOrder.values());
     }
 

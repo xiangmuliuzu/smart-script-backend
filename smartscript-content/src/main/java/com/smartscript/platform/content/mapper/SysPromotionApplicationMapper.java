@@ -15,10 +15,11 @@ public interface SysPromotionApplicationMapper
     /** 某资源位下所有未结束的占用（paid 全部 + approved 且锁坑未过期） */
     List<SysPromotionApplication> selectOpenOccupancies(@Param("slotType") String slotType, @Param("now") Date now);
 
-    /** 时间窗冲突数（排除自身） */
+    /** 时间窗冲突数（排除自身；仅比较同锁定类型的投放：锁定单只拦锁定单，兜底单只拦兜底单） */
     int countConflicts(@Param("slotType") String slotType, @Param("slotNo") Integer slotNo,
             @Param("startTime") Date startTime, @Param("endTime") Date endTime,
-            @Param("now") Date now, @Param("excludeId") Long excludeId);
+            @Param("now") Date now, @Param("excludeId") Long excludeId,
+            @Param("exclusive") Integer exclusive);
 
     int insertApplication(SysPromotionApplication app);
 
@@ -27,6 +28,10 @@ public interface SysPromotionApplicationMapper
     int updatePaid(@Param("applyId") Long applyId, @Param("payTime") Date payTime);
 
     int cancel(@Param("applyId") Long applyId, @Param("updateBy") String updateBy);
+
+    /** 切换锁定标记（仅投放中的记录） */
+    int updateExclusive(@Param("applyId") Long applyId, @Param("exclusive") Integer exclusive,
+            @Param("updateBy") String updateBy);
 
     /** 本月已支付金额（按资源位） */
     java.math.BigDecimal selectMonthRevenue(@Param("slotType") String slotType);

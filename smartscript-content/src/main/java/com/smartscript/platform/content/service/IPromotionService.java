@@ -38,6 +38,9 @@ public interface IPromotionService
     /** 下架 / 取消投放 */
     int offline(Long applyId, String operator);
 
+    /** 切换锁定标记：1=锁定独占，0=可被付费素材覆盖（仅管理员上架且投放中的记录） */
+    int updateExclusive(Long applyId, Integer exclusive, String operator);
+
     /** 位次单价与启停配置 */
     int updatePrices(PromotionPriceRequest request);
 

@@ -1,7 +1,6 @@
 package com.smartscript.platform.content.dto;
 
 import java.math.BigDecimal;
-import com.smartscript.platform.content.domain.SysBanner;
 import com.smartscript.platform.content.domain.SysPromotionApplication;
 
 /**
@@ -31,14 +30,14 @@ public class PromotionSlotVo
     /** 坑位状态 */
     private String state;
 
-    /** 当前投放（active / locked / reserved） */
+    /** 当前投放（active / locked / reserved；只含锁定单，App 据此判断不可预约） */
     private SysPromotionApplication current;
+
+    /** 当前生效的运营兜底素材（exclusive=0，可被付费素材覆盖） */
+    private SysPromotionApplication backup;
 
     /** 下一笔预约 */
     private SysPromotionApplication next;
-
-    /** 轮播位素材（slot_type=banner 时返回） */
-    private SysBanner banner;
 
     public Long getSlotId()
     {
@@ -120,6 +119,16 @@ public class PromotionSlotVo
         this.current = current;
     }
 
+    public SysPromotionApplication getBackup()
+    {
+        return backup;
+    }
+
+    public void setBackup(SysPromotionApplication backup)
+    {
+        this.backup = backup;
+    }
+
     public SysPromotionApplication getNext()
     {
         return next;
@@ -128,15 +137,5 @@ public class PromotionSlotVo
     public void setNext(SysPromotionApplication next)
     {
         this.next = next;
-    }
-
-    public SysBanner getBanner()
-    {
-        return banner;
-    }
-
-    public void setBanner(SysBanner banner)
-    {
-        this.banner = banner;
     }
 }

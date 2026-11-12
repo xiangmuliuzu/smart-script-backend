@@ -55,6 +55,9 @@ public class SysPromotionApplication extends BaseEntity
     /** 来源：author_paid/admin_grant */
     private String source;
 
+    /** 锁定标记：1=锁定独占（付费投放/管理员锁定），0=可被付费素材覆盖的运营兜底 */
+    private Integer exclusive;
+
     /** 状态：pending/approved/rejected/paid/cancelled */
     private String status;
 
@@ -219,6 +222,16 @@ public class SysPromotionApplication extends BaseEntity
     public void setSource(String source)
     {
         this.source = source;
+    }
+
+    public Integer getExclusive()
+    {
+        return exclusive;
+    }
+
+    public void setExclusive(Integer exclusive)
+    {
+        this.exclusive = exclusive;
     }
 
     public String getStatus()

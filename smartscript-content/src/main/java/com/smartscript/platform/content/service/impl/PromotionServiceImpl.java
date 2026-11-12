@@ -19,7 +19,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.smartscript.platform.content.domain.SysBanner;
 import com.smartscript.platform.content.domain.SysPromotionApplication;
 import com.smartscript.platform.content.domain.SysPromotionSlot;
 import com.smartscript.platform.content.domain.SysWork;
@@ -29,7 +28,6 @@ import com.smartscript.platform.content.dto.PromotionOverviewVo;
 import com.smartscript.platform.content.dto.PromotionPriceRequest;
 import com.smartscript.platform.content.dto.PromotionSlotPageVo;
 import com.smartscript.platform.content.dto.PromotionSlotVo;
-import com.smartscript.platform.content.mapper.SysBannerMapper;
 import com.smartscript.platform.content.mapper.SysContentWorkMapper;
 import com.smartscript.platform.content.mapper.SysPromotionApplicationMapper;
 import com.smartscript.platform.content.mapper.SysPromotionSlotMapper;
@@ -71,9 +69,6 @@ public class PromotionServiceImpl implements IPromotionService
     @Autowired
     private SysContentWorkMapper workMapper;
 
-    @Autowired
-    private SysBannerMapper bannerMapper;
-
     // ==================== 坑位总览 ====================
 
     @Override
@@ -101,14 +96,6 @@ public class PromotionServiceImpl implements IPromotionService
             bySlot.computeIfAbsent(app.getSlotNo(), key -> new ArrayList<>()).add(app);
         }
 
-        List<SysBanner> banners = new ArrayList<>();
-        if ("banner".equals(slotType))
-        {
-            SysBanner bannerQuery = new SysBanner();
-            bannerQuery.setPosition("home_top");
-            banners = bannerMapper.selectBannerList(bannerQuery);
-        }
-
         List<PromotionSlotVo> result = new ArrayList<>();
         int activeCount = 0;
         int lockedCount = 0;
@@ -127,18 +114,28 @@ public class PromotionServiceImpl implements IPromotionService
             SysPromotionApplication active = null;
             SysPromotionApplication locked = null;
             SysPromotionApplication future = null;
+            // 运营兜底素材：exclusive=0，可被付费素材覆盖，不计入占用与预约冲突
+            SysPromotionApplication backup = null;
             for (SysPromotionApplication app : bySlot.getOrDefault(slot.getSlotNo(), Collections.emptyList()))
             {
+                boolean exclusive = app.getExclusive() == null || app.getExclusive() != 0;
                 if (STATUS_PAID.equals(app.getStatus()))
                 {
                     if (!now.before(app.getStartTime()) && !now.after(app.getEndTime()))
                     {
-                        if (active == null || app.getStartTime().after(active.getStartTime()))
+                        if (exclusive)
                         {
-                            active = app;
+                            if (active == null || app.getStartTime().after(active.getStartTime()))
+                            {
+                                active = app;
+                            }
+                        }
+                        else if (backup == null || app.getStartTime().after(backup.getStartTime()))
+                        {
+                            backup = app;
                         }
                     }
-                    else if (app.getStartTime().after(now))
+                    else if (exclusive && app.getStartTime().after(now))
                     {
                         if (future == null || app.getStartTime().before(future.getStartTime()))
                         {
@@ -146,7 +143,7 @@ public class PromotionServiceImpl implements IPromotionService
                         }
                     }
                 }
-                else if (STATUS_APPROVED.equals(app.getStatus()) && app.getLockExpireAt() != null
+                else if (exclusive && STATUS_APPROVED.equals(app.getStatus()) && app.getLockExpireAt() != null
                         && app.getLockExpireAt().after(now))
                 {
                     locked = app;
@@ -156,38 +153,11 @@ public class PromotionServiceImpl implements IPromotionService
             decorate(active);
             decorate(locked);
             decorate(future);
+            decorate(backup);
 
-            SysBanner banner = null;
-            SysPromotionApplication current = active != null ? active : locked != null ? locked : future;
-            if ("banner".equals(slotType))
-            {
-                if (current != null && current.getBannerId() != null)
-                {
-                    banner = bannerMapper.selectBannerById(current.getBannerId());
-                }
-                // 申请单自带素材时预览以 current.materialUrl 为准，避免回退到同位次的运营 Banner
-                boolean hasOwnMaterial = current != null && current.getBannerId() == null
-                        && current.getMaterialUrl() != null && !current.getMaterialUrl().trim().isEmpty();
-                if (banner == null && !hasOwnMaterial)
-                {
-                    for (SysBanner item : banners)
-                    {
-                        if (item.getSortOrder() != null && item.getSortOrder().equals(slot.getSlotNo()))
-                        {
-                            banner = item;
-                            break;
-                        }
-                    }
-                }
-                vo.setBanner(banner);
-            }
-
-            // 运营 Banner 与 App 端一致：仅「启用且处于投放时间窗」才算展示中
-            boolean bannerLive = banner != null && "on".equals(banner.getStatus())
-                    && (banner.getStartTime() == null || !banner.getStartTime().after(now))
-                    && (banner.getEndTime() == null || !banner.getEndTime().before(now));
-
-            vo.setCurrent(current);
+            // current 只放锁定单，App 端据此判断是否可被预约；兜底素材走 backup
+            vo.setCurrent(active != null ? active : locked != null ? locked : future);
+            vo.setBackup(backup);
             if (active != null)
             {
                 vo.setState("active");
@@ -202,15 +172,11 @@ public class PromotionServiceImpl implements IPromotionService
             {
                 vo.setState("reserved");
             }
-            else if (bannerLive)
+            else if (backup != null)
             {
+                // 只有运营兜底素材在展示：对 App 而言等价「可覆盖」，仍可被预约
                 vo.setState("active");
                 activeCount++;
-            }
-            else if (banner != null)
-            {
-                vo.setState("disabled");
-                idleCount++;
             }
             else if ("0".equals(slot.getEnabled()))
             {
@@ -223,7 +189,7 @@ public class PromotionServiceImpl implements IPromotionService
                 idleCount++;
             }
 
-            if ("banner".equals(slotType) && active != null && banner == null
+            if ("banner".equals(slotType) && active != null && active.getBannerId() == null
                     && (active.getMaterialUrl() == null || active.getMaterialUrl().trim().isEmpty()))
             {
                 vo.setState("missing_material");
@@ -236,7 +202,9 @@ public class PromotionServiceImpl implements IPromotionService
         List<SysPromotionApplication> upcoming = new ArrayList<>();
         for (SysPromotionApplication app : open)
         {
-            if (STATUS_PAID.equals(app.getStatus()) && app.getStartTime().after(now)
+            // 运营兜底素材不算「预约」，不进入接下来 7 天的排期提示
+            boolean exclusive = app.getExclusive() == null || app.getExclusive() != 0;
+            if (exclusive && STATUS_PAID.equals(app.getStatus()) && app.getStartTime().after(now)
                     && app.getStartTime().getTime() <= now.getTime() + TimeUnit.DAYS.toMillis(7))
             {
                 decorate(app);
@@ -251,6 +219,7 @@ public class PromotionServiceImpl implements IPromotionService
             for (PromotionSlotVo vo : result)
             {
                 maskForApp(vo.getCurrent());
+                maskForApp(vo.getBackup());
             }
             for (SysPromotionApplication app : upcoming)
             {
@@ -348,7 +317,8 @@ public class PromotionServiceImpl implements IPromotionService
 
         // 锁坑：先锁 slot 行，再校验时间窗冲突
         lockSlot(app.getSlotType(), app.getSlotNo());
-        assertNoConflict(app.getSlotType(), app.getSlotNo(), app.getStartTime(), app.getEndTime(), applyId);
+        assertNoConflict(app.getSlotType(), app.getSlotNo(), app.getStartTime(), app.getEndTime(), applyId,
+                app.getExclusive() == null ? 1 : app.getExclusive());
 
         update.setStatus(STATUS_APPROVED);
         update.setPayStatus("unpaid");
@@ -398,9 +368,11 @@ public class PromotionServiceImpl implements IPromotionService
             start = new Date();
         }
         Date end = new Date(start.getTime() + TimeUnit.DAYS.toMillis(days));
+        // 锁定：独占时间窗，App 不可预约；不锁定：运营兜底素材，可被付费素材覆盖
+        int exclusive = request.getExclusive() != null && request.getExclusive() == 0 ? 0 : 1;
 
         lockSlot(slot.getSlotType(), slot.getSlotNo());
-        assertNoConflict(slot.getSlotType(), slot.getSlotNo(), start, end, null);
+        assertNoConflict(slot.getSlotType(), slot.getSlotNo(), start, end, null, exclusive);
 
         SysPromotionApplication app = new SysPromotionApplication();
         app.setApplyNo(nextApplyNo("GF"));
@@ -418,6 +390,7 @@ public class PromotionServiceImpl implements IPromotionService
             app.setMaterialUrl(material == null || material.isEmpty() ? work.getCover() : material);
         }
         app.setSource("admin_grant");
+        app.setExclusive(exclusive);
         app.setStatus(STATUS_PAID);
         app.setPayStatus("paid");
         app.setPayTime(new Date());
@@ -443,6 +416,37 @@ public class PromotionServiceImpl implements IPromotionService
             throw new IllegalStateException("该申请已结束");
         }
         int rows = applicationMapper.cancel(applyId, operator);
+        requireUpdated(rows);
+        return rows;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public int updateExclusive(Long applyId, Integer exclusive, String operator)
+    {
+        SysPromotionApplication app = applicationMapper.selectApplicationById(applyId);
+        if (app == null)
+        {
+            throw new IllegalArgumentException("推广记录不存在");
+        }
+        if (!"admin_grant".equals(app.getSource()))
+        {
+            throw new IllegalStateException("仅管理员上架的记录可切换锁定状态");
+        }
+        if (!STATUS_PAID.equals(app.getStatus()))
+        {
+            throw new IllegalStateException("仅投放中的记录可切换锁定状态");
+        }
+        if (app.getEndTime() != null && app.getEndTime().before(new Date()))
+        {
+            throw new IllegalStateException("已结束的记录不可切换锁定状态");
+        }
+        int target = exclusive != null && exclusive == 0 ? 0 : 1;
+        // 改为锁定单时，需要确认该时段没有其他锁定单；改为兜底单时同理不能与其他兜底单重叠
+        lockSlot(app.getSlotType(), app.getSlotNo());
+        assertNoConflict(app.getSlotType(), app.getSlotNo(), app.getStartTime(), app.getEndTime(), applyId,
+                target);
+        int rows = applicationMapper.updateExclusive(applyId, target, operator);
         requireUpdated(rows);
         return rows;
     }
@@ -524,7 +528,7 @@ public class PromotionServiceImpl implements IPromotionService
         }
         Date end = new Date(start.getTime() + TimeUnit.DAYS.toMillis(request.getDays()));
 
-        assertNoConflict(slot.getSlotType(), slot.getSlotNo(), start, end, null);
+        assertNoConflict(slot.getSlotType(), slot.getSlotNo(), start, end, null, 1);
 
         SysPromotionApplication app = new SysPromotionApplication();
         app.setApplyNo(nextApplyNo("PR"));
@@ -538,6 +542,7 @@ public class PromotionServiceImpl implements IPromotionService
         app.setAmount(slot.getPricePerDay().multiply(BigDecimal.valueOf(request.getDays())));
         app.setMaterialUrl(materialUrl);
         app.setSource("author_paid");
+        app.setExclusive(1);
         app.setStatus(STATUS_PENDING);
         app.setPayStatus("unpaid");
         app.setCreateBy(String.valueOf(authorId));
@@ -676,9 +681,11 @@ public class PromotionServiceImpl implements IPromotionService
         }
     }
 
-    private void assertNoConflict(String slotType, Integer slotNo, Date start, Date end, Long excludeId)
+    private void assertNoConflict(String slotType, Integer slotNo, Date start, Date end, Long excludeId,
+            int exclusive)
     {
-        int conflicts = applicationMapper.countConflicts(slotType, slotNo, start, end, new Date(), excludeId);
+        int conflicts = applicationMapper.countConflicts(slotType, slotNo, start, end, new Date(), excludeId,
+                exclusive);
         if (conflicts > 0)
         {
             throw new IllegalStateException("该位次在所选时段内已被占用，请调整时段或位次");

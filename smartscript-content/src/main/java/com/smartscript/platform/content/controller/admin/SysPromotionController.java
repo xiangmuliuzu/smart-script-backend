@@ -17,6 +17,7 @@ import com.ruoyi.common.core.page.TableDataInfo;
 import com.ruoyi.common.enums.BusinessType;
 import com.smartscript.platform.content.domain.SysPromotionApplication;
 import com.smartscript.platform.content.dto.PromotionAuditRequest;
+import com.smartscript.platform.content.dto.PromotionExclusiveRequest;
 import com.smartscript.platform.content.dto.PromotionGrantRequest;
 import com.smartscript.platform.content.dto.PromotionPriceRequest;
 import com.smartscript.platform.content.service.IPromotionService;
@@ -92,6 +93,26 @@ public class SysPromotionController extends BaseController
         try
         {
             return toAjax(promotionService.offline(applyId, getUsername()));
+        }
+        catch (IllegalArgumentException | IllegalStateException e)
+        {
+            return error(e.getMessage());
+        }
+    }
+
+    /** 切换锁定标记：1=锁定独占，0=可被付费素材覆盖 */
+    @PreAuthorize("@ss.hasPermi('content:promotion:grant')")
+    @Log(title = "作品推广", businessType = BusinessType.UPDATE)
+    @PutMapping("/applications/{applyId}/exclusive")
+    public AjaxResult updateExclusive(@PathVariable Long applyId, @RequestBody PromotionExclusiveRequest request)
+    {
+        if (request == null || request.getExclusive() == null)
+        {
+            return error("请选择锁定状态");
+        }
+        try
+        {
+            return toAjax(promotionService.updateExclusive(applyId, request.getExclusive(), getUsername()));
         }
         catch (IllegalArgumentException | IllegalStateException e)
         {

@@ -14,6 +14,8 @@ public class PromotionGrantRequest
     private Integer days;
     /** 轮播素材图片地址（slotType=banner 可选，缺省回退作品封面） */
     private String materialUrl;
+    /** 锁定标记（可选，默认 1）：1=独占锁定，0=可被付费素材覆盖的运营兜底 */
+    private Integer exclusive;
 
     public Long getWorkId() { return workId; }
     public void setWorkId(Long workId) { this.workId = workId; }
@@ -27,4 +29,6 @@ public class PromotionGrantRequest
     public void setDays(Integer days) { this.days = days; }
     public String getMaterialUrl() { return materialUrl; }
     public void setMaterialUrl(String materialUrl) { this.materialUrl = materialUrl; }
+    public Integer getExclusive() { return exclusive; }
+    public void setExclusive(Integer exclusive) { this.exclusive = exclusive; }
 }
