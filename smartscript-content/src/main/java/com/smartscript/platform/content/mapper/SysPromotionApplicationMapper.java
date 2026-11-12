@@ -33,6 +33,9 @@ public interface SysPromotionApplicationMapper
     int updateExclusive(@Param("applyId") Long applyId, @Param("exclusive") Integer exclusive,
             @Param("updateBy") String updateBy);
 
+    /** 自动下架：生效中的不锁定投放若与生效中的锁定投放重叠，置为已下架 */
+    int cancelCoveredFree(@Param("now") Date now);
+
     /** 本月已支付金额（按资源位） */
     java.math.BigDecimal selectMonthRevenue(@Param("slotType") String slotType);
 

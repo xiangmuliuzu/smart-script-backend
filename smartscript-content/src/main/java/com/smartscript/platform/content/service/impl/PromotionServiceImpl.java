@@ -87,6 +87,8 @@ public class PromotionServiceImpl implements IPromotionService
     {
         requireSlotType(slotType);
         Date now = new Date();
+        // 先做一次覆盖清理，保证本次查询看到的就是「被覆盖即已下架」的结果
+        applicationMapper.cancelCoveredFree(now);
         List<SysPromotionSlot> slots = slotMapper.selectSlots(slotType);
         List<SysPromotionApplication> open = applicationMapper.selectOpenOccupancies(slotType, now);
 
@@ -114,8 +116,8 @@ public class PromotionServiceImpl implements IPromotionService
             SysPromotionApplication active = null;
             SysPromotionApplication locked = null;
             SysPromotionApplication future = null;
-            // 运营兜底素材：exclusive=0，可被付费素材覆盖，不计入占用与预约冲突
-            SysPromotionApplication backup = null;
+            // 不锁定的运营素材：可被付费素材覆盖，被覆盖后会被自动下架，不进 backup
+            SysPromotionApplication coverable = null;
             for (SysPromotionApplication app : bySlot.getOrDefault(slot.getSlotNo(), Collections.emptyList()))
             {
                 boolean exclusive = app.getExclusive() == null || app.getExclusive() != 0;
@@ -130,9 +132,9 @@ public class PromotionServiceImpl implements IPromotionService
                                 active = app;
                             }
                         }
-                        else if (backup == null || app.getStartTime().after(backup.getStartTime()))
+                        else if (coverable == null || app.getStartTime().after(coverable.getStartTime()))
                         {
-                            backup = app;
+                            coverable = app;
                         }
                     }
                     else if (exclusive && app.getStartTime().after(now))
@@ -153,11 +155,11 @@ public class PromotionServiceImpl implements IPromotionService
             decorate(active);
             decorate(locked);
             decorate(future);
-            decorate(backup);
+            decorate(coverable);
 
-            // current 只放锁定单，App 端据此判断是否可被预约；兜底素材走 backup
-            vo.setCurrent(active != null ? active : locked != null ? locked : future);
-            vo.setBackup(backup);
+            // 同一位次只返回一条在展投放：锁定单优先，其次不锁定的运营素材（App 可预约）
+            vo.setCurrent(active != null ? active : locked != null ? locked
+                    : future != null ? future : coverable);
             if (active != null)
             {
                 vo.setState("active");
@@ -172,9 +174,8 @@ public class PromotionServiceImpl implements IPromotionService
             {
                 vo.setState("reserved");
             }
-            else if (backup != null)
+            else if (coverable != null)
             {
-                // 只有运营兜底素材在展示：对 App 而言等价「可覆盖」，仍可被预约
                 vo.setState("active");
                 activeCount++;
             }
@@ -219,7 +220,6 @@ public class PromotionServiceImpl implements IPromotionService
             for (PromotionSlotVo vo : result)
             {
                 maskForApp(vo.getCurrent());
-                maskForApp(vo.getBackup());
             }
             for (SysPromotionApplication app : upcoming)
             {
@@ -368,7 +368,7 @@ public class PromotionServiceImpl implements IPromotionService
             start = new Date();
         }
         Date end = new Date(start.getTime() + TimeUnit.DAYS.toMillis(days));
-        // 锁定：独占时间窗，App 不可预约；不锁定：运营兜底素材，可被付费素材覆盖
+        // 锁定：独占时间窗，App 不可预约；不锁定：可被付费素材覆盖，覆盖后自动下架
         int exclusive = request.getExclusive() != null && request.getExclusive() == 0 ? 0 : 1;
 
         lockSlot(slot.getSlotType(), slot.getSlotNo());
@@ -399,6 +399,11 @@ public class PromotionServiceImpl implements IPromotionService
         app.setRemark("管理员免费上推荐");
         app.setCreateBy(operator);
         applicationMapper.insertApplication(app);
+        if (exclusive == 1)
+        {
+            // 管理员锁定上架会立即覆盖同位次的不锁定投放，被覆盖的记录直接下架
+            applicationMapper.cancelCoveredFree(new Date());
+        }
         return app.getApplyId();
     }
 
@@ -418,6 +423,12 @@ public class PromotionServiceImpl implements IPromotionService
         int rows = applicationMapper.cancel(applyId, operator);
         requireUpdated(rows);
         return rows;
+    }
+
+    @Override
+    public int cancelCoveredFree()
+    {
+        return applicationMapper.cancelCoveredFree(new Date());
     }
 
     @Override
@@ -448,6 +459,10 @@ public class PromotionServiceImpl implements IPromotionService
                 target);
         int rows = applicationMapper.updateExclusive(applyId, target, operator);
         requireUpdated(rows);
+        if (target == 1)
+        {
+            applicationMapper.cancelCoveredFree(new Date());
+        }
         return rows;
     }
 

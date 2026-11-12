@@ -156,6 +156,21 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		where apply_id = #{applyId} and status = 'paid'
 	</update>
 
+	<!-- 被付费/锁定投放覆盖的不锁定投放自动下架：只处理已生效且时间窗重叠的记录 -->
+	<update id="cancelCoveredFree">
+		update sys_promotion_application f
+		join sys_promotion_application p
+		  on p.slot_type = f.slot_type and p.slot_no = f.slot_no
+		 and p.exclusive = 1 and p.status = 'paid'
+		 and p.start_time &lt; f.end_time and p.end_time &gt; f.start_time
+		 and p.start_time &lt;= #{now} and p.end_time &gt;= #{now}
+		set f.status = 'cancelled',
+		    f.remark = '被付费投放覆盖自动下架',
+		    f.update_time = sysdate()
+		where f.exclusive = 0 and f.status = 'paid'
+		  and f.start_time &lt;= #{now} and f.end_time &gt;= #{now}
+	</update>
+
 	<select id="selectMonthRevenue" resultType="java.math.BigDecimal">
 		select coalesce(sum(amount), 0) from sys_promotion_application
 		where slot_type = #{slotType}

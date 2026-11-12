@@ -33,9 +33,6 @@ public class PromotionSlotVo
     /** 当前投放（active / locked / reserved；只含锁定单，App 据此判断不可预约） */
     private SysPromotionApplication current;
 
-    /** 当前生效的运营兜底素材（exclusive=0，可被付费素材覆盖） */
-    private SysPromotionApplication backup;
-
     /** 下一笔预约 */
     private SysPromotionApplication next;
 
@@ -117,16 +114,6 @@ public class PromotionSlotVo
     public void setCurrent(SysPromotionApplication current)
     {
         this.current = current;
-    }
-
-    public SysPromotionApplication getBackup()
-    {
-        return backup;
-    }
-
-    public void setBackup(SysPromotionApplication backup)
-    {
-        this.backup = backup;
     }
 
     public SysPromotionApplication getNext()

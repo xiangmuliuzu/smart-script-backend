@@ -41,6 +41,9 @@ public interface IPromotionService
     /** 切换锁定标记：1=锁定独占，0=可被付费素材覆盖（仅管理员上架且投放中的记录） */
     int updateExclusive(Long applyId, Integer exclusive, String operator);
 
+    /** 自动下架被锁定/付费投放覆盖的不锁定投放，返回处理条数 */
+    int cancelCoveredFree();
+
     /** 位次单价与启停配置 */
     int updatePrices(PromotionPriceRequest request);
 
