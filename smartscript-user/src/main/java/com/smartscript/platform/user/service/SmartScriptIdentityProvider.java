@@ -3,6 +3,7 @@ package com.smartscript.platform.user.service;
 import java.util.List;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
+import com.smartscript.platform.identity.BackgroundIdentity;
 import com.smartscript.platform.identity.IdentityContext;
 import com.smartscript.platform.identity.IdentityProvider;
 import com.smartscript.platform.user.mapper.AppIdentityMapper;
@@ -41,10 +42,45 @@ public class SmartScriptIdentityProvider implements IdentityProvider
         AppIdentityContext app = currentAppIdentity();
         if (app == null)
         {
+            // 后台线程（批量生成队列）：没有 HTTP 安全上下文，由任务线程绑定发起人。
+            // 队列在自己的作品上执行，作者能力按 true 放行；接口层的归属校验在提交时已完成。
+            Long backgroundUserId = BackgroundIdentity.get();
+            if (backgroundUserId != null)
+            {
+                return IdentityContext.authenticated(backgroundUserId, "01", "0",
+                        List.of(), List.of(), IdentityContext.REAL_NAME_APPROVED, true);
+            }
             // 无 App 身份（公开接口的游客请求，或 PC 凭证）：按游客处理
             return IdentityContext.guest();
         }
-        return resolution.identityFor(app, this::resolve);
+        try
+        {
+            return resolution.identityFor(app, this::resolve);
+        }
+        catch (RuntimeException e)
+        {
+            // 请求级缓存（request scope）只在 HTTP 请求线程可用；
+            // 后台线程（批量生成队列）已显式绑定了 App 主体，这里退化为直接解析，
+            // 否则 every 后台调用都会因「No thread-bound request」失败。
+            if (isScopeUnavailable(e))
+            {
+                return resolve(app);
+            }
+            throw e;
+        }
+    }
+
+    /** 判断是否为 request scope 不可用（异步线程），而不是业务解析失败。 */
+    private boolean isScopeUnavailable(RuntimeException e)
+    {
+        if (e instanceof org.springframework.beans.factory.BeanCreationException
+                || e instanceof IllegalStateException)
+        {
+            return true;
+        }
+        String message = e.getMessage();
+        return message != null && (message.contains("request") || message.contains("Scope")
+                || message.contains("thread-bound"));
     }
 
     /**
