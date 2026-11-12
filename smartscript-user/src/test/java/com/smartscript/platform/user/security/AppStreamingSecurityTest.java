@@ -58,7 +58,7 @@ class AppStreamingSecurityTest
     {
         var response = mvc.perform(post("/api/v1/content/ai/outline/stream").header("Authorization", "Bearer valid"))
                 .andReturn();
-        // 流在异步线程写 MockHttpServletResponse（非线程安全），等它写完再 dispatch，避免并发改 header。
+        // 流在异步线程写 MockHttpServletResponse（非线程安全）；等它写完再 dispatch。
         assertTrue(TestController.completed.await(5, TimeUnit.SECONDS));
         var result = mvc.perform(asyncDispatch(response)).andExpect(status().isOk()).andReturn();
         assertEquals("7", TestController.identity.get());
@@ -89,6 +89,7 @@ class AppStreamingSecurityTest
         StreamingResponseBody stream()
         {
             return output -> {
+                try { Thread.sleep(80); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
                 var auth = SecurityContextHolder.getContext().getAuthentication();
                 identity.set(auth == null ? null : auth.getName());
                 output.write("data:{\"delta\":\"test\"}\n\ndata:{\"done\":true}\n\n".getBytes(StandardCharsets.UTF_8));

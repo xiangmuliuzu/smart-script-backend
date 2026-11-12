@@ -13,6 +13,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
@@ -53,6 +55,9 @@ public class AiServiceClient
     private final RestTemplate restTemplate;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    /** 风格里带「共 N 集」时按分集出大纲（一键生成整部走这里）。 */
+    private static final Pattern EPISODE_COUNT = Pattern.compile("共\\s*(\\d{1,3})\\s*集");
 
     /** 流式调用专用 HTTP 客户端（JDK 内置，支持 SSE 逐块读取）。 */
     private final HttpClient streamClient;
@@ -1054,6 +1059,21 @@ public class AiServiceClient
         String genreHint = (genre == null || genre.isBlank()) ? "不限" : genre;
         String styleHint = (style == null || style.isBlank()) ? "不限" : style;
         String insp = (inspiration == null || inspiration.isBlank()) ? "" : inspiration;
+        // 一键生成整部：风格里写明「共 N 集」时按集出稿，否则沿用分幕结构（不影响其他入口）。
+        Matcher episodeMatcher = EPISODE_COUNT.matcher(styleHint);
+        if (episodeMatcher.find())
+        {
+            int count = Math.max(1, Math.min(80, Integer.parseInt(episodeMatcher.group(1))));
+            String system = "你是一名资深编剧，擅长帮完全不懂创作的普通人把题材直接拆成可拍的分集大纲。"
+                    + "请根据用户给的灵感、题材与集数，输出严格 " + count + " 集，集号从 1 到 " + count + " 连续不间断，不要合并或跳号。"
+                    + "必须只输出一个合法 JSON 对象，不要解释，不要使用 Markdown 代码块。JSON 结构如下："
+                    + "{\"title\":\"作品名\",\"logline\":\"一句话故事\","
+                    + "\"characters\":[{\"name\":\"角色名\",\"role\":\"身份或定位\"}],"
+                    + "\"episodes\":[{\"no\":1,\"title\":\"本集事件名（不超过12字）\","
+                    + "\"card\":\"本集事件 / 冲突与推进 / 结果或反转 / 结尾钩子，80-150字\"}]}";
+            String user = "故事灵感：" + insp + "\n题材：" + genreHint + "\n集数：" + count + " 集";
+            return chat(appendSkill(system, skillContent), user, baseUrl, apiKey, model);
+        }
         String system = "你是一名资深网文策划编辑，擅长帮完全不懂创作的普通人快速产出专业级剧本大纲。"
                 + "请根据用户给出的灵感、题材与风格，生成一份结构完整、可直接展开成剧本的小说大纲；"
                 + "要求用通俗易懂的语言，每个分幕写清推进逻辑与关键冲突，让新手照着写也能写成不错的故事。"

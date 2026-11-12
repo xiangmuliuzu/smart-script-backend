@@ -460,9 +460,27 @@ public class AiWriteServiceImpl implements IAiWriteService
                         resolveSkillContent(request.getSkillId()),
                         channel.getBaseUrl(), channel.getApiKey(), request.getModel());
         Date finishedAt = new Date();
-        JsonNode outlineNode = parseOutlineJson(r.getContent()).path("outline");
-        Object outline = outlineNode.isMissingNode() || outlineNode.isNull()
-                ? null : OUTLINE_MAPPER.convertValue(outlineNode, Object.class);
+        JsonNode root = parseOutlineJson(r.getContent());
+        // 分集大纲（一键生成整部）：模型直接给 episodes 列表，整棵树就是结果；
+        // 其余入口沿用旧协议（outline 键），都没有时兜底为纯文本。
+        JsonNode outlineNode = root.path("outline");
+        Object outline;
+        if (!outlineNode.isMissingNode() && !outlineNode.isNull())
+        {
+            outline = OUTLINE_MAPPER.convertValue(outlineNode, Object.class);
+        }
+        else if (root.path("episodes").isArray() && !root.path("episodes").isEmpty())
+        {
+            outline = OUTLINE_MAPPER.convertValue(root, Object.class);
+        }
+        else if (root.hasNonNull("text"))
+        {
+            outline = root.get("text").asText();
+        }
+        else
+        {
+            outline = null;
+        }
         String requestNo = generateRequestNo();
         aiRequestMapper.insertAiRequest(requestNo, identityProvider.currentUserId(), request.getWorkId(),
                 CAPABILITY_OUTLINE, Math.max(1, r.getTotalTokens()), STATUS_SUCCESS, resolveProvider(),
