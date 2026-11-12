@@ -1,10 +1,12 @@
 package com.smartscript.platform.content.service;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.smartscript.platform.content.domain.SysWorkChapter;
 import com.smartscript.platform.content.domain.SysWorkLedger;
 import com.smartscript.platform.content.domain.WorkGenEpisode;
@@ -44,6 +46,67 @@ public final class WorkGenPromptSupport
 
     private WorkGenPromptSupport()
     {
+    }
+
+    /**
+     * 台账基线起草提示词（一键生成专用）。
+     *
+     * 用户只给题材与要求，不填台账；这里用同一组输入与同一模型起草三件套，
+     * 保证「道具件数」「写法基线」「人物表」从第 1 集起就有唯一口径。
+     */
+    public static String buildBootstrapPrompt(WorkGenJob job)
+    {
+        StringBuilder prompt = new StringBuilder();
+        prompt.append("你是这部长篇剧集的创作统筹。正式写第 1 集之前，先按用户设定起草这部作品的创作台账基线，之后每一集都沿用这份基线。\n")
+                .append("【题材】").append(safe(job.getGenre())).append('\n')
+                .append("【计划集数】").append(job.getTotal() == null ? "" : job.getTotal()).append('\n')
+                .append("【用户要求】").append(safe(job.getUserPrompt())).append('\n');
+        String outline = safe(job.getOutline());
+        if (!outline.isEmpty())
+        {
+            prompt.append("【剧本大纲】\n").append(head(outline, 3000)).append('\n');
+        }
+        String characters = safe(job.getCharacters());
+        if (!characters.isEmpty())
+        {
+            prompt.append("【已有的人物设定（合并，不要改名）】\n").append(tail(characters, 900)).append('\n');
+        }
+        prompt.append("起草规则：\n")
+                .append("1. props：一行一件全剧重要道具，格式「名称｜件数｜持有人｜当前状态｜外观与辨识特征」。")
+                .append("一件道具只能占一行，禁止在一行里用分号再列第二件；件数只能有一个口径，")
+                .append("大纲没写清就写「待定」，绝不自行编出第二套件数（例如不要同时出现十二面与十三面）。\n")
+                .append("2. styleGuide：写成可直接执行的写法规则——叙述人称、句子长短、对白与叙述比例、禁用写法；")
+                .append("每集字数区间必须写「700-900 字」（这是本系统正文生成口径，不得写成三千字或长篇字数）；")
+                .append("不要写「文风细腻」这类形容词，整段 80-200 字。\n")
+                .append("3. characters：一人一行，格式「姓名｜身份｜性格｜与其他人物关系」，只写题材、大纲和要求里会出现的人。\n")
+                .append("4. roster：全部人物姓名，用顿号分隔。\n")
+                .append("只输出 JSON，不要任何解释：")
+                .append("{\"props\":\"\",\"styleGuide\":\"\",\"characters\":\"\",\"roster\":\"\"}");
+        return prompt.toString();
+    }
+
+    /** 解析台账基线起草结果；缺项返回空串，交给调用方决定是否跳过。 */
+    public static Map<String, String> parseBootstrap(String raw)
+    {
+        Map<String, String> result = new LinkedHashMap<>();
+        JsonNode root = ChapterSummarySupport.parseJson(raw);
+        for (String key : new String[] {"props", "styleGuide", "characters", "roster"})
+        {
+            String value = root == null ? "" : root.path(key).asText("").trim();
+            if ("props".equals(key))
+            {
+                value = normalizePropLines(value);
+            }
+            result.put(key, value);
+        }
+        return result;
+    }
+
+    /** 一行一件：模型把两件道具挤在一行时（「；名称｜」），按行拆开，保住「件数」唯一口径。 */
+    private static String normalizePropLines(String raw)
+    {
+        String text = safe(raw).trim();
+        return text.replaceAll("；\\s*(?=[^；\\n｜]{1,20}\\s*｜)", "\n");
     }
 
     /** 组装一集的完整提示词。 */

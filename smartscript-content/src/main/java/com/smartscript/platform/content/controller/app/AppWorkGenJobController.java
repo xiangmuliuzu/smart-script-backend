@@ -77,6 +77,9 @@ public class AppWorkGenJobController
         job.setOutline(request.getOutline());
         job.setCharacters(request.getCharacters());
         job.setRoster(request.getRoster());
+        job.setGenre(request.getGenre());
+        job.setUserPrompt(request.getUserPrompt());
+        job.setModel(request.getModel());
         job.setEpisodes(jobService.writeEpisodes(request.getEpisodes()));
         try
         {

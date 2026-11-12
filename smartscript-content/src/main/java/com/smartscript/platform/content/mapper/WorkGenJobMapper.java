@@ -26,6 +26,9 @@ public interface WorkGenJobMapper
     /** 更新任务进度与队列快照 */
     int updateProgress(WorkGenJob job);
 
+    /** 台账基线起草后，回填补全的人物设定与白名单（只写这两列） */
+    int updateContext(WorkGenJob job);
+
     /** 列表（管理/调试用） */
     List<WorkGenJob> selectByWorkId(@Param("workId") Long workId);
 }

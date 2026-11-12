@@ -55,6 +55,15 @@ public class WorkGenJob
     /** 人物白名单，顿号分隔 */
     private String roster;
 
+    /** 题材（台账基线起草输入） */
+    private String genre;
+
+    /** 用户要求（台账基线起草输入） */
+    private String userPrompt;
+
+    /** 本任务使用的模型名 */
+    private String model;
+
     /** 集队列 JSON */
     private String episodes;
 
@@ -182,6 +191,36 @@ public class WorkGenJob
     public void setEpisodes(String episodes)
     {
         this.episodes = episodes;
+    }
+
+    public String getGenre()
+    {
+        return genre;
+    }
+
+    public void setGenre(String genre)
+    {
+        this.genre = genre;
+    }
+
+    public String getUserPrompt()
+    {
+        return userPrompt;
+    }
+
+    public void setUserPrompt(String userPrompt)
+    {
+        this.userPrompt = userPrompt;
+    }
+
+    public String getModel()
+    {
+        return model;
+    }
+
+    public void setModel(String model)
+    {
+        this.model = model;
     }
 
     public String getLastError()

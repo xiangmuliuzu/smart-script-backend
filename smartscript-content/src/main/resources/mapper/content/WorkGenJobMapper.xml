@@ -20,6 +20,9 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		<result property="outline"      column="outline"       />
 		<result property="characters"   column="characters"    />
 		<result property="roster"       column="roster"        />
+		<result property="genre"        column="genre"         />
+		<result property="userPrompt"   column="user_prompt"   />
+		<result property="model"        column="model"         />
 		<result property="episodes"     column="episodes"      />
 		<result property="lastError"    column="last_error"    />
 		<result property="createTime"   column="create_time"   />
@@ -29,22 +32,22 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 	<insert id="insertJob" parameterType="WorkGenJob" useGeneratedKeys="true" keyProperty="jobId">
 		insert into sys_work_gen_job
 			(work_id, user_id, status, total, done_count, current_no, current_title,
-			 outline, characters, roster, episodes, last_error, create_time, update_time)
+			 outline, characters, roster, genre, user_prompt, model, episodes, last_error, create_time, update_time)
 		values
 			(#{workId}, #{userId}, #{status}, #{total}, #{doneCount}, #{currentNo}, #{currentTitle},
-			 #{outline}, #{characters}, #{roster}, #{episodes}, #{lastError}, now(), now())
+			 #{outline}, #{characters}, #{roster}, #{genre}, #{userPrompt}, #{model}, #{episodes}, #{lastError}, now(), now())
 	</insert>
 
 	<select id="selectByJobId" resultMap="WorkGenJobResult">
 		select job_id, work_id, user_id, status, total, done_count, current_no, current_title,
-		       outline, characters, roster, episodes, last_error, create_time, update_time
+		       outline, characters, roster, genre, user_prompt, model, episodes, last_error, create_time, update_time
 		from sys_work_gen_job
 		where work_id = #{workId} and job_id = #{jobId}
 	</select>
 
 	<select id="selectLatestByWorkId" resultMap="WorkGenJobResult">
 		select job_id, work_id, user_id, status, total, done_count, current_no, current_title,
-		       outline, characters, roster, episodes, last_error, create_time, update_time
+		       outline, characters, roster, genre, user_prompt, model, episodes, last_error, create_time, update_time
 		from sys_work_gen_job
 		where work_id = #{workId}
 		order by job_id desc
@@ -53,7 +56,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 
 	<select id="selectRunningByWorkId" resultMap="WorkGenJobResult">
 		select job_id, work_id, user_id, status, total, done_count, current_no, current_title,
-		       outline, characters, roster, episodes, last_error, create_time, update_time
+		       outline, characters, roster, genre, user_prompt, model, episodes, last_error, create_time, update_time
 		from sys_work_gen_job
 		where work_id = #{workId} and status in ('queued', 'running')
 		order by job_id desc
@@ -62,7 +65,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 
 	<select id="selectByWorkId" resultMap="WorkGenJobResult">
 		select job_id, work_id, user_id, status, total, done_count, current_no, current_title,
-		       outline, characters, roster, episodes, last_error, create_time, update_time
+		       outline, characters, roster, genre, user_prompt, model, episodes, last_error, create_time, update_time
 		from sys_work_gen_job
 		where work_id = #{workId}
 		order by job_id desc
@@ -78,6 +81,13 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		    current_title = #{currentTitle},
 		    episodes = #{episodes},
 		    last_error = #{lastError},
+		    update_time = now()
+		where job_id = #{jobId}
+	</update>
+	<update id="updateContext" parameterType="WorkGenJob">
+		update sys_work_gen_job
+		set characters = #{characters},
+		    roster = #{roster},
 		    update_time = now()
 		where job_id = #{jobId}
 	</update>

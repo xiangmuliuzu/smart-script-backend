@@ -91,6 +91,9 @@ public class WorkGenJobServiceImpl implements IWorkGenJobService
         job.setOutline(request.getOutline());
         job.setCharacters(request.getCharacters());
         job.setRoster(request.getRoster());
+        job.setGenre(request.getGenre());
+        job.setUserPrompt(request.getUserPrompt());
+        job.setModel(request.getModel());
         job.setEpisodes(writeEpisodes(episodes));
         jobMapper.insertJob(job);
         start(workId, job.getJobId());
@@ -209,6 +212,7 @@ public class WorkGenJobServiceImpl implements IWorkGenJobService
         {
             job.setStatus(WorkGenJob.STATUS_RUNNING);
             jobMapper.updateProgress(job);
+            bootstrap(job);
             loop(job);
         }
         catch (Exception e)
@@ -311,14 +315,14 @@ public class WorkGenJobServiceImpl implements IWorkGenJobService
                 : WorkGenPromptSupport.chapterTail(chapters.get(chapters.size() - 1).getContent(), 500);
 
         String prompt = WorkGenPromptSupport.buildEpisodePrompt(job, episode, ledger, chapters, volumes);
-        AppAiWriteResult result = callWrite(userId, workId, prompt);
+        AppAiWriteResult result = callWrite(job, prompt);
         String text = result == null ? "" : result.getContent();
 
         // 触达单次输出上限时自动续写一次（队列无人值守，不弹确认框）。
         if (result != null && result.isTruncated() && text != null && !text.isBlank())
         {
             String continuation = WorkGenPromptSupport.buildContinuation(text, job, episode, ledger);
-            AppAiWriteResult more = callWrite(userId, workId, continuation);
+            AppAiWriteResult more = callWrite(job, continuation);
             if (more != null && more.getContent() != null)
             {
                 text = text + WorkGenPromptSupport.stripRepeatedHead(more.getContent(), text);
@@ -347,13 +351,101 @@ public class WorkGenJobServiceImpl implements IWorkGenJobService
         }
     }
 
-    private AppAiWriteResult callWrite(Long userId, Long workId, String prompt)
+    private AppAiWriteResult callWrite(WorkGenJob job, String prompt)
     {
         AppAiWriteRequest request = new AppAiWriteRequest();
         request.setPrompt(prompt);
-        request.setWorkId(workId);
+        request.setWorkId(job.getWorkId());
         request.setType("script");
+        request.setModel(job.getModel());
         return aiWriteService.write(request);
+    }
+
+    /**
+     * 台账基线起草：用户只给题材与要求，不填台账，这里用同一输入与同一模型起草三件套。
+     *
+     * 只在对应字段为空时写入，已有台账（含人工填写）一律保留；
+     * 三项都已存在时直接跳过，不产生额外 AI 调用与扣费。
+     */
+    private void bootstrap(WorkGenJob job)
+    {
+        SysWorkLedger ledger = ledgerService.getLedger(job.getWorkId());
+        if (ledger == null)
+        {
+            ledger = new SysWorkLedger();
+        }
+        boolean needProps = isBlank(ledger.getProps());
+        boolean needStyle = isBlank(ledger.getStyleGuide());
+        boolean needCharacters = isBlank(ledger.getCharacters()) && isBlank(job.getCharacters());
+        if (!needProps && !needStyle && !needCharacters)
+        {
+            return;
+        }
+        String prompt = WorkGenPromptSupport.buildBootstrapPrompt(job);
+        Exception last = null;
+        for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++)
+        {
+            try
+            {
+                AppAiWriteResult result = callWrite(job, prompt);
+                String raw = result == null ? "" : result.getContent();
+                Map<String, String> patch = WorkGenPromptSupport.parseBootstrap(raw);
+                boolean hasAny = !patch.get("props").isEmpty() || !patch.get("styleGuide").isEmpty()
+                        || !patch.get("characters").isEmpty();
+                if (!hasAny)
+                {
+                    throw new IllegalStateException("AI 未返回可用的台账基线");
+                }
+                if (needProps && !patch.get("props").isEmpty())
+                {
+                    ledger.setProps(patch.get("props"));
+                }
+                if (needStyle && !patch.get("styleGuide").isEmpty())
+                {
+                    ledger.setStyleGuide(ensureStyleRange(patch.get("styleGuide")));
+                }
+                if (needCharacters && !patch.get("characters").isEmpty())
+                {
+                    ledger.setCharacters(patch.get("characters"));
+                    if (isBlank(job.getCharacters()))
+                    {
+                        job.setCharacters(patch.get("characters"));
+                    }
+                }
+                if (isBlank(job.getRoster()) && !patch.get("roster").isEmpty())
+                {
+                    job.setRoster(patch.get("roster"));
+                }
+                ledgerService.saveLedger(job.getWorkId(), ledger);
+                jobMapper.updateContext(job);
+                log.info("台账基线起草完成 workId={}：props={} styleGuide={} characters={}",
+                        job.getWorkId(), !patch.get("props").isEmpty(),
+                        !patch.get("styleGuide").isEmpty(), !patch.get("characters").isEmpty());
+                return;
+            }
+            catch (Exception e)
+            {
+                last = e;
+                log.warn("台账基线起草失败（第{}次）workId={}：{}", attempt, job.getWorkId(), e.getMessage());
+            }
+        }
+        throw new IllegalStateException("台账基线起草失败：" + (last == null ? "未知原因" : last.getMessage()));
+    }
+
+    private static boolean isBlank(String text)
+    {
+        return text == null || text.isBlank();
+    }
+
+    /** 写法基线的字数区间由系统统一，模型写成长篇字数时补一句覆盖，避免与 700-900 字冲突。 */
+    private static String ensureStyleRange(String style)
+    {
+        String text = style == null ? "" : style.trim();
+        if (text.isEmpty() || text.matches("(?s).*700\\s*[-~～至到]\\s*900.*"))
+        {
+            return text;
+        }
+        return text + " 每集正文 700-900 字，超过 1000 字即不合格。";
     }
 
     /**

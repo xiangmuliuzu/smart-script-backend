@@ -125,6 +125,9 @@ class ContentModuleBoundaryTest
                 // 仅该控制器使用用户域路径，其余内容控制器仍沿用原边界。
                 String expectedPrefix = file.contains("/controller/admin/")
                         ? "/api/v1/admin/content"
+                        // 第三方代理回调由外部约定固定为 open 前缀，匿名可达，不属于内容域接口。
+                        : file.contains("/controller/open/")
+                                ? "/api/v1/open"
                         : file.endsWith("/controller/app/AppUserWorkController.java")
                                 ? "/api/v1/users/me/works" : "/api/v1/content";
                 if (file.endsWith("/controller/app/AppUserWorkController.java"))

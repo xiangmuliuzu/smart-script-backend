@@ -9,6 +9,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import jakarta.servlet.Filter;
 import org.junit.jupiter.api.AfterEach;
@@ -45,6 +47,7 @@ class AppStreamingSecurityTest
         when(sessions.parseAndValidate("valid")).thenReturn(new AppIdentityContext(7L, "01", "0", null, null, null, null, 1L, "jti", "valid"));
         mvc = MockMvcBuilders.webAppContextSetup(context).addFilters(context.getBean("springSecurityFilterChain", Filter.class)).build();
         TestController.identity.set(null);
+        TestController.completed = new CountDownLatch(1);
     }
 
     @AfterEach
@@ -55,6 +58,8 @@ class AppStreamingSecurityTest
     {
         var response = mvc.perform(post("/api/v1/content/ai/outline/stream").header("Authorization", "Bearer valid"))
                 .andReturn();
+        // 流在异步线程写 MockHttpServletResponse（非线程安全），等它写完再 dispatch，避免并发改 header。
+        assertTrue(TestController.completed.await(5, TimeUnit.SECONDS));
         var result = mvc.perform(asyncDispatch(response)).andExpect(status().isOk()).andReturn();
         assertEquals("7", TestController.identity.get());
         assertTrue(result.getResponse().getContentAsString().contains("\"done\":true"));
@@ -79,6 +84,7 @@ class AppStreamingSecurityTest
     static class TestController
     {
         static final AtomicReference<String> identity = new AtomicReference<>();
+        static volatile CountDownLatch completed = new CountDownLatch(1);
         @PostMapping(value = "/api/v1/content/ai/outline/stream", produces = "text/event-stream")
         StreamingResponseBody stream()
         {
@@ -87,6 +93,7 @@ class AppStreamingSecurityTest
                 identity.set(auth == null ? null : auth.getName());
                 output.write("data:{\"delta\":\"test\"}\n\ndata:{\"done\":true}\n\n".getBytes(StandardCharsets.UTF_8));
                 output.flush();
+                completed.countDown();
             };
         }
     }

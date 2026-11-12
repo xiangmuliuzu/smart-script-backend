@@ -21,8 +21,47 @@ public class AppWorkGenJobRequest
     /** 人物白名单，顿号分隔 */
     private String roster;
 
+    /** 题材（台账基线起草输入；与 AI 面板的题材一致） */
+    private String genre;
+
+    /** 用户要求（台账基线起草输入；与 AI 面板的「你的要求」一致） */
+    private String userPrompt;
+
+    /** 本任务使用的模型名（起草与逐集正文都用它） */
+    private String model;
+
     /** 待生成集（按集号升序） */
     private List<WorkGenEpisode> episodes;
+
+    public String getGenre()
+    {
+        return genre;
+    }
+
+    public void setGenre(String genre)
+    {
+        this.genre = genre;
+    }
+
+    public String getUserPrompt()
+    {
+        return userPrompt;
+    }
+
+    public void setUserPrompt(String userPrompt)
+    {
+        this.userPrompt = userPrompt;
+    }
+
+    public String getModel()
+    {
+        return model;
+    }
+
+    public void setModel(String model)
+    {
+        this.model = model;
+    }
 
     public String getOutline()
     {
