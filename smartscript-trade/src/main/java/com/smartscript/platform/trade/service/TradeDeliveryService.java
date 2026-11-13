@@ -42,6 +42,9 @@ public class TradeDeliveryService
     private TradeContractService contractService;
 
     @Autowired
+    private TradeNotifyService notifyService;
+
+    @Autowired
     private JdbcTemplate jdbc;
 
     public List<SysDelivery> selectDeliveryList(SysDelivery query)
@@ -221,7 +224,10 @@ public class TradeDeliveryService
         update.setUpdateTime(now);
         deliveryMapper.updateDelivery(update);
 
-        return selectDeliveryById(deliveryId);
+        SysDelivery fresh = selectDeliveryById(deliveryId);
+        notifyService.notifyDeliveryUploaded(deliveryId, fresh.getDeliveryNo(), fresh.getOrderNo(),
+                fresh.getWorkTitle(), fresh.getAmount(), safeOperatorName(), fresh.getBuyerId());
+        return fresh;
     }
 
     /**

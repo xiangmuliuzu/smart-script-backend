@@ -183,6 +183,7 @@ public class TradeQuoteService
             update.setUpdateTime(new Date());
             inquiryMapper.updateInquiry(update);
         }
+        notifyService.notifyQuoteSubmitted(quote, inquiry);
         return quote;
     }
 
@@ -238,7 +239,20 @@ public class TradeQuoteService
         }
         update.setUpdateBy(safeGetOperatorName());
         update.setUpdateTime(new Date());
-        return quoteMapper.updateQuote(update);
+        int changed = quoteMapper.updateQuote(update);
+        if (changed == 1)
+        {
+            if (patch.getPrice() != null)
+            {
+                quote.setPrice(patch.getPrice());
+            }
+            if (patch.getDescription() != null)
+            {
+                quote.setDescription(patch.getDescription());
+            }
+            notifyService.notifyQuoteModified(quote, inquiry, safeGetOperatorName(), System.currentTimeMillis());
+        }
+        return changed;
     }
 
     /** 当前时间 + days 天 */
@@ -374,6 +388,11 @@ public class TradeQuoteService
         if (changed != 1)
         {
             throw new RuntimeException("该报价已被处理，不可拒绝");
+        }
+        SysInquiry inquiry = inquiryMapper.selectInquiryById(quote.getInquiryId());
+        if (inquiry != null)
+        {
+            notifyService.notifyQuoteRejected(quote, inquiry, OPERATOR_ROLE_BUYER.equals(operatorRole));
         }
         return changed;
     }

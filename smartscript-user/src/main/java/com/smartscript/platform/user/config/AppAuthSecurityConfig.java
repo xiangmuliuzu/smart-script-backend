@@ -117,10 +117,14 @@ public class AppAuthSecurityConfig
                                 "/api/v1/content/drama-feed",
                                 "/api/v1/content/external-dramas/**",
                                 "/api/v1/content/episodes/*").permitAll()
-                        // 任务广场访客只读：只公开已托管的可接单列表与聚合统计，详情和接单仍要求登录。
+                        // 任务广场访客只读：可接单列表、聚合统计与任务详情。
+                        // 详情用 {demandId:\d+} 限定单段数字路径，避免 * 把 source-script 等具名端点一起放过；
+                        // 验收轮次（/{id}/stages）不在白名单内，App 对游客不发起该请求，接单/报价仍要求登录。
+                        // 游客可见范围与字段裁剪在 Controller 内二次收口（只放 open+已托管，剥敏感字段）。
                         .requestMatchers(HttpMethod.GET,
                                 "/api/v1/trade/demand/list",
-                                "/api/v1/trade/demand/stats").permitAll()
+                                "/api/v1/trade/demand/stats",
+                                "/api/v1/trade/demand/{demandId:\\d+}").permitAll()
                         // App 用户中心 / 消息 / 反馈 / 业务模块私有接口：全部要求 App Access Token
                         .requestMatchers("/api/v1/auth/**", "/api/v1/users/**",
                                 "/api/v1/messages/**", "/api/v1/feedback/**",

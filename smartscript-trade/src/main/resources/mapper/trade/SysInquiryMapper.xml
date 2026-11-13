@@ -107,4 +107,17 @@
           and expire_at &lt; now()
     </update>
 
+    <!-- 与 closeExpiredInquiries 同条件的预查询：定时任务关闭后按行发送过期通知 -->
+    <select id="selectExpiredOpenInquiries" resultMap="SysInquiryResult">
+        select i.*, w.title as work_title,
+               ub.nick_name as buyer_name, us.nick_name as seller_name
+        from sys_inquiry i
+        left join sys_work w on i.work_id = w.work_id
+        left join sys_user ub on i.buyer_id = ub.user_id
+        left join sys_user us on i.seller_id = us.user_id
+        where i.status in ('pending', 'accepted', 'quoted')
+          and i.expire_at is not null
+          and i.expire_at &lt; now()
+    </select>
+
 </mapper>

@@ -5,8 +5,10 @@ import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.ruoyi.framework.realtime.RealtimePushService;
 import com.smartscript.platform.user.constant.AppUserErrorCodes;
 import com.smartscript.platform.user.domain.ChatMessage;
 import com.smartscript.platform.user.domain.ChatSession;
@@ -48,6 +50,13 @@ public class ChatService
     private final ChatMessageMapper messageMapper;
     private final ChatTradeTemplateMapper templateMapper;
     private final UserBlockService blockService;
+
+    /**
+     * 实时提醒出口（WebSocket）。可选注入：会话消息的真相在数据库里，
+     * 未装配长连接时消息照常收发，只是对端要等下一次拉取。
+     */
+    @Autowired(required = false)
+    private RealtimePushService realtimePush;
 
     public ChatService(ChatSessionMapper sessionMapper,
                        ChatMessageMapper messageMapper,
@@ -400,6 +409,10 @@ public class ChatService
         ChatMessage full = messageMapper.selectBySession(sessionId).stream()
                 .filter(m -> m.getMessageId().equals(msg.getMessageId()))
                 .findFirst().orElse(msg);
+        if (realtimePush != null)
+        {
+            realtimePush.pushChatMessageAfterCommit(sessionId, full.getMessageId(), senderId, receiverId);
+        }
         return toMessageVo(full);
     }
 

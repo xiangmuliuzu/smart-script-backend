@@ -32,6 +32,9 @@ public class TradeFinanceService
     private final SysOrderMapper orderMapper;
     private final JdbcTemplate jdbc;
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private TradeNotifyService notifyService;
+
     public TradeFinanceService(SysEscrowMapper escrowMapper,
                                SysInvoiceMapper invoiceMapper,
                                SysBillRecordMapper billRecordMapper,
@@ -602,6 +605,13 @@ public class TradeFinanceService
         billParams.put("relatedId", withdrawId);
         billParams.put("remark", autoApprove ? "提现自动通过" : "提现申请待审核");
         financeStatsMapper.insertBillRecord(billParams);
+
+        // 小额自动通过即时告知结果；大额转人工审核，结果由 WithdrawReviewService 审核时通知
+        if (autoApprove)
+        {
+            notifyService.notifyWithdrawResult(withdrawId, withdrawNo, amount, true,
+                    "系统自动通过（金额不超过10000元）", userId);
+        }
 
         Map<String, Object> result = new HashMap<>();
         result.put("withdrawId", withdrawId);

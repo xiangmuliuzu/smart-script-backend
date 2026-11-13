@@ -154,20 +154,7 @@ public class AppTradeDemandController
             List<Map<String, Object>> publicList = new ArrayList<>(list.size());
             for (SysDemand demand : list)
             {
-                Map<String, Object> item = new LinkedHashMap<>();
-                item.put("demandId", demand.getDemandId());
-                item.put("demandNo", demand.getDemandNo());
-                item.put("title", demand.getTitle());
-                item.put("genreId", demand.getGenreId());
-                item.put("tags", demand.getTags());
-                item.put("budget", demand.getBudget());
-                item.put("deadline", demand.getDeadline());
-                item.put("requirement", demand.getRequirement());
-                item.put("totalEpisodes", demand.getTotalEpisodes());
-                item.put("durationHours", demand.getDurationHours());
-                item.put("status", demand.getStatus());
-                item.put("createdAt", demand.getCreatedAt());
-                publicList.add(item);
+                publicList.add(publicView(demand));
             }
             responseList = publicList;
         }
@@ -236,9 +223,13 @@ public class AppTradeDemandController
 
     /**
      * 任务详情。
+     *
+     * <p>游客可看，但可见集合与广场列表严格一致（status=open ∧ 已托管），其余状态按「不存在」处理；
+     * 且只回公开字段。原始 SysDemand 含联系方式、发布者编号、托管/押金金额与状态、源剧本地址，
+     * 这些只在登录后返回（登录口径保持不变，任务双方仍能看到自己需要的字段）。</p>
      */
     @GetMapping("/{demandId}")
-    public AppApiResponse<SysDemand> detail(@PathVariable Long demandId)
+    public AppApiResponse<?> detail(@PathVariable Long demandId)
     {
         SysDemand demand = demandService.selectDemandById(demandId);
         if (demand == null)
@@ -246,7 +237,43 @@ public class AppTradeDemandController
             return AppApiResponse.fail(404, "任务不存在");
         }
         applyFen(demand);
+        if (!identityProvider.currentIdentity().isAuthenticated())
+        {
+            boolean squareVisible = TradeDemandService.DEMAND_STATUS_OPEN.equals(demand.getStatus())
+                    && TradeDemandService.ESCROW_ESCROWED.equals(demand.getEscrowStatus());
+            if (!squareVisible)
+            {
+                // 不用 403：403 会告诉调用方「这个单存在但你没权限」，任务编号本身也是业务信息。
+                return AppApiResponse.fail(404, "任务不存在");
+            }
+            return AppApiResponse.ok(publicView(demand));
+        }
         return AppApiResponse.ok(demand);
+    }
+
+    /** 游客视角的任务公开字段；与 /list 的游客口径共用，避免两处漂移。 */
+    private static Map<String, Object> publicView(SysDemand demand)
+    {
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("demandId", demand.getDemandId());
+        item.put("demandNo", demand.getDemandNo());
+        item.put("title", demand.getTitle());
+        item.put("genreId", demand.getGenreId());
+        item.put("tags", demand.getTags());
+        item.put("budget", demand.getBudget());
+        item.put("deadline", demand.getDeadline());
+        item.put("requirement", demand.getRequirement());
+        item.put("totalEpisodes", demand.getTotalEpisodes());
+        item.put("durationHours", demand.getDurationHours());
+        item.put("status", demand.getStatus());
+        item.put("createdAt", demand.getCreatedAt());
+        item.put("taskType", demand.getTaskType());
+        item.put("sourceScriptName", demand.getSourceScriptName());
+        item.put("sourceWorkTitle", demand.getSourceWorkTitle());
+        item.put("clientName", demand.getClientName());
+        // 到这里必然已托管，回这个标记只为让客户端状态渲染不缺项；金额与押金状态一律不回。
+        item.put("escrowStatus", demand.getEscrowStatus());
+        return item;
     }
 
     /**

@@ -10,10 +10,12 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
+import com.ruoyi.framework.realtime.RealtimePushService;
 import com.smartscript.platform.user.constant.AppAdminConstants;
 import com.smartscript.platform.user.constant.AppAdminErrorCodes;
 import com.smartscript.platform.user.domain.admin.AdminNotification;
@@ -38,6 +40,13 @@ import com.smartscript.platform.user.mapper.AdminNotificationMapper;
 public class UserNotificationAdminService
 {
     private final AdminNotificationMapper mapper;
+
+    /**
+     * 实时提醒出口（WebSocket）。可选注入：消息主链路只依赖数据库，
+     * 没有装配长连接模块（如纯单元测试上下文）时消息照常创建，只是不即时打扰。
+     */
+    @Autowired(required = false)
+    private RealtimePushService realtimePush;
 
     /** 单次创建收件人上限。 */
     private static final int MAX_RECEIVERS = 500;
@@ -193,6 +202,7 @@ public class UserNotificationAdminService
         if (!delivered.isEmpty())
         {
             mapper.insertReceivers(entity.getNotificationId(), delivered);
+            pushRealtime(entity, preferenceType, delivered);
         }
         return new CreateResult(entity.getNotificationId(), delivered.size(), true);
     }
@@ -220,6 +230,52 @@ public class UserNotificationAdminService
             }
         }
         return delivered;
+    }
+
+    /**
+     * 按「实时提醒 × type」偏好剔除已关闭即时提醒的收件人。
+     *
+     * 与 INBOX 过滤相互独立：关掉站内信的人收不到消息，自然也不会被即时打扰；
+     * 只关 PUSH 的人站内信仍在收件箱里，但不会有长连接弹提醒。
+     */
+    private List<Long> filterPushDisabled(List<Long> userIds, String type)
+    {
+        List<Long> disabled = mapper.selectPushDisabledUserIds(userIds, type);
+        if (disabled == null || disabled.isEmpty())
+        {
+            return userIds;
+        }
+        Set<Long> disabledSet = new LinkedHashSet<>(disabled);
+        List<Long> targets = new ArrayList<>(userIds.size());
+        for (Long userId : userIds)
+        {
+            if (!disabledSet.contains(userId))
+            {
+                targets.add(userId);
+            }
+        }
+        return targets;
+    }
+
+    /**
+     * 消息落库后通过长连接即时提醒收件人。
+     *
+     * <p>偏好查询必须在当前事务内完成（回调发生在提交之后，届时连接可能已归还），
+     * 回调里只做序列化与投递。推送失败不影响已创建的消息。</p>
+     */
+    private void pushRealtime(AdminNotification entity, String preferenceType, List<Long> delivered)
+    {
+        if (realtimePush == null)
+        {
+            return;
+        }
+        List<Long> targets = filterPushDisabled(delivered, preferenceType);
+        if (targets.isEmpty())
+        {
+            return;
+        }
+        realtimePush.pushNotificationAfterCommit(entity.getNotificationId(), entity.getBusinessType(),
+                entity.getTitle(), targets);
     }
 
     /**

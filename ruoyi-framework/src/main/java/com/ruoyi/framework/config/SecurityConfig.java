@@ -117,6 +117,9 @@ public class SecurityConfig
                     .requestMatchers("/api/v1/ad/**").permitAll()
                     .requestMatchers("/api/v1/ai/**").permitAll()
                     .requestMatchers("/api/v1/open/**").permitAll()
+                    // 站内实时通知长连接：握手阶段由 NotifyHandshakeInterceptor 校验同一套令牌，
+                    // 这里放行只是让升级请求走到拦截器，不代表连接匿名可用。
+                    .requestMatchers("/ws/**").permitAll()
                     // 静态资源，可匿名访问
                     .requestMatchers(HttpMethod.GET, "/", "/*.html", "/**.html", "/**.css", "/**.js", "/profile/**").permitAll()
                     .requestMatchers("/swagger-ui.html", "/v3/api-docs/**", "/swagger-ui/**", "/druid/**").permitAll()

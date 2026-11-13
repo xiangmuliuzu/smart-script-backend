@@ -79,4 +79,43 @@ class AppAuthIdentityScopeTest
         }
         assertFalse(AppAuthAuthenticationFilter.requiresAppIdentity(null));
     }
+
+    /**
+     * 任务广场成为底部导航公开板块后，整段 /trade/demand 走「可匿名但可带身份」：
+     * 游客不带 Token 时由过滤器放行、继续到授权层，已登录用户带 Token 时仍要解析出身份，
+     * 否则广场列表/详情会退化成游客视角、拿不到个人相关字段。
+     */
+    @Test
+    void demandSquareAllowsOptionalIdentity()
+    {
+        String[] demandPaths = {
+                "/api/v1/trade/demand/list",
+                "/api/v1/trade/demand/stats",
+                "/api/v1/trade/demand/777",
+                "/api/v1/trade/demand/777/stages",
+                "/api/v1/trade/demand/777/claim",
+        };
+        for (String path : demandPaths)
+        {
+            assertTrue(AppAuthAuthenticationFilter.allowsOptionalIdentity(path),
+                    "must allow optional identity: " + path);
+        }
+    }
+
+    /** 登记为可选身份不等于公开：写操作与个人任务仍需要身份，不能因为前缀放宽就变成免登录。 */
+    @Test
+    void demandWritePathsStillRequireAppIdentity()
+    {
+        String[] demandPaths = {
+                "/api/v1/trade/demand",
+                "/api/v1/trade/demand/777/claim",
+                "/api/v1/trade/demand/777/deliver",
+                "/api/v1/trade/demand/source-script",
+        };
+        for (String path : demandPaths)
+        {
+            assertTrue(AppAuthAuthenticationFilter.requiresAppIdentity(path),
+                    "must still require App identity: " + path);
+        }
+    }
 }

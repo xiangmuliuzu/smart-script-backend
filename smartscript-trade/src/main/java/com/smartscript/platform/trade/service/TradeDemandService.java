@@ -471,10 +471,19 @@ public class TradeDemandService
         return budget.divide(BigDecimal.TEN, 2, RoundingMode.FLOOR);
     }
 
-    /** 托管入账后回调：置 escrowed。 */
+    /** 托管入账后回调：置 escrowed，首次到账时通知发布者任务已曝光。 */
     public int markEscrowed(Long demandId)
     {
-        return demandMapper.markEscrowed(demandId);
+        int changed = demandMapper.markEscrowed(demandId);
+        if (changed == 1)
+        {
+            SysDemand demand = demandMapper.selectDemandById(demandId);
+            if (demand != null)
+            {
+                notifyService.notifyDemandEscrowed(demand);
+            }
+        }
+        return changed;
     }
 
     /**
@@ -495,7 +504,7 @@ public class TradeDemandService
             throw new RuntimeException("当前任务状态不可完成托管");
         if (ESCROW_ESCROWED.equals(demand.getEscrowStatus()))
             throw new RuntimeException("托管款已到账");
-        demandMapper.markEscrowed(demandId);
+        markEscrowed(demandId);
         return demandMapper.selectDemandById(demandId);
     }
 
@@ -1509,7 +1518,13 @@ public class TradeDemandService
         SysDemand demand = demandMapper.selectDemandById(sub.getDemandId());
         if (demand == null || !operatorId.equals(demand.getClientId())) throw new RuntimeException("无权操作");
         if (!SUBMISSION_STATUS_SUBMITTED.equals(sub.getStatus())) throw new RuntimeException("仅已投稿状态可入围");
-        return submissionMapper.updateStatus(submissionId, SUBMISSION_STATUS_SHORTLISTED, null, String.valueOf(operatorId));
+        int changed = submissionMapper.updateStatus(submissionId, SUBMISSION_STATUS_SHORTLISTED, null, String.valueOf(operatorId));
+        if (changed == 1)
+        {
+            notifyService.notifySubmissionShortlisted(submissionId, sub.getDemandId(), demand.getTitle(),
+                    sub.getSubmitterId(), sub.getWorkTitle());
+        }
+        return changed;
     }
 
     /**
@@ -1531,6 +1546,16 @@ public class TradeDemandService
         demandMapper.updateStatus(demand.getDemandId(), DEMAND_STATUS_SELECTED, String.valueOf(operatorId));
         // 批量拒绝其它投稿
         submissionMapper.batchRejectByDemandId(demand.getDemandId(), submissionId, String.valueOf(operatorId));
+        // 落选投稿逐个通知创作者
+        for (SysDemandSubmission other : submissionMapper.selectSubmissionsByDemandId(demand.getDemandId()))
+        {
+            if (!submissionId.equals(other.getSubmissionId())
+                    && SUBMISSION_STATUS_REJECTED.equals(other.getStatus()))
+            {
+                notifyService.notifySubmissionRejected(other.getSubmissionId(), demand.getDemandId(),
+                        demand.getTitle(), other.getSubmitterId(), other.getWorkTitle(), "本征集已选定其他投稿");
+            }
+        }
 
         // 自动创建询盘（复用现有交易链路）
         SysInquiry inquiry = new SysInquiry();
@@ -1559,7 +1584,13 @@ public class TradeDemandService
         SysDemand demand = demandMapper.selectDemandById(sub.getDemandId());
         if (demand == null || !operatorId.equals(demand.getClientId())) throw new RuntimeException("无权操作");
         if (SUBMISSION_STATUS_ACCEPTED.equals(sub.getStatus())) throw new RuntimeException("已中标不可拒绝");
-        return submissionMapper.updateStatus(submissionId, SUBMISSION_STATUS_REJECTED, remark, String.valueOf(operatorId));
+        int changed = submissionMapper.updateStatus(submissionId, SUBMISSION_STATUS_REJECTED, remark, String.valueOf(operatorId));
+        if (changed == 1)
+        {
+            notifyService.notifySubmissionRejected(submissionId, sub.getDemandId(), demand.getTitle(),
+                    sub.getSubmitterId(), sub.getWorkTitle(), remark);
+        }
+        return changed;
     }
 
     private static Date startOfDay(Date d)

@@ -63,6 +63,16 @@ public interface AdminNotificationMapper
     List<Long> selectInboxDisabledUserIds(@Param("userIds") List<Long> userIds,
                                           @Param("type") String type);
 
+    /**
+     * 在给定收件人中，找出已通过通知偏好关闭「实时提醒（PUSH）× type」的用户。
+     *
+     * 站内信仍然照常投递，这里只用于决定是否下发 WebSocket 即时帧（规格 §8.6 中
+     * PUSH 渠道约束的是提醒动作，不是消息投递）。口径与 INBOX 渠道一致：稀疏存储，
+     * 只有显式关闭才落库 enabled=0。
+     */
+    List<Long> selectPushDisabledUserIds(@Param("userIds") List<Long> userIds,
+                                         @Param("type") String type);
+
     /** 收件人数，用于人数上限与批处理阈值判定。 */
     int countReceivers(@Param("notificationId") Long notificationId);
 }

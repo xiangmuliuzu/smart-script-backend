@@ -216,4 +216,24 @@
         </foreach>
     </select>
 
+    <!--
+      受「实时提醒（PUSH）× type」偏好关闭的用户。
+      与 INBOX 同构，只是渠道换成 PUSH：命中者站内信照旧落库，但不通过长连接即时打扰。
+    -->
+    <select id="selectPushDisabledUserIds" resultType="java.lang.Long">
+        SELECT u.user_id
+        FROM sys_user u
+        LEFT JOIN user_notification_preference p
+          ON p.user_id = u.user_id AND p.channel = 'PUSH' AND p.type = #{type}
+        LEFT JOIN user_notification_preference legacy
+          ON legacy.user_id = u.user_id AND legacy.channel = 'PUSH'
+          AND legacy.type = 'TRANSACTION'
+          AND #{type} IN ('INQUIRY', 'ORDER', 'CONTRACT')
+        WHERE COALESCE(p.enabled, legacy.enabled, 1) = 0
+          AND u.user_id IN
+        <foreach collection="userIds" item="userId" open="(" separator="," close=")">
+            #{userId}
+        </foreach>
+    </select>
+
 </mapper>

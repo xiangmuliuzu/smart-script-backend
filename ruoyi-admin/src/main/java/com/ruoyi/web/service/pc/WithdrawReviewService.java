@@ -1,6 +1,7 @@
 package com.ruoyi.web.service.pc;
 
 import com.ruoyi.common.utils.SecurityUtils;
+import com.smartscript.platform.trade.service.TradeNotifyService;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -23,9 +24,11 @@ public class WithdrawReviewService {
     private static final List<String> STATUSES = List.of("pending", "approved", "rejected", "frozen", "paid");
 
     private final JdbcTemplate jdbc;
+    private final TradeNotifyService notifyService;
 
-    public WithdrawReviewService(JdbcTemplate jdbc) {
+    public WithdrawReviewService(JdbcTemplate jdbc, TradeNotifyService notifyService) {
         this.jdbc = jdbc;
+        this.notifyService = notifyService;
     }
 
     public long count(String status, String keyword) {
@@ -61,7 +64,7 @@ public class WithdrawReviewService {
         Map<String, Object> apply;
         try {
             apply = jdbc.queryForMap(
-                    "SELECT user_id AS userId, amount AS amount FROM sys_withdraw_apply "
+                    "SELECT user_id AS userId, withdraw_no AS withdrawNo, amount AS amount FROM sys_withdraw_apply "
                             + "WHERE withdraw_id = ? AND status = 'pending'",
                     withdrawId);
         } catch (EmptyResultDataAccessException e) {
@@ -74,6 +77,8 @@ public class WithdrawReviewService {
         requireChanged(changed, "仅待审核申请可以通过");
         // 旧数据申请时可能写入 frozen_amount；新流程申请时已扣可用余额，此处仅冲减遗留冻结额。
         releaseLegacyFrozen(apply);
+        notifyService.notifyWithdrawResult(withdrawId, String.valueOf(apply.get("withdrawNo")),
+                toAmount(apply.get("amount")), true, null, ((Number) apply.get("userId")).longValue());
     }
 
     @Transactional
@@ -85,7 +90,7 @@ public class WithdrawReviewService {
         Map<String, Object> apply;
         try {
             apply = jdbc.queryForMap(
-                    "SELECT user_id AS userId, amount AS amount FROM sys_withdraw_apply "
+                    "SELECT user_id AS userId, withdraw_no AS withdrawNo, amount AS amount FROM sys_withdraw_apply "
                             + "WHERE withdraw_id = ? AND status = 'pending'",
                     withdrawId);
         } catch (EmptyResultDataAccessException e) {
@@ -107,6 +112,8 @@ public class WithdrawReviewService {
         if (restored != 1) {
             throw new IllegalStateException("驳回后退回余额失败，请检查收益账户");
         }
+        notifyService.notifyWithdrawResult(withdrawId, String.valueOf(apply.get("withdrawNo")),
+                amount, false, reason, userId);
     }
 
     private void releaseLegacyFrozen(Map<String, Object> apply) {

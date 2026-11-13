@@ -49,6 +49,12 @@
                 <artifactId>tomcat-embed-core</artifactId>
                 <version>11.0.25</version>
             </dependency>
+            <!-- 与上方 core 同版本：websocket 实现与容器核心强耦合，混版会在握手期抛 NoSuchMethodError -->
+            <dependency>
+                <groupId>org.apache.tomcat.embed</groupId>
+                <artifactId>tomcat-embed-websocket</artifactId>
+                <version>11.0.25</version>
+            </dependency>
             <dependency> <!-- #2/#3 netty-handler CRITICAL(SNI 绕过)+netty-codec-dns MODERATE，BOM 收敛两件 -->
                 <groupId>io.netty</groupId>
                 <artifactId>netty-bom</artifactId>

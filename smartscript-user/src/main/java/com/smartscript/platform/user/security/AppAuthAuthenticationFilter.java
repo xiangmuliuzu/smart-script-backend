@@ -88,9 +88,11 @@ public class AppAuthAuthenticationFilter extends OncePerRequestFilter
             "/content/drama-feed",
             "/content/external-dramas",
             "/content/episodes",
-            // 任务广场仅开放公开列表和统计，游客可读；详情、会话、支付与接单仍需身份。
-            "/trade/demand/list",
-            "/trade/demand/stats",
+            // 任务广场游客可逛：整段前缀登记为「可匿名但可带身份」，与 /content/episodes 同一取向——
+            // 未在 permitAll 中登记的子路径（发布、接单、延时、源剧本、我的任务等）仍由授权层按
+            // authenticated 拒绝并走 AppAuthEntryPoint 返回 401，不会因这里放宽而泄露数据。
+            // 游客能看到的详情范围与字段由 AppTradeDemandController 按「open + 已托管」二次收口。
+            "/trade/demand",
     };
 
     public AppAuthAuthenticationFilter(AppRuoYiSessionService accessTokenService)

@@ -15,6 +15,7 @@ import com.smartscript.platform.trade.domain.SysDemand;
 import com.smartscript.platform.trade.domain.SysDemandStage;
 import com.smartscript.platform.trade.domain.SysInquiry;
 import com.smartscript.platform.trade.domain.SysOrder;
+import com.smartscript.platform.trade.domain.SysQuote;
 import com.smartscript.platform.user.constant.AppAdminConstants;
 import com.smartscript.platform.user.service.UserNotificationAdminService;
 
@@ -177,6 +178,134 @@ public class TradeNotifyService
         content.append("如有疑问，可与对方沟通了解详情。");
         push("TRD-ORD-CXL-" + orderId, "订单已取消", content.toString(),
                 "ORDER", str(orderId), one(counterpartUserId), "BOTH");
+    }
+
+    /** 报价/议价提交 → 通知待确认的对方（卖方报价→买方确认；买方议价→卖方确认）。 */
+    public void notifyQuoteSubmitted(SysQuote quote, SysInquiry inquiry)
+    {
+        boolean fromSeller = TradeQuoteService.QUOTER_ROLE_SELLER.equals(quote.getQuoterRole());
+        Long receiverId = fromSeller ? inquiry.getBuyerId() : inquiry.getSellerId();
+        String actorName = fromSeller ? inquiry.getSellerName() : inquiry.getBuyerName();
+        StringBuilder content = new StringBuilder(fromSeller
+                ? "卖方已发出报价，等待您的确认。\n"
+                : "买方发起议价，等待您确认新报价。\n");
+        line(content, "作品", titleOf(inquiry.getWorkTitle()));
+        line(content, "询盘编号", inquiry.getInquiryNo());
+        line(content, "报价编号", quote.getQuoteNo());
+        line(content, "报价金额", amountText(quote.getPrice()));
+        line(content, "报价方", nameOf(actorName));
+        line(content, "报价说明", quote.getDescription());
+        content.append(fromSeller
+                ? "请前往「报价」查看明细：接受即生成订单，拒绝可继续沟通议价。"
+                : "请前往「报价」查看明细：接受即生成订单，拒绝后可重新报价。");
+        // 一行报价仅首次提交时通知；后续 modifyQuote 由 notifyQuoteModified 以修改时刻补键
+        push("TRD-QTE-SUB-" + quote.getQuoteId(),
+                fromSeller ? "收到新的报价" : "收到新的议价", content.toString(),
+                "INQUIRY", str(quote.getInquiryId()), one(receiverId), fromSeller ? "BUYER" : "SELLER");
+    }
+
+    /** 待确认报价被对方修改金额/说明 → 通知确认方按最新报价处理。 */
+    public void notifyQuoteModified(SysQuote quote, SysInquiry inquiry, String actorName, long modifiedAtMillis)
+    {
+        boolean toBuyer = TradeQuoteService.QUOTER_ROLE_SELLER.equals(quote.getQuoterRole());
+        Long receiverId = toBuyer ? inquiry.getBuyerId() : inquiry.getSellerId();
+        StringBuilder content = new StringBuilder("对方修改了待确认的报价，请按最新金额处理。\n");
+        line(content, "作品", titleOf(inquiry.getWorkTitle()));
+        line(content, "报价编号", quote.getQuoteNo());
+        line(content, "最新金额", amountText(quote.getPrice()));
+        line(content, "修改方", nameOf(actorName));
+        line(content, "报价说明", quote.getDescription());
+        content.append("请前往「报价」查看最新明细后接受或拒绝。");
+        push("TRD-QTE-MOD-" + quote.getQuoteId() + "-" + modifiedAtMillis, "报价已更新", content.toString(),
+                "INQUIRY", str(quote.getInquiryId()), one(receiverId), toBuyer ? "BUYER" : "SELLER");
+    }
+
+    /** 一方拒绝报价 → 通知报价方（询盘仍处议价中，可重新报价）。 */
+    public void notifyQuoteRejected(SysQuote quote, SysInquiry inquiry, boolean rejectedByBuyer)
+    {
+        Long receiverId = rejectedByBuyer ? inquiry.getSellerId() : inquiry.getBuyerId();
+        String actorName = rejectedByBuyer ? inquiry.getBuyerName() : inquiry.getSellerName();
+        StringBuilder content = new StringBuilder(rejectedByBuyer
+                ? "您的报价已被买方拒绝，可沟通后重新报价。\n"
+                : "买方议价已被卖方拒绝，可沟通后重新报价。\n");
+        line(content, "作品", titleOf(inquiry.getWorkTitle()));
+        line(content, "询盘编号", inquiry.getInquiryNo());
+        line(content, "报价编号", quote.getQuoteNo());
+        line(content, "报价金额", amountText(quote.getPrice()));
+        line(content, "拒绝方", nameOf(actorName));
+        content.append("询盘仍处于议价中，可继续洽谈或重新报价。");
+        push("TRD-QTE-REJ-" + quote.getQuoteId(), "报价被拒绝", content.toString(),
+                "INQUIRY", str(quote.getInquiryId()), one(receiverId), rejectedByBuyer ? "SELLER" : "BUYER");
+    }
+
+    /** 卖方拒绝询盘 → 通知买方。 */
+    public void notifyInquiryRejected(SysInquiry inquiry)
+    {
+        StringBuilder content = new StringBuilder("很抱歉，卖方已拒绝您的询盘，本次洽谈终止。\n");
+        line(content, "作品", titleOf(inquiry.getWorkTitle()));
+        line(content, "询盘编号", inquiry.getInquiryNo());
+        line(content, "卖方", nameOf(inquiry.getSellerName()));
+        content.append("如有需要，可重新发起询盘或与对方沟通。");
+        push("TRD-INQ-REJ-" + inquiry.getInquiryId(), "询盘已被拒绝", content.toString(),
+                "INQUIRY", str(inquiry.getInquiryId()), one(inquiry.getBuyerId()), "BUYER");
+    }
+
+    /** 提现审核结果（通过/驳回/小额自动通过）→ 通知申请用户。 */
+    public void notifyWithdrawResult(Long withdrawId, String withdrawNo, BigDecimal amount,
+            boolean approved, String opinion, Long userId)
+    {
+        StringBuilder content = new StringBuilder(approved
+                ? "您的提现申请已通过审核，款项将按提现渠道转出。\n"
+                : "很抱歉，您的提现申请未通过审核，金额已退回可提现余额。\n");
+        line(content, "提现单号", withdrawNo);
+        line(content, "提现金额", amountText(amount));
+        if (!approved)
+        {
+            line(content, "驳回原因", opinion);
+        }
+        content.append(approved
+                ? "可在「收益-提现记录」查看进度。"
+                : "可修正收款账户信息后重新申请提现。");
+        push("TRD-WDR-" + withdrawId + "-" + (approved ? "OK" : "NO"),
+                approved ? "提现申请已通过" : "提现申请被驳回", content.toString(),
+                "ORDER", str(withdrawId), one(userId), "SELLER");
+    }
+
+    /** 询盘关闭：主动关闭通知对方，系统过期关闭通知双方。 */
+    public void notifyInquiryClosed(SysInquiry inquiry, boolean expired, Long actorId)
+    {
+        String title = expired ? "询盘已过期关闭" : "询盘已关闭";
+        String head = expired ? "您的询盘已超过有效期，系统已自动关闭。\n" : "询盘已被关闭，本次洽谈终止。\n";
+        String tail = expired ? "如有需要可重新发起询盘。" : "如有需要，可与对方沟通或重新发起询盘。";
+        StringBuilder content = new StringBuilder(head);
+        line(content, "作品", titleOf(inquiry.getWorkTitle()));
+        line(content, "询盘编号", inquiry.getInquiryNo());
+        content.append(tail);
+        List<Long> receivers = new ArrayList<>();
+        String audience = "BOTH";
+        if (!expired && actorId != null)
+        {
+            // 主动关闭只通知非操作方；操作者身份无法判定时退回双方通知
+            if (actorId.equals(inquiry.getBuyerId()))
+            {
+                receivers = one(inquiry.getSellerId());
+                audience = "SELLER";
+            }
+            else if (actorId.equals(inquiry.getSellerId()))
+            {
+                receivers = one(inquiry.getBuyerId());
+                audience = "BUYER";
+            }
+        }
+        if (receivers.isEmpty())
+        {
+            List<Long> both = new ArrayList<>();
+            both.add(inquiry.getBuyerId());
+            both.add(inquiry.getSellerId());
+            receivers = both;
+        }
+        push("TRD-INQ-CLO-" + inquiry.getInquiryId(), title, content.toString(),
+                "INQUIRY", str(inquiry.getInquiryId()), receivers, audience);
     }
 
     // ===== 内部工具 =====
@@ -344,6 +473,58 @@ public class TradeNotifyService
         push("TRD-DM-ACC-" + submissionId,
                 "投稿中标", content.toString(),
                 "DEMAND", str(submissionId), one(submitterId), "SELLER");
+    }
+
+    /** 任务广场：投稿入围 → 通知创作者。 */
+    public void notifySubmissionShortlisted(Long submissionId, Long demandId, String demandTitle,
+            Long submitterId, String workTitle)
+    {
+        StringBuilder content = new StringBuilder("您的投稿已入围发布者候选名单，请保持联系并等待选标结果。\n");
+        line(content, "任务", titleOf(demandTitle));
+        line(content, "投稿作品", titleOf(workTitle));
+        content.append("发布者可继续评审或直接选标，可在「我的合作-征集投稿」查看进展。");
+        push("TRD-DM-SHORT-" + submissionId, "投稿已入围", content.toString(),
+                "DEMAND", str(demandId), one(submitterId), "SELLER");
+    }
+
+    /** 任务广场：投稿被拒绝（单条拒绝或选标时批量落选）→ 通知创作者。 */
+    public void notifySubmissionRejected(Long submissionId, Long demandId, String demandTitle,
+            Long submitterId, String workTitle, String reason)
+    {
+        StringBuilder content = new StringBuilder("很遗憾，您的投稿未被本次征集任务选中。\n");
+        line(content, "任务", titleOf(demandTitle));
+        line(content, "投稿作品", titleOf(workTitle));
+        line(content, "落选说明", reason);
+        content.append("可关注广场其他任务继续投稿，如有疑问可与发布方沟通。");
+        push("TRD-DM-REJ-" + submissionId, "投稿未选中", content.toString(),
+                "DEMAND", str(demandId), one(submitterId), "SELLER");
+    }
+
+    /** 交割单：卖方上传交割材料 → 通知买方确认收货。 */
+    public void notifyDeliveryUploaded(Long deliveryId, String deliveryNo, String orderNo,
+            String workTitle, BigDecimal amount, String sellerName, Long buyerId)
+    {
+        StringBuilder content = new StringBuilder("卖方已提交交割材料，等待您确认收货。\n");
+        line(content, "作品", titleOf(workTitle));
+        line(content, "订单编号", orderNo);
+        line(content, "交割单号", deliveryNo);
+        line(content, "托管金额", amountText(amount));
+        line(content, "卖方", nameOf(sellerName));
+        content.append("请前往「订单-交割」核验材料：确认收货后货款将释放给卖方。");
+        push("TRD-DLV-UP-" + deliveryId, "卖方已交割，待确认收货", content.toString(),
+                "ORDER", str(deliveryId), one(buyerId), "BUYER");
+    }
+
+    /** 任务托管款项到账 → 通知发布者任务已在广场曝光。 */
+    public void notifyDemandEscrowed(SysDemand demand)
+    {
+        StringBuilder content = new StringBuilder("您发布的征集任务托管款项已到账，任务已在任务广场曝光。\n");
+        line(content, "任务", titleOf(demand.getTitle()));
+        line(content, "需求编号", demand.getDemandNo());
+        line(content, "托管金额", amountText(demand.getBudget()));
+        content.append("创作者可用押金接单，欢迎查看投稿或直接等待抢单。");
+        push("TRD-DM-ESCROW-" + demand.getDemandId(), "托管已到账，任务已曝光",
+                content.toString(), "DEMAND", str(demand.getDemandId()), one(demand.getClientId()), "BOTH");
     }
 
     /** 任务广场：创作者抢单成功，通知发布方。 */

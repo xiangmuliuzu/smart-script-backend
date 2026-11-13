@@ -191,7 +191,12 @@ public class TradeInquiryService
     @Transactional
     public int rejectInquiry(Long inquiryId)
     {
-        return transitionInquiry(inquiryId, INQUIRY_STATUS_REJECTED, null, INQUIRY_STATUS_PENDING);
+        int changed = transitionInquiry(inquiryId, INQUIRY_STATUS_REJECTED, null, INQUIRY_STATUS_PENDING);
+        if (changed == 1)
+        {
+            notifyInquiryRejected(inquiryId);
+        }
+        return changed;
     }
 
     /**
@@ -199,7 +204,21 @@ public class TradeInquiryService
      */
     public int rejectInquiry(Long inquiryId, String updateBy)
     {
-        return transitionInquiry(inquiryId, INQUIRY_STATUS_REJECTED, updateBy, INQUIRY_STATUS_PENDING);
+        int changed = transitionInquiry(inquiryId, INQUIRY_STATUS_REJECTED, updateBy, INQUIRY_STATUS_PENDING);
+        if (changed == 1)
+        {
+            notifyInquiryRejected(inquiryId);
+        }
+        return changed;
+    }
+
+    private void notifyInquiryRejected(Long inquiryId)
+    {
+        SysInquiry fresh = inquiryMapper.selectInquiryById(inquiryId);
+        if (fresh != null)
+        {
+            notifyService.notifyInquiryRejected(fresh);
+        }
     }
 
     /**
@@ -209,9 +228,14 @@ public class TradeInquiryService
     @Transactional
     public int closeInquiry(Long inquiryId)
     {
-        return transitionInquiry(inquiryId, INQUIRY_STATUS_CLOSED, null,
+        int changed = transitionInquiry(inquiryId, INQUIRY_STATUS_CLOSED, null,
                 INQUIRY_STATUS_PENDING, INQUIRY_STATUS_ACCEPTED,
                 INQUIRY_STATUS_QUOTED, INQUIRY_STATUS_REJECTED);
+        if (changed == 1)
+        {
+            notifyInquiryClosed(inquiryId, false, currentUserIdOrNull());
+        }
+        return changed;
     }
 
     /**
@@ -219,9 +243,51 @@ public class TradeInquiryService
      */
     public int closeInquiry(Long inquiryId, String updateBy)
     {
-        return transitionInquiry(inquiryId, INQUIRY_STATUS_CLOSED, updateBy,
+        int changed = transitionInquiry(inquiryId, INQUIRY_STATUS_CLOSED, updateBy,
                 INQUIRY_STATUS_PENDING, INQUIRY_STATUS_ACCEPTED,
                 INQUIRY_STATUS_QUOTED, INQUIRY_STATUS_REJECTED);
+        if (changed == 1)
+        {
+            notifyInquiryClosed(inquiryId, false, parseUserId(updateBy));
+        }
+        return changed;
+    }
+
+    private void notifyInquiryClosed(Long inquiryId, boolean expired, Long actorId)
+    {
+        SysInquiry fresh = inquiryMapper.selectInquiryById(inquiryId);
+        if (fresh != null)
+        {
+            notifyService.notifyInquiryClosed(fresh, expired, actorId);
+        }
+    }
+
+    private Long currentUserIdOrNull()
+    {
+        try
+        {
+            return SecurityUtils.getUserId();
+        }
+        catch (Exception e)
+        {
+            return null;
+        }
+    }
+
+    private Long parseUserId(String updateBy)
+    {
+        if (updateBy == null || updateBy.isBlank())
+        {
+            return null;
+        }
+        try
+        {
+            return Long.valueOf(updateBy.trim());
+        }
+        catch (NumberFormatException e)
+        {
+            return currentUserIdOrNull();
+        }
     }
 
     /**
@@ -232,7 +298,17 @@ public class TradeInquiryService
     @Transactional
     public int closeExpiredInquiries()
     {
-        return inquiryMapper.closeExpiredInquiries();
+        // 先取本轮将过期的询盘（条件与批量关闭一致），关闭后按 requestId 幂等通知双方
+        List<SysInquiry> expiring = inquiryMapper.selectExpiredOpenInquiries();
+        int changed = inquiryMapper.closeExpiredInquiries();
+        if (changed > 0)
+        {
+            for (SysInquiry inquiry : expiring)
+            {
+                notifyService.notifyInquiryClosed(inquiry, true, null);
+            }
+        }
+        return changed;
     }
 
     /**
