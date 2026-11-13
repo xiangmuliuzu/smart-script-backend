@@ -84,5 +84,8 @@ class WorkGenPromptSupportTest
         assertTrue(prompt.contains("三年之约"));
         // 铁律仍是「回应」，而不是「必须在当集收尾」
         assertTrue(prompt.contains("允许该悬念跨集延续，不要求在本集收尾"));
+        // 硬事实清单由台账抽取，随提示词一起下发
+        assertTrue(prompt.contains("【硬事实清单（本集必须自洽；由台账自动抽取，非固定字段）】"));
+        assertTrue(prompt.contains("锁灵钉 1 件"));
     }
 }

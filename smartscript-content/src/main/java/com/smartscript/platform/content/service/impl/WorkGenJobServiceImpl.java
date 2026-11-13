@@ -23,6 +23,7 @@ import com.smartscript.platform.content.service.IAppWorkLedgerService;
 import com.smartscript.platform.content.service.IAiWriteService;
 import com.smartscript.platform.content.service.IWorkGenJobService;
 import com.smartscript.platform.content.service.WorkGenPromptSupport;
+import com.smartscript.platform.content.service.WorkGenConsistencySupport;
 import com.smartscript.platform.identity.BackgroundIdentity;
 
 /**
@@ -48,6 +49,9 @@ public class WorkGenJobServiceImpl implements IWorkGenJobService
 
     /** 生成正文的最短可接受长度 */
     private static final int MIN_BODY = 50;
+
+    /** 硬事实冲突后的补写次数（只重写该集，不重跑队列） */
+    private static final int CONSISTENCY_RETRY = 1;
 
     @Autowired
     private WorkGenJobMapper jobMapper;
@@ -329,12 +333,34 @@ public class WorkGenJobServiceImpl implements IWorkGenJobService
             }
         }
 
-        text = WorkGenPromptSupport.clampEpisodeText(
-                WorkGenPromptSupport.stripRepeatedTail(
-                        WorkGenPromptSupport.stripRepeatedHead(text == null ? "" : text, prevTail), prevTail));
+        text = cleanEpisode(text, prevTail);
         if (text.length() < MIN_BODY)
         {
             throw new IllegalStateException("AI 未返回可用正文");
+        }
+
+        // 硬事实守卫：只重写有冲突的这一集，不重跑队列；最多补写一次，避免无人值守时无限烧 token。
+        List<String> conflicts = WorkGenConsistencySupport.check(text, ledger, episode.getNo());
+        if (!conflicts.isEmpty())
+        {
+            log.warn("第{}集硬事实冲突 workId={}：{}", episode.getNo(), workId, conflicts);
+        }
+        for (int retry = 0; retry < CONSISTENCY_RETRY && !conflicts.isEmpty(); retry++)
+        {
+            String retryPrompt = prompt
+                    + "\n\n【上一版与硬事实清单冲突，必须改正后重写】\n- " + String.join("\n- ", conflicts)
+                    + "\n只改冲突处，其余情节按事件卡保留；若确需改变该项状态，必须补写触发它的过渡事件。";
+            AppAiWriteResult again = callWrite(job, retryPrompt);
+            String next = cleanEpisode(again == null ? "" : again.getContent(), prevTail);
+            if (next.length() >= MIN_BODY)
+            {
+                text = next;
+                conflicts = WorkGenConsistencySupport.check(text, ledger, episode.getNo());
+            }
+        }
+        if (!conflicts.isEmpty())
+        {
+            log.warn("第{}集重写后仍有硬事实冲突，已落库待人工复核：{}", episode.getNo(), conflicts);
         }
 
         // 标题带上集号：addChapter 靠「第N集」找到页面已保存的同序号空章并复用，否则每集会多建一章
@@ -352,6 +378,14 @@ public class WorkGenJobServiceImpl implements IWorkGenJobService
             log.warn("第{}集摘要生成失败 workId={}：{}", episode.getNo(), workId, e.getMessage());
             episode.setError(clip("摘要/台账更新失败：" + e.getMessage(), 300));
         }
+    }
+
+    /** 正文清洗：去上一集首尾重复 → 超长按句收束；首版与重写版共用同一口径。 */
+    private String cleanEpisode(String raw, String prevTail)
+    {
+        return WorkGenPromptSupport.clampEpisodeText(
+                WorkGenPromptSupport.stripRepeatedTail(
+                        WorkGenPromptSupport.stripRepeatedHead(raw == null ? "" : raw, prevTail), prevTail));
     }
 
     private AppAiWriteResult callWrite(WorkGenJob job, String prompt)

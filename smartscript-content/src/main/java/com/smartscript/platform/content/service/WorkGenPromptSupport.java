@@ -145,8 +145,10 @@ public final class WorkGenPromptSupport
                 .append("本集事件卡：\n").append(card).append('\n')
                 .append("必须把本集事件卡的四个节点（本集事件、冲突与推进、结果或反转、结尾钩子）全部写进正文，不能只写开头就停。")
                 .append("结尾钩子必须是本集新发生的事。\n")
-                .append("篇幅：全文 900 字以内（含标点），超过 1000 字视为不合格；只写 12 到 18 段对白或动作，不铺陈环境。\n");
+                .append("篇幅：全文 900 字以内（含标点），超过 1000 字视为不合格；只写 12 到 18 段对白或动作，不铺陈环境。\n")
+                .append("一致性：数字、日期、人物生死、道具件数与下面的硬事实清单一律不得冲突；若要改变某项状态，必须写出触发它的过渡事件，不能无因突变。\n");
         appendBlock(prompt, guard);
+        appendBlock(prompt, WorkGenConsistencySupport.hardFactsBlock(ledger, episode.getNo()));
         appendBlock(prompt, setting);
         appendBlock(prompt, summaryBlock);
         appendBlock(prompt, volumeText);
