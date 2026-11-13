@@ -330,13 +330,16 @@ public class WorkGenJobServiceImpl implements IWorkGenJobService
         }
 
         text = WorkGenPromptSupport.clampEpisodeText(
-                WorkGenPromptSupport.stripRepeatedTail(text == null ? "" : text, prevTail));
+                WorkGenPromptSupport.stripRepeatedTail(
+                        WorkGenPromptSupport.stripRepeatedHead(text == null ? "" : text, prevTail), prevTail));
         if (text.length() < MIN_BODY)
         {
             throw new IllegalStateException("AI 未返回可用正文");
         }
 
-        SysWorkChapter chapter = workService.addChapter(userId, workId, episode.getTitle(), text, "", "0");
+        // 标题带上集号：addChapter 靠「第N集」找到页面已保存的同序号空章并复用，否则每集会多建一章
+        SysWorkChapter chapter = workService.addChapter(userId, workId,
+                "第" + episode.getNo() + "集：" + episode.getTitle(), text, "", "0");
         episode.setChapterId(chapter.getChapterId());
 
         // 摘要 + 台账合并：下一集的「前情」与「道具状态」靠它，失败不回滚章节，只记录警告。

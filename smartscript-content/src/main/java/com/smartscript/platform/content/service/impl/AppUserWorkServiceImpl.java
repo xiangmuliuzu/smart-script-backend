@@ -6,6 +6,8 @@ import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import com.smartscript.platform.content.domain.SysWork;
@@ -202,6 +204,26 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
 
         int maxNo = chapterMapper.selectMaxChapterNo(workId);
         validateTrialFlag(isFree);
+
+        // 页面先保存过分集骨架时，库里已有同序号的空章；队列按「第N集：标题」回填，直接复用该章，
+        // 否则同一集会变成"空章 + 新建正文"两章，作品集数翻倍、首页停在空白第 1 集。
+        int targetNo = chapterNoFromTitle(chapterTitle);
+        SysWorkChapter blank = targetNo > 0 ? findBlankChapter(workId, targetNo) : null;
+        if (blank != null)
+        {
+            SysWorkChapter fill = new SysWorkChapter();
+            fill.setChapterId(blank.getChapterId());
+            fill.setChapterTitle(chapterTitle == null ? "" : chapterTitle);
+            fill.setContent(content == null ? "" : content);
+            fill.setSummary(clipChapterSummary(summary));
+            fill.setWordCount(countWords(fill.getContent()));
+            fill.setIsFree(isFree == null ? "0" : isFree);
+            fill.setUpdateBy(String.valueOf(userId));
+            chapterMapper.updateChapter(fill);
+            workMapper.refreshWorkAggregates(workId);
+            return chapterMapper.selectChapterDetail(blank.getChapterId());
+        }
+
         SysWorkChapter chapter = new SysWorkChapter();
         chapter.setWorkId(workId);
         chapter.setChapterNo(maxNo + 1);
@@ -218,6 +240,43 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
         // 章节增删改后回写作品聚合列（word_count/episode_count），否则作品恒显示 0 字
         workMapper.refreshWorkAggregates(workId);
         return chapter;
+    }
+
+    /** 从「第N集：标题」取集号，取不到返回 0（普通新增章节不参与复用）。 */
+    private int chapterNoFromTitle(String title)
+    {
+        if (title == null || title.isBlank())
+        {
+            return 0;
+        }
+        Matcher matcher = Pattern.compile("第\\s*(\\d{1,3})\\s*集").matcher(title);
+        return matcher.find() ? Integer.parseInt(matcher.group(1)) : 0;
+    }
+
+    /** 找同序号的空章（尚无正文），用于把生成结果填回页面已保存的分集骨架。 */
+    private SysWorkChapter findBlankChapter(Long workId, int chapterNo)
+    {
+        SysWorkChapter query = new SysWorkChapter();
+        query.setWorkId(workId);
+        List<SysWorkChapter> chapters = chapterMapper.selectChapterListByWorkId(query);
+        if (chapters == null)
+        {
+            return null;
+        }
+        for (SysWorkChapter item : chapters)
+        {
+            if (item.getChapterNo() != null && item.getChapterNo() == chapterNo)
+            {
+                SysWorkChapter detail = chapterMapper.selectChapterDetail(item.getChapterId());
+                if (detail == null)
+                {
+                    return null;
+                }
+                String existing = detail.getStorageContent();
+                return (existing == null || existing.trim().isEmpty()) ? detail : null;
+            }
+        }
+        return null;
     }
 
     @Override

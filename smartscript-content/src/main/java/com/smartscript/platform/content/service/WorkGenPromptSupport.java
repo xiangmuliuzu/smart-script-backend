@@ -138,12 +138,14 @@ public final class WorkGenPromptSupport
         String summaryBlock = chapterSummaryBlock(chapters, episode.getNo());
 
         StringBuilder prompt = new StringBuilder();
-        prompt.append("请把下面这集写成一集完整剧本：700-900 字（超过 1000 字即不合格），以动作和对白推进，对白用“角色：台词”；")
-                .append("沿用台账里的写法基线（人称、句式、对白与叙述比例、标点一致），用叙述和动作补足信息，不要用全角括号补叙，不要写整段心理独白；")
-                .append("开头一句自然交代地点和时间，不要写场景头、镜号、景别、运镜；结尾留一个具体钩子，且钩子必须是本集新发生的事。只写这一集。\n")
+        prompt.append("请把下面这集写成一集完整剧本。只写本集，不复述上一集已经发生的情节。\n")
+                .append("写法：以动作和对白推进，对白用“角色：台词”；沿用台账里的写法基线（人称、句式、对白与叙述比例、标点一致）；")
+                .append("开头一句自然交代地点和时间，不要写场景头、镜号、景别、运镜，不要写整段心理独白。\n")
                 .append("集名：").append(title).append('\n')
-                .append("全剧事件卡：\n").append(outline).append('\n')
-                .append("本集事件卡：\n").append(card);
+                .append("本集事件卡：\n").append(card).append('\n')
+                .append("必须把本集事件卡的四个节点（本集事件、冲突与推进、结果或反转、结尾钩子）全部写进正文，不能只写开头就停。")
+                .append("结尾钩子必须是本集新发生的事。\n")
+                .append("篇幅：全文 900 字以内（含标点），超过 1000 字视为不合格；只写 12 到 18 段对白或动作，不铺陈环境。\n");
         appendBlock(prompt, guard);
         appendBlock(prompt, setting);
         appendBlock(prompt, summaryBlock);
@@ -152,9 +154,9 @@ public final class WorkGenPromptSupport
         prompt.append(threadScheduleBlock(ledger == null ? "" : ledger.getThreads(), episode.getNo()));
         if (!prevText.isEmpty())
         {
-            prompt.append("\n\n【上一章结尾（本集第一段从这里往下接着写）】\n").append(prevText)
-                    .append("\n本集开场必须回应上面最后一个动作或悬念：给出结果、推进到下一步、或明确交代它被搁置的原因，不能当作没发生过；")
-                    .append("允许该悬念跨集延续，不要求在本集收尾。人物、事件、道具的状态只能通过情节自然过渡变化。")
+            prompt.append("\n\n【上一章结尾（只用一句话承接，不要重写这一段）】\n").append(prevText)
+                    .append("\n本集第一段只需用一句话交代：上一集最后停在哪个动作、本集从哪个动作接起。")
+                    .append("不要重复上一章的原文，不要把上一章已经完成的事件再演一遍。")
                     .append("只有三种情况可以直接换场：上一集事件已经收束、本集开启另一个过渡事件、本集切到另一视角继续同一事件。");
         }
         return prompt.toString();
@@ -609,7 +611,7 @@ public final class WorkGenPromptSupport
         return body;
     }
 
-    /** 续写开头重复已有正文时去掉重复前缀。 */
+    /** 去掉与上一集结尾重复的开头（模型常把上一集结尾整段抄成本集开场，逐轮剥净）。 */
     public static String stripRepeatedHead(String text, String existing)
     {
         String body = safe(text);
@@ -618,12 +620,23 @@ public final class WorkGenPromptSupport
         {
             return body;
         }
-        int max = Math.min(Math.min(200, body.length()), base.length());
-        for (int len = max; len >= 16; len--)
+        for (int round = 0; round < 4; round++)
         {
-            if (base.endsWith(body.substring(0, len)))
+            String trimmed = body.trim();
+            int max = Math.min(600, Math.min(trimmed.length(), base.length()));
+            boolean cut = false;
+            for (int len = max; len >= 16; len--)
             {
-                return body.substring(len).replaceFirst("^[\\s，。；：]+", "");
+                if (base.endsWith(trimmed.substring(0, len)))
+                {
+                    body = trimmed.substring(len).replaceFirst("^[\\s，。；：]+", "");
+                    cut = true;
+                    break;
+                }
+            }
+            if (!cut)
+            {
+                break;
             }
         }
         return body;
