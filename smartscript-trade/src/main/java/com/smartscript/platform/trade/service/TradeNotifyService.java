@@ -515,18 +515,6 @@ public class TradeNotifyService
                 "ORDER", str(deliveryId), one(buyerId), "BUYER");
     }
 
-    /** 任务托管款项到账 → 通知发布者任务已在广场曝光。 */
-    public void notifyDemandEscrowed(SysDemand demand)
-    {
-        StringBuilder content = new StringBuilder("您发布的征集任务托管款项已到账，任务已在任务广场曝光。\n");
-        line(content, "任务", titleOf(demand.getTitle()));
-        line(content, "需求编号", demand.getDemandNo());
-        line(content, "托管金额", amountText(demand.getBudget()));
-        content.append("创作者可用押金接单，欢迎查看投稿或直接等待抢单。");
-        push("TRD-DM-ESCROW-" + demand.getDemandId(), "托管已到账，任务已曝光",
-                content.toString(), "DEMAND", str(demand.getDemandId()), one(demand.getClientId()), "BOTH");
-    }
-
     /** 任务广场：创作者抢单成功，通知发布方。 */
     public void notifyDemandClaimed(Long demandId, String demandTitle, Long clientId, String creatorName)
     {
@@ -543,7 +531,7 @@ public class TradeNotifyService
                 "DEMAND", str(demandId), one(clientId), "BOTH");
     }
 
-    /** 创作者申请本轮延时 → 通知发布者处理。 */
+    /** 创作者申请本轮延时 → 通知需求受理方（平台运营）处理。 */
     public void notifyExtendRequested(Long applyId, Long demandId, String demandTitle, Integer stageOrder,
             Integer days, Integer hours, String reason, Long buyerId)
     {
@@ -552,18 +540,18 @@ public class TradeNotifyService
         line(content, "轮次", roundText(stageOrder));
         line(content, "申请延时", durationText(days, hours));
         line(content, "申请原因", reason);
-        content.append("请前往「任务详情-验收进度」处理：同意则本轮截止按申请时长顺延，拒绝则截止时间不变。");
+        content.append("请前往管理端「任务管理 - 验收进度」处理：同意则本轮截止按申请时长顺延，拒绝则截止时间不变。");
         push("TRD-DM-EXT-REQ-" + applyId, "创作者申请延时", content.toString(),
                 "DEMAND", str(demandId), one(buyerId), "BUYER");
     }
 
-    /** 发布者处理延时申请 → 通知接单创作者处理结果。 */
+    /** 延时申请审批结果（平台代需求方处理） → 通知接单创作者。 */
     public void notifyExtendDecided(Long applyId, Long demandId, String demandTitle, Integer stageOrder,
             boolean approved, Integer days, Integer hours, Date newDue, Long creatorId)
     {
         StringBuilder content = new StringBuilder(approved
-                ? "您申请的本轮延时已被发布者同意。\n"
-                : "您申请的本轮延时已被发布者拒绝。\n");
+                ? "您申请的本轮延时已由平台同意。\n"
+                : "您申请的本轮延时已被平台拒绝。\n");
         line(content, "任务", titleOf(demandTitle));
         line(content, "轮次", roundText(stageOrder));
         line(content, "申请延时", durationText(days, hours));
@@ -575,11 +563,11 @@ public class TradeNotifyService
                 content.toString(), "DEMAND", str(demandId), one(creatorId), "SELLER");
     }
 
-    /** 发布者超时未处理延时申请 → 系统自动驳回，通知接单创作者。 */
+    /** 延时申请超时未获处理 → 系统自动驳回，通知接单创作者。 */
     public void notifyExtendAutoRejected(Long applyId, Long demandId, String demandTitle, Integer stageOrder,
             Integer days, Integer hours, Long creatorId)
     {
-        StringBuilder content = new StringBuilder("您申请的本轮延时因发布者长时间未处理，已由系统自动驳回。\n");
+        StringBuilder content = new StringBuilder("您申请的本轮延时因长时间未获处理，已由系统自动驳回。\n");
         line(content, "任务", titleOf(demandTitle));
         line(content, "轮次", roundText(stageOrder));
         line(content, "申请延时", durationText(days, hours));
@@ -588,17 +576,17 @@ public class TradeNotifyService
                 content.toString(), "DEMAND", str(demandId), one(creatorId), "SELLER");
     }
 
-    /** 发布者自主延时（不经申请） → 通知接单创作者新时限。 */
+    /** 平台自主延时（代需求方直接顺延，不经申请） → 通知接单创作者新时限。 */
     public void notifyExtendSelfDone(Long applyId, Long demandId, String demandTitle, Integer stageOrder,
             Integer days, Integer hours, Date newDue, Long creatorId)
     {
-        StringBuilder content = new StringBuilder("发布者已直接延长本轮交付时限。\n");
+        StringBuilder content = new StringBuilder("平台已直接延长本轮交付时限。\n");
         line(content, "任务", titleOf(demandTitle));
         line(content, "轮次", roundText(stageOrder));
         line(content, "延长时长", durationText(days, hours));
         line(content, "新的截止", dueText(newDue));
         content.append("请在新时限内完成本轮交付。");
-        push("TRD-DM-EXT-SELF-" + applyId, "发布者已延长本轮时限", content.toString(),
+        push("TRD-DM-EXT-SELF-" + applyId, "平台已延长本轮时限", content.toString(),
                 "DEMAND", str(demandId), one(creatorId), "SELLER");
     }
 
@@ -619,17 +607,15 @@ public class TradeNotifyService
                 content.toString(), "DEMAND", str(demandId), one(creatorId), "SELLER");
     }
 
-    /** 本轮超时未通过 → 任务失败终止，按角色分别通知发布者与创作者（含托管退回与押金没收入账金额）。 */
+    /** 本轮超时未通过 → 任务失败终止，按角色分别通知需求受理方（运营）与创作者。 */
     public void notifyDemandRoundFailed(Long demandId, String demandTitle, Integer stageOrder,
-            String reason, Long buyerId, Long creatorId, BigDecimal escrowAmount, BigDecimal depositAmount)
+            String reason, Long buyerId, Long creatorId)
     {
         String buyerContent = "任务因本轮交付超时未通过而失败终止。\n"
                 + detailLine("任务", titleOf(demandTitle))
                 + detailLine("超时轮次", roundText(stageOrder))
                 + detailLine("终止原因", reason)
-                + detailLine("托管退回", amountText(escrowAmount))
-                + detailLine("押金入账", amountText(depositAmount))
-                + "托管款项已退回给您；创作者本次任务押金已按规则没收并入账到您的账户。";
+                + "请与需求方沟通后续处理；如需重新征集，可在管理端重新发布任务。";
         push("TRD-DM-FAIL-" + demandId + "-" + stageOrder + "-B", "任务超时终止",
                 buyerContent, "DEMAND", str(demandId), one(buyerId), "BUYER");
 
@@ -637,14 +623,13 @@ public class TradeNotifyService
                 + detailLine("任务", titleOf(demandTitle))
                 + detailLine("超时轮次", roundText(stageOrder))
                 + detailLine("终止原因", reason)
-                + detailLine("押金没收", amountText(depositAmount))
-                + "本次任务押金已按规则没收并入账至发布方，如有疑问可与发布方沟通。";
+                + "已通过验收的轮次仍按结算单入账，未交付轮次不再计入。";
         push("TRD-DM-FAIL-" + demandId + "-" + stageOrder + "-S", "任务超时终止",
                 creatorContent, "DEMAND", str(demandId), one(creatorId), "SELLER");
     }
 
     /**
-     * AI 审核通过转人工验收 → 通知发布者处理本轮交付。
+     * AI 审核通过转人工验收 → 通知需求受理方（运营）处理本轮交付。
      * 列表侧展示事件叙述，详情侧提供需求编号/交付作品/本轮金额/本轮截止/接单人/交付说明 六个关键行。
      * requestId 以 (轮次, 交付提交时刻) 为键：同一轮多次重交付每次都会通知；
      * 同一轮 AI 恢复扫描重复触发因 submittedAt 不变而幂等收敛为一条。
@@ -660,7 +645,7 @@ public class TradeNotifyService
         line(content, "本轮截止", dueText(stage.getDueAt()));
         line(content, "接单人", nameOf(demand.getAcceptedCreatorName()));
         line(content, "交付说明", stage.getDeliverableDesc());
-        content.append("可前往「任务详情-验收进度」处理：通过则放出本轮款项，驳回则本轮恢复计时等待重交。");
+        content.append("可前往管理端「任务管理 - 验收进度」处理：通过则放出本轮款项，驳回则本轮恢复计时等待重交。");
         long submittedAt = stage.getSubmittedAt() != null
                 ? stage.getSubmittedAt().getTime() : System.currentTimeMillis();
         push("TRD-DM-REVIEW-" + demand.getDemandId() + "-" + stage.getStageOrder() + "-" + submittedAt,
@@ -698,14 +683,14 @@ public class TradeNotifyService
     }
 
     /**
-     * 发布者人工驳回本轮 → 通知创作者重交。
-     * 详情展示需求编号/交付作品/本轮金额/驳回原因/新的截止/发布者/交付说明。
+     * 平台代需求方人工驳回本轮 → 通知创作者重交。
+     * 详情展示需求编号/交付作品/本轮金额/驳回原因/新的截止/需求方/交付说明。
      * reviewedAtMillis 仅作为幂等时间戳，上游 updateReview CAS 已保证同次审核仅一次进入。
      */
     public void notifyStageRejectedByBuyer(SysDemand demand, SysDemandStage stage, String rejectReason,
             Date newDue, long reviewedAtMillis)
     {
-        StringBuilder content = new StringBuilder("本轮交付已被发布者驳回，请修改后重新提交。\n");
+        StringBuilder content = new StringBuilder("本轮交付未通过平台验收，请修改后重新提交。\n");
         line(content, "任务", titleOf(demand.getTitle()));
         line(content, "需求编号", demand.getDemandNo());
         line(content, "轮次", roundText(stage.getStageOrder()));
@@ -713,7 +698,7 @@ public class TradeNotifyService
         line(content, "本轮金额", amountText(stage.getAmount()));
         line(content, "驳回原因", rejectReason);
         line(content, "新的截止", dueText(newDue));
-        line(content, "发布者", nameOf(demand.getClientName()));
+        line(content, "需求方", nameOf(demand.getClientName()));
         line(content, "交付说明", stage.getDeliverableDesc());
         content.append("请在新截止前完成重新交付，否则本轮任务将超时终止。");
         push("TRD-DM-REJ-BYR-" + demand.getDemandId() + "-" + stage.getStageOrder() + "-" + reviewedAtMillis,
@@ -722,8 +707,8 @@ public class TradeNotifyService
     }
 
     /**
-     * 全部轮次通过 → 任务完成，按角色分别通知发布者与创作者。
-     * 发布者看到预算与“无待处理项”，创作者额外看到押金金额与收益入口。
+     * 全部轮次通过 → 任务完成，按角色分别通知需求受理方（运营）与创作者。
+     * 运营看到预算与“无待处理项”，创作者额外看到收益入账入口。
      * requestId 以 demandId 单键幂等：上游状态机 `!COMPLETED` 保证整单完成仅触发一次。
      */
     public void notifyDemandCompleted(SysDemand demand)
@@ -733,7 +718,7 @@ public class TradeNotifyService
                 + detailLine("需求编号", demand.getDemandNo())
                 + detailLine("预算金额", amountText(demand.getBudget()))
                 + detailLine("接单人", nameOf(demand.getAcceptedCreatorName()))
-                + "托管款项已按轮次放出，本单无待处理项。";
+                + "各轮款项已按验收结果结算，本单无待处理项。";
         push("TRD-DM-DONE-" + demand.getDemandId() + "-B", "任务已完成",
                 buyerContent, "DEMAND", str(demand.getDemandId()), one(demand.getClientId()), "BUYER");
 
@@ -741,9 +726,8 @@ public class TradeNotifyService
                 + detailLine("任务", titleOf(demand.getTitle()))
                 + detailLine("需求编号", demand.getDemandNo())
                 + detailLine("预算总额", amountText(demand.getBudget()))
-                + detailLine("押金退还", amountText(demand.getDepositAmount()))
                 + detailLine("发布者", nameOf(demand.getClientName()))
-                + "押金已随任务完成退还，收益请前往「收益-待结算」逐轮确认入账。";
+                + "收益请前往「收益-待结算」逐轮确认入账。";
         push("TRD-DM-DONE-" + demand.getDemandId() + "-S", "任务已完成",
                 creatorContent, "DEMAND", str(demand.getDemandId()), one(demand.getAcceptedCreatorId()), "SELLER");
     }

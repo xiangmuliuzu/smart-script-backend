@@ -6,34 +6,33 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import com.smartscript.platform.trade.service.AlipaySandboxPaymentService;
-import com.smartscript.platform.trade.service.DemandSandboxPaymentService;
 
 /**
  * 支付宝沙箱异步通知的统一入口。
  *
- * <p>托管/押金收款码与订单收款码共用同一个 NOTIFY_URL 配置，因此必须在这里按商户单号前缀分流，
- * 否则需求任务的回调会被订单域当作查无此单而丢弃：钱已到账，任务却永不曝光或永不被接单。</p>
+ * <p>需求任务的托管/押金收款码已随「发布权收归平台、款项站外结算」下线，
+ * 本入口只服务订单域收款码（SSSB）。存量 SD 前缀回调不再有我侧单据，直接回 failure
+ * 让支付宝按重试策略收敛，不能误投给订单域当作订单处理。</p>
  */
 @RestController
 public class AlipaySandboxNotificationController {
-    /** 需求任务收款码的商户单号前缀（SDESC 托管 / SDDEP 押金），订单码为 SSSB。 */
-    private static final String DEMAND_TRADE_NO_PREFIX = "SD";
+    /** 已退役的需求任务收款码前缀（SDESC 托管 / SDDEP 押金）。 */
+    private static final String RETIRED_DEMAND_TRADE_NO_PREFIX = "SD";
 
     private final AlipaySandboxPaymentService service;
-    private final DemandSandboxPaymentService demandService;
 
-    public AlipaySandboxNotificationController(AlipaySandboxPaymentService service,
-            DemandSandboxPaymentService demandService) {
+    public AlipaySandboxNotificationController(AlipaySandboxPaymentService service) {
         this.service = service;
-        this.demandService = demandService;
     }
 
     @PostMapping(value = "/api/v1/trade/alipay/sandbox/notify", produces = MediaType.TEXT_PLAIN_VALUE)
     public String notify(@RequestParam Map<String, String> params) {
         String outTradeNo = params.get("out_trade_no");
-        boolean isDemand = outTradeNo != null && outTradeNo.startsWith(DEMAND_TRADE_NO_PREFIX);
+        if (outTradeNo != null && outTradeNo.startsWith(RETIRED_DEMAND_TRADE_NO_PREFIX)) {
+            return "failure";
+        }
         try {
-            boolean settled = isDemand ? demandService.processNotification(params) : service.processNotification(params);
+            boolean settled = service.processNotification(params);
             return settled ? "success" : "failure";
         } catch (RuntimeException e) {
             return "failure";

@@ -12,14 +12,18 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 import com.ruoyi.common.annotation.Log;
 import com.ruoyi.common.core.controller.BaseController;
 import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.common.core.page.TableDataInfo;
 import com.ruoyi.common.enums.BusinessType;
+import com.ruoyi.common.utils.SecurityUtils;
 import com.smartscript.platform.trade.domain.SysBusinessFollow;
 import com.smartscript.platform.trade.domain.SysDemand;
+import com.smartscript.platform.trade.domain.SysDemandStage;
 import com.smartscript.platform.trade.domain.SysDemandSubmission;
 import com.smartscript.platform.trade.domain.SysDemandTag;
 import com.smartscript.platform.trade.domain.SysInquiry;
@@ -29,7 +33,7 @@ import com.smartscript.platform.trade.domain.SysOrderStatusLog;
 import com.smartscript.platform.trade.domain.SysPartner;
 import com.smartscript.platform.trade.domain.SysQuote;
 import com.smartscript.platform.trade.domain.SysWork;
-import com.smartscript.platform.trade.service.DemandSandboxPaymentService;
+import com.smartscript.platform.trade.mapper.DemandSandboxPaymentMapper;
 import com.smartscript.platform.trade.service.TradeCooperationService;
 import com.smartscript.platform.trade.service.TradeDemandService;
 import com.smartscript.platform.trade.service.TradeDemandTagService;
@@ -63,7 +67,7 @@ public class TradeController extends BaseController
     @Autowired private TradeQuoteService quoteService;
     @Autowired private TradeDemandService demandService;
     @Autowired private TradeCooperationService cooperationService;
-    @Autowired private DemandSandboxPaymentService sandboxPaymentService;
+    @Autowired private DemandSandboxPaymentMapper sandboxPaymentMapper;
     @Autowired private TradeFinanceService financeService;
 
     /* ==================== 2.25 / 2.26 / 2.27 Trade Works ==================== */
@@ -463,20 +467,142 @@ public class TradeController extends BaseController
         return getDataTable(list);
     }
 
-    /** Create demand project */
+    /**
+     * 发布任务（平台代需求方发布）。
+     *
+     * <p>Body: {demand:{...}, stages:[{stageOrder,episodeTo,amount,durationHours},...]}；
+     * stages 缺省时服务端固定补一轮「最后一轮验收」，金额之和必须等于预算。</p>
+     */
     @PreAuthorize("@ss.hasPermi('trade:demand:add')")
+    @Log(title = "C-Demand", businessType = BusinessType.INSERT)
     @PostMapping("/trade/demand")
-    public AjaxResult createDemand(@RequestBody SysDemand demand)
+    public AjaxResult createDemand(@RequestBody DemandForm form)
     {
+        SysDemand demand = requireDemandForm(form);
         // 默认值与必填校验统一收敛到 Service.insertDemand（含 client_id NOT NULL 兜底，修复 COLLECT_001）
-        int rows = demandService.insertDemand(demand);
-        return toAjax(rows);
+        int rows = demandService.insertDemand(demand, form.stages);
+        return rows > 0 ? AjaxResult.success(demand) : AjaxResult.error("发布失败");
+    }
+
+    /** 编辑任务（仅未接单时可调；提供 stages 则整组重建轮次）。 */
+    @PreAuthorize("@ss.hasPermi('trade:demand:edit')")
+    @Log(title = "C-Demand", businessType = BusinessType.UPDATE)
+    @PutMapping("/trade/demand/{demandId}")
+    public AjaxResult updateDemand(@PathVariable Long demandId, @RequestBody DemandForm form)
+    {
+        SysDemand demand = requireDemandForm(form);
+        demand.setDemandId(demandId);
+        return AjaxResult.success(demandService.updateDemand(demand, form.stages, SecurityUtils.getUserId()));
+    }
+
+    /** 关闭征集（未被接单的任务可提前下架）。 */
+    @PreAuthorize("@ss.hasPermi('trade:demand:edit')")
+    @Log(title = "C-Demand", businessType = BusinessType.UPDATE)
+    @PutMapping("/trade/demand/{demandId}/close")
+    public AjaxResult closeDemand(@PathVariable Long demandId)
+    {
+        return toAjax(demandService.closeDemand(demandId, SecurityUtils.getUserId()));
+    }
+
+    /**
+     * 分镜任务的源剧本候选：代发布时按需求方指定的创作者编号取其作品（未删除即可，不要求已上架）。
+     */
+    @PreAuthorize("@ss.hasPermi('trade:demand:query')")
+    @GetMapping("/trade/demand/source-works")
+    public AjaxResult demandSourceWorks(@RequestParam Long authorId)
+    {
+        return AjaxResult.success(demandService.selectSourceWorks(authorId));
+    }
+
+    /**
+     * 逐轮验收：通过则本轮记账放款并激活下一轮（无下一轮即整单完成）；
+     * 驳回则恢复计时并顺延审核耗时，等待创作者重交。
+     * Body: {approved: true/false, rejectReason(可选)}
+     */
+    @PreAuthorize("@ss.hasPermi('trade:demand:review')")
+    @Log(title = "C-DemandReview", businessType = BusinessType.UPDATE)
+    @PutMapping("/trade/demand/{demandId}/stage/{stageId}/review")
+    public AjaxResult reviewDemandStage(@PathVariable Long demandId, @PathVariable Long stageId,
+            @RequestBody Map<String, Object> body)
+    {
+        boolean approved = Boolean.TRUE.equals(body.get("approved"));
+        Object reason = body.get("rejectReason");
+        SysDemandStage stage = demandService.reviewStage(demandId, stageId,
+                SecurityUtils.getUserId(), approved, reason == null ? null : String.valueOf(reason));
+        return AjaxResult.success(stage);
+    }
+
+    /**
+     * 验收前核对本轮交付作品正文（只下发本轮 episodeTo 内的章节，其后章节 readable=false）。
+     */
+    @PreAuthorize("@ss.hasPermi('trade:demand:query')")
+    @GetMapping("/trade/demand/{demandId}/stage/{stageId}/deliverable-work")
+    public AjaxResult demandStageDeliveredWork(@PathVariable Long demandId, @PathVariable Long stageId)
+    {
+        return AjaxResult.success(demandService.selectStageDeliveredWork(demandId, stageId));
+    }
+
+    /**
+     * 处理创作者的延时申请。Body: {approved: true/false}
+     */
+    @PreAuthorize("@ss.hasPermi('trade:demand:edit')")
+    @Log(title = "C-DemandExtend", businessType = BusinessType.UPDATE)
+    @PutMapping("/trade/demand/{demandId}/stage/{stageId}/extend/decision")
+    public AjaxResult decideDemandExtend(@PathVariable Long demandId, @PathVariable Long stageId,
+            @RequestBody Map<String, Object> body)
+    {
+        boolean approved = Boolean.TRUE.equals(body.get("approved"));
+        return AjaxResult.success(demandService.decideExtend(demandId, stageId,
+                SecurityUtils.getUserId(), approved));
+    }
+
+    /**
+     * 自主延时：不经申请直接顺延活动轮截止（同时落一条 apply_type=self 的延时记录）。
+     * Body: {hours}
+     */
+    @PreAuthorize("@ss.hasPermi('trade:demand:edit')")
+    @Log(title = "C-DemandExtend", businessType = BusinessType.UPDATE)
+    @PutMapping("/trade/demand/{demandId}/stage/{stageId}/extend")
+    public AjaxResult selfExtendDemandStage(@PathVariable Long demandId, @PathVariable Long stageId,
+            @RequestBody Map<String, Object> body)
+    {
+        Object hours = body.get("hours");
+        int hoursValue = hours instanceof Number ? ((Number) hours).intValue() : 0;
+        return AjaxResult.success(demandService.selfExtend(demandId, stageId,
+                SecurityUtils.getUserId(), 0, hoursValue));
+    }
+
+    /**
+     * 上传分镜任务的源剧本文件。返回 {url(相对路径), fileName}，建单时随 demand 一起提交。
+     */
+    @PreAuthorize("@ss.hasPermi('trade:demand:add')")
+    @PostMapping("/trade/demand/upload-script")
+    public AjaxResult uploadDemandScript(@RequestParam("file") MultipartFile file)
+    {
+        return AjaxResult.success(demandService.uploadSourceScript(file));
+    }
+
+    /** 发布/编辑任务的请求体：任务主体 + 可选验收轮次（轮次为空时服务端固定补一轮末轮验收）。 */
+    public static class DemandForm
+    {
+        public SysDemand demand;
+        public List<SysDemandStage> stages;
+    }
+
+    private static SysDemand requireDemandForm(DemandForm form)
+    {
+        if (form == null || form.demand == null)
+        {
+            throw new RuntimeException("请求体缺少任务内容");
+        }
+        return form.demand;
     }
 
     /* ==================== 需求任务运营视图（只读，金额均为库内「元」口径） ==================== */
 
     /**
-     * 任务详情：含发布者/接单人昵称与托管、押金、轮次计时状态（selectDemandById 已 JOIN 用户表）。
+     * 任务详情：含发布者/接单创作者昵称与轮次计时状态（selectDemandById 已 JOIN 用户表）。
+     * 历史托管/押金列仅作留档读取，新单恒为 none。
      */
     @PreAuthorize("@ss.hasPermi('trade:demand:query')")
     @GetMapping("/trade/demand/{demandId}")
@@ -499,15 +625,15 @@ public class TradeController extends BaseController
     }
 
     /**
-     * 资金流水：沙箱实收（托管/押金）+ 逐轮放款结算单。
-     * 入账是沙箱真实收款，出账目前仅记账，两张表合起来才是运营要看的资金全貌。
+     * 资金留档：历史沙箱实收流水（托管/押金，已停写）+ 逐轮放款结算单。
+     * 入账改到站外，运营对账以结算单为准；沙箱表仍可查存量单。
      */
     @PreAuthorize("@ss.hasPermi('trade:demand:query')")
     @GetMapping("/trade/demand/{demandId}/payments")
     public AjaxResult demandPayments(@PathVariable Long demandId)
     {
         Map<String, Object> result = new HashMap<>();
-        result.put("sandboxPayments", sandboxPaymentService.listPayments(demandId));
+        result.put("sandboxPayments", sandboxPaymentMapper.selectListByDemandId(demandId));
         result.put("stageSettles", financeService.listDemandStageSettles(demandId));
         return AjaxResult.success(result);
     }

@@ -59,18 +59,10 @@ public class TradeDemandService
     /** 接单制：未传时限时的默认完成时限（168 小时 = 7 天），仅用于无轮次的历史兼容单 */
     private static final int DEFAULT_DURATION_HOURS = 168;
 
-    /** 托管资金状态（入账走沙箱，出账记账） */
-    public static final String ESCROW_NONE = "none";
-    public static final String ESCROW_PENDING = "pending_payment";
-    public static final String ESCROW_ESCROWED = "escrowed";
-    public static final String ESCROW_RELEASED = "released";
-    public static final String ESCROW_REFUNDED_TO_PUBLISHER = "refunded_to_publisher";
-
-    /** 押金资金状态 */
-    public static final String DEPOSIT_NONE = "none";
-    public static final String DEPOSIT_HELD = "held";
-    public static final String DEPOSIT_REFUNDED = "refunded";
-    public static final String DEPOSIT_FORFEITED = "forfeited";
+    /**
+     * 托管与押金资金状态常量已随需求域资金链路退役（sys_demand 的历史资金列仅作留档读取）。
+     * 任务发布权收归管理端后，平台在站外与需求方结算，广场可接口径只看 status=open。
+     */
 
     /** 任务类型：只征集剧本 / 剧本+分镜都要 / 提供剧本做分镜 */
     public static final String TASK_TYPE_SCRIPT = "script";
@@ -144,7 +136,7 @@ public class TradeDemandService
         return demandMapper.selectDemandSquareStats();
     }
 
-    /** 题材分类数量角标：公开可接单口径（status=open ∧ escrow=escrowed），与广场列表一致。 */
+    /** 题材分类数量角标：公开可接单口径（status=open），与广场列表一致。 */
     public List<Map<String, Object>> selectGenreCounts()
     {
         return demandMapper.selectGenreCounts();
@@ -207,7 +199,7 @@ public class TradeDemandService
 
     /**
      * 读取惰性刷新（逐轮）：in_progress 单取当前活动轮，
-     * 若已过本轮 due_at 且未通过 → 整单失败终止（押金没收、未放款托管退回发布者）；
+     * 若已过本轮 due_at 且未通过 → 整单失败终止（资金已在站外结算，仅落失败态与原因）；
      * 否则把本轮 due_at/逾期镜像到 sys_demand.due_at/is_overdue 供卡片/列表读取。
      * 无轮次的历史兼容单退回旧的整单逾期逻辑。
      */
@@ -226,7 +218,7 @@ public class TradeDemandService
         Date now = new Date();
         // 交付后（ai_reviewing AI审核中 / submitted 待人工验收）暂停计时：审核耗时不计入创作者时限，
         // 截止顺延分段补回（AI完成时补 AI 耗时，人工驳回时补人工耗时）
-        // 待处理的延时申请同样暂停超时判定：防止申请还在排队就被判失败没收押金；
+        // 待处理的延时申请同样暂停超时判定：防止申请还在排队就被判失败终止；
         // 但暂停时长不补回（同意只加申请时长，驳回保持原截止），避免“无论结果都白赚等待时长”的反向激励
         boolean paused = SysDemandStage.STAGE_STATUS_SUBMITTED.equals(active.getStatus())
                 || SysDemandStage.STAGE_STATUS_AI_REVIEWING.equals(active.getStatus())
@@ -246,31 +238,27 @@ public class TradeDemandService
 
     /**
      * 超时失败终止（读路径惰性判定与定时扫描共用，判定与处置口径必须唯一）：
-     * 先以 CAS 落失败态与资金处置（仅 in_progress 生效），影响 0 行说明已被并发路径终止，
-     * 直接返回 false 不重复写资金也不重复通知；赢家再标记本轮逾期并通知双方。
+     * 先以 CAS 落失败态（仅 in_progress 生效），影响 0 行说明已被并发路径终止，
+     * 直接返回 false 不重复通知；赢家再标记本轮逾期并通知双方。
      *
      * @return true=本次调用完成了终止，false=已被并发路径终止（未做任何写入）
      */
     private boolean terminateRound(SysDemand demand, SysDemandStage active, Date now)
     {
         String reason = "第" + active.getStageOrder() + "轮验收超时未通过，任务失败终止";
-        int changed = demandMapper.failDemandIfInProgress(demand.getDemandId(), DEMAND_STATUS_FAILED,
-                ESCROW_REFUNDED_TO_PUBLISHER, DEPOSIT_FORFEITED, reason);
+        int changed = demandMapper.failDemandIfInProgress(demand.getDemandId(), DEMAND_STATUS_FAILED, reason);
         if (changed == 0)
         {
             return false;
         }
         stageMapper.markStageOverdue(active.getStageId());
         demand.setStatus(DEMAND_STATUS_FAILED);
-        demand.setEscrowStatus(ESCROW_REFUNDED_TO_PUBLISHER);
-        demand.setDepositStatus(DEPOSIT_FORFEITED);
         demand.setFailReason(reason);
         demand.setFailAt(now);
         demand.setOverdue(1);
         demand.setDueAt(active.getDueAt());
         notifyService.notifyDemandRoundFailed(demand.getDemandId(), demand.getTitle(),
-                active.getStageOrder(), reason, demand.getClientId(), demand.getAcceptedCreatorId(),
-                demand.getEscrowAmount(), demand.getDepositAmount());
+                active.getStageOrder(), reason, demand.getClientId(), demand.getAcceptedCreatorId());
         return true;
     }
 
@@ -422,8 +410,8 @@ public class TradeDemandService
     }
 
     /**
-     * 创作者抢单（需在押金已入账后由沙箱服务调用）：先到先得，原子锁定。
-     * 前置：open 且 escrow_status=escrowed。成功后写押金字段并激活首轮。
+     * 创作者抢单：先到先得，原子锁定。前置：status=open 且非本人发布。
+     * 成功后激活首轮计时（写入 started_at/due_at），不再有押金入账环节。
      */
     @Transactional
     public SysDemand claimDemand(Long demandId, Long creatorId)
@@ -434,16 +422,11 @@ public class TradeDemandService
         {
             throw new RuntimeException("该任务已被接单或不可接单");
         }
-        if (!ESCROW_ESCROWED.equals(demand.getEscrowStatus()))
-        {
-            throw new RuntimeException("该任务尚未完成托管付款，暂不可接单");
-        }
         if (creatorId != null && creatorId.equals(demand.getClientId()))
         {
             throw new RuntimeException("不能接自己发布的任务");
         }
 
-        BigDecimal deposit = computeDepositAmount(demand.getBudget());
         Date now = new Date();
 
         // 逐轮：取首轮并计算其截止；无轮次则用整单 durationHours 兑底
@@ -451,7 +434,7 @@ public class TradeDemandService
         Date dueAt = (round1 != null) ? computeRoundDueAt(now, round1)
                 : plusHours(now, demand.getDurationHours() == null ? DEFAULT_DURATION_HOURS : demand.getDurationHours());
 
-        int affected = demandMapper.claimDemand(demandId, creatorId, now, dueAt, deposit, String.valueOf(creatorId));
+        int affected = demandMapper.claimDemand(demandId, creatorId, now, dueAt, String.valueOf(creatorId));
         if (affected == 0)
         {
             throw new RuntimeException("该任务已被接单，手慢了");
@@ -464,56 +447,12 @@ public class TradeDemandService
         return demandMapper.selectDemandById(demandId);
     }
 
-    /** 押金 = floor(预算/10) 到分。 */
-    public static BigDecimal computeDepositAmount(BigDecimal budget)
-    {
-        if (budget == null || budget.compareTo(BigDecimal.ZERO) <= 0) return BigDecimal.ZERO;
-        return budget.divide(BigDecimal.TEN, 2, RoundingMode.FLOOR);
-    }
-
-    /** 托管入账后回调：置 escrowed，首次到账时通知发布者任务已曝光。 */
-    public int markEscrowed(Long demandId)
-    {
-        int changed = demandMapper.markEscrowed(demandId);
-        if (changed == 1)
-        {
-            SysDemand demand = demandMapper.selectDemandById(demandId);
-            if (demand != null)
-            {
-                notifyService.notifyDemandEscrowed(demand);
-            }
-        }
-        return changed;
-    }
-
     /**
-     * 开发直通托管（"点一下即完成"）：不经支付宝沙箱查单，直接把待付托管置为 escrowed。
+     * 编辑任务（仅运营管理员入口调用）：更新主字段并重建验收轮次。
      *
-     * <p>仅用于本地/演示环境（沙箱密钥尚未接入时打通"发布→托管→曝光"链路），
-     * 由控制器开关 {@code APP_DEMAND_ESCROW_MOCK_PASS} 控制是否放行；正式收款请走
-     * {@code DemandSandboxPaymentService.createEscrow/confirmEscrow}（沙箱接口保留给队友接入）。</p>
-     */
-    @Transactional
-    public SysDemand mockPassEscrow(Long demandId, Long publisherId)
-    {
-        SysDemand demand = demandMapper.selectDemandById(demandId);
-        if (demand == null) throw new RuntimeException("任务不存在");
-        if (publisherId == null || !publisherId.equals(demand.getClientId()))
-            throw new RuntimeException("只有发布者可确认托管");
-        if (!DEMAND_STATUS_OPEN.equals(demand.getStatus()))
-            throw new RuntimeException("当前任务状态不可完成托管");
-        if (ESCROW_ESCROWED.equals(demand.getEscrowStatus()))
-            throw new RuntimeException("托管款已到账");
-        markEscrowed(demandId);
-        return demandMapper.selectDemandById(demandId);
-    }
-
-    /**
-     * 编辑任务（仅发布者、仅未托管未接单可改）：更新主字段并重建验收轮次。
-     *
-     * <p>前置：任务存在、操作者为发布者、status=open（未被接单/未关闭）、
-     * 托管未到账（escrow_status 非 escrowed/released）。预算变更时同步托管额，
-     * 仍保持待付托管状态；提供 stages 则先校验后删旧插新重建。</p>
+     * <p>前置：任务存在、status=open（未被接单/未关闭）；提供 stages 则先校验后删旧插新重建。
+     * 调用方是带 {@code trade:demand:edit} 权限的管理端接口，授权由权限位把关，
+     * 服务层不再比对 client_id（发布权已收归平台，历史单的 client_id 可能是普通用户）。</p>
      */
     @Transactional
     public SysDemand updateDemand(SysDemand demand, List<SysDemandStage> stages, Long operatorId)
@@ -524,23 +463,13 @@ public class TradeDemandService
         }
         SysDemand existing = demandMapper.selectDemandForUpdate(demand.getDemandId());
         if (existing == null) throw new RuntimeException("任务不存在");
-        if (operatorId == null || !operatorId.equals(existing.getClientId()))
-        {
-            throw new RuntimeException("只有发布者可编辑任务");
-        }
         if (!DEMAND_STATUS_OPEN.equals(existing.getStatus()))
         {
             throw new RuntimeException("任务已被接单或已关闭，不可编辑");
         }
-        if (ESCROW_ESCROWED.equals(existing.getEscrowStatus())
-                || ESCROW_RELEASED.equals(existing.getEscrowStatus()))
-        {
-            throw new RuntimeException("已完成托管付款，不可编辑；如需修改请关闭后重新发布");
-        }
 
         // 基础字段校验（标题/截止/联系电话）
         validateDemandBasics(demand);
-        // 任务类型校验的作品归属以发布者为口径（上面已确认 operatorId 即发布者）
         demand.setClientId(existing.getClientId());
         // 未显式传类型时沿用原任务及其源剧本（兼容不带任务类型的旧客户端编辑）
         if (demand.getTaskType() == null)
@@ -561,15 +490,10 @@ public class TradeDemandService
             stages = buildFinalAcceptanceOnly(demand, existing);
         }
         validateStages(demand, stages);
-        // 预算变更时同步托管额（仍为待付托管，不改变 escrow_status）
-        if (demand.getBudget() != null)
-        {
-            demand.setEscrowAmount(demand.getBudget());
-        }
         demand.setUpdateBy(String.valueOf(operatorId));
         demandMapper.updateDemand(demand);
 
-        // 重建轮次：先删后插（未托管未接单，旧轮必为 pending，无交付数据丢失风险）
+        // 重建轮次：先删后插（任务仍为 open 未接单，旧轮必为 pending，无交付数据丢失风险）
         stageMapper.deleteByDemandId(demand.getDemandId());
         if (stages != null && !stages.isEmpty())
         {
@@ -606,9 +530,11 @@ public class TradeDemandService
     }
 
     /**
-     * 任务类型归一与校验（建单/改单共用，须在 clientId 确定后调用）：
-     * 缺省回落 script；storyboard 必须至少提供一种源剧本（本人作品或上传文件），
-     * 选作品时校验存在且归发布者本人；非 storyboard 类型清空源剧本字段，防止改类型后残留。
+     * 任务类型归一与校验（建单/改单共用）：
+     * 缺省回落 script；storyboard 必须至少提供一种源剧本（作品或上传文件），
+     * 选作品时只校验作品存在——发布权已收归平台，源剧本由运营按需求方授权代选，
+     * 不再要求它属于 client_id 对应用户（新单 client_id 是运营账号）。
+     * 非 storyboard 类型清空源剧本字段，防止改类型后残留。
      */
     private void normalizeAndValidateTaskType(SysDemand demand)
     {
@@ -633,18 +559,11 @@ public class TradeDemandService
         }
         if (demand.getSourceWorkId() == null && demand.getSourceScriptUrl() == null)
         {
-            throw new RuntimeException("提供剧本做分镜的任务，请选择本人作品或上传剧本文件作为源剧本");
+            throw new RuntimeException("提供剧本做分镜的任务，请选择源剧本作品或上传剧本文件");
         }
-        if (demand.getSourceWorkId() != null)
+        if (demand.getSourceWorkId() != null && stageMapper.selectWorkBrief(demand.getSourceWorkId()) == null)
         {
-            Map<String, Object> work = stageMapper.selectWorkBrief(demand.getSourceWorkId());
-            if (work == null) throw new RuntimeException("源剧本作品不存在");
-            Object authorId = work.get("authorId");
-            if (authorId == null || demand.getClientId() == null
-                    || !demand.getClientId().equals(((Number) authorId).longValue()))
-            {
-                throw new RuntimeException("源剧本只能选择自己创作的作品");
-            }
+            throw new RuntimeException("源剧本作品不存在");
         }
     }
 
@@ -670,7 +589,7 @@ public class TradeDemandService
      * 建单/改单共用的验收轮次校验（stages 非空时）。
      *
      * <p>固定存在最后一轮验收：末轮集数必须等于总集数，其金额=预算-其余轮之和（可为 0，不可单独改动），
-     * 因此发布者填写的中间轮金额之和允许小于预算，但全部轮次之和必须等于预算（托管全额放款口径不变）。
+     * 因此填写的中间轮金额之和允许小于预算，但全部轮次之和必须等于预算（逐轮全额放款口径不变）。
      * 其余校验：集数严格递增且不超总集数、中间轮金额>0、每轮时限>0。</p>
      */
     private static void validateStages(SysDemand demand, List<SysDemandStage> stages)
@@ -906,10 +825,13 @@ public class TradeDemandService
     }
 
     /**
-     * 买方审核轮次。
+     * 审核轮次（需求方动作，现由平台运营在管理端执行）。
+     *
+     * <p>调用方须已通过 trade:demand:review 权限校验，服务层不再比对 client_id：
+     * 需求方已不再是平台账号，历史 client_id 只用于留档与通知。operatorId 仅作为 update_by 落审计。</p>
      */
     @Transactional
-    public SysDemandStage reviewStage(Long demandId, Long stageId, Long buyerId,
+    public SysDemandStage reviewStage(Long demandId, Long stageId, Long operatorId,
                                       boolean approved, String rejectReason)
     {
         SysDemandStage stage = stageMapper.selectByStageId(stageId);
@@ -922,15 +844,15 @@ public class TradeDemandService
         }
 
         SysDemand demand = demandMapper.selectDemandById(demandId);
-        if (demand == null || !buyerId.equals(demand.getClientId()))
+        if (demand == null)
         {
-            throw new RuntimeException("只有发布者可审核");
+            throw new RuntimeException("任务不存在");
         }
 
         String newStatus = approved ? SysDemandStage.STAGE_STATUS_APPROVED : SysDemandStage.STAGE_STATUS_REJECTED;
         int releaseFlag = approved ? 1 : 0;
         int changed = stageMapper.updateReview(stageId, newStatus, approved ? null : rejectReason,
-                releaseFlag, String.valueOf(buyerId));
+                releaseFlag, String.valueOf(operatorId));
         if (changed == 0)
         {
             // CAS 未命中：本轮已被并发请求（双击/双端同时提交）处理完，绝不能再做放款等副作用
@@ -955,18 +877,17 @@ public class TradeDemandService
             {
                 // 顺序起算：下一轮起点=本轮通过时刻（本轮剩余时间不结转）
                 Date nextDue = computeRoundDueAt(now, next);
-                stageMapper.activateStage(next.getStageId(), now, nextDue, String.valueOf(buyerId));
+                stageMapper.activateStage(next.getStageId(), now, nextDue, String.valueOf(operatorId));
                 demandMapper.mirrorRoundState(demandId, nextDue, 0);
                 // 下一轮激活→通知创作者新一轮已开始（携本轮金额与新截止时间）
                 notifyService.notifyNextRoundActivated(demand, next, nextDue);
             }
             else
             {
-                // 无下一轮 → 全部通过 → 完成；押金退还(记账)、托管释放(记账)
+                // 无下一轮 → 全部通过 → 整单完成（资金已在站外结算，此处只推进任务状态）
                 if (!DEMAND_STATUS_COMPLETED.equals(demand.getStatus()))
                 {
-                    demandMapper.updateFundState(demandId, DEMAND_STATUS_COMPLETED,
-                            ESCROW_RELEASED, DEPOSIT_REFUNDED, null);
+                    demandMapper.updateStatus(demandId, DEMAND_STATUS_COMPLETED, String.valueOf(operatorId));
                     // 任务完成→通知双方（demandId 单键幂等，上游 !COMPLETED 已保证仅进入一次）
                     notifyService.notifyDemandCompleted(demand);
                 }
@@ -987,7 +908,7 @@ public class TradeDemandService
                 cal.setTime(stage.getDueAt());
                 cal.add(Calendar.MILLISECOND, (int) pausedMillis);
                 newDue = cal.getTime();
-                stageMapper.pushDue(stageId, newDue, String.valueOf(buyerId));
+                stageMapper.pushDue(stageId, newDue, String.valueOf(operatorId));
                 demandMapper.mirrorRoundState(demandId, newDue, 0);
             }
             // 人工驳回→通知创作者重交（携原因与新截止）
@@ -1027,7 +948,7 @@ public class TradeDemandService
         extendApplyMapper.lockStage(stageId);
         if (extendApplyMapper.selectPendingByStageId(stageId) != null)
         {
-            throw new RuntimeException("已有待处理的延时申请，请等待发布者处理");
+            throw new RuntimeException("已有待处理的延时申请，请等待平台处理");
         }
         SysDemandExtendApply apply = new SysDemandExtendApply();
         apply.setDemandId(demandId);
@@ -1048,18 +969,17 @@ public class TradeDemandService
     }
 
     /**
-     * 发布者处理延时申请：只处理当条 pending 记录（条件更新防并发重复处理），
-     * 同意则截止同步顺延并回写该条记录的 due_after，不同意仅落决定；处理与驳回记录均永久保留。
+     * 处理延时申请（需求方动作，现由平台运营在管理端执行）：只处理当条 pending 记录
+     * （条件更新防并发重复处理），同意则截止同步顺延并回写该条记录的 due_after，
+     * 不同意仅落决定；处理与驳回记录均永久保留。
+     *
+     * <p>授权来自管理端 trade:demand:edit 权限，服务层不再比对 client_id。</p>
      */
     @Transactional
-    public SysDemandStage decideExtend(Long demandId, Long stageId, Long buyerId, boolean approved)
+    public SysDemandStage decideExtend(Long demandId, Long stageId, Long operatorId, boolean approved)
     {
         SysDemand demand = demandMapper.selectDemandById(demandId);
         if (demand == null) throw new RuntimeException("任务不存在");
-        if (buyerId == null || !buyerId.equals(demand.getClientId()))
-        {
-            throw new RuntimeException("只有发布者可以处理延时申请");
-        }
         if (!DEMAND_STATUS_IN_PROGRESS.equals(demand.getStatus()))
         {
             throw new RuntimeException("任务不在进行中，无法处理延时申请");
@@ -1083,14 +1003,14 @@ public class TradeDemandService
         }
         int changed = extendApplyMapper.decide(pending.getApplyId(),
                 approved ? SysDemandExtendApply.STATUS_APPROVED : SysDemandExtendApply.STATUS_REJECTED,
-                buyerId, newDue);
+                operatorId, newDue);
         if (changed == 0)
         {
             throw new RuntimeException("该延时申请已被处理");
         }
         stageMapper.decideExtend(stageId,
                 approved ? SysDemandStage.EXTEND_APPROVED : SysDemandStage.EXTEND_REJECTED,
-                newDue, String.valueOf(buyerId));
+                newDue, String.valueOf(operatorId));
         if (newDue != null)
         {
             demandMapper.mirrorRoundState(demandId, newDue, 0);
@@ -1147,18 +1067,16 @@ public class TradeDemandService
     }
 
     /**
-     * 发布者自主延时：不经申请直接顺延活动轮截止时间，
+     * 自主延时（需求方动作，现由平台运营在管理端执行）：不经申请直接顺延活动轮截止时间，
      * 同时往延时记录表落一行（apply_type=self、写入即生效、due_after=新截止），与申请延时同格式展示。
+     *
+     * <p>授权来自管理端 trade:demand:edit 权限，服务层不再比对 client_id。</p>
      */
     @Transactional
-    public SysDemandStage selfExtend(Long demandId, Long stageId, Long buyerId, int days, int hours)
+    public SysDemandStage selfExtend(Long demandId, Long stageId, Long operatorId, int days, int hours)
     {
         SysDemand demand = demandMapper.selectDemandById(demandId);
         if (demand == null) throw new RuntimeException("任务不存在");
-        if (buyerId == null || !buyerId.equals(demand.getClientId()))
-        {
-            throw new RuntimeException("只有发布者可以延时");
-        }
         if (!DEMAND_STATUS_IN_PROGRESS.equals(demand.getStatus()))
         {
             throw new RuntimeException("任务不在进行中，无法延时");
@@ -1178,18 +1096,18 @@ public class TradeDemandService
             throw new RuntimeException("该轮有待处理的延时申请，请先处理");
         }
         Date newDue = plusDuration(stage.getDueAt(), days, hours);
-        stageMapper.pushDue(stageId, newDue, String.valueOf(buyerId));
+        stageMapper.pushDue(stageId, newDue, String.valueOf(operatorId));
         demandMapper.mirrorRoundState(demandId, newDue, 0);
         // 自主延时同归入延时记录（无需处理，写入即已生效）；轮次行 extend_* 快照不写，避免误开审核入口
         SysDemandExtendApply self = new SysDemandExtendApply();
         self.setDemandId(demandId);
         self.setStageId(stageId);
-        self.setCreatorId(buyerId);
+        self.setCreatorId(operatorId);
         self.setDays(days);
         self.setHours(hours);
         self.setStatus(SysDemandExtendApply.STATUS_APPROVED);
         self.setApplyType(SysDemandExtendApply.TYPE_SELF);
-        self.setDecidedBy(buyerId);
+        self.setDecidedBy(operatorId);
         self.setDueAfter(newDue);
         extendApplyMapper.insert(self);
         notifyService.notifyExtendSelfDone(self.getApplyId(), demandId, demand.getTitle(),
@@ -1243,20 +1161,22 @@ public class TradeDemandService
     }
 
     /**
-     * 发布者查看某轮交付作品（验收前核对正文）。
+     * 查看某轮交付作品（验收动作，现由平台运营在管理端执行）。
      *
      * <p>为什么要在 trade 域开这个口：交付作品一定未上架（deliverStage 拒 on_shelf 交付），
      * 而 content 域给读者的 /works/{id} 与 /works/{id}/chapters 走 readerVisibleWork 过滤只放行上架作品，
-     * 给作者的 /content/user/works/{id} 又只认本人，发布者两条都取不到（404 / SecurityException）。
+     * 给作者的 /content/user/works/{id} 又只认本人，需求方两条都取不到（404 / SecurityException）。
      *
      * <p>可见范围只到本轮 episodeTo：一章即一集（sys_work.episode_count 由 sys_work_chapter 行数汇总），
      * 正文截断在 SQL 的 CASE 里完成；超范围的章节保留标题且 readable=false，
-     * 让发布者知道后面还有几集未交，但拿不到内容。
+     * 让验收方知道后面还有几集未交，但拿不到内容。
      *
-     * <p>下发前统一过 ReviewContentText.plain：与送 AI 审核同一口径，发布者看到的就是 AI 依据的那份文本，
+     * <p>下发前统一过 ReviewContentText.plain：与送 AI 审核同一口径，验收方看到的就是 AI 依据的那份文本，
      * 同时避免把富文本原样丢给前端再渲染（XSS 面）。
+     *
+     * <p>授权来自管理端 trade:demand:query 权限，服务层不再比对 client_id（需求方已不是平台账号）。
      */
-    public Map<String, Object> selectStageDeliveredWork(Long demandId, Long stageId, Long publisherId)
+    public Map<String, Object> selectStageDeliveredWork(Long demandId, Long stageId)
     {
         SysDemandStage stage = stageMapper.selectByStageId(stageId);
         if (stage == null) throw new RuntimeException("轮次不存在");
@@ -1264,10 +1184,6 @@ public class TradeDemandService
 
         SysDemand demand = demandMapper.selectDemandById(demandId);
         if (demand == null) throw new RuntimeException("任务不存在");
-        if (publisherId == null || !publisherId.equals(demand.getClientId()))
-        {
-            throw new RuntimeException("只有发布者可以查看交付作品");
-        }
         if (stage.getWorkId() == null)
         {
             // 分镜任务允许纯文件/说明交付：无作品时返回交付说明与文件链接供验收
@@ -1329,7 +1245,7 @@ public class TradeDemandService
     }
 
     /**
-     * 查看分镜任务的源剧本（任何登录用户可看：潜在接单者需先评估剧本再决定是否付押金接单）。
+     * 查看分镜任务的源剧本（任何登录用户可看：潜在接单者需先评估剧本再决定是否接单）。
      * 作品源：全文可读（复用验收章节查询，episodeTo 传 null 即不截断）；
      * 文件源：下发上传时落库的相对地址与文件名；两种源可同时存在。
      * 正文统一过 ReviewContentText.plain，与验收/AI 审核同一口径，避免富文本原样下发（XSS 面）。
@@ -1378,7 +1294,7 @@ public class TradeDemandService
         }
         if (!result.containsKey("work") && !result.containsKey("fileUrl"))
         {
-            throw new RuntimeException("源剧本已失效，请联系发布者");
+            throw new RuntimeException("源剧本已失效，请联系平台客服");
         }
         return result;
     }
@@ -1411,26 +1327,7 @@ public class TradeDemandService
         {
             demand.setStatus(DEMAND_STATUS_OPEN);
         }
-        // 资金默认：预算>0 → 待付托管(pending_payment)，托管额=预算；押金 none。
-        if (demand.getEscrowStatus() == null || demand.getEscrowStatus().isEmpty())
-        {
-            BigDecimal b = demand.getBudget();
-            if (b != null && b.compareTo(BigDecimal.ZERO) > 0)
-            {
-                demand.setEscrowAmount(b);
-                demand.setEscrowStatus(ESCROW_PENDING);
-            }
-            else
-            {
-                demand.setEscrowAmount(BigDecimal.ZERO);
-                demand.setEscrowStatus(ESCROW_NONE);
-            }
-        }
-        if (demand.getDepositStatus() == null || demand.getDepositStatus().isEmpty())
-        {
-            demand.setDepositStatus(DEPOSIT_NONE);
-            demand.setDepositAmount(BigDecimal.ZERO);
-        }
+        // 托管与押金不再随单创建：平台在站外与需求方结算，两列保留但落库为默认 none。
         if (demand.getRequirement() == null)
         {
             demand.setRequirement("");
@@ -1453,18 +1350,13 @@ public class TradeDemandService
     }
 
     /**
-     * 关闭征集（发布者手动截止）。
+     * 关闭征集（运营在管理端截止）。调用方须具备 trade:demand:edit 权限，服务层不再比对发布者身份。
      */
     public int closeDemand(Long demandId, Long operatorId)
     {
         SysDemand demand = demandMapper.selectDemandById(demandId);
         if (demand == null) throw new RuntimeException("征集不存在");
-        if (!operatorId.equals(demand.getClientId())) throw new RuntimeException("只有发布者可以关闭");
         if (!DEMAND_STATUS_OPEN.equals(demand.getStatus())) throw new RuntimeException("当前状态不可关闭");
-        if (ESCROW_ESCROWED.equals(demand.getEscrowStatus()))
-        {
-            throw new RuntimeException("托管款已入账，关闭会导致资金搁置，不可关闭");
-        }
         // CAS：判 open 与写入之间可能被并发抢单/编辑，状态已变则放弃关闭
         int changed = demandMapper.updateStatusCas(demandId, DEMAND_STATUS_CLOSED,
                 String.valueOf(operatorId), DEMAND_STATUS_OPEN);

@@ -116,7 +116,7 @@ class TradeDemandReviewNotifyHookTest
     }
 
     @Test
-    @DisplayName("E4 末轮通过：updateFundState 置 COMPLETED 后触发完成通知（仅传 demand）")
+    @DisplayName("E4 末轮通过：updateStatus 置 COMPLETED 后触发完成通知（仅传 demand）")
     void reviewStageLastRoundApproved_notifiesBothCompleted()
     {
         SysDemandStage stage = submittedStage(new BigDecimal("100.00"));
@@ -132,10 +132,8 @@ class TradeDemandReviewNotifyHookTest
 
         service.reviewStage(DEMAND_ID, STAGE_ID, BUYER_ID, true, null);
 
-        verify(demandMapper, times(1)).updateFundState(eq(DEMAND_ID),
-                eq(TradeDemandService.DEMAND_STATUS_COMPLETED),
-                eq(TradeDemandService.ESCROW_RELEASED),
-                eq(TradeDemandService.DEPOSIT_REFUNDED), eq(null));
+        verify(demandMapper, times(1)).updateStatus(eq(DEMAND_ID),
+                eq(TradeDemandService.DEMAND_STATUS_COMPLETED), eq(String.valueOf(BUYER_ID)));
         verify(notifyService, times(1)).notifyStageSettleCreated(
                 eq(DEMAND_ID), eq(DEMAND_TITLE), eq(STAGE_ORDER),
                 eq(new BigDecimal("100.00")), any(BigDecimal.class), eq(CREATOR_ID));
@@ -234,24 +232,19 @@ class TradeDemandReviewNotifyHookTest
     }
 
     @Test
-    @DisplayName("E6 超时终止：失败通知携带托管退回与押金没收入账金额")
-    void terminateRound_notifiesWithDepositAmounts()
+    @DisplayName("E6 超时终止：CAS 落失败态后按角色通知运营与创作者（不再携带退回/没收金额）")
+    void terminateRound_notifiesBothParties()
     {
         SysDemand d = demand("in_progress");
-        d.setEscrowAmount(new BigDecimal("3000.00"));
-        d.setDepositAmount(new BigDecimal("500.00"));
         SysDemandStage active = submittedStage(new BigDecimal("100.00"));
         active.setDueAt(new Date(System.currentTimeMillis() - 60_000L));
         when(demandMapper.failDemandIfInProgress(eq(DEMAND_ID),
-                eq(TradeDemandService.DEMAND_STATUS_FAILED),
-                eq(TradeDemandService.ESCROW_REFUNDED_TO_PUBLISHER),
-                eq(TradeDemandService.DEPOSIT_FORFEITED), anyString())).thenReturn(1);
+                eq(TradeDemandService.DEMAND_STATUS_FAILED), anyString())).thenReturn(1);
 
         ReflectionTestUtils.invokeMethod(service, "terminateRound", d, active, new Date());
 
         verify(notifyService, times(1)).notifyDemandRoundFailed(eq(DEMAND_ID), eq(DEMAND_TITLE),
-                eq(STAGE_ORDER), anyString(), eq(BUYER_ID), eq(CREATOR_ID),
-                eq(new BigDecimal("3000.00")), eq(new BigDecimal("500.00")));
+                eq(STAGE_ORDER), anyString(), eq(BUYER_ID), eq(CREATOR_ID));
     }
 
     @Test
@@ -259,14 +252,12 @@ class TradeDemandReviewNotifyHookTest
     void terminateRound_lostRace_noNotify()
     {
         SysDemand d = demand("in_progress");
-        d.setEscrowAmount(new BigDecimal("3000.00"));
-        d.setDepositAmount(new BigDecimal("500.00"));
         SysDemandStage active = submittedStage(new BigDecimal("100.00"));
-        when(demandMapper.failDemandIfInProgress(any(), any(), any(), any(), any())).thenReturn(0);
+        when(demandMapper.failDemandIfInProgress(any(), any(), any())).thenReturn(0);
 
         ReflectionTestUtils.invokeMethod(service, "terminateRound", d, active, new Date());
 
         verify(notifyService, never()).notifyDemandRoundFailed(
-                any(), any(), any(), any(), any(), any(), any(), any());
+                any(), any(), any(), any(), any(), any());
     }
 }

@@ -8,15 +8,13 @@ import java.util.HashMap;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import com.smartscript.platform.trade.service.AlipaySandboxPaymentService;
-import com.smartscript.platform.trade.service.DemandSandboxPaymentService;
 
-/** 沙箱异步通知分流：需求收款码（SDESC/SDDEP）必须交给需求域结算，订单码（SSSB）保持原路径。 */
+/** 沙箱异步通知：订单码（SSSB）走订单域结算；已退役的需求收款码（SD*）不再投递给任何服务。 */
 class AlipaySandboxNotificationControllerTest
 {
     final AlipaySandboxPaymentService orderService = mock(AlipaySandboxPaymentService.class);
-    final DemandSandboxPaymentService demandService = mock(DemandSandboxPaymentService.class);
     final AlipaySandboxNotificationController controller =
-            new AlipaySandboxNotificationController(orderService, demandService);
+            new AlipaySandboxNotificationController(orderService);
 
     private Map<String, String> params(String outTradeNo)
     {
@@ -26,36 +24,13 @@ class AlipaySandboxNotificationControllerTest
     }
 
     @Test
-    void escrowCodeIsRoutedToTheDemandService()
-    {
-        when(demandService.processNotification(anyMap())).thenReturn(true);
-
-        assertEquals("success", controller.notify(params("SDESC0001")));
-
-        verify(demandService).processNotification(anyMap());
-        verify(orderService, never()).processNotification(anyMap());
-    }
-
-    @Test
-    void depositCodeIsRoutedToTheDemandService()
-    {
-        when(demandService.processNotification(anyMap())).thenReturn(true);
-
-        assertEquals("success", controller.notify(params("SDDEP0001")));
-
-        verify(demandService).processNotification(anyMap());
-        verify(orderService, never()).processNotification(anyMap());
-    }
-
-    @Test
-    void orderCodeStillGoesToTheOrderService()
+    void orderCodeGoesToTheOrderService()
     {
         when(orderService.processNotification(anyMap())).thenReturn(true);
 
         assertEquals("success", controller.notify(params("SSSB0001")));
 
         verify(orderService).processNotification(anyMap());
-        verify(demandService, never()).processNotification(anyMap());
     }
 
     @Test
@@ -70,10 +45,20 @@ class AlipaySandboxNotificationControllerTest
     }
 
     @Test
-    void demandServiceBlowUpIsReportedAsFailureSoAlipayRetries()
+    void orderServiceBlowUpIsReportedAsFailureSoAlipayRetries()
     {
-        when(demandService.processNotification(anyMap())).thenThrow(new IllegalStateException("沙箱未配置"));
+        when(orderService.processNotification(anyMap())).thenThrow(new IllegalStateException("沙箱未配置"));
 
-        assertEquals("failure", controller.notify(params("SDESC0002")));
+        assertEquals("failure", controller.notify(params("SSSB0002")));
+    }
+
+    /** 托管/押金收款码已下线：SD 前缀回调绝不能被当成订单结算，直接回 failure 让支付宝收敛。 */
+    @Test
+    void retiredDemandCodeIsRejectedWithoutTouchingTheOrderService()
+    {
+        assertEquals("failure", controller.notify(params("SDESC0001")));
+        assertEquals("failure", controller.notify(params("SDDEP0001")));
+
+        verify(orderService, never()).processNotification(anyMap());
     }
 }

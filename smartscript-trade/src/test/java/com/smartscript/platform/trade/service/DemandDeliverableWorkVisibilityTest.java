@@ -29,8 +29,8 @@ import com.smartscript.platform.trade.mapper.SysDemandStageMapper;
  * 验收查阅交付作品（selectStageDeliveredWork）服务层单元测试。
  *
  * 交付作品一定未上架（deliverStage 拒 on_shelf 交付），content 域读者/作者接口都取不到，
- * 所以发布者只能走 trade 域这个口；口径必须锁死三件事：
- *   - 只有该任务的发布者能看，别人（含创作者本人以外的第三方）一律拒；
+ * 所以验收方只能走 trade 域这个口；口径必须锁死三件事：
+ *   - 授权由管理端 trade:demand:query 权限把关，服务层只校轮次归属（不再比对 client_id）；
  *   - 正文只下发本轮 episodeTo 内的集，超范围的只给标题、readable=false、content=null；
  *   - 富文本过 ReviewContentText.plain，与送 AI 审核同一份文本，不把 HTML 原样丢给前端。
  */
@@ -111,15 +111,16 @@ class DemandDeliverableWorkVisibilityTest
     }
 
     @Test
-    @DisplayName("非发布者查不到交付作品，且不落到章节查询")
-    void rejectsNonPublisher()
+    @DisplayName("任务不存在时拒绝，且不落到章节查询")
+    void rejectsMissingDemand()
     {
+        when(demandMapper.selectDemandById(DEMAND_ID)).thenReturn(null);
         when(stageMapper.selectByStageId(STAGE_ID)).thenReturn(stage(2, WORK_ID));
 
         RuntimeException e = assertThrows(RuntimeException.class,
-                () -> service.selectStageDeliveredWork(DEMAND_ID, STAGE_ID, 8888L));
+                () -> service.selectStageDeliveredWork(DEMAND_ID, STAGE_ID));
 
-        assertTrue(e.getMessage().contains("只有发布者"), e.getMessage());
+        assertTrue(e.getMessage().contains("任务不存在"), e.getMessage());
         verify(stageMapper, never()).selectChaptersForReview(anyLong(), any());
     }
 
@@ -132,7 +133,7 @@ class DemandDeliverableWorkVisibilityTest
         when(stageMapper.selectByStageId(STAGE_ID)).thenReturn(other);
 
         RuntimeException e = assertThrows(RuntimeException.class,
-                () -> service.selectStageDeliveredWork(DEMAND_ID, STAGE_ID, PUBLISHER_ID));
+                () -> service.selectStageDeliveredWork(DEMAND_ID, STAGE_ID));
         assertTrue(e.getMessage().contains("轮次与任务不匹配"), e.getMessage());
     }
 
@@ -143,7 +144,7 @@ class DemandDeliverableWorkVisibilityTest
         when(stageMapper.selectByStageId(STAGE_ID)).thenReturn(stage(2, null));
 
         RuntimeException e = assertThrows(RuntimeException.class,
-                () -> service.selectStageDeliveredWork(DEMAND_ID, STAGE_ID, PUBLISHER_ID));
+                () -> service.selectStageDeliveredWork(DEMAND_ID, STAGE_ID));
         assertTrue(e.getMessage().contains("本轮尚未交付作品"), e.getMessage());
     }
 
@@ -155,7 +156,7 @@ class DemandDeliverableWorkVisibilityTest
         when(stageMapper.selectDeliveredWorkBrief(WORK_ID)).thenReturn(null);
 
         RuntimeException e = assertThrows(RuntimeException.class,
-                () -> service.selectStageDeliveredWork(DEMAND_ID, STAGE_ID, PUBLISHER_ID));
+                () -> service.selectStageDeliveredWork(DEMAND_ID, STAGE_ID));
         assertTrue(e.getMessage().contains("交付作品不存在"), e.getMessage());
     }
 
@@ -167,7 +168,7 @@ class DemandDeliverableWorkVisibilityTest
         when(stageMapper.selectChaptersForReview(WORK_ID, 2)).thenReturn(chapters(2));
 
         Map<String, Object> result =
-                service.selectStageDeliveredWork(DEMAND_ID, STAGE_ID, PUBLISHER_ID);
+                service.selectStageDeliveredWork(DEMAND_ID, STAGE_ID);
         List<Map<String, Object>> chapters = chaptersOf(result);
 
         assertEquals(3, chapters.size());
@@ -195,7 +196,7 @@ class DemandDeliverableWorkVisibilityTest
         when(stageMapper.selectChaptersForReview(WORK_ID, null)).thenReturn(chapters(null));
 
         Map<String, Object> result =
-                service.selectStageDeliveredWork(DEMAND_ID, STAGE_ID, PUBLISHER_ID);
+                service.selectStageDeliveredWork(DEMAND_ID, STAGE_ID);
 
         assertEquals(3, result.get("readableCount"));
         assertTrue(chaptersOf(result).stream().allMatch(c -> Boolean.TRUE.equals(c.get("readable"))));
@@ -209,7 +210,7 @@ class DemandDeliverableWorkVisibilityTest
         when(stageMapper.selectChaptersForReview(eq(WORK_ID), eq(2))).thenReturn(chapters(2));
 
         Map<String, Object> result =
-                service.selectStageDeliveredWork(DEMAND_ID, STAGE_ID, PUBLISHER_ID);
+                service.selectStageDeliveredWork(DEMAND_ID, STAGE_ID);
 
         assertEquals(STAGE_ID, result.get("stageId"));
         assertEquals(1, result.get("stageOrder"));

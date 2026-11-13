@@ -24,7 +24,7 @@ import com.smartscript.platform.trade.mapper.SysDemandMapper;
 import com.smartscript.platform.trade.mapper.SysDemandStageMapper;
 
 /**
- * C module: 交付物 AI 审核（提交后、发布者验收前的自动前置门）。
+ * C module: 交付物 AI 审核（提交后、平台验收前的自动前置门）。
  *
  * 流程：创作者提交 → 轮次置 ai_reviewing（与人工验收一样暂停计时）→ 本服务后台调用
  * AiReviewService 打分 → 分数 >= {@link #AI_PASS_SCORE} 自动进入人工验收(submitted)，
@@ -38,7 +38,7 @@ public class DemandStageAiReviewService
 {
     private static final Logger log = LoggerFactory.getLogger(DemandStageAiReviewService.class);
 
-    /** AI 审核通过阈值：>=60 通过（进入发布者验收），<60 自动打回 */
+    /** AI 审核通过阈值：>=60 通过（进入平台验收），<60 自动打回 */
     public static final int AI_PASS_SCORE = 60;
 
     /** 送审文本上限（章节正文可能很长，截断防止 AI 调用超时） */
@@ -147,7 +147,7 @@ public class DemandStageAiReviewService
                 }
                 catch (Exception e)
                 {
-                    // AI 不可用不拦人：视为通过，交由发布者验收
+                    // AI 不可用不拦人：视为通过，交由平台验收
                     log.warn("交付物AI审核失败，放宽转人工验收 stageId={}, err={}", stageId, e.getMessage());
                     pass = true;
                     aiResult = json(noteOnly("AI审核异常，转人工验收", e.getMessage()));
@@ -170,7 +170,7 @@ public class DemandStageAiReviewService
             // AI 审核耗时不计入本轮时限：把（提交→AI完成）的时长补回截止时间
             restorePausedDuration(stageId);
 
-            // 通知投递：pass 告知发布者验收，fail 告知创作者重交。
+            // 通知投递：pass 告知平台验收，fail 告知创作者重交。
             // 重新读取本轮，拿包含 AI 耗时补回后的最新 dueAt；避免通知仍展示旧截止。
             // 任何异常已由 TradeNotifyService.push 内部吞下，不需此处再包。
             SysDemandStage fresh = stageMapper.selectByStageId(stageId);

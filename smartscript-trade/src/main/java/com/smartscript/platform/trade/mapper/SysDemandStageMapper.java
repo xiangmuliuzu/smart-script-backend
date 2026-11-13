@@ -63,11 +63,11 @@ public interface SysDemandStageMapper
     List<String> selectChapterContents(@Param("workId") Long workId,
                                        @Param("episodeTo") Integer episodeTo);
 
-    /** 发布者验收查看：交付作品概要（不含正文） */
+    /** 平台验收查看：交付作品概要（不含正文） */
     Map<String, Object> selectDeliveredWorkBrief(@Param("workId") Long workId);
 
     /**
-     * 发布者验收查看：交付作品章节目录，正文按本轮集数截断。
+     * 平台验收查看：交付作品章节目录，正文按本轮集数截断。
      *
      * 一章即一集（sys_work.episode_count 由 sys_work_chapter 行数汇总），episodeTo 直接当可读上界；
      * 截断放在 SQL 的 CASE 里而不是服务层循环，避免后续改动漏判把未交付轮次的全文发给发布者。

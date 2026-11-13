@@ -2,12 +2,10 @@ package com.smartscript.platform.trade.controller;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -27,7 +25,6 @@ import com.smartscript.platform.trade.domain.SysDemandStage;
 import com.smartscript.platform.trade.domain.SysDemandSubmission;
 import com.smartscript.platform.trade.domain.SysInquiry;
 import com.smartscript.platform.trade.service.TradeDemandService;
-import com.smartscript.platform.trade.service.DemandSandboxPaymentService;
 import com.smartscript.platform.user.service.ChatService;
 
 /**
@@ -43,41 +40,21 @@ import com.smartscript.platform.user.service.ChatService;
 public class AppTradeDemandController
 {
     private final TradeDemandService demandService;
-    private final DemandSandboxPaymentService demandSandbox;
     private final IdentityProvider identityProvider;
     private final ChatService chatService;
 
     /** 招标制（投稿/选标/中标）已下线，任务仅支持接单制；相关端点统一返回此提示。 */
     private static final String BIDDING_OFFLINE_MSG =
-            "招标制已下线，本任务仅支持接单制（付押金接单、逐轮交付验收）";
+            "招标制已下线，本任务仅支持接单制（创作者凭接单资格直接接单、逐轮交付验收）";
 
-    /** 开发直通托管开关：yml 键 app.demand.escrow.mock-pass（默认开），环境变量 APP_DEMAND_ESCROW_MOCK_PASS 可覆盖。 */
-    @Value("${app.demand.escrow.mock-pass:true}")
-    private boolean mockPassEnabled;
+    /** 发布与买方（需求方）动作已收归平台运营；用户侧对应端点统一返回此提示。 */
+    private static final String PUBLISH_RETIRED_MSG =
+            "任务发布与逐轮验收已收归平台运营，用户侧不再提供发布、审核、延时审批与资金入口";
 
-    /** 运行环境标识：prod 时直通端点强制失效，防止生产误开。 */
-    @Value("${app.auth.env:local}")
-    private String appAuthEnv;
-
-    /** 直通可用性判定：返回 null 表示允许直通，否则返回拒绝原因。 */
-    private String devPassBlockReason()
-    {
-        if ("prod".equalsIgnoreCase(appAuthEnv))
-        {
-            return "生产环境已强制关闭开发直通，请使用正式支付";
-        }
-        if (!mockPassEnabled)
-        {
-            return "开发直通未开启，请使用支付宝沙箱付款";
-        }
-        return null;
-    }
-
-    public AppTradeDemandController(TradeDemandService demandService, DemandSandboxPaymentService demandSandbox,
+    public AppTradeDemandController(TradeDemandService demandService,
             IdentityProvider identityProvider, ChatService chatService)
     {
         this.demandService = demandService;
-        this.demandSandbox = demandSandbox;
         this.identityProvider = identityProvider;
         this.chatService = chatService;
     }
@@ -124,10 +101,9 @@ public class AppTradeDemandController
         }
         else
         {
-            // 任务广场：仅展示可接取的任务（open+已托管）；自己发布的/已接的其他任务只在"我的任务"查看，
-            // 不再并入广场，也不泄露他人未托管单。游客与登录用户同口径。
+            // 任务广场：仅展示可接取的任务（status=open）；自己发布的/已接的其他任务只在"我的任务"查看，
+            // 不再并入广场。游客与登录用户同口径。
             query.setStatus(TradeDemandService.DEMAND_STATUS_OPEN);
-            query.setEscrowStatus(TradeDemandService.ESCROW_ESCROWED);
         }
         // 排序（白名单键，非法值由 mapper 回落 created desc）；预算/集数筛选 APP 传分→元
         query.setSortBy(sortBy);
@@ -167,7 +143,7 @@ public class AppTradeDemandController
     /**
      * 任务广场轻量统计（供 Hero 横幅与题材 chip 角标）。
      *
-     * <p>广场与角标统一"公开可接单"口径（status=open ∧ escrow=escrowed），与登录无关：
+     * <p>广场与角标统一"公开可接单"口径（status=open），与登录无关：
      * availableCount/prizePoolFen/todayNewCount/genreCounts/typeCounts 均按此口径，
      * 角标总数=可接单总数，与广场列表可见集合一致。</p>
      */
@@ -224,8 +200,8 @@ public class AppTradeDemandController
     /**
      * 任务详情。
      *
-     * <p>游客可看，但可见集合与广场列表严格一致（status=open ∧ 已托管），其余状态按「不存在」处理；
-     * 且只回公开字段。原始 SysDemand 含联系方式、发布者编号、托管/押金金额与状态、源剧本地址，
+     * <p>游客可看，但可见集合与广场列表严格一致（status=open），其余状态按「不存在」处理；
+     * 且只回公开字段。原始 SysDemand 含联系方式、发布者编号、源剧本地址与历史资金列，
      * 这些只在登录后返回（登录口径保持不变，任务双方仍能看到自己需要的字段）。</p>
      */
     @GetMapping("/{demandId}")
@@ -239,8 +215,7 @@ public class AppTradeDemandController
         applyFen(demand);
         if (!identityProvider.currentIdentity().isAuthenticated())
         {
-            boolean squareVisible = TradeDemandService.DEMAND_STATUS_OPEN.equals(demand.getStatus())
-                    && TradeDemandService.ESCROW_ESCROWED.equals(demand.getEscrowStatus());
+            boolean squareVisible = TradeDemandService.DEMAND_STATUS_OPEN.equals(demand.getStatus());
             if (!squareVisible)
             {
                 // 不用 403：403 会告诉调用方「这个单存在但你没权限」，任务编号本身也是业务信息。
@@ -271,139 +246,41 @@ public class AppTradeDemandController
         item.put("sourceScriptName", demand.getSourceScriptName());
         item.put("sourceWorkTitle", demand.getSourceWorkTitle());
         item.put("clientName", demand.getClientName());
-        // 到这里必然已托管，回这个标记只为让客户端状态渲染不缺项；金额与押金状态一律不回。
-        item.put("escrowStatus", demand.getEscrowStatus());
         return item;
     }
 
     /**
-     * 发布任务（企业/买方角色）。
-     * Body: {title, genreId, budget(分), deadline, requirement, contactInfo, tags, totalEpisodes,
-     *        taskType(script/script_storyboard/storyboard), sourceWorkId, sourceScriptUrl, sourceScriptName,
-     *        stages:[{stageOrder,episodeTo,amount(元)}]}
+     * 发布任务已收归管理端（POST 保留仅作旧客户端可读拒绝）。
+     *
+     * <p>业务口径：平台在线下与需求方商定并收款后代为发布，用户侧不再有发布入口；
+     * 对应管理端接口为 POST /api/v1/admin/trade/demand（权限 trade:demand:add）。</p>
      */
     @PostMapping
-    public AppApiResponse<SysDemand> create(@RequestBody Map<String, Object> body)
+    public AppApiResponse<SysDemand> create(@RequestBody(required = false) Map<String, Object> body)
     {
-        Long userId = currentUserId();
-        SysDemand demand = new SysDemand();
-        demand.setClientId(userId);
-        demand.setCreateBy(String.valueOf(userId));
-        demand.setTitle(str(body, "title"));
-        demand.setGenreId(intVal(body, "genreId"));
-        demand.setBudget(fenToYuan(decimalVal(body, "budget")));
-        demand.setTags(str(body, "tags"));
-        demand.setRequirement(str(body, "requirement"));
-        demand.setContactInfo(str(body, "contactInfo"));
-        demand.setTotalEpisodes(intVal(body, "totalEpisodes"));
-        demand.setDurationHours(intVal(body, "durationHours"));
-        demand.setTaskType(str(body, "taskType"));
-        demand.setSourceWorkId(longVal(body, "sourceWorkId"));
-        demand.setSourceScriptUrl(str(body, "sourceScriptUrl"));
-        demand.setSourceScriptName(str(body, "sourceScriptName"));
-        // 总集数必填：最后一轮验收依赖总集数固定生成
-        if (demand.getTotalEpisodes() == null || demand.getTotalEpisodes() <= 0)
-        {
-            return AppApiResponse.fail(400, "请填写总集数");
-        }
-        String deadlineStr = str(body, "deadline");
-        if (deadlineStr != null && !deadlineStr.isEmpty())
-        {
-            try
-            {
-                demand.setDeadline(new java.text.SimpleDateFormat("yyyy-MM-dd").parse(deadlineStr));
-            }
-            catch (java.text.ParseException e)
-            {
-                return AppApiResponse.fail(400, "截止日期格式不正确，请重新选择");
-            }
-        }
-
-        // 解析验收轮次；未传轮次时由 Service 固定兜底生成最后一轮验收
-        List<SysDemandStage> stages = parseStages(body.get("stages"));
-        try
-        {
-            demandService.insertDemand(demand, stages);
-        }
-        catch (RuntimeException e)
-        {
-            return AppApiResponse.fail(400, e.getMessage());
-        }
-        applyFen(demand);
-        return AppApiResponse.ok(demand);
+        return AppApiResponse.fail(403, PUBLISH_RETIRED_MSG);
     }
 
-    /**
-     * 编辑任务（仅发布者、仅未托管未接单可改）。
-     * Body 同发布：{title, genreId, budget(分), deadline, requirement, contactInfo, tags, totalEpisodes, durationHours,
-     *              taskType, sourceWorkId, sourceScriptUrl, sourceScriptName, stages:[...]}。
-     * 不传 taskType 时沿用原任务类型与源剧本（兼容旧客户端）。
-     */
+    /** 编辑任务已收归管理端（PUT /api/v1/admin/trade/demand/{demandId}，权限 trade:demand:edit）。 */
     @PutMapping("/{demandId}")
-    public AppApiResponse<SysDemand> update(@PathVariable Long demandId, @RequestBody Map<String, Object> body)
+    public AppApiResponse<SysDemand> update(@PathVariable Long demandId,
+            @RequestBody(required = false) Map<String, Object> body)
     {
-        Long userId = currentUserId();
-        SysDemand demand = new SysDemand();
-        demand.setDemandId(demandId);
-        demand.setTitle(str(body, "title"));
-        demand.setGenreId(intVal(body, "genreId"));
-        demand.setBudget(fenToYuan(decimalVal(body, "budget")));
-        demand.setTags(str(body, "tags"));
-        demand.setRequirement(str(body, "requirement"));
-        demand.setContactInfo(str(body, "contactInfo"));
-        demand.setTotalEpisodes(intVal(body, "totalEpisodes"));
-        demand.setDurationHours(intVal(body, "durationHours"));
-        demand.setTaskType(str(body, "taskType"));
-        demand.setSourceWorkId(longVal(body, "sourceWorkId"));
-        demand.setSourceScriptUrl(str(body, "sourceScriptUrl"));
-        demand.setSourceScriptName(str(body, "sourceScriptName"));
-        // 总集数必填：最后一轮验收依赖总集数固定生成
-        if (demand.getTotalEpisodes() == null || demand.getTotalEpisodes() <= 0)
-        {
-            return AppApiResponse.fail(400, "请填写总集数");
-        }
-        String deadlineStr = str(body, "deadline");
-        if (deadlineStr != null && !deadlineStr.isEmpty())
-        {
-            try
-            {
-                demand.setDeadline(new java.text.SimpleDateFormat("yyyy-MM-dd").parse(deadlineStr));
-            }
-            catch (java.text.ParseException e)
-            {
-                return AppApiResponse.fail(400, "截止日期格式不正确，请重新选择");
-            }
-        }
-        List<SysDemandStage> stages = parseStages(body.get("stages"));
-        try
-        {
-            SysDemand d = demandService.updateDemand(demand, stages, userId);
-            applyFen(d);
-            return AppApiResponse.ok(d);
-        }
-        catch (RuntimeException e)
-        {
-            return AppApiResponse.fail(400, e.getMessage());
-        }
+        return AppApiResponse.fail(403, PUBLISH_RETIRED_MSG);
     }
 
-    /**
-     * 关闭征集（发布者手动截止）。
-     */
+    /** 关闭征集已收归管理端（PUT /api/v1/admin/trade/demand/{demandId}/close，权限 trade:demand:edit）。 */
     @PutMapping("/{demandId}/close")
     public AppApiResponse<Void> close(@PathVariable Long demandId)
     {
-        Long userId = currentUserId();
-        demandService.closeDemand(demandId, userId);
-        return AppApiResponse.ok();
+        return AppApiResponse.fail(403, PUBLISH_RETIRED_MSG);
     }
 
     /**
-     * 抢单（创作者先到先得接单）。
+     * 接单（创作者先到先得，原子抢单）。
      *
-     * <p>正常接单走 {@code pay/deposit → confirm}（付押金即接单）；本端点仅作兜底：
-     * 押金已入账（deposit_status=held，例如线下收款/沙箱已确认）时可直接完成接单占位，
-     * 未付押金则引导前端先走 pay/deposit。</p>
+     * <p>前置：已登录 + 已开通创作者资格（403）。不再有押金环节，点一下即完成接单；
+     * 并发下只有一人命中，其余返回「已被接单」。</p>
      */
     @PostMapping("/{demandId}/claim")
     public AppApiResponse<SysDemand> claim(@PathVariable Long demandId)
@@ -417,10 +294,6 @@ public class AppTradeDemandController
         if (existing == null)
         {
             return AppApiResponse.fail(404, "任务不存在");
-        }
-        if (!TradeDemandService.DEPOSIT_HELD.equals(existing.getDepositStatus()))
-        {
-            return AppApiResponse.fail(400, "请先支付押金再接单");
         }
         SysDemand demand = demandService.claimDemand(demandId, userId);
         applyFen(demand);
@@ -466,99 +339,7 @@ public class AppTradeDemandController
         }
     }
 
-    /* ===================== 支付宝沙箱入账（托管/押金） ===================== */
-
-    /**
-     * 发起托管付款（发布者）：生成扫码收款二维码，将预算全额付入平台第三方托管。
-     */
-    @PostMapping("/{demandId}/pay/escrow")
-    public AppApiResponse<Map<String, Object>> payEscrow(@PathVariable Long demandId,
-            @RequestParam(name = "refresh", defaultValue = "false") boolean refresh)
-    {
-        try { return AppApiResponse.ok(payFen(demandSandbox.createEscrow(demandId, currentUserId(), refresh))); }
-        catch (IllegalArgumentException | IllegalStateException e) { return AppApiResponse.fail(400, e.getMessage()); }
-        catch (RuntimeException e) { return AppApiResponse.fail(500, "沙箱支付暂不可用"); }
-    }
-
-    /**
-     * 确认托管付款：以支付宝主动查单为准，成功后置 escrow_status=escrowed（任务方对外可抢）。
-     */
-    @PostMapping("/{demandId}/pay/escrow/confirm")
-    public AppApiResponse<Map<String, Object>> confirmEscrow(@PathVariable Long demandId)
-    {
-        try { return AppApiResponse.ok(demandSandbox.confirmEscrow(demandId, currentUserId())); }
-        catch (IllegalArgumentException | IllegalStateException e) { return AppApiResponse.fail(400, e.getMessage()); }
-        catch (RuntimeException e) { return AppApiResponse.fail(500, "沙箱支付暂不可用"); }
-    }
-
-    /**
-     * 开发直通托管（"点一下即完成"）：不走支付宝沙箱查单，直接把托管置为已到账。
-     *
-     * <p>受配置 {@code app.demand.escrow.mock-pass}（环境变量 APP_DEMAND_ESCROW_MOCK_PASS，默认开）
-     * 控制，且 {@code APP_AUTH_ENV=prod} 时强制失效，供沙箱密钥
-     * 尚未接入时打通"发布→托管→广场曝光"链路。正式扫码收款请由队友接入上方
-     * {@code /pay/escrow} + {@code /pay/escrow/confirm} 两个沙箱端点。</p>
-     */
-    @PostMapping("/{demandId}/pay/escrow/dev-pass")
-    public AppApiResponse<SysDemand> devPassEscrow(@PathVariable Long demandId)
-    {
-        String blocked = devPassBlockReason();
-        if (blocked != null) return AppApiResponse.fail(400, blocked);
-        try
-        {
-            SysDemand d = demandService.mockPassEscrow(demandId, currentUserId());
-            applyFen(d);
-            return AppApiResponse.ok(d);
-        }
-        catch (RuntimeException e) { return AppApiResponse.fail(400, e.getMessage()); }
-    }
-
-    /**
-     * 发起押金付款（创作者）：生成扫码收款二维码，付完押金后调 confirm 自动接单。
-     */
-    @PostMapping("/{demandId}/pay/deposit")
-    public AppApiResponse<Map<String, Object>> payDeposit(@PathVariable Long demandId,
-            @RequestParam(name = "refresh", defaultValue = "false") boolean refresh)
-    {
-        if (!hasCreatorCapability()) return AppApiResponse.fail(403, "请先开通创作者资格再接单");
-        try { return AppApiResponse.ok(payFen(demandSandbox.createDeposit(demandId, currentUserId(), refresh))); }
-        catch (IllegalArgumentException | IllegalStateException e) { return AppApiResponse.fail(400, e.getMessage()); }
-        catch (RuntimeException e) { return AppApiResponse.fail(500, "沙箱支付暂不可用"); }
-    }
-
-    /**
-     * 确认押金付款：查单成功后原子执行抢单（deposit_status=held + 激活首轮）。
-     */
-    @PostMapping("/{demandId}/pay/deposit/confirm")
-    public AppApiResponse<Map<String, Object>> confirmDeposit(@PathVariable Long demandId)
-    {
-        if (!hasCreatorCapability()) return AppApiResponse.fail(403, "请先开通创作者资格再接单");
-        try { return AppApiResponse.ok(demandSandbox.confirmDeposit(demandId, currentUserId())); }
-        catch (IllegalArgumentException | IllegalStateException e) { return AppApiResponse.fail(400, e.getMessage()); }
-        catch (RuntimeException e) { return AppApiResponse.fail(500, "沙箱支付暂不可用"); }
-    }
-
-    /**
-     * 开发直通押金（“点一下即付款接单”）：不走支付宝沙箱查单，直接记账押金并原子完成抢单。
-     *
-     * <p>与发布者托管直通共用开关 {@code app.demand.escrow.mock-pass}，处理口径对齐：
-     * 本地/测试环境沙箱密钥未接入时一键打通“付押金→接单”；正式收款请走
-     * {@code /pay/deposit} + {@code /pay/deposit/confirm} 两个沙箱端点。</p>
-     */
-    @PostMapping("/{demandId}/pay/deposit/dev-pass")
-    public AppApiResponse<SysDemand> devPassDeposit(@PathVariable Long demandId)
-    {
-        String blocked = devPassBlockReason();
-        if (blocked != null) return AppApiResponse.fail(400, blocked);
-        if (!hasCreatorCapability()) return AppApiResponse.fail(403, "请先开通创作者资格再接单");
-        try
-        {
-            SysDemand d = demandService.claimDemand(demandId, currentUserId());
-            applyFen(d);
-            return AppApiResponse.ok(d);
-        }
-        catch (RuntimeException e) { return AppApiResponse.fail(400, e.getMessage()); }
-    }
+    /* ===================== 支付宝沙箱入账（托管/押金）已退役 ===================== */
 
     /**
      * 查看投稿列表（仅发布者可看）。
@@ -648,33 +429,25 @@ public class AppTradeDemandController
     }
 
     /**
-     * 源剧本作品候选（发布分镜任务时选择本人作品；本人未删除作品即可，不排除已上架）。
+     * 源剧本作品候选（发布分镜任务用）已随发布权收归管理端。
      */
     @GetMapping("/source-works")
     public AppApiResponse<List<Map<String, Object>>> sourceWorks()
     {
-        return AppApiResponse.ok(demandService.selectSourceWorks(currentUserId()));
+        return AppApiResponse.fail(403, PUBLISH_RETIRED_MSG);
     }
 
     /**
-     * 上传源剧本文件（发布分镜任务用，发布者无需创作者资格）。
-     * multipart 字段名 file；返回 {url(相对路径，客户端按 baseUrl 解析), fileName}。
+     * 上传源剧本文件（发布分镜任务用）已随发布权收归管理端。
      */
     @PostMapping("/upload-script")
     public AppApiResponse<Map<String, Object>> uploadScript(@RequestParam("file") org.springframework.web.multipart.MultipartFile file)
     {
-        try
-        {
-            return AppApiResponse.ok(demandService.uploadSourceScript(file));
-        }
-        catch (RuntimeException e)
-        {
-            return AppApiResponse.fail(400, e.getMessage());
-        }
+        return AppApiResponse.fail(403, PUBLISH_RETIRED_MSG);
     }
 
     /**
-     * 查看分镜任务的源剧本（任何登录用户可看：潜在接单者先评估剧本再决定是否付押金）。
+     * 查看分镜任务的源剧本（任何登录用户可看：潜在接单者先评估剧本再决定是否接单）。
      * 返回 {demandId, taskType, work?, chapters?, fileUrl?, fileName?}：作品源给全文，文件源给下载地址。
      */
     @GetMapping("/{demandId}/source-script")
@@ -719,50 +492,26 @@ public class AppTradeDemandController
     }
 
     /**
-     * 买方审核轮次。通过→释放并激活下一轮；驳回→计时恢复且截止顺延审核耗时。
-     * Body: {approved: true/false, rejectReason(可选)}
+     * 买方审核轮次已收归管理端（PUT /api/v1/admin/trade/demand/{demandId}/stage/{stageId}/review，权限 trade:demand:review）。
      */
     @PutMapping("/{demandId}/stage/{stageId}/review")
     public AppApiResponse<SysDemandStage> review(
             @PathVariable Long demandId,
             @PathVariable Long stageId,
-            @RequestBody Map<String, Object> body)
+            @RequestBody(required = false) Map<String, Object> body)
     {
-        Long userId = currentUserId();
-        boolean approved = Boolean.TRUE.equals(body.get("approved"));
-        String rejectReason = str(body, "rejectReason");
-        try
-        {
-            SysDemandStage stage = demandService.reviewStage(demandId, stageId, userId, approved, rejectReason);
-            stage.setAmount(yuanToFen(stage.getAmount()));
-            return AppApiResponse.ok(stage);
-        }
-        catch (RuntimeException e)
-        {
-            return AppApiResponse.fail(400, e.getMessage());
-        }
+        return AppApiResponse.fail(403, PUBLISH_RETIRED_MSG);
     }
 
     /**
-     * 发布者查看某轮交付作品（验收前核对正文）。
-     *
-     * 仅该任务发布者可调；正文只下发本轮 episodeTo 内的章节，
-     * 之后章节只给标题并标 readable=false（交付作品未上架，走不了 content 域的读者接口）。
+     * 查看某轮交付作品（验收动作）已收归管理端（GET /api/v1/admin/trade/demand/{demandId}/stage/{stageId}/deliverable-work）。
      */
     @GetMapping("/{demandId}/stage/{stageId}/deliverable-work")
     public AppApiResponse<Map<String, Object>> deliverableWork(
             @PathVariable Long demandId,
             @PathVariable Long stageId)
     {
-        Long userId = currentUserId();
-        try
-        {
-            return AppApiResponse.ok(demandService.selectStageDeliveredWork(demandId, stageId, userId));
-        }
-        catch (RuntimeException e)
-        {
-            return AppApiResponse.fail(400, e.getMessage());
-        }
+        return AppApiResponse.fail(403, PUBLISH_RETIRED_MSG);
     }
 
     /**
@@ -792,27 +541,16 @@ public class AppTradeDemandController
     }
 
     /**
-     * 发布者处理延时申请：只处理当前待处理那条记录（处理完永久保留），同意则截止同步顺延，不同意仅落决定。
+     * 处理延时申请（需求方动作）已收归管理端（PUT /api/v1/admin/trade/demand/{demandId}/stage/{stageId}/extend/decision）。
      * Body: {approved: true/false}
      */
     @PutMapping("/{demandId}/stage/{stageId}/extend/decision")
     public AppApiResponse<SysDemandStage> decideExtend(
             @PathVariable Long demandId,
             @PathVariable Long stageId,
-            @RequestBody Map<String, Object> body)
+            @RequestBody(required = false) Map<String, Object> body)
     {
-        Long userId = currentUserId();
-        boolean approved = Boolean.TRUE.equals(body.get("approved"));
-        try
-        {
-            SysDemandStage stage = demandService.decideExtend(demandId, stageId, userId, approved);
-            stage.setAmount(yuanToFen(stage.getAmount()));
-            return AppApiResponse.ok(stage);
-        }
-        catch (RuntimeException e)
-        {
-            return AppApiResponse.fail(400, e.getMessage());
-        }
+        return AppApiResponse.fail(403, PUBLISH_RETIRED_MSG);
     }
 
     /**
@@ -850,28 +588,15 @@ public class AppTradeDemandController
     }
 
     /**
-     * 发布者自主延时：不经申请直接顺延活动轮截止，并同时写入一条延时记录（展示为“自主延时”）。
-     * Body: {hours}，前端只填小时；兼容按天数传的旧客户端（按 days*24+hours 折算，须大于 0）
+     * 需求方自主延时已收归管理端（PUT /api/v1/admin/trade/demand/{demandId}/stage/{stageId}/extend）。
      */
     @PutMapping("/{demandId}/stage/{stageId}/extend")
     public AppApiResponse<SysDemandStage> selfExtend(
             @PathVariable Long demandId,
             @PathVariable Long stageId,
-            @RequestBody Map<String, Object> body)
+            @RequestBody(required = false) Map<String, Object> body)
     {
-        Long userId = currentUserId();
-        int days = intOrZero(body, "days");
-        int hours = intOrZero(body, "hours");
-        try
-        {
-            SysDemandStage stage = demandService.selfExtend(demandId, stageId, userId, days, hours);
-            stage.setAmount(yuanToFen(stage.getAmount()));
-            return AppApiResponse.ok(stage);
-        }
-        catch (RuntimeException e)
-        {
-            return AppApiResponse.fail(400, e.getMessage());
-        }
+        return AppApiResponse.fail(403, PUBLISH_RETIRED_MSG);
     }
 
     /* ===================== helpers ===================== */
@@ -893,7 +618,7 @@ public class AppTradeDemandController
      * 接单侧准入：必须是已登录且已开通创作者资格（authorCapability）的用户。
      *
      * <p>与 content 域 {@code ContentAuthorAccess} 同源：能力由 A 模块每次请求实时查库读取，
-     * 资格被后台关闭后，旧 Token 也无法再接单。仅约束接单（押金/抢单）侧，发布者托管不受影响。</p>
+     * 资格被后台关闭后，旧 Token 也无法再接单。发布权已收归管理端，本判定只约束接单侧。</p>
      */
     private boolean hasCreatorCapability()
     {
@@ -930,14 +655,6 @@ public class AppTradeDemandController
         try { return Long.parseLong(String.valueOf(v)); } catch (Exception e) { return null; }
     }
 
-    private static BigDecimal decimalVal(Map<String, Object> map, String key)
-    {
-        Object v = map.get(key);
-        if (v == null) return null;
-        if (v instanceof BigDecimal) return (BigDecimal) v;
-        try { return new BigDecimal(String.valueOf(v)); } catch (Exception e) { return null; }
-    }
-
     private static BigDecimal yuanToFen(BigDecimal yuan)
     {
         return yuan == null ? null : yuan.multiply(new BigDecimal("100"));
@@ -948,42 +665,10 @@ public class AppTradeDemandController
         return fen == null ? null : fen.divide(new BigDecimal("100"), 2, BigDecimal.ROUND_HALF_UP);
     }
 
-    /** 统一将任务的金额字段（预算/托管额/押金）元→分，供 APP 展示。 */
+    /** 统一将任务的预算元→分，供 APP 展示（历史资金列不再下发）。 */
     private static void applyFen(SysDemand d)
     {
         if (d == null) return;
         d.setBudget(yuanToFen(d.getBudget()));
-        d.setEscrowAmount(yuanToFen(d.getEscrowAmount()));
-        d.setDepositAmount(yuanToFen(d.getDepositAmount()));
-    }
-
-    /** 沙箱返回体中的金额字段元→分（与 APP 以分交互一致）。 */
-    private static Map<String, Object> payFen(Map<String, Object> raw)
-    {
-        Map<String, Object> m = new HashMap<>(raw);
-        Object a = m.get("amount");
-        if (a instanceof BigDecimal) m.put("amount", yuanToFen((BigDecimal) a));
-        return m;
-    }
-
-    @SuppressWarnings("unchecked")
-    private List<SysDemandStage> parseStages(Object raw)
-    {
-        if (raw == null) return null;
-        if (!(raw instanceof List)) return null;
-        List<Map<String, Object>> list = (List<Map<String, Object>>) raw;
-        if (list.isEmpty()) return null;
-        List<SysDemandStage> result = new ArrayList<>();
-        for (Map<String, Object> item : list)
-        {
-            SysDemandStage s = new SysDemandStage();
-            s.setStageOrder(intVal(item, "stageOrder"));
-            s.setEpisodeTo(intVal(item, "episodeTo"));
-            s.setAmount(decimalVal(item, "amount"));
-            s.setDurationDays(intVal(item, "durationDays"));
-            s.setDurationHours(intVal(item, "durationHours"));
-            result.add(s);
-        }
-        return result;
     }
 }

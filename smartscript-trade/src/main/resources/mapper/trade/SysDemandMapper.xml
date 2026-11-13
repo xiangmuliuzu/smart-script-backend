@@ -73,7 +73,6 @@
         <if test="taskType != null and taskType != ''">AND d.task_type = #{taskType}</if>
         <if test="clientId != null">AND d.client_id = #{clientId}</if>
         <if test="acceptedCreatorId != null">AND d.accepted_creator_id = #{acceptedCreatorId}</if>
-        <if test="escrowStatus != null and escrowStatus != ''">AND d.escrow_status = #{escrowStatus}</if>
         <if test="demandNo != null and demandNo != ''">AND d.demand_no like concat('%', #{demandNo}, '%')</if>
         <if test="keyword != null and keyword != ''">
             AND (d.title like concat('%', #{keyword}, '%') or d.demand_no like concat('%', #{keyword}, '%'))
@@ -120,33 +119,33 @@
         </where>
     </select>
 
-    <!-- Hero 轻量统计（广场口径：open+escrowed）：可接单数 / 奖金池(元) / 今日新增 -->
+    <!-- Hero 轻量统计（广场口径：可接任务即 open）：可接单数 / 奖金池(元) / 今日新增 -->
     <select id="selectDemandSquareStats" resultType="java.util.HashMap">
         select
             count(*) as availableCount,
             coalesce(sum(budget), 0) as prizePoolYuan,
             sum(case when date(created_at) = curdate() then 1 else 0 end) as todayNewCount
         from sys_demand
-        where status = 'open' and escrow_status = 'escrowed'
+        where status = 'open'
     </select>
 
-    <!-- 题材分类数量角标：公开可接单口径（status=open ∧ escrow=escrowed），与广场列表一致 -->
+    <!-- 题材分类数量角标：可接单口径（status=open），与广场列表一致 -->
     <select id="selectGenreCounts" resultType="java.util.HashMap">
         select genre_id as genreId, count(*) as cnt
         from sys_demand
-        where status = 'open' and escrow_status = 'escrowed'
+        where status = 'open'
         group by genre_id
     </select>
 
-    <!-- 任务类型数量角标：与题材角标同口径（status=open ∧ escrow=escrowed） -->
+    <!-- 任务类型数量角标：与题材角标同口径（status=open） -->
     <select id="selectTypeCounts" resultType="java.util.HashMap">
         select task_type as taskType, count(*) as cnt
         from sys_demand
-        where status = 'open' and escrow_status = 'escrowed'
+        where status = 'open'
         group by task_type
     </select>
 
-    <!-- 发布分镜任务时选择本人源剧本作品：本人未删除作品即可（不排除已上架，源剧本仅作参考不转移版权） -->
+    <!-- 选择源剧本作品：本人未删除作品即可（不排除已上架，源剧本仅作参考不转移版权） -->
     <select id="selectSourceWorks" resultType="java.util.HashMap">
         select work_id as workId, title, status, update_time as updateTime
         from sys_work
@@ -178,18 +177,16 @@
             demand_no, client_id, title, genre_id, tags, budget, deadline,
             requirement, contact_info, submission_count, total_episodes, duration_hours, status,
             task_type, source_work_id, source_script_url, source_script_name,
-            escrow_amount, escrow_status,
             create_by, create_time, remark
         ) values (
             #{demandNo}, #{clientId}, #{title}, #{genreId}, #{tags}, #{budget}, #{deadline},
             #{requirement}, #{contactInfo}, #{submissionCount}, #{totalEpisodes}, #{durationHours}, #{status},
             #{taskType}, #{sourceWorkId}, #{sourceScriptUrl}, #{sourceScriptName},
-            #{escrowAmount}, #{escrowStatus},
             #{createBy}, #{createTime}, #{remark}
         )
     </insert>
 
-    <!-- 编辑任务：仅更新非空可编辑字段（未托管未接单时由 service 保证） -->
+    <!-- 编辑任务：仅更新非空可编辑字段（未被接单时由 service 保证） -->
     <update id="updateDemand" parameterType="com.smartscript.platform.trade.domain.SysDemand">
         update sys_demand
         <set>
@@ -209,8 +206,6 @@
                 source_script_url = #{sourceScriptUrl},
                 source_script_name = #{sourceScriptName},
             </if>
-            <if test="escrowAmount != null">escrow_amount = #{escrowAmount},</if>
-            <if test="escrowStatus != null">escrow_status = #{escrowStatus},</if>
             <if test="updateBy != null">update_by = #{updateBy},</if>
             updated_at = NOW(),
             update_time = NOW()
@@ -231,13 +226,14 @@
 
     <!-- 行锁读取（编辑任务等与抢单串行化的前置）：须在事务内调用 -->
     <select id="selectDemandForUpdate" parameterType="Long" resultMap="SysDemandResult">
-        select d.demand_id, d.client_id, d.status, d.escrow_status
+        select d.demand_id, d.client_id, d.status, d.task_type,
+               d.source_work_id, d.source_script_url, d.source_script_name
         from sys_demand d
         where d.demand_id = #{demandId}
         for update
     </select>
 
-    <!-- 抢单：原子锁定，仅当仍为 open 且已托管(escrowed) 才更新；同时置押金为 held 并记录入账时间 -->
+    <!-- 抢单：原子锁定，仅当仍为 open 才更新，先到先得（并发只有一人受影响行数为 1） -->
     <update id="claimDemand">
         update sys_demand
         set status = 'in_progress',
@@ -245,30 +241,17 @@
             accepted_at = #{acceptedAt},
             due_at = #{dueAt},
             is_overdue = 0,
-            deposit_amount = #{depositAmount},
-            deposit_status = 'held',
-            deposit_paid_at = NOW(),
             update_by = #{updateBy},
             update_time = NOW(),
             updated_at = NOW()
-        where demand_id = #{demandId} and status = 'open' and escrow_status = 'escrowed'
+        where demand_id = #{demandId} and status = 'open'
     </update>
 
-    <update id="markEscrowed">
-        update sys_demand set escrow_status = 'escrowed', updated_at = NOW()
-        where demand_id = #{demandId}
-    </update>
-
-    <!-- 资金/状态统一流转：仅更新传入的非空字段（status/escrowStatus/depositStatus/failReason） -->
-    <update id="updateFundState">
+    <!-- 状态与失败信息流转：仅更新传入的非空字段（status/failReason） -->
+    <update id="updateStatusAndFailReason">
         update sys_demand
         <set>
             <if test="status != null">status = #{status},</if>
-            <if test="escrowStatus != null">escrow_status = #{escrowStatus},</if>
-            <if test="depositStatus != null">
-                deposit_status = #{depositStatus},
-                deposit_settled_at = NOW(),
-            </if>
             <if test="failReason != null">
                 fail_reason = #{failReason},
                 fail_at = NOW(),
@@ -295,11 +278,6 @@
         update sys_demand
         <set>
             status = #{status},
-            <if test="escrowStatus != null">escrow_status = #{escrowStatus},</if>
-            <if test="depositStatus != null">
-                deposit_status = #{depositStatus},
-                deposit_settled_at = NOW(),
-            </if>
             <if test="failReason != null">
                 fail_reason = #{failReason},
                 fail_at = NOW(),

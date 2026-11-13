@@ -1250,9 +1250,11 @@ INSERT INTO sys_menu (menu_id, menu_name, parent_id, order_num, path, component,
 (5191, '需求标签删除',   5136, 3, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'trade:tags:remove',     '#', 'c-perm-migration', 'C 模块交易按钮权限'),
 (5192, '商务跟进新增',   5137, 1, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'trade:followups:add',   '#', 'c-perm-migration', 'C 模块交易按钮权限'),
 (5193, '征集投稿查询',   5138, 1, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'trade:demand:query',    '#', 'c-perm-migration', 'C 模块交易按钮权限'),
-(5194, '征集令发布',     5138, 2, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'trade:demand:add',      '#', 'c-perm-migration', 'C 模块交易按钮权限'),
+(5194, '任务发布',       5138, 2, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'trade:demand:add',      '#', 'c-perm-migration', '平台代需求方发布任务（发布权已收归运营）'),
 (5195, '询盘发起',       5133, 4, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'trade:inquiry:add',     '#', 'c-perm-ops-migration', 'C 模块交易操作按钮权限'),
-(5196, '报价提交/议价',  5135, 2, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'trade:quote:add',       '#', 'c-perm-ops-migration', 'C 模块交易操作按钮权限')
+(5196, '报价提交/议价',  5135, 2, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'trade:quote:add',       '#', 'c-perm-ops-migration', 'C 模块交易操作按钮权限'),
+(5197, '任务运营编辑',   5138, 3, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'trade:demand:edit',     '#', 'c-perm-migration', '编辑/关闭任务与延时审批'),
+(5198, '任务逐轮验收',   5138, 4, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'trade:demand:review',   '#', 'c-perm-migration', '逐轮交付验收与放款触发')
 ON DUPLICATE KEY UPDATE
   menu_name=VALUES(menu_name), parent_id=VALUES(parent_id), order_num=VALUES(order_num), perms=VALUES(perms);
 
@@ -1296,7 +1298,8 @@ CROSS JOIN (
   UNION ALL SELECT 5184 UNION ALL SELECT 5185 UNION ALL SELECT 5186 UNION ALL SELECT 5187
   UNION ALL SELECT 5188 UNION ALL SELECT 5189 UNION ALL SELECT 5190 UNION ALL SELECT 5191
   UNION ALL SELECT 5192 UNION ALL SELECT 5193 UNION ALL SELECT 5194 UNION ALL SELECT 5195
-  UNION ALL SELECT 5196 UNION ALL SELECT 5141 UNION ALL SELECT 5142 UNION ALL SELECT 5143
+  UNION ALL SELECT 5196 UNION ALL SELECT 5197 UNION ALL SELECT 5198
+  UNION ALL SELECT 5141 UNION ALL SELECT 5142 UNION ALL SELECT 5143
   UNION ALL SELECT 5144 UNION ALL SELECT 5145 UNION ALL SELECT 5401
 ) m
 WHERE r.del_flag = '0' AND (r.role_key = 'admin' OR r.role_id = 1)
