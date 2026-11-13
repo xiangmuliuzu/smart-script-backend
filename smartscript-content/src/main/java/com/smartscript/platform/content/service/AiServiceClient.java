@@ -23,6 +23,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestTemplate;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -763,7 +764,11 @@ public class AiServiceClient
         {
             body.put("max_tokens", maxTokens);
         }
-        body.put("temperature", 0.8);
+        // Claude 系模型不接受非默认 temperature（中转站会直接 400），只对其它模型传
+        if (!isClaudeModel(resolvedModel))
+        {
+            body.put("temperature", 0.8);
+        }
         body.put("stream", true);
         try
         {
@@ -999,7 +1004,10 @@ public class AiServiceClient
         {
             body.put("max_tokens", maxTokens);
         }
-        body.put("temperature", 0.8);
+        if (!isClaudeModel(m))
+        {
+            body.put("temperature", 0.8);
+        }
         body.put("stream", false);
         try
         {
@@ -1036,6 +1044,87 @@ public class AiServiceClient
             log.error("AI chat call failed: {}", e.toString(), e);
             throw new AiServiceUnavailableException("AI 服务不可用，请稍后重试");
         }
+    }
+
+    // ================================================================
+    // 渠道连通性测试（管理员端「测试」按钮）
+    // 与正常调用不同：上游非 2xx 时不吞掉错误，原样回传状态码与响应体，
+    // 便于管理员直接看到「账号耗尽 / 密钥无效 / 模型不存在」等真实原因。
+    // ================================================================
+    public Map<String, Object> testChannel(String baseUrl, String apiKey, String model)
+    {
+        String url = resolveBaseUrl(baseUrl);
+        // 测试必须用「该渠道自己的」密钥，不能回退到全局默认，否则测的就不是这个渠道
+        String key = apiKey == null ? "" : apiKey.trim();
+        String m = resolveModel(model);
+        if (key.isBlank())
+        {
+            throw new IllegalArgumentException("该渠道未配置 API Key");
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("ok", false);
+        result.put("baseUrl", url);
+        result.put("model", m);
+        List<Map<String, String>> messages = new ArrayList<>();
+        messages.add(message("user", "ping，直接回复 OK"));
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("model", m);
+        body.put("messages", messages);
+        body.put("max_tokens", 16);
+        body.put("stream", false);
+        long start = System.currentTimeMillis();
+        try
+        {
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            headers.setBearerAuth(key);
+            ResponseEntity<String> response = restTemplate.postForEntity(
+                    url + "/v1/chat/completions",
+                    new HttpEntity<>(body, headers), String.class);
+            String raw = response.getBody();
+            result.put("status", response.getStatusCode().value());
+            result.put("latencyMs", System.currentTimeMillis() - start);
+            String content = "";
+            if (raw != null && !raw.isBlank())
+            {
+                JsonNode root = objectMapper.readTree(raw);
+                content = root.path("choices").path(0).path("message").path("content").asText("");
+            }
+            result.put("ok", content != null && !content.isBlank());
+            result.put("reply", content);
+            result.put("raw", clipTestBody(raw));
+            if (!Boolean.TRUE.equals(result.get("ok")))
+            {
+                result.put("error", "上游返回 200 但无有效内容");
+            }
+            return result;
+        }
+        catch (HttpStatusCodeException e)
+        {
+            result.put("status", e.getStatusCode().value());
+            result.put("latencyMs", System.currentTimeMillis() - start);
+            result.put("error", clipTestBody(e.getResponseBodyAsString()));
+            return result;
+        }
+        catch (Exception e)
+        {
+            log.warn("AI channel test failed: {}", e.toString());
+            result.put("status", 0);
+            result.put("latencyMs", System.currentTimeMillis() - start);
+            result.put("error", e.toString());
+            return result;
+        }
+    }
+
+    /** 测试结果里上游响应体截断，避免超长/Rich 内容撑爆前端弹窗 */
+    private static String clipTestBody(String raw)
+    {
+        if (raw == null)
+        {
+            return "";
+        }
+        String s = raw.length() > 600 ? raw.substring(0, 600) + "..." : raw;
+        return s;
     }
 
     // ================================================================
@@ -1220,5 +1309,11 @@ public class AiServiceClient
             return "";
         }
         return url.endsWith("/") ? url.substring(0, url.length() - 1) : url;
+    }
+
+    /** Claude 系模型（claude-*）不接受非默认 temperature，中转站会直接返回 400。 */
+    private static boolean isClaudeModel(String model)
+    {
+        return model != null && model.trim().toLowerCase(java.util.Locale.ROOT).startsWith("claude-");
     }
 }

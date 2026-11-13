@@ -189,7 +189,7 @@ public class AiWriteServiceImpl implements IAiWriteService
                         resolveSkillContent(request.getSkillId()))
                 : aiServiceClient.write(request.getPrompt(), request.getType(),
                         resolveSkillContent(request.getSkillId()),
-                        channel.getBaseUrl(), channel.getApiKey(), request.getModel());
+                        channel.getBaseUrl(), channel.getApiKey(), channelModel(channel, request.getModel()));
         String content = data.getContent();
         Long recordId = saveRecord(identityProvider.currentUserId(), request.getWorkId(),
                 resolveWriteType(request.getType()), request.getPrompt(), content,
@@ -209,7 +209,7 @@ public class AiWriteServiceImpl implements IAiWriteService
                         resolveSkillContent(request.getSkillId()))
                 : aiServiceClient.polish(request.getContent(), request.getStyle(),
                         resolveSkillContent(request.getSkillId()),
-                        channel.getBaseUrl(), channel.getApiKey(), request.getModel());
+                        channel.getBaseUrl(), channel.getApiKey(), channelModel(channel, request.getModel()));
         String content = data.getContent();
         Long recordId = saveRecord(identityProvider.currentUserId(), null,
                 WRITE_TYPE_POLISH, request.getContent(), content,
@@ -275,7 +275,7 @@ public class AiWriteServiceImpl implements IAiWriteService
                         resolveSkillContent(request.getSkillId()), onDelta)
                 : aiServiceClient.writeStream(request.getPrompt(), request.getType(),
                         resolveSkillContent(request.getSkillId()), onDelta,
-                        channel.getBaseUrl(), channel.getApiKey(), request.getModel());
+                        channel.getBaseUrl(), channel.getApiKey(), channelModel(channel, request.getModel()));
         String content = r.getContent();
         Long recordId = saveRecord(identityProvider.currentUserId(), request.getWorkId(),
                 resolveWriteType(request.getType()), request.getPrompt(), content,
@@ -295,7 +295,7 @@ public class AiWriteServiceImpl implements IAiWriteService
                         resolveSkillContent(request.getSkillId()), onDelta)
                 : aiServiceClient.polishStream(request.getContent(), request.getStyle(),
                         resolveSkillContent(request.getSkillId()), onDelta,
-                        channel.getBaseUrl(), channel.getApiKey(), request.getModel());
+                        channel.getBaseUrl(), channel.getApiKey(), channelModel(channel, request.getModel()));
         String content = r.getContent();
         Long recordId = saveRecord(identityProvider.currentUserId(), null,
                 WRITE_TYPE_POLISH, request.getContent(), content,
@@ -392,7 +392,7 @@ public class AiWriteServiceImpl implements IAiWriteService
                         resolveSkillContent(request.getSkillId()), ledgerContext, onDelta)
                 : aiServiceClient.outlineStream(request.getInspiration(), request.getGenre(), request.getStyle(),
                         resolveSkillContent(request.getSkillId()), ledgerContext, onDelta,
-                        channel.getBaseUrl(), channel.getApiKey(), request.getModel());
+                        channel.getBaseUrl(), channel.getApiKey(), channelModel(channel, request.getModel()));
         Date finishedAt = new Date();
         JsonNode outlineNode = parseOutlineJson(r.getContent());
         Object outline = outlineNode.isMissingNode() || outlineNode.isNull()
@@ -458,7 +458,7 @@ public class AiWriteServiceImpl implements IAiWriteService
                         resolveSkillContent(request.getSkillId()))
                 : aiServiceClient.outline(request.getInspiration(), request.getGenre(), request.getStyle(),
                         resolveSkillContent(request.getSkillId()),
-                        channel.getBaseUrl(), channel.getApiKey(), request.getModel());
+                        channel.getBaseUrl(), channel.getApiKey(), channelModel(channel, request.getModel()));
         Date finishedAt = new Date();
         JsonNode root = parseOutlineJson(r.getContent());
         // 分集大纲（一键生成整部）：模型直接给 episodes 列表，整棵树就是结果；
@@ -933,7 +933,7 @@ public class AiWriteServiceImpl implements IAiWriteService
         AiCallResult r = (channel == null)
                 ? aiServiceClient.chatText(buildSummarySystemPrompt(), userPrompt)
                 : aiServiceClient.chatText(buildSummarySystemPrompt(), userPrompt,
-                        channel.getBaseUrl(), channel.getApiKey(), model);
+                        channel.getBaseUrl(), channel.getApiKey(), channelModel(channel, model));
         JsonNode root = ChapterSummarySupport.parseJson(r.getContent());
         String summary = ChapterSummarySupport.summaryOf(root);
         if (summary.isBlank())
@@ -1038,7 +1038,7 @@ public class AiWriteServiceImpl implements IAiWriteService
                 ChapterSummarySupport.clipBody(body, ChapterSummarySupport.BODY_CLIP));
         AiCallResult r = (channel == null)
                 ? aiServiceClient.chatText(system, user)
-                : aiServiceClient.chatText(system, user, channel.getBaseUrl(), channel.getApiKey(), model);
+                : aiServiceClient.chatText(system, user, channel.getBaseUrl(), channel.getApiKey(), channelModel(channel, model));
         JsonNode root = ChapterReviewSupport.parse(r.getContent());
         int score = ChapterReviewSupport.passScore(root);
         boolean pass = ChapterReviewSupport.pass(root);
@@ -1115,7 +1115,7 @@ public class AiWriteServiceImpl implements IAiWriteService
         AiChannel channel = resolveChannel(model);
         AiCallResult r = (channel == null)
                 ? aiServiceClient.chatText(system, user)
-                : aiServiceClient.chatText(system, user, channel.getBaseUrl(), channel.getApiKey(), model);
+                : aiServiceClient.chatText(system, user, channel.getBaseUrl(), channel.getApiKey(), channelModel(channel, model));
         String snapshot = ChapterReviewSupport.snapshotOf(ChapterReviewSupport.parse(r.getContent()));
         if (snapshot.isBlank())
         {
@@ -1285,6 +1285,23 @@ public class AiWriteServiceImpl implements IAiWriteService
         }
         String key = channel.getApiKey();
         return (key == null || key.isBlank()) ? null : channel;
+    }
+
+    /**
+     * 渠道内实际调用的模型名：用户显式选了模型就用它；未指定（走默认渠道）时
+     * 用该渠道的 defaultModel，避免用全局环境变量模型去请求另一个渠道的站点。
+     */
+    private static String channelModel(AiChannel channel, String model)
+    {
+        if (model != null && !model.isBlank())
+        {
+            return model.trim();
+        }
+        if (channel == null)
+        {
+            return null;
+        }
+        return channel.getDefaultModel();
     }
 
     /** 推理模型：思维链与正文共用 max_tokens，长 skill 包场景会把额度吃满导致正文为空。 */

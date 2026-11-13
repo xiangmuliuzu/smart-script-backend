@@ -39,13 +39,21 @@ public interface IAiChannelService
     AiChannel resolveChannelByModel(String model);
 
     /**
-     * 默认渠道：启用渠道中 sort 最小者（未指定模型时的路由目标）；无启用渠道返回 null。
+     * 全站默认渠道：优先取 is_default=1 的启用渠道；无标记时回退 sort 最小者；
+     * 无启用渠道返回 null。
      */
     AiChannel resolveDefaultChannel();
 
     /**
+     * 设置全站默认模型：把指定渠道标记为默认（其余清除），并把其默认模型设为 model。
+     * 渠道须存在且启用，model 须属于该渠道 models，否则抛 IllegalArgumentException。
+     */
+    void setGlobalDefault(Long channelId, String model);
+
+    /**
      * 用户端可选模型列表（不含 apiKey）：
-     * [{channelId, channelName, provider, models: [...], defaultModel}, ...]
+     * [{channelId, channelName, provider, models: [...], defaultModel, isDefault}, ...]
+     * 其中只有全站默认渠道的 defaultModel 非空（用户端据此标注唯一「默认」）。
      */
     List<Map<String, Object>> listEnabledModels();
 }

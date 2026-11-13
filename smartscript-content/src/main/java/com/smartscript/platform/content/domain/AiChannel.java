@@ -9,7 +9,9 @@ import java.util.Date;
  * 字段口径：channel_name 唯一；base_url 为 OpenAI 兼容 Chat Completions 基址
  * （如 https://api.deepseek.com）；api_key 为接口密钥（可空，空时该渠道不参与
  * 调用，调用回退默认环境配置）；models 为逗号分隔的可用模型列表；
- * default_model 为默认模型（须属于 models）；status 0 启用 / 1 停用。
+ * default_model 为渠道内默认模型（须属于 models）；is_default 标识全站默认渠道
+ * （唯一，1 是，用户端未指定模型时走该渠道 + 其 default_model）；
+ * status 0 启用 / 1 停用。
  *
  * @author xiangsipeng
  */
@@ -35,6 +37,9 @@ public class AiChannel
 
     /** 默认模型（须属于 models） */
     private String defaultModel;
+
+    /** 是否为全站默认渠道：1 是 0 否（全表唯一） */
+    private Integer isDefault;
 
     /** 状态：0启用 1停用 */
     private String status;
@@ -125,6 +130,16 @@ public class AiChannel
     public void setDefaultModel(String defaultModel)
     {
         this.defaultModel = defaultModel;
+    }
+
+    public Integer getIsDefault()
+    {
+        return isDefault;
+    }
+
+    public void setIsDefault(Integer isDefault)
+    {
+        this.isDefault = isDefault;
     }
 
     public String getStatus()

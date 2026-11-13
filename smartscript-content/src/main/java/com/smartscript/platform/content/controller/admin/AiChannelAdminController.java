@@ -1,6 +1,7 @@
 package com.smartscript.platform.content.controller.admin;
 
 import java.util.List;
+import java.util.Map;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -14,6 +15,7 @@ import com.ruoyi.common.core.controller.BaseController;
 import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.common.core.page.TableDataInfo;
 import com.smartscript.platform.content.domain.AiChannel;
+import com.smartscript.platform.content.service.AiServiceClient;
 import com.smartscript.platform.content.service.IAiChannelService;
 
 /**
@@ -23,7 +25,8 @@ import com.smartscript.platform.content.service.IAiChannelService;
  * 「AI 创作 Skill 和模型配置」页「AI 渠道 / 模型配置」tab。
  *
  * 路由前缀 /api/v1/admin/content/ai-channel。
- * 入参（JSON）：channelName 必填、baseUrl 必填、models 必填、defaultModel 必填（须属于 models）；
+ * 入参（JSON）：channelName 必填、baseUrl 必填、models 必填；默认模型不在渠道表单里填写，
+ * 由「默认模型设置」按钮统一设置全站默认（POST /default-model），渠道内默认模型自动取模型列表第一个；
  * apiKey 可空（空时该渠道不参与调用路由，调用回退默认环境配置）。
  *
  * @author xiangsipeng
@@ -35,6 +38,9 @@ public class AiChannelAdminController extends BaseController
     @Autowired
     private IAiChannelService aiChannelService;
 
+    @Autowired
+    private AiServiceClient aiServiceClient;
+
     /**
      * 获取渠道列表（channelName 模糊、status 精确；分页）
      */
@@ -44,6 +50,48 @@ public class AiChannelAdminController extends BaseController
         startPage();
         List<AiChannel> list = aiChannelService.selectChannelList(query);
         return getDataTable(list);
+    }
+
+    /**
+     * 渠道连通性测试：用该渠道自己的 baseUrl / apiKey / 默认模型发一次最小请求。
+     *
+     * 与正式调用不同，上游非 2xx 时不统一包装成「服务不可用」，
+     * 而是原样返回状态码与响应体，便于管理员定位问题（账号池耗尽 / 密钥无效 / 模型不存在）。
+     *
+     * @param body {"channelId": 7, "model": "可选，默认取渠道 defaultModel"}
+     */
+    @PostMapping("/test")
+    public AjaxResult test(@RequestBody Map<String, Object> body)
+    {
+        Object idValue = body == null ? null : body.get("channelId");
+        if (idValue == null || String.valueOf(idValue).isBlank())
+        {
+            return AjaxResult.error("渠道 ID 不能为空");
+        }
+        Long channelId;
+        try
+        {
+            channelId = Long.valueOf(String.valueOf(idValue).trim());
+        }
+        catch (NumberFormatException e)
+        {
+            return AjaxResult.error("渠道 ID 不合法");
+        }
+        AiChannel channel = aiChannelService.selectChannelById(channelId);
+        if (channel == null)
+        {
+            return AjaxResult.error("渠道不存在");
+        }
+        String model = body.get("model") == null ? channel.getDefaultModel()
+                : String.valueOf(body.get("model")).trim();
+        try
+        {
+            return AjaxResult.success(aiServiceClient.testChannel(channel.getBaseUrl(), channel.getApiKey(), model));
+        }
+        catch (IllegalArgumentException e)
+        {
+            return AjaxResult.error(e.getMessage());
+        }
     }
 
     /**
@@ -86,8 +134,8 @@ public class AiChannelAdminController extends BaseController
 
     /**
      * 修改渠道（启停用走同一接口，status 0/1）
-     * 编辑为部分更新：未传字段保持原值；仅当传入或保留后的 defaultModel 不属于
-     * 传入/保留后的 models 时返回错误（例如改了模型列表却遗漏默认模型）。
+     * 编辑为部分更新：未传字段保持原值；默认模型不再由表单填写，
+     * 未传或模型列表变更导致原值失效时自动取列表第一个。
      */
     @PutMapping
     public AjaxResult edit(@RequestBody AiChannel channel)
@@ -101,19 +149,44 @@ public class AiChannelAdminController extends BaseController
         {
             return AjaxResult.error("渠道不存在");
         }
-        String models = channel.getModels() != null && !channel.getModels().isBlank()
-                ? channel.getModels().trim() : exist.getModels();
-        String defaultModel = channel.getDefaultModel() != null && !channel.getDefaultModel().isBlank()
-                ? channel.getDefaultModel().trim() : exist.getDefaultModel();
-        String error = checkDefaultInModels(models, defaultModel);
-        if (error != null)
-        {
-            return AjaxResult.error(error);
-        }
         try
         {
             aiChannelService.updateChannel(channel);
             return AjaxResult.success(channel);
+        }
+        catch (IllegalArgumentException e)
+        {
+            return AjaxResult.error(e.getMessage());
+        }
+    }
+
+    /**
+     * 设置全站默认模型（「默认模型设置」按钮）
+     *
+     * @param body {"channelId": 1, "model": "deepseek-chat"}
+     */
+    @PostMapping("/default-model")
+    public AjaxResult setDefaultModel(@RequestBody Map<String, Object> body)
+    {
+        Object idValue = body == null ? null : body.get("channelId");
+        if (idValue == null || String.valueOf(idValue).isBlank())
+        {
+            return AjaxResult.error("请选择渠道");
+        }
+        Long channelId;
+        try
+        {
+            channelId = Long.valueOf(String.valueOf(idValue).trim());
+        }
+        catch (NumberFormatException e)
+        {
+            return AjaxResult.error("渠道 ID 不合法");
+        }
+        String model = body.get("model") == null ? "" : String.valueOf(body.get("model")).trim();
+        try
+        {
+            aiChannelService.setGlobalDefault(channelId, model);
+            return AjaxResult.success();
         }
         catch (IllegalArgumentException e)
         {
@@ -131,7 +204,7 @@ public class AiChannelAdminController extends BaseController
         return AjaxResult.success();
     }
 
-    /** 校验：名称 / 基址 / 模型列表 / 默认模型（须属于列表）必填合法 */
+    /** 校验：名称 / 基址 / 模型列表必填（默认模型不再由表单填写，由服务层自动取列表第一个） */
     private String validate(AiChannel channel)
     {
         if (channel == null)
@@ -151,30 +224,6 @@ public class AiChannelAdminController extends BaseController
         {
             return "模型列表不能为空";
         }
-        String defaultModel = channel.getDefaultModel();
-        if (defaultModel == null || defaultModel.isBlank())
-        {
-            return "默认模型不能为空";
-        }
-        return checkDefaultInModels(models, defaultModel);
-    }
-
-    /** defaultModel 必须属于 models 逗号分隔列表；空值跳过 */
-    private String checkDefaultInModels(String models, String defaultModel)
-    {
-        if (models == null || models.isBlank() || defaultModel == null || defaultModel.isBlank())
-        {
-            return null;
-        }
-        boolean hit = false;
-        for (String m : models.split(","))
-        {
-            if (defaultModel.trim().equals(m == null ? "" : m.trim()))
-            {
-                hit = true;
-                break;
-            }
-        }
-        return hit ? null : "默认模型必须属于模型列表";
+        return null;
     }
 }
