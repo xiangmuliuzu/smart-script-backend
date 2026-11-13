@@ -10,6 +10,7 @@
         <result property="apiKey"      column="api_key" />
         <result property="models"      column="models" />
         <result property="defaultModel" column="default_model" />
+        <result property="isDefault"   column="is_default" />
         <result property="status"      column="status" />
         <result property="sort"        column="sort" />
         <result property="createBy"    column="create_by" />
@@ -20,13 +21,13 @@
     </resultMap>
 
     <sql id="selectAiChannelVo">
-        select channel_id, channel_name, provider, base_url, api_key, models, default_model,
+        select channel_id, channel_name, provider, base_url, api_key, models, default_model, is_default,
                status, sort, create_by, create_time, update_by, update_time, remark
         from sys_ai_channel
     </sql>
 
     <sql id="selectAiChannelBriefVo">
-        select channel_id, channel_name, provider, base_url, models, default_model,
+        select channel_id, channel_name, provider, base_url, models, default_model, is_default,
                status, sort, create_by, create_time, update_by, update_time, remark
         from sys_ai_channel
     </sql>
@@ -74,6 +75,7 @@
             <if test="apiKey != null">api_key,</if>
             <if test="models != null">models,</if>
             <if test="defaultModel != null">default_model,</if>
+            <if test="isDefault != null">is_default,</if>
             <if test="status != null">status,</if>
             <if test="sort != null">sort,</if>
             <if test="createBy != null">create_by,</if>
@@ -87,6 +89,7 @@
             <if test="apiKey != null">#{apiKey},</if>
             <if test="models != null">#{models},</if>
             <if test="defaultModel != null">#{defaultModel},</if>
+            <if test="isDefault != null">#{isDefault},</if>
             <if test="status != null">#{status},</if>
             <if test="sort != null">#{sort},</if>
             <if test="createBy != null">#{createBy},</if>
@@ -104,6 +107,7 @@
             <if test="apiKey != null">api_key = #{apiKey},</if>
             <if test="models != null">models = #{models},</if>
             <if test="defaultModel != null">default_model = #{defaultModel},</if>
+            <if test="isDefault != null">is_default = #{isDefault},</if>
             <if test="status != null">status = #{status},</if>
             <if test="sort != null">sort = #{sort},</if>
             <if test="updateBy != null">update_by = #{updateBy},</if>
@@ -116,5 +120,16 @@
     <delete id="deleteChannelById" parameterType="Long">
         delete from sys_ai_channel where channel_id = #{channelId}
     </delete>
+
+    <!-- 全站默认渠道唯一：先清空所有标记，再把目标渠道标记为默认并写入其默认模型 -->
+    <update id="clearDefaultFlag">
+        update sys_ai_channel set is_default = 0 where is_default = 1
+    </update>
+
+    <update id="markDefault">
+        update sys_ai_channel
+        set is_default = 1, default_model = #{defaultModel}, update_time = NOW()
+        where channel_id = #{channelId}
+    </update>
 
 </mapper>

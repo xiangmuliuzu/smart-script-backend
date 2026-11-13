@@ -32,4 +32,10 @@ public interface AiChannelMapper
 
     /** 删除 */
     int deleteChannelById(Long channelId);
+
+    /** 清除所有渠道的全站默认标记 */
+    int clearDefaultFlag();
+
+    /** 把目标渠道标记为全站默认，并写入其默认模型 */
+    int markDefault(@Param("channelId") Long channelId, @Param("defaultModel") String defaultModel);
 }
