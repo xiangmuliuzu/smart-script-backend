@@ -21,12 +21,13 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		<result property="items"         column="items"          />
 		<result property="props"         column="props"          />
 		<result property="styleGuide"    column="style_guide"    />
+		<result property="outline"       column="outline"        />
 		<result property="threads"       column="threads"        />
 		<result property="updateTime"    column="update_time"    />
 	</resultMap>
 
 	<select id="selectByWorkId" parameterType="Long" resultMap="SysWorkLedgerResult">
-		select work_id, story_summary, characters, relations, foreshadow, timeline, items, props, style_guide, threads,
+		select work_id, story_summary, characters, relations, foreshadow, timeline, items, props, style_guide, outline, threads,
 		       date_format(update_time, '%Y-%m-%d %H:%i:%s') as update_time
 		from sys_work_ledger
 		where work_id = #{workId}
@@ -35,7 +36,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 	<!-- 整条覆盖写入；并发下由主键 work_id 保证只有一条 -->
 	<insert id="upsertLedger" parameterType="SysWorkLedger">
 		insert into sys_work_ledger
-			(work_id, story_summary, characters, relations, foreshadow, timeline, items, props, style_guide, threads, create_time, update_time)
+			(work_id, story_summary, characters, relations, foreshadow, timeline, items, props, style_guide, outline, threads, create_time, update_time)
 		values
 			(#{workId},
 			 ifnull(#{storySummary}, ''),
@@ -46,6 +47,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 			 ifnull(#{items}, ''),
 			 ifnull(#{props}, ''),
 			 ifnull(#{styleGuide}, ''),
+			 ifnull(#{outline}, ''),
 			 ifnull(#{threads}, ''),
 			 now(), now())
 		on duplicate key update
@@ -57,6 +59,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 			items         = values(items),
 			props         = coalesce(nullif(values(props), ''), props),
 			style_guide   = coalesce(nullif(values(style_guide), ''), style_guide),
+			outline       = coalesce(nullif(values(outline), ''), outline),
 			threads       = values(threads),
 			update_time   = now()
 	</insert>

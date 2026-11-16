@@ -49,6 +49,9 @@ public class AppWorkLedgerController
     /** 其余台账单字段长度上限：50 集人物卡实测已达 8396，列是 mediumtext，放宽到 20000 */
     private static final int FIELD_MAX_LENGTH = 20000;
 
+    /** 剧本大纲长度上限：50 集事件卡会超过 20000，列是 longtext，放宽到 60000 */
+    private static final int OUTLINE_MAX_LENGTH = 60000;
+
     private final IAppChapterAuthorService chapterService;
 
     private final IAppWorkLedgerService ledgerService;
@@ -116,6 +119,7 @@ public class AppWorkLedgerController
                 || overLength(ledger.getItems(), FIELD_MAX_LENGTH)
                 || overLength(ledger.getProps(), FIELD_MAX_LENGTH)
                 || overLength(ledger.getStyleGuide(), FIELD_MAX_LENGTH)
+                || overLength(ledger.getOutline(), OUTLINE_MAX_LENGTH)
                 || overLength(ledger.getThreads(), FIELD_MAX_LENGTH))
         {
             return AppApiResponse.fail(CODE_BAD_REQUEST, "台账内容过长，请精简后重试");
