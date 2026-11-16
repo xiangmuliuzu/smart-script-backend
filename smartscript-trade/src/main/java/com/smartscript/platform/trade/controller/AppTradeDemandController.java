@@ -101,9 +101,11 @@ public class AppTradeDemandController
         }
         else
         {
-            // 任务广场：仅展示可接取的任务（status=open）；自己发布的/已接的其他任务只在"我的任务"查看，
-            // 不再并入广场。游客与登录用户同口径。
+            // 任务广场：仅展示可接取且未过征集截止的任务（status=open ∧ deadline 未到或不限）；
+            // 自己发布的/已接的其他任务只在"我的任务"查看，不再并入广场。游客与登录用户同口径。
+            // 已过征集截止的单不再曝光，但库里仍保留 open 状态，由运营在管理端编辑或关闭。
             query.setStatus(TradeDemandService.DEMAND_STATUS_OPEN);
+            query.setExcludeExpired(true);
         }
         // 排序（白名单键，非法值由 mapper 回落 created desc）；预算/集数筛选 APP 传分→元
         query.setSortBy(sortBy);
@@ -200,9 +202,10 @@ public class AppTradeDemandController
     /**
      * 任务详情。
      *
-     * <p>游客可看，但可见集合与广场列表严格一致（status=open），其余状态按「不存在」处理；
+     * <p>游客可看，但可见集合与广场列表严格一致（status=open 且征集未截止），其余状态按「不存在」处理；
      * 且只回公开字段。原始 SysDemand 含联系方式、发布者编号、源剧本地址与历史资金列，
-     * 这些只在登录后返回（登录口径保持不变，任务双方仍能看到自己需要的字段）。</p>
+     * 这些只在登录后返回（登录口径保持不变，任务双方仍能看到自己需要的字段；
+     * 已过征集截止的 open 单只对发布方/接单方保留）。</p>
      */
     @GetMapping("/{demandId}")
     public AppApiResponse<?> detail(@PathVariable Long demandId)
@@ -213,9 +216,11 @@ public class AppTradeDemandController
             return AppApiResponse.fail(404, "任务不存在");
         }
         applyFen(demand);
+        boolean expiredOpen = TradeDemandService.DEMAND_STATUS_OPEN.equals(demand.getStatus())
+                && TradeDemandService.isRecruitExpired(demand);
         if (!identityProvider.currentIdentity().isAuthenticated())
         {
-            boolean squareVisible = TradeDemandService.DEMAND_STATUS_OPEN.equals(demand.getStatus());
+            boolean squareVisible = TradeDemandService.DEMAND_STATUS_OPEN.equals(demand.getStatus()) && !expiredOpen;
             if (!squareVisible)
             {
                 // 不用 403：403 会告诉调用方「这个单存在但你没权限」，任务编号本身也是业务信息。
@@ -223,7 +228,21 @@ public class AppTradeDemandController
             }
             return AppApiResponse.ok(publicView(demand));
         }
+        // 过期且仍 open 的单已退出广场，只留给当事人（发布方 / 接单方）在「我的任务」里查看，
+        // 其他登录用户按「不存在」处理，与广场列表口径一致。
+        if (expiredOpen && !isDemandParticipant(demand))
+        {
+            return AppApiResponse.fail(404, "任务不存在");
+        }
         return AppApiResponse.ok(demand);
+    }
+
+    /** 当前登录用户是否为该单的需求方或接单创作者。 */
+    private boolean isDemandParticipant(SysDemand demand)
+    {
+        Long userId = currentUserId();
+        if (userId == null) return false;
+        return userId.equals(demand.getClientId()) || userId.equals(demand.getAcceptedCreatorId());
     }
 
     /** 游客视角的任务公开字段；与 /list 的游客口径共用，避免两处漂移。 */
@@ -294,6 +313,11 @@ public class AppTradeDemandController
         if (existing == null)
         {
             return AppApiResponse.fail(404, "任务不存在");
+        }
+        if (TradeDemandService.isRecruitExpired(existing))
+        {
+            // 征集截止后不再对外曝光，也不允许再被接走；库里仍是 open，由运营编辑延期或关闭。
+            return AppApiResponse.fail(403, "该任务征集已截止，不可接单");
         }
         SysDemand demand = demandService.claimDemand(demandId, userId);
         applyFen(demand);

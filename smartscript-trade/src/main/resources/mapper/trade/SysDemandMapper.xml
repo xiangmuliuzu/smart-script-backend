@@ -82,6 +82,8 @@
         <if test="budgetMax != null">AND d.budget &lt;= #{budgetMax}</if>
         <!-- 集数下限筛选 -->
         <if test="episodesMin != null">AND d.total_episodes &gt;= #{episodesMin}</if>
+        <!-- 广场口径：征集截止已过的单不再曝光（deadline 为空表示不设时限） -->
+        <if test="excludeExpired != null and excludeExpired">AND (d.deadline is null or d.deadline &gt;= now())</if>
     </sql>
 
     <select id="selectDemandList" parameterType="com.smartscript.platform.trade.domain.SysDemand" resultMap="SysDemandResult">
@@ -119,29 +121,29 @@
         </where>
     </select>
 
-    <!-- Hero 轻量统计（广场口径：可接任务即 open）：可接单数 / 奖金池(元) / 今日新增 -->
+    <!-- Hero 轻量统计（广场口径：可接且未过征集截止）：可接单数 / 奖金池(元) / 今日新增 -->
     <select id="selectDemandSquareStats" resultType="java.util.HashMap">
         select
             count(*) as availableCount,
             coalesce(sum(budget), 0) as prizePoolYuan,
             sum(case when date(created_at) = curdate() then 1 else 0 end) as todayNewCount
         from sys_demand
-        where status = 'open'
+        where status = 'open' and (deadline is null or deadline &gt;= now())
     </select>
 
-    <!-- 题材分类数量角标：可接单口径（status=open），与广场列表一致 -->
+    <!-- 题材分类数量角标：可接且未过征集截止，与广场列表同口径 -->
     <select id="selectGenreCounts" resultType="java.util.HashMap">
         select genre_id as genreId, count(*) as cnt
         from sys_demand
-        where status = 'open'
+        where status = 'open' and (deadline is null or deadline &gt;= now())
         group by genre_id
     </select>
 
-    <!-- 任务类型数量角标：与题材角标同口径（status=open） -->
+    <!-- 任务类型数量角标：与题材角标同口径（可接且未过征集截止） -->
     <select id="selectTypeCounts" resultType="java.util.HashMap">
         select task_type as taskType, count(*) as cnt
         from sys_demand
-        where status = 'open'
+        where status = 'open' and (deadline is null or deadline &gt;= now())
         group by task_type
     </select>
 

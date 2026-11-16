@@ -60,6 +60,19 @@ public class TradeDemandService
     private static final int DEFAULT_DURATION_HOURS = 168;
 
     /**
+     * 征集截止判定：deadline 为空表示不设时限。
+     *
+     * <p>广场曝光（SQL 口径）、详情可见性与接单三处共用同一个判断，避免「列表看不到、
+     * 拼 demandId 仍能进详情并接单」的口径漂移。库里仍保留 open，由运营编辑或关闭。</p>
+     */
+    public static boolean isRecruitExpired(SysDemand demand)
+    {
+        if (demand == null) return false;
+        Date deadline = demand.getDeadline();
+        return deadline != null && deadline.before(new Date());
+    }
+
+    /**
      * 托管与押金资金状态常量已随需求域资金链路退役（sys_demand 的历史资金列仅作留档读取）。
      * 任务发布权收归管理端后，平台在站外与需求方结算，广场可接口径只看 status=open。
      */
@@ -421,6 +434,10 @@ public class TradeDemandService
         if (!DEMAND_STATUS_OPEN.equals(demand.getStatus()))
         {
             throw new RuntimeException("该任务已被接单或不可接单");
+        }
+        if (isRecruitExpired(demand))
+        {
+            throw new RuntimeException("该任务征集已截止，不可接单");
         }
         if (creatorId != null && creatorId.equals(demand.getClientId()))
         {
