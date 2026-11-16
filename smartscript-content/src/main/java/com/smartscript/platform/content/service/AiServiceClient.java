@@ -81,7 +81,12 @@ public class AiServiceClient
         factory.setConnectTimeout(5000);
         factory.setReadTimeout(90000);
         this.restTemplate = new RestTemplate(factory);
-        this.streamClient = HttpClient.newBuilder().connectTimeout(java.time.Duration.ofSeconds(5)).build();
+        // 中转站对 HTTP/2 的支持不稳定：长输出时常见 RST_STREAM (Internal error)，
+        // 表现为 IOException: closed，整次生成白跑。显式走 HTTP/1.1 规避。
+        this.streamClient = HttpClient.newBuilder()
+                .version(HttpClient.Version.HTTP_1_1)
+                .connectTimeout(java.time.Duration.ofSeconds(5))
+                .build();
     }
 
     /**
@@ -770,19 +775,26 @@ public class AiServiceClient
             body.put("temperature", 0.8);
         }
         body.put("stream", true);
+        // 让上游在流末尾回传 usage（OpenAI 兼容渠道需显式声明）。
+        // 不支持该字段的渠道会在下一段按错误体重试一次，不会让整次生成失败。
+        body.put("stream_options", java.util.Collections.singletonMap("include_usage", true));
         try
         {
-            String payload = objectMapper.writeValueAsString(body);
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(url + "/v1/chat/completions"))
-                    .timeout(java.time.Duration.ofSeconds(600))
-                    .header("Content-Type", "application/json")
-                    .header("Authorization", "Bearer " + key)
-                    .header("Accept", "text/event-stream")
-                    .POST(HttpRequest.BodyPublishers.ofString(payload, StandardCharsets.UTF_8))
-                    .build();
-            HttpResponse<InputStream> response = streamClient.send(request,
-                    HttpResponse.BodyHandlers.ofInputStream());
+            HttpResponse<InputStream> response = postStream(url, key, body);
+            if (response.statusCode() >= 400 && body.containsKey("stream_options"))
+            {
+                String errBody = readBodyQuietly(response.body());
+                if (errBody.contains("stream_options") || errBody.contains("include_usage"))
+                {
+                    body.remove("stream_options");
+                    response = postStream(url, key, body);
+                }
+                else
+                {
+                    throw new AiServiceUnavailableException(
+                            "AI 服务不可用，请稍后重试 (HTTP " + response.statusCode() + ")");
+                }
+            }
             if (response.statusCode() < 200 || response.statusCode() >= 300)
             {
                 throw new AiServiceUnavailableException("AI 服务不可用，请稍后重试 (HTTP " + response.statusCode() + ")");
@@ -849,7 +861,15 @@ public class AiServiceClient
             {
                 throw new AiServiceUnavailableException("AI 生成中断，请稍后重试");
             }
-            return new AiCallResult(content, totalTokens, modelName, truncated);
+            // 兜底：上游不回 usage（Claude 等渠道常见）时按字符量估算，避免计费归零到最低 1 积分。
+            boolean estimated = false;
+            if (totalTokens <= 0)
+            {
+                totalTokens = estimateTokens(system) + estimateTokens(user) + estimateTokens(content);
+                estimated = true;
+                log.info("AI usage missing (model={}), estimated tokens={}", resolvedModel, totalTokens);
+            }
+            return new AiCallResult(content, totalTokens, modelName, truncated, estimated);
         }
         catch (AiServiceUnavailableException e)
         {
@@ -857,9 +877,68 @@ public class AiServiceClient
         }
         catch (Exception e)
         {
-            log.error("AI stream chat call failed: {}", e.toString(), e);
+            log.error("AI stream chat call failed (model={}): {}", resolvedModel, e.toString(), e);
             throw new AiServiceUnavailableException("AI 服务不可用，请稍后重试");
         }
+    }
+
+    /** 发起一次流式 POST（供带/不带 stream_options 的两次尝试复用）。 */
+    private HttpResponse<InputStream> postStream(String url, String key, Map<String, Object> body) throws Exception
+    {
+        String payload = objectMapper.writeValueAsString(body);
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(url + "/v1/chat/completions"))
+                .timeout(java.time.Duration.ofSeconds(600))
+                .header("Content-Type", "application/json")
+                .header("Authorization", "Bearer " + key)
+                .header("Accept", "text/event-stream")
+                .POST(HttpRequest.BodyPublishers.ofString(payload, StandardCharsets.UTF_8))
+                .build();
+        return streamClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
+    }
+
+    /** 读取错误响应体（仅用于判定是否因 stream_options 被拒），失败返回空串。 */
+    private static String readBodyQuietly(InputStream in)
+    {
+        if (in == null)
+        {
+            return "";
+        }
+        try (InputStream stream = in)
+        {
+            return new String(stream.readAllBytes(), StandardCharsets.UTF_8);
+        }
+        catch (Exception e)
+        {
+            return "";
+        }
+    }
+
+    /**
+     * 无 usage 时的 token 估算：中日韩字符约 1 字 1 token，其余字符约 4 字 1 token。
+     * 用于所有不回传 usage 的渠道（Claude 等），保证新接入模型无需单独适配即可计费。
+     */
+    static int estimateTokens(String text)
+    {
+        if (text == null || text.isEmpty())
+        {
+            return 0;
+        }
+        int cjk = 0;
+        int other = 0;
+        for (int i = 0; i < text.length(); i++)
+        {
+            char ch = text.charAt(i);
+            if (ch >= 0x2E80 && ch <= 0x9FFF)
+            {
+                cjk++;
+            }
+            else if (!Character.isWhitespace(ch))
+            {
+                other++;
+            }
+        }
+        return cjk + (other + 3) / 4;
     }
 
     /**
@@ -921,6 +1000,12 @@ public class AiServiceClient
      * 从单条 SSE data 解析本次调用的 usage.total_tokens（DeepSeek 流式在最后一个 data 块携带 usage）。
      * 无 usage / 无法解析返回 0。
      */
+    /**
+     * 从单条 SSE data 解析本次调用的 token 用量，兼容各渠道的 usage 形态：
+     * OpenAI 兼容：usage.total_tokens / prompt_tokens+completion_tokens；
+     * Anthropic 原生：usage.input_tokens+output_tokens、message.usage.input_tokens 等。
+     * 无 usage / 无法解析返回 0（由调用方按字符量估算）。
+     */
     static int parseSseUsage(String data)
     {
         if (data == null || data.isEmpty() || data.equals("[DONE]"))
@@ -930,8 +1015,26 @@ public class AiServiceClient
         try
         {
             JsonNode root = new ObjectMapper().readTree(data);
-            int total = root.path("usage").path("total_tokens").asInt(0);
-            return total > 0 ? total : 0;
+            JsonNode usage = root.path("usage");
+            int total = usage.path("total_tokens").asInt(0);
+            if (total > 0)
+            {
+                return total;
+            }
+            int inOut = usage.path("input_tokens").asInt(0) + usage.path("output_tokens").asInt(0);
+            if (inOut > 0)
+            {
+                return inOut;
+            }
+            int promptCompletion = usage.path("prompt_tokens").asInt(0) + usage.path("completion_tokens").asInt(0);
+            if (promptCompletion > 0)
+            {
+                return promptCompletion;
+            }
+            // Anthropic message_start 事件：usage 挂在 message 下
+            JsonNode msgUsage = root.path("message").path("usage");
+            int msgIn = msgUsage.path("input_tokens").asInt(0) + msgUsage.path("output_tokens").asInt(0);
+            return msgIn > 0 ? msgIn : 0;
         }
         catch (Exception e)
         {
@@ -1029,11 +1132,21 @@ public class AiServiceClient
                 throw new AiServiceUnavailableException("AI 未返回有效内容，请稍后重试");
             }
             int totalTokens = root.path("usage").path("total_tokens").asInt(0);
+            boolean estimated = false;
+            if (totalTokens <= 0)
+            {
+                int prompt = root.path("usage").path("prompt_tokens").asInt(0);
+                int completion = root.path("usage").path("completion_tokens").asInt(0);
+                totalTokens = prompt + completion > 0 ? prompt + completion
+                        : estimateTokens(system) + estimateTokens(user) + estimateTokens(content);
+                estimated = true;
+                log.info("AI usage missing (model={}), estimated tokens={}", m, totalTokens);
+            }
             // 落库统一用请求模型名（DeepSeek 响应 model 会回显别名，如 deepseek-chat → deepseek-flash）
             String modelName = m;
             boolean truncated = "length".equals(
                     root.path("choices").path(0).path("finish_reason").asText(""));
-            return new AiCallResult(content.trim(), totalTokens, modelName, truncated);
+            return new AiCallResult(content.trim(), totalTokens, modelName, truncated, estimated);
         }
         catch (AiServiceUnavailableException e)
         {
