@@ -73,3 +73,29 @@ SELECT CASE
            ELSE 'FAIL'
            END AS demand_admin_publish_check,
        (SELECT COUNT(*) FROM sys_role_menu WHERE menu_id IN (5194, 5197, 5198)) AS granted_rows;
+
+-- 6. 任务运营详情隐藏菜单（menu_id=5139）：列表页「运营详情」按钮跳 /trade/demand-detail。
+--    这一行原先只写在 smartscript_full_init.sql 第 12.2 节，云端库从未落过，
+--    动态路由里没有 /trade/demand-detail，点按钮直接 404。权限沿用已有的 trade:demand:query，不新增权限位。
+INSERT INTO sys_menu (menu_id, menu_name, parent_id, order_num, path, component, query, is_frame, is_cache,
+                      menu_type, visible, status, perms, icon, create_by, remark)
+SELECT 5139, '任务运营详情', 5004, 9, 'demand-detail', 'trade/DemandDetail', '', 1, 0,
+       'C', '1', '0', 'trade:demand:query', '#', 'c-migration', '逐轮验收/资金流水/延时记录只读运营视图'
+FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM (SELECT menu_id FROM sys_menu) x WHERE x.menu_id = 5139);
+
+--    授权：凡能看到「任务管理」(5138) 的角色都应能进入其运营详情页，按 5138 的授权面镜像。
+INSERT IGNORE INTO sys_role_menu (role_id, menu_id)
+SELECT rm.role_id, 5139
+FROM sys_role_menu rm
+WHERE rm.menu_id = 5138;
+
+-- 7. 自检：运营详情菜单就位，且授权面与任务管理一致
+SELECT CASE
+           WHEN (SELECT COUNT(*) FROM sys_menu WHERE menu_id = 5139 AND path = 'demand-detail'
+                 AND component = 'trade/DemandDetail' AND menu_type = 'C') = 1
+               THEN 'PASS'
+           ELSE 'FAIL'
+           END AS demand_detail_menu_check,
+       (SELECT COUNT(*) FROM sys_role_menu WHERE menu_id = 5138) AS demand_list_grants,
+       (SELECT COUNT(*) FROM sys_role_menu WHERE menu_id = 5139) AS demand_detail_grants;

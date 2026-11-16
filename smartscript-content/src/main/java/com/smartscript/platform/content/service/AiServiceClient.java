@@ -81,7 +81,12 @@ public class AiServiceClient
         factory.setConnectTimeout(5000);
         factory.setReadTimeout(90000);
         this.restTemplate = new RestTemplate(factory);
-        this.streamClient = HttpClient.newBuilder().connectTimeout(java.time.Duration.ofSeconds(5)).build();
+        // 中转站对 HTTP/2 的支持不稳定：长输出时常见 RST_STREAM (Internal error)，
+        // 表现为 IOException: closed，整次生成白跑。显式走 HTTP/1.1 规避。
+        this.streamClient = HttpClient.newBuilder()
+                .version(HttpClient.Version.HTTP_1_1)
+                .connectTimeout(java.time.Duration.ofSeconds(5))
+                .build();
     }
 
     /**
@@ -253,9 +258,13 @@ public class AiServiceClient
         String insp = (inspiration == null || inspiration.isBlank()) ? "" : inspiration;
         String base = "你是一名资深短剧编剧兼分集策划，擅长把灵感拆成一集一集、每集都能独立成片的完整小事件。"
                 + "输出格式严格如下："
-                + "第N集：事件名\n本集事件：……\n冲突与推进：……\n结果或反转：……\n结尾钩子：……\n本集出场：角色A、角色B"
+                + "第N集：事件名\n开场承接：……\n本集事件：……\n冲突与推进：……\n结果或反转：……\n结尾钩子：……\n本集出场：角色A、角色B"
                 + "事件名要短（4-8字）且点明本集核心事件；每项 30-60 字，写具体的人做什么、说什么，"
                 + "不要写场景头、镜号、景别、运镜（这些交给后续分镜环节）。"
+                + "「开场承接」必须写清三件事：上一集最后停在哪个动作或画面、本集从哪个动作接起、中间隔了多久；"
+                + "确实要换场时只能有三种理由——上一集事件已经收束、本集开启另一个过渡事件、本集切到另一视角继续同一件事，"
+                + "写下来是哪种；第1集的开场承接写「开篇，无前情」。"
+                + "同一人物不经任何交代就从上一集的场景跳到另一场景、另一件事，视为不合格。"
                 + "每集必须是一件完整的事：有开场、有交锋、有结果；结尾钩子要具体（一个动作、一句关键台词或一个未解的画面）；"
                 + "「本集出场」只写本集真正出镜的 2-4 个人物姓名（用设定里的原名），没有出场的人物不要写，"
                 + "写正文时只注入这几个人的设定，出场名单必须与实际剧情一致。"
@@ -302,7 +311,8 @@ public class AiServiceClient
             String user = "故事灵感：" + insp + "\n题材：" + genreHint + "\n风格：" + styleHint
                     + "\n【设定（已在上文输出，人物与关系必须与此一致）】\n" + clipText(settingText, settingClipFirst)
                     + ledgerBlock(ledgerContext, ledgerClip)
-                    + "\n请从第1集开始输出分集事件卡。";
+                    + "\n请从第1集开始输出分集事件卡。第1集的「开场承接」写「开篇，无前情」；"
+                    + "从第2集起，「开场承接」必须回应上一集结尾钩子，写清上集停在哪、本集从哪接、隔了多久。";
             AiCallResult r = streamChat(appendSkill(episodeSystem, skillContent), user, onDelta,
                     baseUrl, apiKey, model, episodeMaxTokens);
             onDelta.accept("\n\n");
@@ -325,7 +335,9 @@ public class AiServiceClient
                 user = "故事灵感：" + insp + "\n题材：" + genreHint + "\n风格：" + styleHint
                         + "\n【设定（已在上文输出，人物与关系必须与此一致）】\n" + clipText(settingText, settingClipFirst)
                         + ledgerBlock(ledgerContext, ledgerClip)
-                        + "\n请输出第1集到第" + end + "集的事件卡（共 " + total + " 集，本次只写这一段）。";
+                        + "\n请输出第1集到第" + end + "集的事件卡（共 " + total + " 集，本次只写这一段）。"
+                        + "第1集的「开场承接」写「开篇，无前情」；从第2集起，「开场承接」必须回应上一集结尾钩子，"
+                        + "写清上集停在哪、本集从哪接、隔了多久。";
             }
             else
             {
@@ -335,7 +347,8 @@ public class AiServiceClient
                         + "\n【前情结尾（勿重复）】\n" + prev
                         + "\n【设定摘要（人物与关系必须与此一致）】\n" + settingContinuation(settingText, settingClipCont)
                         + ledgerBlock(ledgerContext, ledgerClip)
-                        + "\n请接着输出第" + start + "集到第" + end + "集的事件卡（共 " + total + " 集）。";
+                        + "\n请接着输出第" + start + "集到第" + end + "集的事件卡（共 " + total + " 集）。"
+                        + "第" + start + "集的「开场承接」必须回应上一集结尾钩子，写清上集停在哪、本集从哪接、隔了多久。";
             }
             AiCallResult r = streamChat(appendSkill(start == 1 ? episodeSystem : contSystem, skillContent),
                     user, onDelta, baseUrl, apiKey, model, episodeMaxTokens);
@@ -770,19 +783,26 @@ public class AiServiceClient
             body.put("temperature", 0.8);
         }
         body.put("stream", true);
+        // 让上游在流末尾回传 usage（OpenAI 兼容渠道需显式声明）。
+        // 不支持该字段的渠道会在下一段按错误体重试一次，不会让整次生成失败。
+        body.put("stream_options", java.util.Collections.singletonMap("include_usage", true));
         try
         {
-            String payload = objectMapper.writeValueAsString(body);
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(url + "/v1/chat/completions"))
-                    .timeout(java.time.Duration.ofSeconds(600))
-                    .header("Content-Type", "application/json")
-                    .header("Authorization", "Bearer " + key)
-                    .header("Accept", "text/event-stream")
-                    .POST(HttpRequest.BodyPublishers.ofString(payload, StandardCharsets.UTF_8))
-                    .build();
-            HttpResponse<InputStream> response = streamClient.send(request,
-                    HttpResponse.BodyHandlers.ofInputStream());
+            HttpResponse<InputStream> response = postStream(url, key, body);
+            if (response.statusCode() >= 400 && body.containsKey("stream_options"))
+            {
+                String errBody = readBodyQuietly(response.body());
+                if (errBody.contains("stream_options") || errBody.contains("include_usage"))
+                {
+                    body.remove("stream_options");
+                    response = postStream(url, key, body);
+                }
+                else
+                {
+                    throw new AiServiceUnavailableException(
+                            "AI 服务不可用，请稍后重试 (HTTP " + response.statusCode() + ")");
+                }
+            }
             if (response.statusCode() < 200 || response.statusCode() >= 300)
             {
                 throw new AiServiceUnavailableException("AI 服务不可用，请稍后重试 (HTTP " + response.statusCode() + ")");
@@ -849,7 +869,15 @@ public class AiServiceClient
             {
                 throw new AiServiceUnavailableException("AI 生成中断，请稍后重试");
             }
-            return new AiCallResult(content, totalTokens, modelName, truncated);
+            // 兜底：上游不回 usage（Claude 等渠道常见）时按字符量估算，避免计费归零到最低 1 积分。
+            boolean estimated = false;
+            if (totalTokens <= 0)
+            {
+                totalTokens = estimateTokens(system) + estimateTokens(user) + estimateTokens(content);
+                estimated = true;
+                log.info("AI usage missing (model={}), estimated tokens={}", resolvedModel, totalTokens);
+            }
+            return new AiCallResult(content, totalTokens, modelName, truncated, estimated);
         }
         catch (AiServiceUnavailableException e)
         {
@@ -857,9 +885,68 @@ public class AiServiceClient
         }
         catch (Exception e)
         {
-            log.error("AI stream chat call failed: {}", e.toString(), e);
+            log.error("AI stream chat call failed (model={}): {}", resolvedModel, e.toString(), e);
             throw new AiServiceUnavailableException("AI 服务不可用，请稍后重试");
         }
+    }
+
+    /** 发起一次流式 POST（供带/不带 stream_options 的两次尝试复用）。 */
+    private HttpResponse<InputStream> postStream(String url, String key, Map<String, Object> body) throws Exception
+    {
+        String payload = objectMapper.writeValueAsString(body);
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(url + "/v1/chat/completions"))
+                .timeout(java.time.Duration.ofSeconds(600))
+                .header("Content-Type", "application/json")
+                .header("Authorization", "Bearer " + key)
+                .header("Accept", "text/event-stream")
+                .POST(HttpRequest.BodyPublishers.ofString(payload, StandardCharsets.UTF_8))
+                .build();
+        return streamClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
+    }
+
+    /** 读取错误响应体（仅用于判定是否因 stream_options 被拒），失败返回空串。 */
+    private static String readBodyQuietly(InputStream in)
+    {
+        if (in == null)
+        {
+            return "";
+        }
+        try (InputStream stream = in)
+        {
+            return new String(stream.readAllBytes(), StandardCharsets.UTF_8);
+        }
+        catch (Exception e)
+        {
+            return "";
+        }
+    }
+
+    /**
+     * 无 usage 时的 token 估算：中日韩字符约 1 字 1 token，其余字符约 4 字 1 token。
+     * 用于所有不回传 usage 的渠道（Claude 等），保证新接入模型无需单独适配即可计费。
+     */
+    static int estimateTokens(String text)
+    {
+        if (text == null || text.isEmpty())
+        {
+            return 0;
+        }
+        int cjk = 0;
+        int other = 0;
+        for (int i = 0; i < text.length(); i++)
+        {
+            char ch = text.charAt(i);
+            if (ch >= 0x2E80 && ch <= 0x9FFF)
+            {
+                cjk++;
+            }
+            else if (!Character.isWhitespace(ch))
+            {
+                other++;
+            }
+        }
+        return cjk + (other + 3) / 4;
     }
 
     /**
@@ -921,6 +1008,12 @@ public class AiServiceClient
      * 从单条 SSE data 解析本次调用的 usage.total_tokens（DeepSeek 流式在最后一个 data 块携带 usage）。
      * 无 usage / 无法解析返回 0。
      */
+    /**
+     * 从单条 SSE data 解析本次调用的 token 用量，兼容各渠道的 usage 形态：
+     * OpenAI 兼容：usage.total_tokens / prompt_tokens+completion_tokens；
+     * Anthropic 原生：usage.input_tokens+output_tokens、message.usage.input_tokens 等。
+     * 无 usage / 无法解析返回 0（由调用方按字符量估算）。
+     */
     static int parseSseUsage(String data)
     {
         if (data == null || data.isEmpty() || data.equals("[DONE]"))
@@ -930,8 +1023,26 @@ public class AiServiceClient
         try
         {
             JsonNode root = new ObjectMapper().readTree(data);
-            int total = root.path("usage").path("total_tokens").asInt(0);
-            return total > 0 ? total : 0;
+            JsonNode usage = root.path("usage");
+            int total = usage.path("total_tokens").asInt(0);
+            if (total > 0)
+            {
+                return total;
+            }
+            int inOut = usage.path("input_tokens").asInt(0) + usage.path("output_tokens").asInt(0);
+            if (inOut > 0)
+            {
+                return inOut;
+            }
+            int promptCompletion = usage.path("prompt_tokens").asInt(0) + usage.path("completion_tokens").asInt(0);
+            if (promptCompletion > 0)
+            {
+                return promptCompletion;
+            }
+            // Anthropic message_start 事件：usage 挂在 message 下
+            JsonNode msgUsage = root.path("message").path("usage");
+            int msgIn = msgUsage.path("input_tokens").asInt(0) + msgUsage.path("output_tokens").asInt(0);
+            return msgIn > 0 ? msgIn : 0;
         }
         catch (Exception e)
         {
@@ -1029,11 +1140,21 @@ public class AiServiceClient
                 throw new AiServiceUnavailableException("AI 未返回有效内容，请稍后重试");
             }
             int totalTokens = root.path("usage").path("total_tokens").asInt(0);
+            boolean estimated = false;
+            if (totalTokens <= 0)
+            {
+                int prompt = root.path("usage").path("prompt_tokens").asInt(0);
+                int completion = root.path("usage").path("completion_tokens").asInt(0);
+                totalTokens = prompt + completion > 0 ? prompt + completion
+                        : estimateTokens(system) + estimateTokens(user) + estimateTokens(content);
+                estimated = true;
+                log.info("AI usage missing (model={}), estimated tokens={}", m, totalTokens);
+            }
             // 落库统一用请求模型名（DeepSeek 响应 model 会回显别名，如 deepseek-chat → deepseek-flash）
             String modelName = m;
             boolean truncated = "length".equals(
                     root.path("choices").path(0).path("finish_reason").asText(""));
-            return new AiCallResult(content.trim(), totalTokens, modelName, truncated);
+            return new AiCallResult(content.trim(), totalTokens, modelName, truncated, estimated);
         }
         catch (AiServiceUnavailableException e)
         {
@@ -1165,7 +1286,7 @@ public class AiServiceClient
                     + "{\"title\":\"作品名\",\"logline\":\"一句话故事\","
                     + "\"characters\":[{\"name\":\"角色名\",\"role\":\"身份或定位\"}],"
                     + "\"episodes\":[{\"no\":1,\"title\":\"本集事件名（不超过12字）\","
-                    + "\"card\":\"本集事件 / 冲突与推进 / 结果或反转 / 结尾钩子，80-150字\"}]}";
+                    + "\"card\":\"开场承接 / 本集事件 / 冲突与推进 / 结果或反转 / 结尾钩子，100-180字；开场承接须写清上集停在哪、本集从哪接、隔了多久，第1集写开篇无前情\"}]}";
             String user = "故事灵感：" + insp + "\n题材：" + genreHint + "\n集数：" + count + " 集";
             return chat(appendSkill(system, skillContent), user, baseUrl, apiKey, model);
         }

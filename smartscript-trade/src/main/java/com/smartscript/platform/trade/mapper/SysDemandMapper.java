@@ -15,6 +15,12 @@ public interface SysDemandMapper
     /** 与 selectDemandPage 成对的独立总数（同 where）。 */
     long countDemandList(SysDemand demand);
 
+    /**
+     * 定时扫描用：已过征集截止日期却仍为 open 的任务（广场口径的补集）。
+     * 只取关闭与通知需要的列，量级由 LIMIT 兜住，超出部分下一轮扫描继续处理。
+     */
+    List<SysDemand> selectExpiredOpenDemands();
+
     /** Hero 轻量统计（广场口径 status=open）：availableCount/prizePoolYuan/todayNewCount。 */
     java.util.Map<String, Object> selectDemandSquareStats();
 

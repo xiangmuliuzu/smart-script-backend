@@ -23,17 +23,26 @@ public class AiCallResult
     /** 是否因输出长度上限被截断（finish_reason=length） */
     private final boolean truncated;
 
+    /** totalTokens 是否为本地估算值（上游未回传 usage 时按字符量估算） */
+    private final boolean estimated;
+
     public AiCallResult(String content, int totalTokens, String model)
     {
-        this(content, totalTokens, model, false);
+        this(content, totalTokens, model, false, false);
     }
 
     public AiCallResult(String content, int totalTokens, String model, boolean truncated)
+    {
+        this(content, totalTokens, model, truncated, false);
+    }
+
+    public AiCallResult(String content, int totalTokens, String model, boolean truncated, boolean estimated)
     {
         this.content = content;
         this.totalTokens = totalTokens;
         this.model = model;
         this.truncated = truncated;
+        this.estimated = estimated;
     }
 
     public String getContent()
@@ -54,5 +63,10 @@ public class AiCallResult
     public boolean isTruncated()
     {
         return truncated;
+    }
+
+    public boolean isEstimated()
+    {
+        return estimated;
     }
 }

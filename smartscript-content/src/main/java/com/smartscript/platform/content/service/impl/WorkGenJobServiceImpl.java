@@ -53,6 +53,9 @@ public class WorkGenJobServiceImpl implements IWorkGenJobService
     /** 硬事实冲突后的补写次数（只重写该集，不重跑队列） */
     private static final int CONSISTENCY_RETRY = 1;
 
+    /** 验收判 fail 且属承接类问题时的回灌重写次数（队列无人值守，只重写这一集） */
+    private static final int REVIEW_REWRITE = 1;
+
     @Autowired
     private WorkGenJobMapper jobMapper;
 
@@ -368,6 +371,12 @@ public class WorkGenJobServiceImpl implements IWorkGenJobService
                 "第" + episode.getNo() + "集：" + episode.getTitle(), text, "", "0");
         episode.setChapterId(chapter.getChapterId());
 
+        // 验收闭环：队列无人值守时，验收 fail 不能只留一条记录，要把意见回灌成一次重写。
+        if (REVIEW_REWRITE > 0)
+        {
+            text = reviewAndRewrite(job, episode, chapter, text, prompt, prevTail);
+        }
+
         // 摘要 + 台账合并：下一集的「前情」与「道具状态」靠它，失败不回滚章节，只记录警告。
         try
         {
@@ -378,6 +387,72 @@ public class WorkGenJobServiceImpl implements IWorkGenJobService
             log.warn("第{}集摘要生成失败 workId={}：{}", episode.getNo(), workId, e.getMessage());
             episode.setError(clip("摘要/台账更新失败：" + e.getMessage(), 300));
         }
+    }
+
+    /**
+     * 验收后按意见重写一集。
+     *
+     * 只处理承接类问题（因果/连续）：这两项是「上一集到本集跳场景、跳事件」的直接判据；
+     * 写法、伏笔等其余 fail 项不触发重写，避免无人值守时无谓烧 token。
+     * 重写只覆盖本集正文，事件卡节点、结尾钩子与台账状态不动。
+     */
+    private String reviewAndRewrite(WorkGenJob job, WorkGenEpisode episode, SysWorkChapter chapter,
+            String text, String basePrompt, String prevTail)
+    {
+        String current = text;
+        for (int round = 0; round < REVIEW_REWRITE; round++)
+        {
+            Map<String, Object> review;
+            try
+            {
+                // 验收会写 sys_chapter_review / sys_ai_request 并扣积分，走和手动验收同一条链路。
+                review = aiWriteService.reviewChapter(job.getWorkId(), chapter.getChapterId(), current, job.getModel());
+            }
+            catch (Exception e)
+            {
+                log.warn("第{}集验收调用失败，跳过回灌重写 workId={}：{}", episode.getNo(), job.getWorkId(), e.getMessage());
+                return current;
+            }
+            if (review == null || Boolean.TRUE.equals(review.get("pass")))
+            {
+                return current;
+            }
+            String issues = String.valueOf(review.getOrDefault("issues", ""));
+            if (!needsRewrite(issues))
+            {
+                log.info("第{}集验收未过但非承接类问题，留待人工处理：{}", episode.getNo(), clip(issues, 200));
+                return current;
+            }
+            log.warn("第{}集验收未过（承接类），按意见重写 workId={}：{}", episode.getNo(), job.getWorkId(), clip(issues, 300));
+            String retryPrompt = basePrompt
+                    + "\n\n【验收退回意见（本集开场承接不合格，整集重写时逐条改掉）】\n- "
+                    + issues.replace("\n", "\n- ")
+                    + "\n重写要求：第一段就交代上一集停在哪、本集从哪个动作接起、中间隔了多久；"
+                    + "确实换场时，用一句话写明是「上集已收束／本集开启新的过渡事件／切到另一视角」，"
+                    + "不许人物不提任何时间与起因就出现在新场景做新的事。"
+                    + "事件卡的五个节点、结尾钩子、人物与道具状态一律照原设定保留，只修衔接与因果。";
+            AppAiWriteResult again = callWrite(job, retryPrompt);
+            String next = cleanEpisode(again == null ? "" : again.getContent(), prevTail);
+            if (next.length() < MIN_BODY)
+            {
+                log.warn("第{}集按验收意见重写未得到可用正文，保留原稿", episode.getNo());
+                return current;
+            }
+            workService.updateChapter(job.getUserId(), job.getWorkId(), chapter.getChapterId(),
+                    "第" + episode.getNo() + "集：" + episode.getTitle(), next, "", "0");
+            current = next;
+        }
+        return current;
+    }
+
+    /** 验收意见是否属于「本集与上一集接不上」：只有这两类才值得花钱重写。 */
+    private boolean needsRewrite(String issues)
+    {
+        if (issues == null || issues.isBlank())
+        {
+            return false;
+        }
+        return issues.contains("因果") || issues.contains("连续") || issues.contains("causality") || issues.contains("continuity");
     }
 
     /** 正文清洗：去上一集首尾重复 → 超长按句收束；首版与重写版共用同一口径。 */

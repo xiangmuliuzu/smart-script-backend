@@ -8,14 +8,17 @@ import java.text.SimpleDateFormat;
 import java.math.BigDecimal;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
+import com.ruoyi.framework.realtime.RealtimePushService;
 import com.smartscript.platform.trade.domain.SysDemand;
 import com.smartscript.platform.trade.domain.SysDemandStage;
 import com.smartscript.platform.trade.domain.SysInquiry;
 import com.smartscript.platform.trade.domain.SysOrder;
 import com.smartscript.platform.trade.domain.SysQuote;
+import com.smartscript.platform.trade.mapper.AdminNoticeMapper;
 import com.smartscript.platform.user.constant.AppAdminConstants;
 import com.smartscript.platform.user.service.UserNotificationAdminService;
 
@@ -36,6 +39,10 @@ import com.smartscript.platform.user.service.UserNotificationAdminService;
  *   <li><b>受众标注</b>：每条通知携带 audience（BUYER/SELLER/BOTH），PC 企业端(买方门户)
  *       与创作者端(卖方门户)按受众过滤收件箱，APP 端不过滤；同一账号身兼买卖两侧时
  *       各门户只看到自己角色视角的通知。</li>
+ *   <li><b>平台侧走公告</b>：任务征集只能由平台发布，「需求方」侧的事件收件人是运营自己。
+ *       运营只用管理端、没有 App 站内信收件箱，所以这类事件写
+ *       {@code audience='ADMIN'} 的管理端公告（沟通 - 公告），不再投 App 收件箱；
+ *       创作者侧仍走 App 站内信。</li>
  *   <li><b>多行详情</b>：正文按「事件叙述 → 逐行关键信息（作品/单号/金额/对方/原因）
  *       → 行动指引」拼装；列表 summary 由服务层压平截断，详情页/PC/APP 展示原始换行。</li>
  * </ul>
@@ -46,12 +53,22 @@ public class TradeNotifyService
     private static final Logger log = LoggerFactory.getLogger(TradeNotifyService.class);
 
     private final UserNotificationAdminService notificationService;
+    private final AdminNoticeMapper adminNoticeMapper;
     private final TransactionTemplate newTx;
 
+    /**
+     * 实时提醒出口（WebSocket）。可选注入：公告主链路只依赖数据库，
+     * 没有装配长连接模块（如纯单元测试上下文）时公告照常落库，只是不即时打扰运营。
+     */
+    @Autowired(required = false)
+    private RealtimePushService realtimePush;
+
     public TradeNotifyService(UserNotificationAdminService notificationService,
+            AdminNoticeMapper adminNoticeMapper,
             PlatformTransactionManager transactionManager)
     {
         this.notificationService = notificationService;
+        this.adminNoticeMapper = adminNoticeMapper;
         // REQUIRES_NEW：独立于调用方业务事务，通知提交与业务提交解耦
         this.newTx = new TransactionTemplate(transactionManager);
         this.newTx.setPropagationBehavior(TransactionTemplate.PROPAGATION_REQUIRES_NEW);
@@ -341,6 +358,61 @@ public class TradeNotifyService
         }
     }
 
+    /**
+     * 管理端公告投递（运营收件箱）：与 {@link #push} 同样的独立事务 + 吞异常策略。
+     * dedupKey 落进 remark，同一事件重复触发只落一条。
+     * 真正新增成功（幂等未命中）后给在线后台账号补一帧通知，红点不必等下一轮轮询。
+     */
+    private void pushAdminNotice(String dedupKey, String title, String content)
+    {
+        try
+        {
+            Integer inserted = newTx.execute(status -> adminNoticeMapper.insertIfAbsent(
+                    dedupKey, truncateTitle(title), content));
+            if (inserted != null && inserted > 0)
+            {
+                pushAdminNoticeRealtime(dedupKey, title);
+            }
+        }
+        catch (Exception e)
+        {
+            // 通知失败仅告警，绝不冒泡影响业务事务
+            log.warn("管理端公告投递失败 key={}: {}", dedupKey, e.getMessage());
+        }
+    }
+
+    /**
+     * 公告落库已提交，提醒在线后台账号刷新收件箱。
+     * 收件人规模是后台账号数（个位数到几十），无需分页；推送异常同样不影响业务。
+     */
+    private void pushAdminNoticeRealtime(String dedupKey, String title)
+    {
+        if (realtimePush == null)
+        {
+            return;
+        }
+        try
+        {
+            List<Long> receivers = adminNoticeMapper.selectAdminRecipients();
+            if (receivers == null || receivers.isEmpty())
+            {
+                return;
+            }
+            realtimePush.pushNotification(null, "ADMIN_NOTICE", title, receivers);
+        }
+        catch (Exception e)
+        {
+            log.warn("管理端公告实时提醒失败 key={}: {}", dedupKey, e.getMessage());
+        }
+    }
+
+    /** notice_title 是 varchar(50)，超长会被数据库拒绝，这里按字符数截断保底。 */
+    private String truncateTitle(String title)
+    {
+        String t = title == null ? "" : title.strip();
+        return t.length() <= 50 ? t : t.substring(0, 49) + "…";
+    }
+
     /** 去 null、去重、保序。 */
     private List<Long> normalize(List<Long> userIds)
     {
@@ -452,6 +524,12 @@ public class TradeNotifyService
         return date == null ? null : new SimpleDateFormat("MM月dd日 HH:mm").format(date);
     }
 
+    /** 只到天的日期（sys_demand.deadline 是 DATE 列）：渲染成「10月31日」，不带 00:00 这种伪时刻。 */
+    private String dateText(Date date)
+    {
+        return date == null ? null : new SimpleDateFormat("yyyy年MM月dd日").format(date);
+    }
+
     /** 任务广场：有新投稿时通知发布者。 */
     public void notifyDemandSubmitted(Long submissionId, Long demandId, String demandTitle, Long clientId)
     {
@@ -515,34 +593,31 @@ public class TradeNotifyService
                 "ORDER", str(deliveryId), one(buyerId), "BUYER");
     }
 
-    /** 任务广场：创作者抢单成功，通知发布方。 */
-    public void notifyDemandClaimed(Long demandId, String demandTitle, Long clientId, String creatorName)
+    /** 任务广场：创作者抢单成功 → 管理端公告告知运营该单已离场、首轮计时开始。 */
+    public void notifyDemandClaimed(SysDemand demand)
     {
-        StringBuilder content = new StringBuilder("您发布的任务已被接单，创作者将按时交付。\n");
-        line(content, "任务", titleOf(demandTitle));
-        if (creatorName != null && !creatorName.isEmpty())
-        {
-            line(content, "接单人", creatorName);
-        }
-        content.append("请前往「任务广场」关注交付进度并逐轮验收。");
+        StringBuilder content = new StringBuilder("任务已被创作者接单，创作者将按首轮时限交付。\n");
+        line(content, "任务", titleOf(demand.getTitle()));
+        line(content, "需求编号", demand.getDemandNo());
+        line(content, "接单人", nameOf(demand.getAcceptedCreatorName()));
+        content.append("请前往管理端「任务管理 - 运营详情」关注交付进度并逐轮验收。");
         // 一个任务只会被成功接单一次，demandId 即天然幂等键
-        push("TRD-DM-CLAIM-" + demandId,
-                "任务已被接单", content.toString(),
-                "DEMAND", str(demandId), one(clientId), "BOTH");
+        pushAdminNotice("TRD-DM-CLAIM-" + demand.getDemandId(),
+                "任务已被接单", content.toString());
     }
 
-    /** 创作者申请本轮延时 → 通知需求受理方（平台运营）处理。 */
-    public void notifyExtendRequested(Long applyId, Long demandId, String demandTitle, Integer stageOrder,
-            Integer days, Integer hours, String reason, Long buyerId)
+    /** 创作者申请本轮延时 → 管理端公告，请运营及时处理。 */
+    public void notifyExtendRequested(Long applyId, SysDemand demand, Integer stageOrder,
+            Integer days, Integer hours, String reason)
     {
         StringBuilder content = new StringBuilder("创作者申请延长本轮交付时限，请及时处理。\n");
-        line(content, "任务", titleOf(demandTitle));
+        line(content, "任务", titleOf(demand.getTitle()));
+        line(content, "需求编号", demand.getDemandNo());
         line(content, "轮次", roundText(stageOrder));
         line(content, "申请延时", durationText(days, hours));
         line(content, "申请原因", reason);
         content.append("请前往管理端「任务管理 - 验收进度」处理：同意则本轮截止按申请时长顺延，拒绝则截止时间不变。");
-        push("TRD-DM-EXT-REQ-" + applyId, "创作者申请延时", content.toString(),
-                "DEMAND", str(demandId), one(buyerId), "BUYER");
+        pushAdminNotice("TRD-DM-EXT-REQ-" + applyId, "创作者申请延时", content.toString());
     }
 
     /** 延时申请审批结果（平台代需求方处理） → 通知接单创作者。 */
@@ -607,25 +682,26 @@ public class TradeNotifyService
                 content.toString(), "DEMAND", str(demandId), one(creatorId), "SELLER");
     }
 
-    /** 本轮超时未通过 → 任务失败终止，按角色分别通知需求受理方（运营）与创作者。 */
-    public void notifyDemandRoundFailed(Long demandId, String demandTitle, Integer stageOrder,
-            String reason, Long buyerId, Long creatorId)
+    /** 本轮超时未通过 → 任务失败终止：运营侧走管理端公告，创作者侧走 App 站内信。 */
+    public void notifyDemandRoundFailed(SysDemand demand, Integer stageOrder,
+            String reason, Long creatorId)
     {
-        String buyerContent = "任务因本轮交付超时未通过而失败终止。\n"
-                + detailLine("任务", titleOf(demandTitle))
+        String adminContent = "任务因本轮交付超时未通过而失败终止。\n"
+                + detailLine("任务", titleOf(demand.getTitle()))
+                + detailLine("需求编号", demand.getDemandNo())
                 + detailLine("超时轮次", roundText(stageOrder))
                 + detailLine("终止原因", reason)
                 + "请与需求方沟通后续处理；如需重新征集，可在管理端重新发布任务。";
-        push("TRD-DM-FAIL-" + demandId + "-" + stageOrder + "-B", "任务超时终止",
-                buyerContent, "DEMAND", str(demandId), one(buyerId), "BUYER");
+        pushAdminNotice("TRD-DM-FAIL-" + demand.getDemandId() + "-" + stageOrder + "-ADMIN",
+                "任务超时终止", adminContent);
 
         String creatorContent = "任务因本轮交付超时未通过而失败终止。\n"
-                + detailLine("任务", titleOf(demandTitle))
+                + detailLine("任务", titleOf(demand.getTitle()))
                 + detailLine("超时轮次", roundText(stageOrder))
                 + detailLine("终止原因", reason)
                 + "已通过验收的轮次仍按结算单入账，未交付轮次不再计入。";
-        push("TRD-DM-FAIL-" + demandId + "-" + stageOrder + "-S", "任务超时终止",
-                creatorContent, "DEMAND", str(demandId), one(creatorId), "SELLER");
+        push("TRD-DM-FAIL-" + demand.getDemandId() + "-" + stageOrder + "-S", "任务超时终止",
+                creatorContent, "DEMAND", str(demand.getDemandId()), one(creatorId), "SELLER");
     }
 
     /**
@@ -648,9 +724,8 @@ public class TradeNotifyService
         content.append("可前往管理端「任务管理 - 验收进度」处理：通过则放出本轮款项，驳回则本轮恢复计时等待重交。");
         long submittedAt = stage.getSubmittedAt() != null
                 ? stage.getSubmittedAt().getTime() : System.currentTimeMillis();
-        push("TRD-DM-REVIEW-" + demand.getDemandId() + "-" + stage.getStageOrder() + "-" + submittedAt,
-                "本轮交付待验收", content.toString(),
-                "DEMAND", str(demand.getDemandId()), one(demand.getClientId()), "BUYER");
+        pushAdminNotice("TRD-DM-REVIEW-" + demand.getDemandId() + "-" + stage.getStageOrder() + "-" + submittedAt,
+                "本轮交付待验收", content.toString());
     }
 
     /**
@@ -707,20 +782,19 @@ public class TradeNotifyService
     }
 
     /**
-     * 全部轮次通过 → 任务完成，按角色分别通知需求受理方（运营）与创作者。
+     * 全部轮次通过 → 任务完成：运营侧走管理端公告，创作者侧走 App 站内信。
      * 运营看到预算与“无待处理项”，创作者额外看到收益入账入口。
      * requestId 以 demandId 单键幂等：上游状态机 `!COMPLETED` 保证整单完成仅触发一次。
      */
     public void notifyDemandCompleted(SysDemand demand)
     {
-        String buyerContent = "任务已全部轮次验收通过，交易完成。\n"
+        String adminContent = "任务已全部轮次验收通过，交易完成。\n"
                 + detailLine("任务", titleOf(demand.getTitle()))
                 + detailLine("需求编号", demand.getDemandNo())
                 + detailLine("预算金额", amountText(demand.getBudget()))
                 + detailLine("接单人", nameOf(demand.getAcceptedCreatorName()))
                 + "各轮款项已按验收结果结算，本单无待处理项。";
-        push("TRD-DM-DONE-" + demand.getDemandId() + "-B", "任务已完成",
-                buyerContent, "DEMAND", str(demand.getDemandId()), one(demand.getClientId()), "BUYER");
+        pushAdminNotice("TRD-DM-DONE-" + demand.getDemandId() + "-ADMIN", "任务已完成", adminContent);
 
         String creatorContent = "任务已全部轮次验收通过，交易完成。\n"
                 + detailLine("任务", titleOf(demand.getTitle()))
@@ -748,6 +822,27 @@ public class TradeNotifyService
         push("TRD-DM-NEXT-" + demand.getDemandId() + "-" + nextStage.getStageOrder(),
                 "新一轮任务已开启", content.toString(),
                 "DEMAND", str(demand.getDemandId()), one(demand.getAcceptedCreatorId()), "SELLER");
+    }
+
+    /**
+     * 征集关闭（平台手动截止 / 到点自动截止）→ 管理端公告。
+     * 关闭使任务脱离可接单集合，运营需要知道这件事：手动关闭由本人操作、其他运营同样需要被告知，
+     * 自动关闭由定时任务执行、无人当场可见，两者都必须留一条收件箱记录。
+     * 幂等键按关闭方式区分：同一单只能从 open 关闭一次（CAS 保证），重复扫描不会刷屏。
+     */
+    public void notifyDemandClosed(SysDemand demand, boolean autoClosed)
+    {
+        String demandNo = demand.getDemandNo();
+        StringBuilder content = new StringBuilder();
+        content.append(autoClosed
+                ? "任务征集到达截止日期仍未被接单，已由系统自动关闭。\n"
+                : "平台已手动截止该任务征集。\n");
+        line(content, "任务", titleOf(demand.getTitle()));
+        line(content, "需求编号", demandNo);
+        line(content, "征集截止", dateText(demand.getDeadline()));
+        content.append("该任务已从任务广场下架、不可再接单；如需继续征集，请在管理端重新发布。");
+        pushAdminNotice("TRD-DM-CLOSE-" + demand.getDemandId() + (autoClosed ? "-AUTO" : "-MANUAL"),
+                autoClosed ? "任务征集已自动关闭" : "任务征集已截止", content.toString());
     }
 }
 

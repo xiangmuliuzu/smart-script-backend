@@ -14,9 +14,11 @@ package com.smartscript.platform.content.domain;
  *      与 items 的逐集流水不同，这里是全书唯一的一份“道具主数据”，件数与归属以它为准；
  *   8. styleGuide：写法基线（叙述人称、句式与对白比例、标点与禁用写法、单集字数区间）——
  *      首次生成时固化，之后除用户明确要求改文风外不得变化，否则读者会感觉换了写手；
- *   9. threads：未解线索（尚未回收的悬念）。
+ *   9. threads：未解线索（尚未回收的悬念）；
+ *   10. outline：剧本大纲（分集事件卡），AI 创作起稿与「AI 剧本续写」的结果落库，
+ *       跨端共用，避免只存本机草稿导致换设备后大纲为空、续写丢集。
  *
- * 说明：九类均为自由文本，按“一行一条”的约定由前端维护，后端只存取不解析。
+ * 说明：十类均为自由文本，按“一行一条”的约定由前端维护，后端只存取不解析。
  *
  * @author smartscript
  */
@@ -48,6 +50,9 @@ public class SysWorkLedger
 
     /** 写法基线（文风与版式口径，固化后不随意变化） */
     private String styleGuide;
+
+    /** 剧本大纲（分集事件卡，跨端共用） */
+    private String outline;
 
     /** 未解线索 */
     private String threads;
@@ -143,6 +148,16 @@ public class SysWorkLedger
     public void setStyleGuide(String styleGuide)
     {
         this.styleGuide = styleGuide;
+    }
+
+    public String getOutline()
+    {
+        return outline;
+    }
+
+    public void setOutline(String outline)
+    {
+        this.outline = outline;
     }
 
     public String getThreads()
