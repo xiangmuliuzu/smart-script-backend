@@ -24,6 +24,7 @@
 --   第 11 部分 移除用户中心会话列表入口，保留用户沟通权限
 --   第 12 部分 App 用户名称唯一索引
 --   第 13 部分 恢复系统管理目录、页面及权限
+--   第 14 部分 版权域菜单修复（编码损坏、ID 串位、合同按钮对齐后端权限）
 --   收口自检  所有结构、种子及存量清理完成后统一输出结果
 -- 与历史迁移脚本的差异：
 --   - 原迁移的控制表/快照表（a2_/a4_ 前缀）为升级回滚记账服务，此处不需要，已省略。
@@ -2276,6 +2277,161 @@ SET @ddl := IF(@idx_exists = 0,
 PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 -- =====================================================================
+-- 第 14 部分：版权域菜单修复（幂等，新库与已有库共用）
+-- 现象：角色管理 → 编辑的菜单树里出现 ????，以及「公告详情」下的合同按钮。
+-- 成因（均为早期一次性脚本 add_withdraw_contract_menus.sql / add_contract_menu_new.sql 写入）：
+--   1) 脚本未按 UTF-8 执行，「提现解冻 / 提现导出 / 合同作废」入库成了四个半角问号；
+--   2) add_contract_menu_new.sql 把「合同管理」与按钮写到 5301 时，5301 已被第 9 部分的
+--      「公告详情」占用；而真正的合同页面是 5231（版权审核管理下，ID 段从 5000 起）。
+--      于是 5308「合同作废」挂在了公告详情下，其余按钮要么落空、要么原地残留；
+--      5301 的菜单元数据被覆盖成合同页面，但权限串没跟着改。
+--   3) 这批按钮的 perms 是 smartscript:copyright:contract:xxx，而后端
+--      ContractManageController / WithdrawReviewController 校验的是
+--      copyright:contract:xxx / smartscript:copyright:withdraw:xxx，权限串对不上。
+-- 处理：只补正名称、把错位的合同按钮挂回合同页；按后端实际校验口径补齐缺失权限位
+--   （5401–5404 提现按钮、5419–5423 合同按钮；5405–5418 已被其它批次占用），
+--   并授予当前能打开对应页面的角色（与第 5 部分同一口径：菜单可见性与按钮权限同步，
+--   不扩大任何角色的入口）。提现审核 / 合同管理两页此前只由一次性脚本建出、未纳入
+--   本文件，新库缺页时一并补建（老库按路由命中现有页，不重复建）。
+-- 不删记录：公告详情（5301）恢复只读权限、合同作废（5308）改名并改挂 5231，
+--   两者的角色绑定随之一并生效。
+-- =====================================================================
+SET NAMES utf8mb4 COLLATE utf8mb4_general_ci;
+
+-- 14.0 5301 曾被 add_contract_menu_new.sql 覆盖成合同页面（component/path/perms 全错），
+--      按第 9 部分的原始口径恢复为「公告详情」按钮行，父节点回到消息与公告 5152。
+UPDATE sys_menu
+SET menu_name = '公告详情', parent_id = 5152, order_num = 2, path = '#', component = NULL,
+    menu_type = 'F', perms = 'system:notice:query', icon = '#'
+WHERE menu_id = 5301 AND NOT (menu_type = 'F' AND perms = 'system:notice:query' AND parent_id = 5152);
+
+-- 14.1 被编码损坏的按钮名（HEX 比对，避免脚本本身再次被错误编码时口径失真）
+UPDATE sys_menu SET menu_name = '提现解冻'
+WHERE menu_id = 5220 AND HEX(menu_name) = '3F3F3F3F'
+  AND perms = 'smartscript:copyright:withdraw:unfreeze';
+UPDATE sys_menu SET menu_name = '提现导出'
+WHERE menu_id = 5221 AND HEX(menu_name) = '3F3F3F3F'
+  AND perms = 'smartscript:copyright:withdraw:export';
+UPDATE sys_menu SET menu_name = '合同作废', parent_id = 5231
+WHERE menu_id = 5308 AND HEX(menu_name) = '3F3F3F3F'
+  AND perms = 'smartscript:copyright:contract:cancel';
+
+-- 14.2 提现按钮（提现审核页）：后端校验 smartscript:copyright:withdraw:*
+-- 提现审核页与合同页此前只由一次性脚本建出（未纳入本文件），新库缺页，按真实路由补建；
+-- 已有页（老库 5209 / 5231）时 @X_page 直接命中，不会重复建页。
+SET @withdraw_page := (SELECT menu_id FROM sys_menu
+                       WHERE path = 'withdraw-review' AND menu_type = 'C' LIMIT 1);
+SET @copyright_root := (SELECT menu_id FROM sys_menu
+                        WHERE path = 'copyright' AND parent_id = 0 AND menu_type = 'M' LIMIT 1);
+INSERT INTO sys_menu (menu_id, menu_name, parent_id, order_num, path, component, query, route_name,
+                      is_frame, is_cache, menu_type, visible, status, perms, icon, create_by, remark)
+SELECT 5320, '提现审核', @copyright_root, 11, 'withdraw-review', 'copyright/WithdrawReview', '', '',
+       1, 0, 'C', '0', '0', 'smartscript:copyright:withdraw:list', 'money', 'menu-repair', 'D模块-提现审核页面'
+FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM (SELECT menu_id FROM sys_menu) m WHERE m.menu_id = 5320)
+  AND @withdraw_page IS NULL AND @copyright_root IS NOT NULL;
+INSERT IGNORE INTO sys_role_menu (role_id, menu_id)
+SELECT r.role_id, 5320 FROM sys_role r WHERE r.role_key = 'admin' AND r.del_flag = '0';
+SET @withdraw_page := (SELECT menu_id FROM sys_menu
+                       WHERE path = 'withdraw-review' AND menu_type = 'C' LIMIT 1);
+INSERT INTO sys_menu (menu_id, menu_name, parent_id, order_num, path, component, query, route_name,
+                      is_frame, is_cache, menu_type, visible, status, perms, icon, create_by, remark)
+SELECT 5401, '提现查询', @withdraw_page, 1, '', NULL, '', '', 1, 0, 'F', '0', '0',
+       'smartscript:copyright:withdraw:query', '#', 'menu-repair', '提现详情查询（对齐后端校验口径）'
+FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM (SELECT menu_id FROM sys_menu) x WHERE x.menu_id = 5401);
+INSERT INTO sys_menu (menu_id, menu_name, parent_id, order_num, path, component, query, route_name,
+                      is_frame, is_cache, menu_type, visible, status, perms, icon, create_by, remark)
+SELECT 5402, '审核通过', @withdraw_page, 2, '', NULL, '', '', 1, 0, 'F', '0', '0',
+       'smartscript:copyright:withdraw:approve', '#', 'menu-repair', '提现审核通过（对齐后端校验口径）'
+FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM (SELECT menu_id FROM sys_menu) x WHERE x.menu_id = 5402);
+INSERT INTO sys_menu (menu_id, menu_name, parent_id, order_num, path, component, query, route_name,
+                      is_frame, is_cache, menu_type, visible, status, perms, icon, create_by, remark)
+SELECT 5403, '审核驳回', @withdraw_page, 3, '', NULL, '', '', 1, 0, 'F', '0', '0',
+       'smartscript:copyright:withdraw:reject', '#', 'menu-repair', '提现审核驳回（对齐后端校验口径）'
+FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM (SELECT menu_id FROM sys_menu) x WHERE x.menu_id = 5403);
+INSERT INTO sys_menu (menu_id, menu_name, parent_id, order_num, path, component, query, route_name,
+                      is_frame, is_cache, menu_type, visible, status, perms, icon, create_by, remark)
+SELECT 5404, '提现冻结', @withdraw_page, 4, '', NULL, '', '', 1, 0, 'F', '0', '0',
+       'smartscript:copyright:withdraw:freeze', '#', 'menu-repair', '冻结已通过提现（对齐后端校验口径）'
+FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM (SELECT menu_id FROM sys_menu) x WHERE x.menu_id = 5404);
+INSERT IGNORE INTO sys_role_menu (role_id, menu_id)
+SELECT rm.role_id, t.target_id
+FROM sys_role_menu rm
+JOIN (          SELECT @withdraw_page AS source_id, 5401 AS target_id
+  UNION ALL SELECT @withdraw_page, 5402 UNION ALL SELECT @withdraw_page, 5403
+  UNION ALL SELECT @withdraw_page, 5404
+) t ON t.source_id = rm.menu_id
+WHERE @withdraw_page IS NOT NULL;
+
+-- 14.3 合同按钮：合同页（版权审核管理 → 合同管理），后端校验 copyright:contract:*
+--      该页此前同样只由一次性脚本建出（5231/5232–5236），新库按缺页补建；
+--      已有页时只补后端真正校验、而页下尚未存在的按钮。
+--      5401–5418 在本库已被其它批次占用，故用 5419–5423。
+SET @copyright_root := (SELECT menu_id FROM sys_menu
+                        WHERE path = 'copyright' AND parent_id = 0 AND menu_type = 'M' LIMIT 1);
+INSERT INTO sys_menu (menu_id, menu_name, parent_id, order_num, path, component, query, route_name,
+                      is_frame, is_cache, menu_type, visible, status, perms, icon, create_by, remark)
+SELECT 5231, '合同管理', @copyright_root, 7, 'contract-manage', 'copyright/ContractManage', '', '',
+       1, 0, 'C', '0', '0', 'copyright:contract:list', 'DocumentCopy', 'menu-repair', 'D模块-合同管理页面'
+FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM (SELECT menu_id FROM sys_menu) m WHERE m.menu_id = 5231)
+  AND @copyright_root IS NOT NULL;
+INSERT IGNORE INTO sys_role_menu (role_id, menu_id)
+SELECT r.role_id, 5231 FROM sys_role r WHERE r.role_key = 'admin' AND r.del_flag = '0';
+SET @contract_page := (SELECT menu_id FROM sys_menu
+                       WHERE path = 'contract-manage' AND menu_type = 'C' LIMIT 1);
+INSERT INTO sys_menu (menu_id, menu_name, parent_id, order_num, path, component, query, route_name,
+                      is_frame, is_cache, menu_type, visible, status, perms, icon, create_by, remark)
+SELECT 5419, '合同列表', @contract_page, 9, '', NULL, '', '', 1, 0, 'F', '0', '0',
+       'copyright:contract:list', '#', 'menu-repair', '合同列表/预览/下载（对齐后端校验口径）'
+FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM (SELECT perms FROM sys_menu) p WHERE p.perms = 'copyright:contract:list')
+  AND @contract_page IS NOT NULL;
+INSERT INTO sys_menu (menu_id, menu_name, parent_id, order_num, path, component, query, route_name,
+                      is_frame, is_cache, menu_type, visible, status, perms, icon, create_by, remark)
+SELECT 5420, '生成合同', @contract_page, 10, '', NULL, '', '', 1, 0, 'F', '0', '0',
+       'copyright:contract:generate', '#', 'menu-repair', '生成电子合同（对齐后端校验口径）'
+FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM (SELECT perms FROM sys_menu) p WHERE p.perms = 'copyright:contract:generate')
+  AND @contract_page IS NOT NULL;
+INSERT INTO sys_menu (menu_id, menu_name, parent_id, order_num, path, component, query, route_name,
+                      is_frame, is_cache, menu_type, visible, status, perms, icon, create_by, remark)
+SELECT 5421, '签署登记', @contract_page, 11, '', NULL, '', '', 1, 0, 'F', '0', '0',
+       'copyright:contract:sign', '#', 'menu-repair', '登记合同签署状态（对齐后端校验口径）'
+FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM (SELECT perms FROM sys_menu) p WHERE p.perms = 'copyright:contract:sign')
+  AND @contract_page IS NOT NULL;
+INSERT INTO sys_menu (menu_id, menu_name, parent_id, order_num, path, component, query, route_name,
+                      is_frame, is_cache, menu_type, visible, status, perms, icon, create_by, remark)
+SELECT 5422, '合同归档', @contract_page, 12, '', NULL, '', '', 1, 0, 'F', '0', '0',
+       'copyright:contract:archive', '#', 'menu-repair', '合同归档（对齐后端校验口径）'
+FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM (SELECT perms FROM sys_menu) p WHERE p.perms = 'copyright:contract:archive')
+  AND @contract_page IS NOT NULL;
+-- 合同作废：14.1 已把错挂的 5308 挂回 5231 并改名，这里只补按新口径的权限串，
+-- 未执行过 14.1 的库（5308 不存在）则在新页下补一条
+INSERT INTO sys_menu (menu_id, menu_name, parent_id, order_num, path, component, query, route_name,
+                      is_frame, is_cache, menu_type, visible, status, perms, icon, create_by, remark)
+SELECT 5423, '合同作废', @contract_page, 13, '', NULL, '', '', 1, 0, 'F', '0', '0',
+       'copyright:contract:cancel', '#', 'menu-repair', '合同作废（对齐后端校验口径）'
+FROM DUAL
+WHERE NOT EXISTS (SELECT 1 FROM (SELECT perms FROM sys_menu) p WHERE p.perms = 'copyright:contract:cancel')
+  AND @contract_page IS NOT NULL;
+-- 新增按钮挂到当前能打开合同页的角色名下（与第 5 部分同一口径，不扩大入口）
+INSERT IGNORE INTO sys_role_menu (role_id, menu_id)
+SELECT rm.role_id, t.target_id
+FROM sys_role_menu rm
+JOIN (          SELECT @contract_page AS source_id, 5419 AS target_id
+  UNION ALL SELECT @contract_page, 5420 UNION ALL SELECT @contract_page, 5421
+  UNION ALL SELECT @contract_page, 5422 UNION ALL SELECT @contract_page, 5423
+) t ON t.source_id = rm.menu_id
+WHERE @contract_page IS NOT NULL;
+
+-- =====================================================================
 -- 第 13 部分：恢复完整系统管理（幂等，新库与已有库共用）
 -- 保留现有系统根目录 ID；新增菜单不会扩大受限角色的操作权限。
 -- =====================================================================
@@ -2404,6 +2560,17 @@ SELECT
     WHERE menu_type IN ('M','C') AND status = '0'
     GROUP BY parent_id, path HAVING COUNT(*) > 1
   ) dup) AS duplicate_sibling_path_should_be_0;
+
+-- 版权域菜单（第 14 部分）：不应再有问号名；公告详情不应挂合同按钮；
+-- 合同按钮全部挂在合同页 5231 下且权限串与后端一致
+SELECT
+  (SELECT COUNT(*) FROM sys_menu WHERE menu_name LIKE '%?%') AS menu_names_with_question_should_be_0,
+  (SELECT COUNT(*) FROM sys_menu WHERE menu_id = 5301
+     AND menu_type = 'F' AND parent_id = 5152 AND perms = 'system:notice:query') AS notice_detail_restored_should_be_1,
+  (SELECT COUNT(*) FROM sys_menu WHERE parent_id = 5301) AS misplaced_contract_button_under_notice_should_be_0,
+  (SELECT COUNT(*) FROM sys_menu WHERE parent_id = 5231 AND menu_type = 'F'
+     AND perms IN ('copyright:contract:generate','copyright:contract:sign',
+                   'copyright:contract:archive','copyright:contract:list','copyright:contract:cancel')) AS contract_buttons_should_be_5;
 
 -- 实名人工审核权限（已有角色需按需授权）。
 UPDATE sys_menu SET menu_name = '实名审核' WHERE perms = 'user:realname:list';
