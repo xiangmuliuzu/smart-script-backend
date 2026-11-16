@@ -243,8 +243,8 @@ class TradeDemandReviewNotifyHookTest
 
         ReflectionTestUtils.invokeMethod(service, "terminateRound", d, active, new Date());
 
-        verify(notifyService, times(1)).notifyDemandRoundFailed(eq(DEMAND_ID), eq(DEMAND_TITLE),
-                eq(STAGE_ORDER), anyString(), eq(BUYER_ID), eq(CREATOR_ID));
+        verify(notifyService, times(1)).notifyDemandRoundFailed(eq(d), eq(STAGE_ORDER),
+                anyString(), eq(CREATOR_ID));
     }
 
     @Test
@@ -258,6 +258,6 @@ class TradeDemandReviewNotifyHookTest
         ReflectionTestUtils.invokeMethod(service, "terminateRound", d, active, new Date());
 
         verify(notifyService, never()).notifyDemandRoundFailed(
-                any(), any(), any(), any(), any(), any());
+                any(SysDemand.class), any(), anyString(), any());
     }
 }

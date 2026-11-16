@@ -1408,7 +1408,7 @@ CREATE TABLE IF NOT EXISTS sys_demand (
   `title` varchar(100) COLLATE utf8mb4_general_ci NOT NULL,
   `genre_id` int NOT NULL,
   `budget` decimal(12,2) NOT NULL,
-  `deadline` date NOT NULL,
+  `deadline` date DEFAULT NULL,
   `requirement` text COLLATE utf8mb4_general_ci NOT NULL,
   `contact_info` varchar(255) COLLATE utf8mb4_general_ci NOT NULL,
   `submission_count` int NOT NULL,

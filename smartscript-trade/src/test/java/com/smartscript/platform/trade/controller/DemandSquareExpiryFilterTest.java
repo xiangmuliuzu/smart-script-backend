@@ -26,8 +26,8 @@ import com.smartscript.platform.user.service.ChatService;
  * 任务广场的征集截止口径回归：过了 deadline 的 open 单不再对外曝光，
  * 但「我的任务」仍要能看见自己接下的单——交付与验收并不因为征集截止而消失。
  *
- * <p>这些单在库里仍保持 status=open（发布权收归运营后由管理端编辑或关闭），
- * 过滤只发生在广场的查询条件上，因此本测试锁定「广场加了条件、个人分支没加条件」。</p>
+ * <p>过截止的单不再出现在广场，详情与接单同样拒收；库里由定时任务收口为 closed
+ * （见 DemandRecruitExpiryCloseTest），本测试锁定的是读侧口径：广场加了条件、个人分支没加条件。</p>
  */
 class DemandSquareExpiryFilterTest
 {

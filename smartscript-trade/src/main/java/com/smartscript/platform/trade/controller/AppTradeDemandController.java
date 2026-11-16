@@ -316,7 +316,7 @@ public class AppTradeDemandController
         }
         if (TradeDemandService.isRecruitExpired(existing))
         {
-            // 征集截止后不再对外曝光，也不允许再被接走；库里仍是 open，由运营编辑延期或关闭。
+            // 征集截止后不再对外曝光，也不允许再被接走；库里由定时任务收口为 closed，运营也可提前手动关闭。
             return AppApiResponse.fail(403, "该任务征集已截止，不可接单");
         }
         SysDemand demand = demandService.claimDemand(demandId, userId);

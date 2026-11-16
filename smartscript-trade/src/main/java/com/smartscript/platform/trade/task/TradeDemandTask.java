@@ -18,7 +18,8 @@ import com.smartscript.platform.trade.service.TradeDemandService;
  * 如需在 UI 编辑其调用串，需把本包加入白名单（涉及公共代码，须群里说明原因与影响范围）。
  *
  * 作用：把「活动轮到点即失败」从读时惰性判定升级为近实时处置，
- * 同时把发布者超过 24 小时未处理的延时申请自动驳回。
+ * 同时把发布者超过 24 小时未处理的延时申请自动驳回，
+ * 并把过了征集截止日期仍挂着 open 的任务自动关闭（发布权收归平台后无人再手工截止）。
  */
 @Component("tradeDemandTask")
 public class TradeDemandTask
@@ -29,7 +30,8 @@ public class TradeDemandTask
     private TradeDemandService demandService;
 
     /**
-     * ① 自动驳回发布者超 24 小时未处理的延时申请；② 终止已过截止且仍在计时的活动轮。
+     * ① 自动驳回发布者超 24 小时未处理的延时申请；② 终止已过截止且仍在计时的活动轮；
+     * ③ 关闭已过征集截止仍未被接单的 open 单。
      * 仅在确有处置时打日志，避免每 10 秒刷一条空扫描记录。
      */
     public void expireOverdueRounds()
@@ -37,7 +39,7 @@ public class TradeDemandTask
         int count = demandService.expireOverdueRounds();
         if (count > 0)
         {
-            log.info("[C-Demand-Expire] 超时处置生效 {} 条（延时自动驳回 + 任务超时终止）", count);
+            log.info("[C-Demand-Expire] 超时处置生效 {} 条（延时自动驳回 + 任务超时终止 + 过期征集关闭）", count);
         }
     }
 }

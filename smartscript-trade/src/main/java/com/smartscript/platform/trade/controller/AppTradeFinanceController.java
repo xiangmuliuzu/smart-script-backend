@@ -18,20 +18,24 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import com.smartscript.platform.api.AppApiResponse;
 import com.smartscript.platform.trade.domain.SysBillRecord;
-import com.smartscript.platform.trade.domain.SysEscrow;
 import com.smartscript.platform.trade.domain.SysInvoice;
 import com.smartscript.platform.trade.service.TradeFinanceService;
 
 /**
- * APP端财务接口（资金托管 / 发票 / 收益）。
+ * APP端财务接口（收益 / 待结算 / 提现 / 发票）。
  *
  * 路径：/api/v1/trade/finance/*
  * 鉴权：由 APP 域的 Spring Security 链完成（/api/v1/trade/** 已配置）。
+ * 资金托管已退役，仅保留 /escrow/** 的 410 墓碑。
  */
 @RestController
 @RequestMapping("/api/v1/trade/finance")
 public class AppTradeFinanceController
 {
+    /** 资金托管已随「任务发布收归平台运营」退役，用户侧托管端点统一返回此提示。 */
+    private static final String ESCROW_OFFLINE_MSG =
+            "资金托管已退役，交易款项由平台在订单结算时直接结算，不再提供托管查询入口";
+
     private final TradeFinanceService financeService;
 
     public AppTradeFinanceController(TradeFinanceService financeService)
@@ -274,70 +278,29 @@ public class AppTradeFinanceController
         return AppApiResponse.ok(result);
     }
 
-    /* ========== 资金托管 ========== */
+    /* ========== 资金托管（已退役） ========== */
 
     /**
-     * 托管记录列表（分页 + 角色 + 状态筛选）。
+     * 托管记录列表：资金托管链路已随任务发布收归平台运营一并退役，仅保留 410 墓碑，
+     * 用于提示仍缓存旧页面的客户端。历史 sys_escrow 数据只读留存，不再对外提供查询。
      */
     @GetMapping("/escrow/list")
     public AppApiResponse<Map<String, Object>> escrowList(
-            @RequestParam String role,
+            @RequestParam(required = false) String role,
             @RequestParam(required = false) String status,
             @RequestParam(defaultValue = "1") int pageNum,
             @RequestParam(defaultValue = "20") int pageSize)
     {
-        Long userId = currentUserId();
-
-        // 先查全部记录计算汇总（不分页）
-        List<SysEscrow> allEscrows = financeService.getEscrowList(userId, role, status);
-        BigDecimal totalAmount = BigDecimal.ZERO;
-        BigDecimal pendingAmount = BigDecimal.ZERO;
-        for (SysEscrow e : allEscrows)
-        {
-            if (e.getAmount() != null)
-            {
-                totalAmount = totalAmount.add(e.getAmount());
-                if ("pending".equals(e.getStatus()) || "escrowed".equals(e.getStatus()))
-                {
-                    pendingAmount = pendingAmount.add(e.getAmount());
-                }
-            }
-        }
-
-        // 再分页查当前页数据
-        int safePage = Math.max(1, pageNum);
-        int safeSize = Math.max(1, Math.min(100, pageSize));
-        PageHelper.startPage(safePage, safeSize);
-        List<SysEscrow> escrows = financeService.getEscrowList(userId, role, status);
-        PageInfo<SysEscrow> pageInfo = new PageInfo<>(escrows);
-
-        List<Map<String, Object>> rows = escrows.stream().map(this::toEscrowMap).toList();
-        Map<String, Object> result = new HashMap<>();
-        result.put("total", pageInfo.getTotal());
-        result.put("rows", rows);
-        result.put("totalAmount", totalAmount.multiply(new BigDecimal("100")).intValue());
-        result.put("pendingAmount", pendingAmount.multiply(new BigDecimal("100")).intValue());
-        return AppApiResponse.ok(result);
+        return AppApiResponse.fail(410, ESCROW_OFFLINE_MSG);
     }
 
     /**
-     * 托管详情。
+     * 托管详情：同 {@link #escrowList}，端点已退役。
      */
     @GetMapping("/escrow/{escrowId}")
     public AppApiResponse<Map<String, Object>> escrowDetail(@PathVariable Long escrowId)
     {
-        Long userId = currentUserId();
-        SysEscrow escrow = financeService.getEscrowDetail(escrowId);
-        if (escrow == null)
-        {
-            return AppApiResponse.fail(404, "托管记录不存在");
-        }
-        // 权限校验：必须是订单的买方或卖方
-        if (!userId.equals(escrow.getBuyerId()) && !userId.equals(escrow.getSellerId()))
-        {
-            return AppApiResponse.fail(403, "无权查看该托管记录");
-        }
-        return AppApiResponse.ok(toEscrowMap(escrow));
+        return AppApiResponse.fail(410, ESCROW_OFFLINE_MSG);
     }
 
     /* ========== 发票 ========== */
@@ -386,6 +349,9 @@ public class AppTradeFinanceController
 
     /**
      * 申请发票。
+     *
+     * 开票金额由服务端按订单实付总额落地（见 TradeFinanceService.applyInvoice），
+     * 客户端无需也不得传 amount。
      */
     @PostMapping("/invoice/apply")
     public AppApiResponse<Void> applyInvoice(@RequestBody Map<String, Object> body)
@@ -397,9 +363,8 @@ public class AppTradeFinanceController
         String title = (String) body.get("title");
         String taxNo = (String) body.get("taxNo");
         String email = (String) body.get("email");
-        BigDecimal amount = body.get("amount") != null ? new BigDecimal(body.get("amount").toString()) : null;
 
-        if (orderId == null || invoiceType == null || title == null || amount == null)
+        if (orderId == null || invoiceType == null || title == null)
         {
             return AppApiResponse.fail(400, "开票信息不完整，请检查后重试");
         }
@@ -411,7 +376,6 @@ public class AppTradeFinanceController
         invoice.setTitle(title);
         invoice.setTaxNo(taxNo);
         invoice.setEmail(email);
-        invoice.setAmount(amount);
 
         financeService.applyInvoice(invoice);
         return AppApiResponse.ok(null);
@@ -447,32 +411,6 @@ public class AppTradeFinanceController
             return identity.getUserId();
         }
         throw new RuntimeException("未登录或身份上下文异常");
-    }
-
-    private Map<String, Object> toEscrowMap(SysEscrow e)
-    {
-        Map<String, Object> m = new HashMap<>();
-        m.put("escrowId", e.getEscrowId());
-        m.put("escrowNo", e.getEscrowNo());
-        m.put("orderId", e.getOrderId());
-        m.put("amount", e.getAmount() != null
-                ? e.getAmount().multiply(new BigDecimal("100")).intValue() : null);
-        m.put("status", e.getStatus());
-        m.put("paidAt", e.getPaidAt());
-        m.put("payChannel", e.getPayChannel());
-        m.put("releaseTime", e.getReleaseTime());
-        m.put("releaseReason", e.getReleaseReason());
-        m.put("refundAmount", e.getRefundAmount() != null
-                ? e.getRefundAmount().multiply(new BigDecimal("100")).intValue() : null);
-        m.put("refundedAt", e.getRefundedAt());
-        m.put("createdAt", e.getCreatedAt());
-        m.put("orderNo", e.getOrderNo());
-        m.put("workTitle", e.getWorkTitle());
-        m.put("buyerId", e.getBuyerId());
-        m.put("sellerId", e.getSellerId());
-        m.put("buyerName", e.getBuyerName());
-        m.put("sellerName", e.getSellerName());
-        return m;
     }
 
     private Map<String, Object> toInvoiceMap(SysInvoice i)

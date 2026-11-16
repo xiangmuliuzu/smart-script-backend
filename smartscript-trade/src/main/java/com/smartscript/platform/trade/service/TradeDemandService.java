@@ -63,13 +63,23 @@ public class TradeDemandService
      * 征集截止判定：deadline 为空表示不设时限。
      *
      * <p>广场曝光（SQL 口径）、详情可见性与接单三处共用同一个判断，避免「列表看不到、
-     * 拼 demandId 仍能进详情并接单」的口径漂移。库里仍保留 open，由运营编辑或关闭。</p>
+     * 拼 demandId 仍能进详情并接单」的口径漂移。</p>
+     *
+     * <p>sys_demand.deadline 是 DATE 列（只到天，落地即当天 00:00），按业务口径
+     * 「截止日当天整天仍可接单」处理：只有走完截止日那一整天才算过期，
+     * 否则 11 月 20 日截止的任务会在 20 日早上就消失。</p>
      */
     public static boolean isRecruitExpired(SysDemand demand)
     {
         if (demand == null) return false;
         Date deadline = demand.getDeadline();
-        return deadline != null && deadline.before(new Date());
+        if (deadline == null) return false;
+        Calendar todayStart = Calendar.getInstance();
+        todayStart.set(Calendar.HOUR_OF_DAY, 0);
+        todayStart.set(Calendar.MINUTE, 0);
+        todayStart.set(Calendar.SECOND, 0);
+        todayStart.set(Calendar.MILLISECOND, 0);
+        return deadline.before(todayStart.getTime());
     }
 
     /**
@@ -270,25 +280,27 @@ public class TradeDemandService
         demand.setFailAt(now);
         demand.setOverdue(1);
         demand.setDueAt(active.getDueAt());
-        notifyService.notifyDemandRoundFailed(demand.getDemandId(), demand.getTitle(),
-                active.getStageOrder(), reason, demand.getClientId(), demand.getAcceptedCreatorId());
+        notifyService.notifyDemandRoundFailed(demand, active.getStageOrder(), reason,
+                demand.getAcceptedCreatorId());
         return true;
     }
 
     /**
      * 定时扫描入口（供 tradeDemandTask.expireOverdueRounds 调用）：
      * ① 先把发布者超过 24 小时未处理的延时申请自动驳回——pending 会暂停超时判定，不先驳回则到期任务永远判不掉；
-     * ② 再终止全部已过截止且仍在计时的活动轮。
+     * ② 再终止全部已过截止且仍在计时的活动轮；
+     * ③ 最后关闭已过征集截止日期仍挂 open 的任务。
      * 单条异常仅记日志不中断整批（下一轮扫描仍会重试）；终止自身是 CAS、通知按 requestId 幂等，重复执行安全。
      * 无事务上下文：逐条写入各自提交，与读路径惰性判定的现有行为保持一致。
      *
-     * @return 本次生效的处置条数（自动驳回数 + 超时终止数）
+     * @return 本次生效的处置条数（自动驳回数 + 超时终止数 + 过期征集关闭数）
      */
     public int expireOverdueRounds()
     {
         int rejected = autoRejectStaleExtendApplies();
         int failed = terminateOverdueRounds();
-        return rejected + failed;
+        int closed = closeExpiredRecruits();
+        return rejected + failed + closed;
     }
 
     /** 跨全库扫描已到期的活动轮，逐条复用读路径同一个终止方法。 */
@@ -460,8 +472,10 @@ public class TradeDemandService
         {
             stageMapper.activateStage(round1.getStageId(), now, dueAt, String.valueOf(creatorId));
         }
-        notifyService.notifyDemandClaimed(demandId, demand.getTitle(), demand.getClientId(), null);
-        return demandMapper.selectDemandById(demandId);
+        // 重取一次带接单人姓名的视图再通知，公告里运营能直接看到是谁接的单
+        SysDemand claimed = demandMapper.selectDemandById(demandId);
+        notifyService.notifyDemandClaimed(claimed != null ? claimed : demand);
+        return claimed;
     }
 
     /**
@@ -980,8 +994,8 @@ public class TradeDemandService
         // 轮次行快照：供列表快速展示待处理状态与审核入口
         stageMapper.requestExtend(stageId, days, hours,
                 apply.getReason(), String.valueOf(creatorId));
-        notifyService.notifyExtendRequested(apply.getApplyId(), demandId, demand.getTitle(),
-                active.getStageOrder(), days, hours, apply.getReason(), demand.getClientId());
+        notifyService.notifyExtendRequested(apply.getApplyId(), demand, active.getStageOrder(),
+                days, hours, apply.getReason());
         return stageMapper.selectByStageId(stageId);
     }
 
@@ -1368,6 +1382,7 @@ public class TradeDemandService
 
     /**
      * 关闭征集（运营在管理端截止）。调用方须具备 trade:demand:edit 权限，服务层不再比对发布者身份。
+     * 关闭后向管理端公告投递一条记录：操作者本人看得见，其他运营也需要知道该单已不再征集。
      */
     public int closeDemand(Long demandId, Long operatorId)
     {
@@ -1378,7 +1393,45 @@ public class TradeDemandService
         int changed = demandMapper.updateStatusCas(demandId, DEMAND_STATUS_CLOSED,
                 String.valueOf(operatorId), DEMAND_STATUS_OPEN);
         if (changed == 0) throw new RuntimeException("任务状态已变更，请刷新后重试");
+        notifyService.notifyDemandClosed(demand, false);
         return changed;
+    }
+
+    /**
+     * 定时扫描：把「征集截止日期已过但状态仍为 open」的任务自动关闭。
+     *
+     * <p>发布权收归平台后没有人再手工盯这些单：它们早已不在任务广场展示、也接不了单，
+     * 却仍挂着 open 状态，运营在管理端列表里看不出它到底还有没有戏。到点即关闭，
+     * 并投递一条管理端公告让运营知道（自动处置无人当场可见）。
+     *
+     * <p>逐条 CAS（open→closed），落败说明已被并发接单或关闭，跳过即可；
+     * 单条异常仅记日志，下一轮扫描仍会重试。
+     *
+     * @return 本次关闭的条数
+     */
+    public int closeExpiredRecruits()
+    {
+        List<SysDemand> expired = demandMapper.selectExpiredOpenDemands();
+        int count = 0;
+        for (SysDemand demand : expired)
+        {
+            try
+            {
+                int changed = demandMapper.updateStatusCas(demand.getDemandId(), DEMAND_STATUS_CLOSED,
+                        OPERATOR_SYSTEM, DEMAND_STATUS_OPEN);
+                if (changed == 0)
+                {
+                    continue;
+                }
+                notifyService.notifyDemandClosed(demand, true);
+                count++;
+            }
+            catch (Exception e)
+            {
+                log.warn("过期征集自动关闭失败 demandId={}: {}", demand.getDemandId(), e.getMessage());
+            }
+        }
+        return count;
     }
 
     /**

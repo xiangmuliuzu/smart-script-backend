@@ -82,8 +82,9 @@
         <if test="budgetMax != null">AND d.budget &lt;= #{budgetMax}</if>
         <!-- 集数下限筛选 -->
         <if test="episodesMin != null">AND d.total_episodes &gt;= #{episodesMin}</if>
-        <!-- 广场口径：征集截止已过的单不再曝光（deadline 为空表示不设时限） -->
-        <if test="excludeExpired != null and excludeExpired">AND (d.deadline is null or d.deadline &gt;= now())</if>
+        <!-- 广场口径：征集截止已过的单不再曝光（deadline 为空表示不设时限；
+             deadline 是 DATE 列，截止日当天整天仍算有效，故与 curdate() 比较而非 now()） -->
+        <if test="excludeExpired != null and excludeExpired">AND (d.deadline is null or d.deadline &gt;= curdate())</if>
     </sql>
 
     <select id="selectDemandList" parameterType="com.smartscript.platform.trade.domain.SysDemand" resultMap="SysDemandResult">
@@ -93,6 +94,15 @@
             <include refid="demandCriteriaWhere" />
         </where>
         order by d.created_at desc
+    </select>
+
+    <!-- 定时扫描：已过征集截止（截止日当天过完才算过期）仍挂 open 的单，最老的先处理，单轮限量 -->
+    <select id="selectExpiredOpenDemands" resultMap="SysDemandResult">
+        select d.demand_id, d.demand_no, d.client_id, d.title, d.deadline, d.status
+        from sys_demand d
+        where d.status = 'open' and d.deadline is not null and d.deadline &lt; curdate()
+        order by d.deadline asc
+        limit 200
     </select>
 
     <!-- APP 任务广场真分页：SQL 层 LIMIT/OFFSET + 白名单排序（非法值回落 created desc） -->
@@ -128,14 +138,14 @@
             coalesce(sum(budget), 0) as prizePoolYuan,
             sum(case when date(created_at) = curdate() then 1 else 0 end) as todayNewCount
         from sys_demand
-        where status = 'open' and (deadline is null or deadline &gt;= now())
+        where status = 'open' and (deadline is null or deadline &gt;= curdate())
     </select>
 
     <!-- 题材分类数量角标：可接且未过征集截止，与广场列表同口径 -->
     <select id="selectGenreCounts" resultType="java.util.HashMap">
         select genre_id as genreId, count(*) as cnt
         from sys_demand
-        where status = 'open' and (deadline is null or deadline &gt;= now())
+        where status = 'open' and (deadline is null or deadline &gt;= curdate())
         group by genre_id
     </select>
 
@@ -143,7 +153,7 @@
     <select id="selectTypeCounts" resultType="java.util.HashMap">
         select task_type as taskType, count(*) as cnt
         from sys_demand
-        where status = 'open' and (deadline is null or deadline &gt;= now())
+        where status = 'open' and (deadline is null or deadline &gt;= curdate())
         group by task_type
     </select>
 
