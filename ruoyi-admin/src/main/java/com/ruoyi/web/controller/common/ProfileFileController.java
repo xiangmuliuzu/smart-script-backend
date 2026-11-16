@@ -72,11 +72,11 @@ public class ProfileFileController
         try
         {
             // Servlet getRequestURI 可能仍是百分号编码；中文文件名必须 UTF-8 解码后再拼磁盘路径，
-            // 否则 File 找不到 → sendError → 转发 /error → 对外表现为 401。
+            // 否则 File 找不到，图片明明在库却回 404。
             String requestPath = resolveProfileRequestPath(request);
             if (StringUtils.isEmpty(requestPath) || !requestPath.startsWith("/profile/"))
             {
-                response.sendError(HttpServletResponse.SC_NOT_FOUND, "文件不存在");
+                reject(response, HttpServletResponse.SC_NOT_FOUND);
                 return;
             }
 
@@ -84,14 +84,14 @@ public class ProfileFileController
             String filePath = storage.keyOf(requestPath);
             if (StringUtils.isEmpty(filePath))
             {
-                response.sendError(HttpServletResponse.SC_NOT_FOUND, "文件不存在");
+                reject(response, HttpServletResponse.SC_NOT_FOUND);
                 return;
             }
 
             // 安全检查
             if (!FileUtils.checkAllowDownload(filePath))
             {
-                response.sendError(HttpServletResponse.SC_FORBIDDEN, "文件访问被拒绝");
+                reject(response, HttpServletResponse.SC_FORBIDDEN);
                 return;
             }
 
@@ -102,10 +102,7 @@ public class ProfileFileController
                     request.getParameter(ProfileAccessSigner.PARAM_EXPIRE),
                     request.getParameter(ProfileAccessSigner.PARAM_SIGNATURE)))
             {
-                // 直接置状态码，不能用 sendError：sendError 会转发到 /error，被安全入口改写成
-                // HTTP 200 + {"code":401}，前端与爬虫都分不出「被拒」和「拿到文件」
-                response.setStatus(HttpServletResponse.SC_FORBIDDEN);
-                response.setContentLength(0);
+                reject(response, HttpServletResponse.SC_FORBIDDEN);
                 return;
             }
 
@@ -116,7 +113,8 @@ public class ProfileFileController
             }
             catch (IOException e)
             {
-                response.sendError(HttpServletResponse.SC_NOT_FOUND, "文件不存在");
+                // 本地没有、对象存储也没回源成功：是缺文件，不是没登录
+                reject(response, HttpServletResponse.SC_NOT_FOUND);
                 return;
             }
 
@@ -175,9 +173,23 @@ public class ProfileFileController
         {
             log.error("访问文件失败: {}", request.getRequestURI(), e);
             if (!response.isCommitted()) {
-                response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "文件访问失败");
+                reject(response, HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
             }
         }
+    }
+
+    /**
+     * 字节流接口的失败出口：只置状态码，不给响应体。
+     *
+     * <p>不能用 {@code sendError}：它会转发到 {@code /error}，被安全入口改写成
+     * HTTP 200 + {@code {"code":401}}。图片走 {@code <img>} 时表现为「请求成功但解不出图」的
+     * 静默破图，网络面板看不出问题；下载与爬虫也分不出「被拒」「缺文件」「拿到文件」。
+     * 这里让 404 就是 404，前端才能按缺文件给出提示。</p>
+     */
+    private static void reject(HttpServletResponse response, int status)
+    {
+        response.setStatus(status);
+        response.setContentLength(0);
     }
     
     /** 缩略图目录：与 uploadPath 同级，不进版本库（原图仍在 profile 根下）。 */

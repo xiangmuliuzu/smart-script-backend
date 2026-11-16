@@ -108,6 +108,33 @@ class ProfileFileControllerTest
     }
 
     @Test
+    void reportsMissingArtifactAsPlainNotFoundWithoutErrorForwarding() throws Exception
+    {
+        // 历史签章只剩库里的地址、原图不在这台机器上：签名有效但文件缺失，必须是干净的 404。
+        // 走 sendError 会转发 /error，被安全入口改写成 HTTP 200 + {"code":401}，
+        // <img> 于是表现为「请求成功却解不出图」的静默破图，谁都看不出是缺文件。
+        String url = "/profile/contract/23/buyer_seal_1793599661535.png";
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", url);
+        String query = new ProfileAccessSigner(SECRET).sign(url).split("\\?")[1];
+        for (String pair : query.split("&"))
+        {
+            int equals = pair.indexOf('=');
+            request.addParameter(pair.substring(0, equals), pair.substring(equals + 1));
+        }
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        contractController.getFile(response, request);
+
+        assertEquals(404, response.getStatus());
+        assertNull(response.getErrorMessage(), "不能交给错误页转发，否则状态码会被改写成 200");
+        assertEquals(0, response.getContentLength());
+
+        // 非合同目录（印章素材、封面）同口径：本地缺件就是 404，不是 200 空 JSON
+        MockHttpServletResponse missing = get("/profile/upload/2026/11/11/seal_missing.jpg", null);
+        assertEquals(404, missing.getStatus());
+        assertNull(missing.getErrorMessage());
+    }
+
+    @Test
     void rejectsTamperedSignature() throws Exception
     {
         writeContractFile("contract/9/page_0.png", "signature-image".getBytes());
