@@ -258,9 +258,13 @@ public class AiServiceClient
         String insp = (inspiration == null || inspiration.isBlank()) ? "" : inspiration;
         String base = "你是一名资深短剧编剧兼分集策划，擅长把灵感拆成一集一集、每集都能独立成片的完整小事件。"
                 + "输出格式严格如下："
-                + "第N集：事件名\n本集事件：……\n冲突与推进：……\n结果或反转：……\n结尾钩子：……\n本集出场：角色A、角色B"
+                + "第N集：事件名\n开场承接：……\n本集事件：……\n冲突与推进：……\n结果或反转：……\n结尾钩子：……\n本集出场：角色A、角色B"
                 + "事件名要短（4-8字）且点明本集核心事件；每项 30-60 字，写具体的人做什么、说什么，"
                 + "不要写场景头、镜号、景别、运镜（这些交给后续分镜环节）。"
+                + "「开场承接」必须写清三件事：上一集最后停在哪个动作或画面、本集从哪个动作接起、中间隔了多久；"
+                + "确实要换场时只能有三种理由——上一集事件已经收束、本集开启另一个过渡事件、本集切到另一视角继续同一件事，"
+                + "写下来是哪种；第1集的开场承接写「开篇，无前情」。"
+                + "同一人物不经任何交代就从上一集的场景跳到另一场景、另一件事，视为不合格。"
                 + "每集必须是一件完整的事：有开场、有交锋、有结果；结尾钩子要具体（一个动作、一句关键台词或一个未解的画面）；"
                 + "「本集出场」只写本集真正出镜的 2-4 个人物姓名（用设定里的原名），没有出场的人物不要写，"
                 + "写正文时只注入这几个人的设定，出场名单必须与实际剧情一致。"
@@ -307,7 +311,8 @@ public class AiServiceClient
             String user = "故事灵感：" + insp + "\n题材：" + genreHint + "\n风格：" + styleHint
                     + "\n【设定（已在上文输出，人物与关系必须与此一致）】\n" + clipText(settingText, settingClipFirst)
                     + ledgerBlock(ledgerContext, ledgerClip)
-                    + "\n请从第1集开始输出分集事件卡。";
+                    + "\n请从第1集开始输出分集事件卡。第1集的「开场承接」写「开篇，无前情」；"
+                    + "从第2集起，「开场承接」必须回应上一集结尾钩子，写清上集停在哪、本集从哪接、隔了多久。";
             AiCallResult r = streamChat(appendSkill(episodeSystem, skillContent), user, onDelta,
                     baseUrl, apiKey, model, episodeMaxTokens);
             onDelta.accept("\n\n");
@@ -330,7 +335,9 @@ public class AiServiceClient
                 user = "故事灵感：" + insp + "\n题材：" + genreHint + "\n风格：" + styleHint
                         + "\n【设定（已在上文输出，人物与关系必须与此一致）】\n" + clipText(settingText, settingClipFirst)
                         + ledgerBlock(ledgerContext, ledgerClip)
-                        + "\n请输出第1集到第" + end + "集的事件卡（共 " + total + " 集，本次只写这一段）。";
+                        + "\n请输出第1集到第" + end + "集的事件卡（共 " + total + " 集，本次只写这一段）。"
+                        + "第1集的「开场承接」写「开篇，无前情」；从第2集起，「开场承接」必须回应上一集结尾钩子，"
+                        + "写清上集停在哪、本集从哪接、隔了多久。";
             }
             else
             {
@@ -340,7 +347,8 @@ public class AiServiceClient
                         + "\n【前情结尾（勿重复）】\n" + prev
                         + "\n【设定摘要（人物与关系必须与此一致）】\n" + settingContinuation(settingText, settingClipCont)
                         + ledgerBlock(ledgerContext, ledgerClip)
-                        + "\n请接着输出第" + start + "集到第" + end + "集的事件卡（共 " + total + " 集）。";
+                        + "\n请接着输出第" + start + "集到第" + end + "集的事件卡（共 " + total + " 集）。"
+                        + "第" + start + "集的「开场承接」必须回应上一集结尾钩子，写清上集停在哪、本集从哪接、隔了多久。";
             }
             AiCallResult r = streamChat(appendSkill(start == 1 ? episodeSystem : contSystem, skillContent),
                     user, onDelta, baseUrl, apiKey, model, episodeMaxTokens);
@@ -1278,7 +1286,7 @@ public class AiServiceClient
                     + "{\"title\":\"作品名\",\"logline\":\"一句话故事\","
                     + "\"characters\":[{\"name\":\"角色名\",\"role\":\"身份或定位\"}],"
                     + "\"episodes\":[{\"no\":1,\"title\":\"本集事件名（不超过12字）\","
-                    + "\"card\":\"本集事件 / 冲突与推进 / 结果或反转 / 结尾钩子，80-150字\"}]}";
+                    + "\"card\":\"开场承接 / 本集事件 / 冲突与推进 / 结果或反转 / 结尾钩子，100-180字；开场承接须写清上集停在哪、本集从哪接、隔了多久，第1集写开篇无前情\"}]}";
             String user = "故事灵感：" + insp + "\n题材：" + genreHint + "\n集数：" + count + " 集";
             return chat(appendSkill(system, skillContent), user, baseUrl, apiKey, model);
         }

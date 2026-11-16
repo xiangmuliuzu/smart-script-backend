@@ -42,8 +42,11 @@ public final class ChapterReviewSupport
         return "你是短剧剧本连贯性审校，只做判定，不改写正文，不评价文采。\n"
                 + "逐项检查下面 7 条，每条给出 fail 或 ok：\n"
                 + "1. identity 人物：是否出现设定外的新人物、改名、年龄/身份/性格突变；\n"
-                + "2. causality 因果：本集开场是否承接上一集结尾最后一个动作或悬念，并由它的结果推动；"
-                + "只有三种情况允许不承接：上一集事件已经收束、本集明确开启另一个过渡事件、本集切换到另一视角继续同一事件；"
+                + "2. causality 因果：本集开场是否承接上一集结尾最后一个动作或悬念，并交代了时间、地点、起因的过渡；"
+                + "只有三种情况允许直接换场：上一集事件已经收束、本集明确开启另一个过渡事件、本集切换到另一视角继续同一事件，"
+                + "而且正文必须把这层理由写出来；"
+                + "同一人物没有任何时间、地点、起因交代就直接出现在另一个场景做另一件事，一律判 fail，"
+                + "哪怕事件卡本来就把这一集安排在别的场景；"
                 + "除这三种，人物/事件/道具的状态不得在没有过渡的情况下突变；\n"
                 + "3. continuity 连续性：时间、地点、伤病、衣着、在场人物是否与台账一致，有没有跳过本集事件卡规定的进程；\n"
                 + "4. props 道具：件数、持有人、完好状态是否与「重要道具档案」一致；"
@@ -54,8 +57,10 @@ public final class ChapterReviewSupport
                 + "6. foreshadow 伏笔：是否只新增或推进，未到回收点的伏笔是否被提前揭晓；\n"
                 + "7. structure 结构：是否有完整的冲突推进与结尾钩子，不是流水账或纯对话堆叠。\n"
                 + "输出一个 JSON 对象，结构如下：\n"
-                + "{\"score\":6,\"issues\":[{\"item\":\"identity\",\"level\":\"fail\",\"detail\":\"一句话指出问题所在\"}]}\n"
-                + "score 为未出现 fail 的项数（0-7）；每项最多写一条 issues，ok 的项不要输出。\n"
+                + "{\"score\":6,\"issues\":[{\"item\":\"causality\",\"level\":\"fail\",\"detail\":\"一句话指出问题所在\","
+                + "\"fix\":\"一句话给出可直接照着改的写法，例如：在本集第 1 段后补一句，交代上集结束当夜过去一夜、林昭趁晒药之机摸到丹房外墙\"}]}\n"
+                + "score 为未出现 fail 的项数（0-7）；每项最多写一条 issues，ok 的项不要输出；"
+                + "fix 必须具体到人物、时间与衔接方式，不要写「加强过渡」这类空话。\n"
                 + "不要 Markdown 代码块，不要任何解释文字。";
     }
 
@@ -167,6 +172,7 @@ public final class ChapterReviewSupport
             }
             String item = issue.path("item").asText("").trim();
             String detail = issue.path("detail").asText("").trim();
+            String fix = issue.path("fix").asText("").trim();
             if (item.isEmpty() && detail.isEmpty())
             {
                 continue;
@@ -176,6 +182,10 @@ public final class ChapterReviewSupport
                 sb.append('\n');
             }
             sb.append(labelOf(item)).append("：").append(detail.isEmpty() ? "未通过" : detail);
+            if (!fix.isEmpty())
+            {
+                sb.append("（改法：").append(fix).append("）");
+            }
         }
         return sb.toString();
     }
