@@ -6,7 +6,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * A3 security gates:
- * - APP_TOKEN_SECRET must be strong and distinct from PC TOKEN_SECRET.
+ * - The shared RuoYi TOKEN_SECRET must be strong.
  * - Mock SMS only allowed in local/test profiles.
  */
 @Component
@@ -27,31 +27,22 @@ public class AppAuthStartupGuard implements InitializingBean
     @Override
     public void afterPropertiesSet()
     {
-        String secret = properties.getTokenSecret();
+        String secret = pcTokenSecret;
         if (!hasText(secret))
         {
             throw new IllegalStateException(
-                    "APP_TOKEN_SECRET is required. Refusing to start with empty App JWT secret (A3 security gate).");
+                    "TOKEN_SECRET is required for RuoYi sessions.");
         }
         String trimmed = secret.trim();
         if (trimmed.length() < MIN_SECRET_LENGTH)
         {
             throw new IllegalStateException(
-                    "APP_TOKEN_SECRET must be at least " + MIN_SECRET_LENGTH + " characters (A3 security gate).");
+                    "TOKEN_SECRET must be at least " + MIN_SECRET_LENGTH + " characters.");
         }
         if (isWeak(trimmed))
         {
             throw new IllegalStateException(
-                    "APP_TOKEN_SECRET matches a known weak/default value and must be rotated (A3 security gate).");
-        }
-        if (hasText(pcTokenSecret) && trimmed.equals(pcTokenSecret.trim()))
-        {
-            throw new IllegalStateException(
-                    "APP_TOKEN_SECRET must differ from TOKEN_SECRET; App and PC credential domains must be isolated (A3 security gate).");
-        }
-        if (!hasText(properties.getTokenIssuer()) || !hasText(properties.getTokenAudience()))
-        {
-            throw new IllegalStateException("APP_TOKEN_ISSUER and APP_TOKEN_AUDIENCE are required (A3 security gate).");
+                    "TOKEN_SECRET matches a known weak/default value and must be rotated.");
         }
         if (!hasText(properties.getRedisKeyPrefix()))
         {
@@ -63,10 +54,6 @@ public class AppAuthStartupGuard implements InitializingBean
         {
             throw new IllegalStateException(
                     "SMS_PROVIDER=mock is only allowed in local/test profiles. Refusing to start (A3 security gate).");
-        }
-        if (properties.getAccessTokenTtlSeconds() <= 0 || properties.getRefreshTokenTtlSeconds() <= 0)
-        {
-            throw new IllegalStateException("APP_ACCESS_TOKEN_TTL and APP_REFRESH_TOKEN_TTL must be positive.");
         }
     }
 

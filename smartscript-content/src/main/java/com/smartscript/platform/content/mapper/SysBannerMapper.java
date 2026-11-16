@@ -37,36 +37,4 @@ public interface SysBannerMapper
      * @return Banner对象
      */
     public SysBanner selectBannerById(Long bannerId);
-
-    /**
-     * 新增Banner
-     *
-     * @param banner Banner对象
-     * @return 影响行数
-     */
-    public int insertBanner(SysBanner banner);
-
-    /**
-     * 修改Banner（动态 set，仅更新非空字段）
-     *
-     * @param banner Banner对象
-     * @return 影响行数
-     */
-    public int updateBanner(SysBanner banner);
-
-    /**
-     * 修改Banner状态（单一职责：仅改 status）
-     *
-     * @param banner 仅携带 bannerId + status + updateBy
-     * @return 影响行数
-     */
-    public int updateBannerStatus(SysBanner banner);
-
-    /**
-     * 修改Banner排序（单一职责：仅改 sort_order）
-     *
-     * @param banner 仅携带 bannerId + sortOrder + updateBy
-     * @return 影响行数
-     */
-    public int updateBannerSort(SysBanner banner);
 }

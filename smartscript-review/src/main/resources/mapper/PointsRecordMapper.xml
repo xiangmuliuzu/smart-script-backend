@@ -46,4 +46,30 @@
         ORDER BY pr.created_at DESC
     </select>
 
+    <insert id="insertPointsRecord" parameterType="com.smartscript.platform.review.domain.PointsRecord" useGeneratedKeys="true" keyProperty="recordId">
+        INSERT INTO sys_points_record
+            (user_id, change_type, points, balance_after, source,
+             related_id, remark, created_at, create_by, create_time)
+        VALUES
+            (#{userId}, #{changeType}, #{points}, #{balanceAfter}, #{source},
+             #{relatedId}, #{remark}, NOW(), #{createBy}, #{createTime})
+    </insert>
+
+    <select id="countAdClaims" resultType="int">
+        SELECT COUNT(*)
+        FROM sys_points_record
+        WHERE user_id = #{userId}
+          AND source = 'AD'
+          AND related_id = #{adId}
+          AND DATE(created_at) = #{date}
+    </select>
+
+    <select id="countAdDaily" resultType="int">
+        SELECT COUNT(*)
+        FROM sys_points_record
+        WHERE user_id = #{userId}
+          AND source = 'AD'
+          AND DATE(created_at) = #{date}
+    </select>
+
 </mapper>

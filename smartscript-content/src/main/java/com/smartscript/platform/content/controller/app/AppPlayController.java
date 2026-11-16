@@ -112,11 +112,11 @@ public class AppPlayController
         Integer duration = request == null ? null : request.getDuration();
         if (progress == null || progress < 0)
         {
-            return AppApiResponse.fail(CODE_BAD_REQUEST, "progress 不能为空且不能为负数");
+            return AppApiResponse.fail(CODE_BAD_REQUEST, "阅读进度不正确，请刷新后重试");
         }
         if (duration != null && duration < 0)
         {
-            return AppApiResponse.fail(CODE_BAD_REQUEST, "duration 不能为负数");
+            return AppApiResponse.fail(CODE_BAD_REQUEST, "阅读时长不正确，请刷新后重试");
         }
         if (!playService.saveProgress(episodeId, progress, duration))
         {

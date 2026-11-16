@@ -12,9 +12,7 @@ import com.fasterxml.jackson.annotation.JsonFormat;
  * 字段裁剪：只下发 App 展示所需字段，不下发内部字段
  * （ext_json / reject_reason / reviewer_id / review_time / is_deleted / 若依审计字段）。
  *
- * 列表与详情共用本对象：
- *   - 列表不查询 core_setting/character_setting（长文本），这两项在列表中为 null；
- *   - 详情额外下发 core_setting/character_setting。
+ * 列表与详情共用本对象：列表仅下发展示所需字段，详情在此基础上补充。
  *
  * @author xiangsipeng
  */
@@ -35,11 +33,8 @@ public class AppWorkDto
     /** 作者昵称（JOIN sys_user.nick_name） */
     private String authorName;
 
-    /** 题材ID */
-    private Integer genreId;
-
-    /** 题材名称（JOIN sys_category.category_name） */
-    private String genreName;
+    /** 作者头像（JOIN sys_user.avatar）；未设置时为空 */
+    private String authorAvatar;
 
     /** 标签集合（sys_work_tag 关联 sys_tag，仅含启用标签，按 sort 排序） */
     private List<AppTagDto> tags;
@@ -55,12 +50,6 @@ public class AppWorkDto
 
     /** 简介 */
     private String summary;
-
-    /** 核心设置（仅详情下发） */
-    private String coreSetting;
-
-    /** 角色设定（仅详情下发） */
-    private String characterSetting;
 
     /** 价格 */
     private BigDecimal price;
@@ -88,6 +77,15 @@ public class AppWorkDto
 
     /** 预览集数 */
     private Integer previewEpisodes;
+
+    /**
+     * 可试读（作者标记的免费）章节数。
+     *
+     * 派生字段，非库中列：sys_work_chapter 中 status='0' 且 is_free='1' 的章节数。
+     * 作品级「试读」展示需与本值合并判定——sys_work.preview_enabled/preview_episodes
+     * 当前无任何写入方，只认这两列会恒显示「未开启试读」。
+     */
+    private Integer freeChapterCount;
 
     /** 状态（书城只下发 on_shelf） */
     private String status;
@@ -168,24 +166,14 @@ public class AppWorkDto
         this.authorName = authorName;
     }
 
-    public Integer getGenreId()
+    public String getAuthorAvatar()
     {
-        return genreId;
+        return authorAvatar;
     }
 
-    public void setGenreId(Integer genreId)
+    public void setAuthorAvatar(String authorAvatar)
     {
-        this.genreId = genreId;
-    }
-
-    public String getGenreName()
-    {
-        return genreName;
-    }
-
-    public void setGenreName(String genreName)
-    {
-        this.genreName = genreName;
+        this.authorAvatar = authorAvatar;
     }
 
     public List<AppTagDto> getTags()
@@ -236,26 +224,6 @@ public class AppWorkDto
     public void setSummary(String summary)
     {
         this.summary = summary;
-    }
-
-    public String getCoreSetting()
-    {
-        return coreSetting;
-    }
-
-    public void setCoreSetting(String coreSetting)
-    {
-        this.coreSetting = coreSetting;
-    }
-
-    public String getCharacterSetting()
-    {
-        return characterSetting;
-    }
-
-    public void setCharacterSetting(String characterSetting)
-    {
-        this.characterSetting = characterSetting;
     }
 
     public BigDecimal getPrice()
@@ -346,6 +314,16 @@ public class AppWorkDto
     public void setPreviewEpisodes(Integer previewEpisodes)
     {
         this.previewEpisodes = previewEpisodes;
+    }
+
+    public Integer getFreeChapterCount()
+    {
+        return freeChapterCount;
+    }
+
+    public void setFreeChapterCount(Integer freeChapterCount)
+    {
+        this.freeChapterCount = freeChapterCount;
     }
 
     public String getStatus()

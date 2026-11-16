@@ -23,8 +23,6 @@ public class SysWork extends BaseEntity
     private String uploadType;
     private String lengthType;
     private String summary;
-    private String coreSetting;
-    private String characterSetting;
     private BigDecimal price;
     private String tradeType;
     private Integer tradeEnabled;
@@ -80,10 +78,6 @@ public class SysWork extends BaseEntity
     public void setLengthType(String lengthType) { this.lengthType = lengthType; }
     public String getSummary() { return summary; }
     public void setSummary(String summary) { this.summary = summary; }
-    public String getCoreSetting() { return coreSetting; }
-    public void setCoreSetting(String coreSetting) { this.coreSetting = coreSetting; }
-    public String getCharacterSetting() { return characterSetting; }
-    public void setCharacterSetting(String characterSetting) { this.characterSetting = characterSetting; }
     public BigDecimal getPrice() { return price; }
     public void setPrice(BigDecimal price) { this.price = price; }
     public String getTradeType() { return tradeType; }

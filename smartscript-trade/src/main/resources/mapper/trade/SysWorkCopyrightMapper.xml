@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.trade.mapper.SysWorkCopyrightMapper">
+
+    <!-- 作品是否已完成版权登记发证：存在 status='certificated' 的申请记录即视为有版权。
+         sys_copyright_application 属 content 版权域，此处仅只读判定，不引入模块依赖。 -->
+    <select id="hasCertificatedCopyright" parameterType="Long" resultType="boolean">
+        select case when count(1) > 0 then 1 else 0 end
+        from sys_copyright_application a
+        where a.work_id = #{workId} and a.status = 'certificated'
+    </select>
+
+</mapper>

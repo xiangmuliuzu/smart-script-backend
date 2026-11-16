@@ -37,4 +37,9 @@ public interface AiReviewRuleMapper {
      * 删除AI审核规则
      */
     int deleteAiReviewRuleById(@Param("ruleId") Long ruleId);
+
+    /**
+     * 查询启用中的AI审核规则（业务打分用，status=1）
+     */
+    List<AiReviewRule> selectActiveAiReviewRules();
 }

@@ -5,17 +5,21 @@ import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.ruoyi.framework.realtime.RealtimePushService;
 import com.smartscript.platform.user.constant.AppUserErrorCodes;
 import com.smartscript.platform.user.domain.ChatMessage;
 import com.smartscript.platform.user.domain.ChatSession;
+import com.smartscript.platform.user.domain.ChatTradeTemplate;
 import com.smartscript.platform.user.dto.ChatMessageSendRequest;
 import com.smartscript.platform.user.dto.ChatSessionCreateRequest;
 import com.smartscript.platform.user.dto.PageResult;
 import com.smartscript.platform.user.exception.AppAuthException;
 import com.smartscript.platform.user.mapper.ChatMessageMapper;
 import com.smartscript.platform.user.mapper.ChatSessionMapper;
+import com.smartscript.platform.user.mapper.ChatTradeTemplateMapper;
 
 /**
  * A3 聊天核心服务：会话管理 + 消息收发 + 已读/未读。
@@ -44,11 +48,25 @@ public class ChatService
 
     private final ChatSessionMapper sessionMapper;
     private final ChatMessageMapper messageMapper;
+    private final ChatTradeTemplateMapper templateMapper;
+    private final UserBlockService blockService;
 
-    public ChatService(ChatSessionMapper sessionMapper, ChatMessageMapper messageMapper)
+    /**
+     * 实时提醒出口（WebSocket）。可选注入：会话消息的真相在数据库里，
+     * 未装配长连接时消息照常收发，只是对端要等下一次拉取。
+     */
+    @Autowired(required = false)
+    private RealtimePushService realtimePush;
+
+    public ChatService(ChatSessionMapper sessionMapper,
+                       ChatMessageMapper messageMapper,
+                       ChatTradeTemplateMapper templateMapper,
+                       UserBlockService blockService)
     {
         this.sessionMapper = sessionMapper;
         this.messageMapper = messageMapper;
+        this.templateMapper = templateMapper;
+        this.blockService = blockService;
     }
 
     /* ========== 任务 2/10：创建会话（幂等） ========== */
@@ -57,7 +75,9 @@ public class ChatService
      * 创建或获取已有会话。
      *
      * 唯一键冲突时不报错，直接返回已有会话（任务 10）。
-     * userId 为发起方（App 用户），targetAdminId 为接收方（管理员）。
+     * userId 为发起方（App 用户）。
+     * sessionType=ADMIN 时，user2 = 管理员（targetAdminId 或默认）。
+     * sessionType=TRADE 时，user2 = 交易对手（由调用方通过 targetAdminId 传入，如作品作者）。
      */
     @Transactional
     public Map<String, Object> createOrGetSession(Long userId, ChatSessionCreateRequest req)
@@ -66,13 +86,30 @@ public class ChatService
         {
             throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "请求体不能为空");
         }
+        String sessionType = (req.getSessionType() != null && !req.getSessionType().isBlank())
+                ? req.getSessionType() : "ADMIN";
         Long user1Id = userId;
         Long user2Id = req.getTargetAdminId() != null ? req.getTargetAdminId() : DEFAULT_ADMIN_ID;
         String bizType = req.getBusinessType();
         Long bizId = req.getBusinessId();
 
+        // 用户与用户之间的会话（交易等）受个人黑名单约束；管理员会话不适用。
+        if (!"ADMIN".equals(sessionType) && !"CHAT".equals(sessionType))
+        {
+            blockService.requireNotBlocked(user1Id, user2Id, "发起会话");
+        }
+
         // 先查已有
-        ChatSession existing = sessionMapper.selectByBusiness(user1Id, user2Id, bizType, bizId);
+        ChatSession existing;
+        if ("TRADE".equals(sessionType) && req.getInquiryId() != null)
+        {
+            // TRADE 类型按询盘ID幂等
+            existing = sessionMapper.selectByInquiryId(req.getInquiryId());
+        }
+        else
+        {
+            existing = sessionMapper.selectByBusiness(user1Id, user2Id, bizType, bizId);
+        }
         if (existing != null)
         {
             resumeIfClosed(existing);
@@ -80,14 +117,15 @@ public class ChatService
         }
         // 新建
         ChatSession session = new ChatSession();
-        session.setSessionType("CHAT");
+        session.setSessionType(sessionType);
+        session.setInquiryId(req.getInquiryId());
         session.setUser1Id(user1Id);
         session.setUser2Id(user2Id);
         session.setBusinessType(bizType);
         session.setBusinessId(bizId);
         session.setBusinessName(req.getBusinessName());
         session.setStatus(STATUS_PENDING);
-        session.setAssignedAdminId(user2Id);
+        session.setAssignedAdminId("TRADE".equals(sessionType) ? null : user2Id);
         try
         {
             sessionMapper.insertSession(session);
@@ -95,7 +133,14 @@ public class ChatService
         catch (Exception e)
         {
             // 唯一键冲突 → 再查一次
-            existing = sessionMapper.selectByBusiness(user1Id, user2Id, bizType, bizId);
+            if ("TRADE".equals(sessionType) && req.getInquiryId() != null)
+            {
+                existing = sessionMapper.selectByInquiryId(req.getInquiryId());
+            }
+            else
+            {
+                existing = sessionMapper.selectByBusiness(user1Id, user2Id, bizType, bizId);
+            }
             if (existing != null)
             {
                 resumeIfClosed(existing);
@@ -108,18 +153,96 @@ public class ChatService
         return toSessionVo(created != null ? created : session, userId);
     }
 
+    /**
+     * 创建或获取「任务会话」（sessionType=DEMAND）：任务发布者与创作者一对一沟通。
+     *
+     * <p>一条任务对应一个发布者与任意多个意向/接单创作者。为使会话在
+     * 有序唯一键 {@code uk_session_biz(user1_id,user2_id,business_type,business_id)}
+     * 下幂等唯一且与「谁先发起」无关，这里以固定角色顺序落库：
+     * user1=发布者、user2=创作者，businessType/businessId 记为 DEMAND/任务ID。
+     * 双方均为 App 用户，{@code assigned_admin_id} 置空，
+     * {@code handlerId} 回落 user2，故发送/已读/未读对双方都成立。</p>
+     *
+     * @param viewerUserId    当前发起/查看方（用于 VO 计算对方与未读）
+     * @param demandId        任务 ID（作为 businessId）
+     * @param publisherUserId 任务发布者 user_id（规范为 user1）
+     * @param creatorUserId   创作者 user_id（规范为 user2）
+     * @param demandTitle     任务标题（业务名称快照，便于列表展示）
+     */
+    @Transactional
+    public Map<String, Object> createOrGetDemandSession(Long viewerUserId, Long demandId,
+                                                        Long publisherUserId, Long creatorUserId,
+                                                        String demandTitle)
+    {
+        if (demandId == null || publisherUserId == null || creatorUserId == null)
+        {
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "任务会话参数不完整");
+        }
+        Long peerId = viewerUserId != null && viewerUserId.equals(publisherUserId)
+                ? creatorUserId : publisherUserId;
+        blockService.requireNotBlocked(viewerUserId, peerId, "发起会话");
+        ChatSession existing = sessionMapper.selectByBusiness(publisherUserId, creatorUserId, "DEMAND", demandId);
+        if (existing != null)
+        {
+            resumeIfClosed(existing);
+            return toSessionVo(existing, viewerUserId);
+        }
+        ChatSession session = new ChatSession();
+        session.setSessionType("DEMAND");
+        session.setUser1Id(publisherUserId);
+        session.setUser2Id(creatorUserId);
+        session.setBusinessType("DEMAND");
+        session.setBusinessId(demandId);
+        session.setBusinessName(demandTitle);
+        session.setStatus(STATUS_PENDING);
+        session.setAssignedAdminId(null);
+        try
+        {
+            sessionMapper.insertSession(session);
+        }
+        catch (Exception e)
+        {
+            // 并发/唯一键冲突 → 再查一次复用
+            existing = sessionMapper.selectByBusiness(publisherUserId, creatorUserId, "DEMAND", demandId);
+            if (existing != null)
+            {
+                resumeIfClosed(existing);
+                return toSessionVo(existing, viewerUserId);
+            }
+            throw e;
+        }
+        ChatSession created = sessionMapper.selectById(session.getSessionId());
+        return toSessionVo(created != null ? created : session, viewerUserId);
+    }
+
     /* ========== 任务 3/11：会话列表 ========== */
 
     /** 用户端：我的会话列表。SQL 层强制 user1_id 或 user2_id = userId（任务 11）。 */
-    public PageResult<Map<String, Object>> mySessions(Long userId, Integer status)
+    public PageResult<Map<String, Object>> mySessions(Long userId, Integer status, String sessionType)
     {
-        List<ChatSession> rows = sessionMapper.selectMySessions(userId, status);
+        List<ChatSession> rows = sessionMapper.selectMySessions(userId, status, sessionType);
         List<Map<String, Object>> list = new ArrayList<>();
         for (ChatSession s : rows)
         {
             list.add(toSessionVo(s, userId));
         }
         return PageResult.of(list.size(), list);
+    }
+
+    /** 用户端：单个会话详情。 */
+    public Map<String, Object> sessionDetail(Long sessionId, Long userId)
+    {
+        ChatSession s = sessionMapper.selectById(sessionId);
+        if (s == null)
+        {
+            throw new AppAuthException(AppUserErrorCodes.RESOURCE_NOT_FOUND, 404, "会话不存在");
+        }
+        // 校验当前用户是会话双方之一
+        if (!userId.equals(s.getUser1Id()) && !userId.equals(s.getUser2Id()))
+        {
+            throw new AppAuthException(AppUserErrorCodes.DOMAIN_OR_PERMISSION, 403, "无权查看该会话");
+        }
+        return toSessionVo(s, userId);
     }
 
     /** 管理端：全部会话列表（PageHelper 驱动，Controller 用 getDataTable 取分页）。 */
@@ -209,6 +332,14 @@ public class ChatService
         return PageResult.of(list.size(), list);
     }
 
+    /* ========== 定型文模板列表 ========== */
+
+    /** 获取所有已启用的交易会话定型文模板。 */
+    public List<ChatTradeTemplate> listTradeTemplates()
+    {
+        return templateMapper.selectEnabledTemplates();
+    }
+
     /* ========== 任务 5：发送消息 ========== */
 
     /**
@@ -216,6 +347,7 @@ public class ChatService
      *
      * 原子操作：插入消息 → 更新会话最后消息 → 对方未读 +1。
      * senderId 为当前用户；receiverId 为会话另一方。
+     * TRADE 会话强制校验定型文白名单。
      */
     @Transactional
     public Map<String, Object> sendMessage(Long sessionId, Long senderId,
@@ -233,7 +365,20 @@ public class ChatService
         {
             throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "会话已结束，无法发送消息");
         }
+
+        // TRADE 会话定型文白名单校验已取消：定型文作为快捷选项提供，但不强制限制自由文本
+        // 历史原因：早期设计 TRADE 会话仅允许定型文，实测发现用户需要自由沟通场景
+        // if ("TRADE".equals(session.getSessionType()))
+        // {
+        //     validateTradeTemplate(req.getContent().trim());
+        // }
+
         Long receiverId = session.getUser1Id().equals(senderId) ? handlerId(session) : session.getUser1Id();
+        // 用户对用户的会话受个人黑名单约束；管理员会话（assignedAdminId 非空）不适用。
+        if (session.getAssignedAdminId() == null)
+        {
+            blockService.requireNotBlocked(senderId, receiverId, "发送消息");
+        }
         String msgType = (req.getMsgType() != null && !req.getMsgType().isBlank()) ? req.getMsgType() : MSG_TYPE_TEXT;
         if (MSG_TYPE_SYSTEM.equals(msgType))
         {
@@ -264,6 +409,10 @@ public class ChatService
         ChatMessage full = messageMapper.selectBySession(sessionId).stream()
                 .filter(m -> m.getMessageId().equals(msg.getMessageId()))
                 .findFirst().orElse(msg);
+        if (realtimePush != null)
+        {
+            realtimePush.pushChatMessageAfterCommit(sessionId, full.getMessageId(), senderId, receiverId);
+        }
         return toMessageVo(full);
     }
 
@@ -322,7 +471,7 @@ public class ChatService
     }
 
     /** 插入系统提示消息（sender/receiver 置 0，已读，不增加未读） */
-    private void insertSystemNotice(Long sessionId, String content)
+    public void insertSystemNotice(Long sessionId, String content)
     {
         ChatMessage notice = new ChatMessage();
         notice.setSessionId(sessionId);
@@ -332,6 +481,50 @@ public class ChatService
         notice.setContent(content);
         notice.setIsRead(Boolean.TRUE);
         messageMapper.insertMessage(notice);
+    }
+
+    /**
+     * 按询盘ID向关联的 TRADE 会话插入系统通知。
+     * 若该询盘无关联会话则静默跳过（不影响主流程）。
+     */
+    public void sendNoticeByInquiryId(Long inquiryId, String content)
+    {
+        if (inquiryId == null) return;
+        ChatSession session = sessionMapper.selectByInquiryId(inquiryId);
+        if (session == null) return;
+        insertSystemNotice(session.getSessionId(), content);
+    }
+
+    /**
+     * TRADE 会话定型文白名单校验。
+     *
+     * 将发送内容与所有已启用模板比对：
+     * - 含 {price} 占位符的模板：按占位符分段，分别转义后拼接数字正则
+     * - 纯文字模板：精确匹配
+     * 不匹配则抛出异常，拒绝发送。
+     */
+    private void validateTradeTemplate(String sentContent)
+    {
+        List<ChatTradeTemplate> templates = templateMapper.selectEnabledTemplates();
+        boolean matched = templates.stream().anyMatch(t -> {
+            if (t.getHasAmount() != null && t.getHasAmount() == 1)
+            {
+                // 含价格占位符：按 {price} 分段，分别 quote 后拼接数字正则
+                String content = t.getContent();
+                int idx = content.indexOf("{price}");
+                if (idx < 0) return false;
+                String before = java.util.regex.Pattern.quote(content.substring(0, idx));
+                String after = java.util.regex.Pattern.quote(content.substring(idx + 7));
+                String pattern = before + "\\d+(?:\\.\\d+)?" + after;
+                return sentContent.matches(pattern);
+            }
+            return t.getContent().equals(sentContent);
+        });
+        if (!matched)
+        {
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400,
+                    "交易会话仅支持使用定型文消息");
+        }
     }
 
     /**
@@ -437,6 +630,8 @@ public class ChatService
     {
         Map<String, Object> vo = new LinkedHashMap<>();
         vo.put("sessionId", s.getSessionId());
+        vo.put("sessionType", s.getSessionType());
+        vo.put("inquiryId", s.getInquiryId());
         vo.put("businessType", s.getBusinessType());
         vo.put("businessId", s.getBusinessId());
         vo.put("businessName", s.getBusinessName());

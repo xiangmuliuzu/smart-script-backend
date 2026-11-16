@@ -22,6 +22,14 @@ public class TaskConfig {
     /** 奖励积分 */
     private Integer rewardPoints;
     private String icon;
+    /** 生效开始时间（空=立即） */
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+    private Date startTime;
+    /** 生效结束时间（空=长期） */
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+    private Date endTime;
+    /** 每日可领取次数上限（0=不限） */
+    private Integer dailyLimit;
     private Integer sort;
     /** 状态 1-启用 0-停用 */
     private Integer status;
@@ -49,6 +57,12 @@ public class TaskConfig {
     public void setRewardPoints(Integer rewardPoints) { this.rewardPoints = rewardPoints; }
     public String getIcon() { return icon; }
     public void setIcon(String icon) { this.icon = icon; }
+    public Date getStartTime() { return startTime; }
+    public void setStartTime(Date startTime) { this.startTime = startTime; }
+    public Date getEndTime() { return endTime; }
+    public void setEndTime(Date endTime) { this.endTime = endTime; }
+    public Integer getDailyLimit() { return dailyLimit; }
+    public void setDailyLimit(Integer dailyLimit) { this.dailyLimit = dailyLimit; }
     public Integer getSort() { return sort; }
     public void setSort(Integer sort) { this.sort = sort; }
     public Integer getStatus() { return status; }

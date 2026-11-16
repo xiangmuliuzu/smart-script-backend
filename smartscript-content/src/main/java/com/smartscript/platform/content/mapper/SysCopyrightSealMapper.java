@@ -26,4 +26,19 @@ public interface SysCopyrightSealMapper
             @Param("updateBy") String updateBy);
 
     int insertSealLog(SysCopyrightSealLog log);
+
+    // ========== App 端用户印章接口 ==========
+
+    List<SysCopyrightSeal> selectSealsByUserId(@Param("userId") Long userId);
+
+    int insertSeal(SysCopyrightSeal seal);
+
+    int updateMaterials(@Param("sealId") Long sealId, @Param("materialUrls") String materialUrls);
+
+    int updateResubmit(SysCopyrightSeal seal);
+
+    int updateSealStatusByUser(@Param("sealId") Long sealId, @Param("sealStatus") String sealStatus,
+            @Param("updateBy") String updateBy);
+
+    int deleteSealById(@Param("sealId") Long sealId);
 }

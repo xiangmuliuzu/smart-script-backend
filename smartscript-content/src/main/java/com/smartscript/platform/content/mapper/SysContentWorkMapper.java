@@ -25,15 +25,15 @@ import com.smartscript.platform.content.dto.CopyrightAssetQuery;
 public interface SysContentWorkMapper
 {
     /**
-     * 查询作品列表（含 authorName/genreName，JOIN sys_user + sys_category）
+     * 查询作品列表（含 authorName，标签由服务层按 sys_work_tag 回填；JOIN sys_user）
      *
-     * @param query 查询条件（title 模糊、authorId/genreId/status/workType/tradeType 精确，按需传入）
+     * @param query 查询条件（title 模糊、authorId/tagId/status/workType/tradeType 精确，按需传入）
      * @return 作品集合
      */
     public List<SysWork> selectWorkList(SysWork query);
 
     /**
-     * 通过作品ID查询详情（含 authorName/genreName）
+     * 通过作品ID查询详情（含 authorName，标签由服务层回填）
      *
      * @param workId 作品ID
      * @return 作品对象
@@ -41,7 +41,15 @@ public interface SysContentWorkMapper
     public SysWork selectWorkById(Long workId);
 
     /**
-     * 用户端「我的作品」列表（含 authorName/genreName，按更新时间倒序）
+     * 校验频道是否有效（sys_category 顶级、channel 类型、启用状态）
+     *
+     * @param channelId 频道ID（146 男频 / 147 女频）
+     * @return 匹配行数（1 有效，0 无效）
+     */
+    public int countEnabledChannel(@Param("channelId") Integer channelId);
+
+    /**
+     * 用户端「我的作品」列表（含 authorName，按更新时间倒序）
      *
      * 固定条件：is_deleted = 0，作者为当前用户。
      * 审核派生状态由服务层依据 sys_review_record 最新记录计算，此处不参与过滤。
@@ -96,7 +104,7 @@ public interface SysContentWorkMapper
      *
      * 固定条件：is_deleted = 0 且 status = 'on_shelf'（书城只展示已上架作品）。
      *
-     * @param query 查询条件（keyword 模糊、categoryId 精确、tagId 走 sys_work_tag EXISTS、sort 决定排序）
+     * @param query 查询条件（keyword 模糊、tagId 走 sys_work_tag EXISTS、sort 决定排序）
      * @return 作品集合（AppWorkDto，分页由调用方 PageHelper 驱动）
      */
     public List<AppWorkDto> selectAppWorkList(AppWorkQuery query);
@@ -104,7 +112,7 @@ public interface SysContentWorkMapper
     /**
      * 书城作品详情（App 侧只读）
      *
-     * 固定条件：is_deleted = 0 且 status = 'on_shelf'；额外下发 core_setting/character_setting。
+     * 固定条件：is_deleted = 0 且 status = 'on_shelf'。
      *
      * @param workId 作品ID
      * @return 作品（AppWorkDto，未上架或已删除返回 null）
@@ -116,18 +124,18 @@ public interface SysContentWorkMapper
      *
      * 固定条件：is_deleted = 0 且 status = 'on_shelf'。
      *
-     * @param type  榜单类型：view（默认）/favorite/sale/rating
+     * @param type  榜单类型：view（默认）/favorite/sale/rating/new
      * @param limit 取前 N 条
-     * @return 榜单条目（rankNo 由服务层按顺序填充）
+     * @return 榜单条目（rankNo 由服务层按顺序填充；score 由 SQL 的 rank_score 列映射）
      */
     public List<AppRankingItem> selectAppRankingList(@Param("type") String type, @Param("limit") int limit);
 
     /**
-     * 用户端修改作品基本信息（单一职责：仅改 title/summary/genre_id）
+     * 用户端修改作品基本信息（单一职责：仅改 title/summary）
      *
      * 仅未在审核中的作品允许调用，状态校验在服务层。
      *
-     * @param work 仅携带 workId + title/summary/genreId + updateBy/updateTime
+     * @param work 仅携带 workId + title/summary + updateBy/updateTime
      * @return 影响行数
      */
     public int updateWorkBaseInfo(SysWork work);
@@ -141,30 +149,37 @@ public interface SysContentWorkMapper
     public List<CopyrightAssetDto> selectCopyrightAssetList(CopyrightAssetQuery query);
 
     /**
-     * 查询版权资产详情
+     * 查询版权资产详情。
+     * authorId / onlyPublished 为 null 时与 Admin 原行为一致。
      *
      * @param workId 作品ID
+     * @param authorId 作者 ID（可选）
+     * @param onlyPublished 是否仅已发布（可选）
      * @return 版权资产详情
      */
-    public CopyrightAssetDto selectCopyrightAssetById(Long workId);
+    public CopyrightAssetDto selectCopyrightAssetById(@Param("workId") Long workId,
+            @Param("authorId") Long authorId, @Param("onlyPublished") Boolean onlyPublished);
 
     /**
-     * 更新版权资产状态
+     * 更新版权资产状态。
+     * authorId 为 null 时与 Admin 原行为一致。
      *
      * @param workId 作品ID
      * @param status 状态
      * @param updateBy 更新者
+     * @param authorId 作者 ID（可选）
      * @return 影响行数
      */
-    public int updateCopyrightAssetStatus(@Param("workId") Long workId, @Param("status") String status, @Param("updateBy") String updateBy);
+    public int updateCopyrightAssetStatus(@Param("workId") Long workId, @Param("status") String status,
+            @Param("updateBy") String updateBy, @Param("authorId") Long authorId);
 
     // ==================== 上传与创作（App 接口文档 2.9） ====================
 
     /**
      * 新增作品（2.9.2 创建作品）
      *
-     * 服务层负责补齐 NOT NULL 列默认值（author_id/work_type/length_type/status/各类计数等），
-     * 并校验 genreId（category_id）非空与归属。
+     * 服务层负责补齐 NOT NULL 列默认值（author_id/work_type/length_type/status/各类计数等）。
+     * 标签墙体系下作品不再设置分类（genre_id 保留可空，仅存量），标签在作品工作台维护。
      *
      * @param work 作品对象（含业务字段 + createBy）
      * @return 影响行数
@@ -184,10 +199,13 @@ public interface SysContentWorkMapper
      *
      * 只置 is_deleted=1，不物理删除；调用方需先校验归属。
      *
-     * @param work 仅携带 workId + updateBy
+     * @param work 携带 workId + authorId + updateBy；更新时再次阻止关联交易作品
      * @return 影响行数
      */
     public int softDeleteWork(SysWork work);
+
+    /** 订单涵盖其关联合同，另保护线下合作及付费解锁历史。 */
+    public boolean hasWorkTransactions(@Param("workId") Long workId);
 
     /**
      * 草稿箱列表（2.9.5）
@@ -207,4 +225,78 @@ public interface SysContentWorkMapper
      * @return 归属且未删除的作品（不存在或非本人返回 null）
      */
     public SysWork selectOwnedWork(@Param("workId") Long workId, @Param("userId") Long userId);
+
+    // ==================== 书城浏览统计与作品聚合列 ====================
+
+    /**
+     * 浏览量 +1（App 书城作品详情入口调用，一次访问记一次）
+     *
+     * 加 coalesce：view_count 为 NULL 的存量行也能正常自增，不会算成 NULL。
+     *
+     * @param workId 作品ID
+     * @return 影响行数（作品不存在为 0）
+     */
+    public int incrementViewCount(@Param("workId") Long workId);
+
+    /**
+     * 重算作品聚合统计列：word_count（字数）+ episode_count（章节数）
+     *
+     * 口径：word_count = 该作品全部章节 word_count 之和；episode_count = 章节总数。
+     * 这两列是冗余统计列，insertWork 时写死 0 且全项目无其它写入方，
+     * 故章节增删改后必须调用本方法回写；否则 App 作品详情/书城列表与 PC 作品管理
+     * 的「字数/章节数」恒显示 0。
+     *
+     * @param workId 作品ID
+     * @return 影响行数
+     */
+    public int refreshWorkAggregates(@Param("workId") Long workId);
+
+    // ==================== 书城推荐校验（位次唯一 / 数量上限） ====================
+
+    /**
+     * 统计当前勾选了「首页热门」展示位的作品数量（首页热门上限 30 本）。
+     */
+    @org.apache.ibatis.annotations.Select(
+        "SELECT COUNT(*) FROM sys_work WHERE is_deleted = 0 "
+        + "AND JSON_CONTAINS(ext_json, '\"bookstore\"', '$.showScope')")
+    public int countBookstoreWorks();
+
+    /**
+     * 把首页热门位次区间内的作品整体平移 delta 位（插入/移动重排用）。
+     * 仅影响勾选了 bookstore 展示位的作品。
+     *
+     * @param start 区间起始位次（含）
+     * @param end   区间结束位次（含）
+     * @param delta 平移量（+1 后移 / -1 前移）
+     * @return 受影响行数
+     */
+    @org.apache.ibatis.annotations.Update(
+        "UPDATE sys_work SET ext_json = JSON_SET(ext_json, '$.recommendWeight', "
+        + "CAST(JSON_UNQUOTE(JSON_EXTRACT(ext_json, '$.recommendWeight')) AS UNSIGNED) + #{delta}) "
+        + "WHERE is_deleted = 0 "
+        + "AND JSON_CONTAINS(ext_json, '\"bookstore\"', '$.showScope') "
+        + "AND CAST(JSON_EXTRACT(ext_json, '$.recommendWeight') AS UNSIGNED) BETWEEN #{start} AND #{end}")
+    public int shiftRecommendWeight(@Param("start") int start, @Param("end") int end, @Param("delta") int delta);
+
+    // ==================== 搜索页推荐（独立位次 searchWeight，最多 6 本） ====================
+
+    /**
+     * 统计当前勾选了「搜索页」展示位的作品数量（搜索页推荐上限 6 本）。
+     */
+    @org.apache.ibatis.annotations.Select(
+        "SELECT COUNT(*) FROM sys_work WHERE is_deleted = 0 "
+        + "AND JSON_CONTAINS(ext_json, '\"search\"', '$.showScope')")
+    public int countSearchWorks();
+
+    /**
+     * 把搜索页推荐位次区间内的作品整体平移 delta 位（搜索位次插入/移动重排用）。
+     * 仅影响勾选了 search 展示位的作品。
+     */
+    @org.apache.ibatis.annotations.Update(
+        "UPDATE sys_work SET ext_json = JSON_SET(ext_json, '$.searchWeight', "
+        + "CAST(JSON_UNQUOTE(JSON_EXTRACT(ext_json, '$.searchWeight')) AS UNSIGNED) + #{delta}) "
+        + "WHERE is_deleted = 0 "
+        + "AND JSON_CONTAINS(ext_json, '\"search\"', '$.showScope') "
+        + "AND CAST(JSON_EXTRACT(ext_json, '$.searchWeight') AS UNSIGNED) BETWEEN #{start} AND #{end}")
+    public int shiftSearchWeight(@Param("start") int start, @Param("end") int end, @Param("delta") int delta);
 }

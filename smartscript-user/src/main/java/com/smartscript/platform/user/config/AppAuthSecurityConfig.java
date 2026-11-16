@@ -8,9 +8,10 @@ import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.context.RequestAttributeSecurityContextRepository;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import com.ruoyi.framework.security.handle.AuthenticationFailureAuditor;
-import com.smartscript.platform.user.security.AppAccessTokenService;
+import com.smartscript.platform.user.security.AppRuoYiSessionService;
 import com.smartscript.platform.user.security.AppAuthAuthenticationFilter;
 import com.smartscript.platform.user.security.AppAuthEntryPoint;
 
@@ -44,34 +45,48 @@ public class AppAuthSecurityConfig
      */
     static final String[] APP_PATH_PREFIXES = {
             "/api/v1/auth/**", "/api/v1/users/**", "/api/v1/messages/**", "/api/v1/feedback/**",
-            "/api/v1/content/**", "/api/v1/pc-auth/**", "/api/v1/announcements/**"
+            "/api/v1/content/**", "/api/v1/pc-auth/**", "/api/v1/announcements/**",
+            "/api/v1/trade/**", "/api/v1/welfare/**", "/api/v1/ad/**", "/api/v1/ai/**",
+            "/api/v1/open/**"
     };
 
     @Bean
     @Order(100)
     public SecurityFilterChain appAuthFilterChain(HttpSecurity http,
-            AppAccessTokenService accessTokenService,
+            AppRuoYiSessionService accessTokenService,
             AppAuthEntryPoint appAuthEntryPoint) throws Exception
     {
-        AppAuthAuthenticationFilter appFilter = new AppAuthAuthenticationFilter(accessTokenService, authenticationFailureAuditor);
+        // 仅保存在本次请求属性中，让异步派发继续使用已认证身份；不创建 HTTP session。
+        RequestAttributeSecurityContextRepository securityContextRepository = new RequestAttributeSecurityContextRepository();
+        AppAuthAuthenticationFilter appFilter = new AppAuthAuthenticationFilter(accessTokenService, authenticationFailureAuditor, securityContextRepository);
         http.securityMatcher(APP_PATH_PREFIXES)
                 .csrf(csrf -> csrf.disable())
+                .securityContext(context -> context.securityContextRepository(securityContextRepository))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .exceptionHandling(ex -> ex.authenticationEntryPoint(appAuthEntryPoint))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.POST,
                                 "/api/v1/auth/sms/send",
+                                "/api/v1/auth/email/send",
+                                "/api/v1/auth/login",
                                 "/api/v1/auth/sms/login",
                                 "/api/v1/auth/password/login",
                                 "/api/v1/auth/password/reset",
                                 "/api/v1/auth/register",
-                                "/api/v1/auth/token/refresh",
                                 "/api/v1/pc-auth/login").permitAll()
-                        .requestMatchers(HttpMethod.GET,
-                                "/api/v1/auth/agreements").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/trade/alipay/sandbox/notify").permitAll()
+                        // 版权第三方代理回调（国版补正/结果消息）
+                        .requestMatchers(HttpMethod.POST, "/api/v1/open/copyright/third-party/messages").permitAll()
+                        // 运维端忘记密码（A 模块）：匿名可达，只处理 user_type='00' 账号，
+                        // 验证码复用 App 域 SmsCodeService（scene=RESET_PASSWORD）。
                         .requestMatchers(HttpMethod.POST,
-                                "/api/v1/auth/oauth/wechat/login",
-                                "/api/v1/auth/oauth/qq/login").permitAll()
+                                "/api/v1/pc-auth/admin/sms/send",
+                                "/api/v1/pc-auth/admin/password/reset").permitAll()
+                        .requestMatchers(HttpMethod.GET,
+                                "/api/v1/auth/captchaImage",
+                                "/api/v1/auth/agreements").permitAll()
+                        // 开屏素材在登录及会话恢复之前获取，仅公开此只读接口。
+                        .requestMatchers(HttpMethod.GET, "/api/v1/ad/splash").permitAll()
                         // B 模块上传与创作私有 GET（2.9.5~2.9.9）：必须声明在 /works/** 白名单之前，
                         // 否则会被下面的游客 GET 规则误放为可匿名访问（Spring Security 首匹配优先）
                         .requestMatchers(HttpMethod.GET,
@@ -79,8 +94,12 @@ public class AppAuthSecurityConfig
                                 "/api/v1/content/works/versions/**",
                                 "/api/v1/content/works/*/review-status",
                                 "/api/v1/content/works/*/versions").authenticated()
+                        // B 模块读者评分态（GET /works/{id}/rating）：需登录（回显「我的评分」），
+                        // 同样必须声明在 /works/** 游客白名单之前，否则会被误放为可匿名访问
+                        .requestMatchers(HttpMethod.GET,
+                                "/api/v1/content/works/*/rating").authenticated()
                         // A6/B 业务模块公开接口：游客可读（无需 App Token）
-                        // B 模块书城浏览主链路（第一批）：Banner / 分类 / 标签 / 作品列表 / 作品详情 / 榜单
+                        // B 模块书城浏览主链路（第一批）：Banner / 分类页导航 / 标签 / 作品列表 / 作品详情 / 榜单
                         // B 模块试读链路（第二批）：作品章节目录落在 /works/** 内，章节正文单列
                         // B 模块外部视频浏览（APP 2.8）：信息流 / 外部视频详情与找同款 / 剧集列表与详情
                         //   - /works/** 与 /episodes/* 均为「单段/GET-only」白名单：
@@ -88,7 +107,7 @@ public class AppAuthSecurityConfig
                         //     /works/** 是 GET-only，不会误放 POST/DELETE /works/{id}/subscribe（需登录）。
                         .requestMatchers(HttpMethod.GET,
                                 "/api/v1/content/banners",
-                                "/api/v1/content/categories",
+                                "/api/v1/content/categories/nav",
                                 "/api/v1/content/tags",
                                 "/api/v1/content/works",
                                 "/api/v1/content/works/**",
@@ -98,10 +117,20 @@ public class AppAuthSecurityConfig
                                 "/api/v1/content/drama-feed",
                                 "/api/v1/content/external-dramas/**",
                                 "/api/v1/content/episodes/*").permitAll()
+                        // 任务广场访客只读：可接单列表、聚合统计与任务详情。
+                        // 详情用 {demandId:\d+} 限定单段数字路径，避免 * 把 source-script 等具名端点一起放过；
+                        // 验收轮次（/{id}/stages）不在白名单内，App 对游客不发起该请求，接单/报价仍要求登录。
+                        // 游客可见范围与字段裁剪在 Controller 内二次收口（只放 open+已托管，剥敏感字段）。
+                        .requestMatchers(HttpMethod.GET,
+                                "/api/v1/trade/demand/list",
+                                "/api/v1/trade/demand/stats",
+                                "/api/v1/trade/demand/{demandId:\\d+}").permitAll()
                         // App 用户中心 / 消息 / 反馈 / 业务模块私有接口：全部要求 App Access Token
                         .requestMatchers("/api/v1/auth/**", "/api/v1/users/**",
                                 "/api/v1/messages/**", "/api/v1/feedback/**",
-                                "/api/v1/content/**", "/api/v1/announcements/**").authenticated()
+                                "/api/v1/content/**", "/api/v1/announcements/**",
+                                "/api/v1/trade/**", "/api/v1/welfare/**",
+                                "/api/v1/ad/**", "/api/v1/ai/**").authenticated()
                         .anyRequest().denyAll())
                 .addFilterBefore(appFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();

@@ -68,8 +68,9 @@ class AppUserCenterUnitTest
         assertThrows(AppAuthException.class, () -> AppUserProfileService.normalizeNickname("   "));
         assertThrows(AppAuthException.class, () -> AppUserProfileService.normalizeNickname(null));
         assertThrows(AppAuthException.class,
-                () -> AppUserProfileService.normalizeNickname("a".repeat(31)));
-        assertDoesNotThrow(() -> AppUserProfileService.normalizeNickname("a".repeat(30)));
+                () -> AppUserProfileService.normalizeNickname("名".repeat(16)));
+        assertDoesNotThrow(() -> AppUserProfileService.normalizeNickname("名".repeat(15)));
+        assertDoesNotThrow(() -> AppUserProfileService.normalizeNickname("😀".repeat(15)));
     }
 
     @Test
@@ -121,20 +122,12 @@ class AppUserCenterUnitTest
 
         assertDoesNotThrow(() -> AppRealNameService.normalizeIdNumber("110101199001011234"));
         assertDoesNotThrow(() -> AppRealNameService.normalizeIdNumber("11010119900101123X"));
+        assertDoesNotThrow(() -> AppRealNameService.normalizeIdNumber("11010119900101123x"));
+        assertThrows(AppAuthException.class, () -> AppRealNameService.normalizeIdNumber("110101900101123"));
+        assertThrows(AppAuthException.class, () -> AppRealNameService.normalizeIdNumber("1101011990010112345"));
+        assertThrows(AppAuthException.class, () -> AppRealNameService.normalizeIdNumber("11010X199001011234"));
         assertThrows(AppAuthException.class, () -> AppRealNameService.normalizeIdNumber("11010119900101"));
         assertThrows(AppAuthException.class, () -> AppRealNameService.normalizeIdNumber("11010119900101123Y"));
-    }
-
-    @Test
-    void realNameMaterialRequiresAtLeastOneUsableRef()
-    {
-        assertEquals("/profile/upload/a.png",
-                AppRealNameService.normalizeMaterialRefs(List.of(" /profile/upload/a.png ")));
-        assertThrows(AppAuthException.class, () -> AppRealNameService.normalizeMaterialRefs(null));
-        assertThrows(AppAuthException.class, () -> AppRealNameService.normalizeMaterialRefs(List.of()));
-        assertThrows(AppAuthException.class, () -> AppRealNameService.normalizeMaterialRefs(List.of("  ", "")));
-        assertThrows(AppAuthException.class,
-                () -> AppRealNameService.normalizeMaterialRefs(List.of("a", "b", "c", "d")));
     }
 
     @Test

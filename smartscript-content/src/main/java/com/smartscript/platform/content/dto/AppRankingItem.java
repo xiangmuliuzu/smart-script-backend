@@ -3,14 +3,17 @@ package com.smartscript.platform.content.dto;
 import java.math.BigDecimal;
 
 /**
- * 书城榜单条目（App 侧只读，接口文档 2.7.7 表 2-87「作品排行榜（4种排序）」）。
+ * 书城榜单条目（App 侧只读，接口文档 2.7.7 表 2-87「作品排行榜」）。
  *
- * 数据来源：sys_work 真实指标列，不依赖 sys_ranking_snapshot 快照是否已重算。
- * type 与指标列对应关系（score 即对应指标）：
- *   view     浏览量     sys_work.view_count
- *   favorite 收藏量     sys_work.favorite_count
- *   sale     销量       sys_work.sale_count
- *   rating   评分       sys_work.rating
+ * 数据来源：sys_work 指标列 + 互动表时间窗口实时聚合，不依赖 sys_ranking_snapshot 快照是否已重算。
+ * type 与主指标的对应关系（score 即该榜主指标取值）：
+ *   view     热门榜      累计浏览量（sys_work.view_count）
+ *   favorite 收藏榜      最近 7 天收藏数（sys_favorite 计数）
+ *   sale     交易热度榜  最近 7 天已支付订单数（sys_order 计数）
+ *   rating   评分榜      平均评分（sys_work.rating = ROUND(AVG(score),1)，无评分不进榜）
+ *   new      新书榜      最近 30 天上架，按上架时间倒序（shelfTime 下发上架时间，
+ *                         score 仍为 view_count，仅作兼容保留，前端不展示）
+ * 其余 viewCount/favoriteCount/saleCount/rating 均为作品累计指标原值，供前端展示用。
  *
  * @author xiangsipeng
  */
@@ -31,10 +34,7 @@ public class AppRankingItem
     /** 作者昵称（JOIN sys_user.nick_name） */
     private String authorName;
 
-    /** 题材名称（JOIN sys_category.category_name） */
-    private String genreName;
-
-    /** 榜单分数（等于 type 对应的指标值） */
+    /** 榜单分数 = 该榜主指标的取值（由 SQL 的 rank_score 列映射） */
     private BigDecimal score;
 
     /** 浏览量 */
@@ -60,6 +60,9 @@ public class AppRankingItem
 
     /** 是否免费（0=否 1=是） */
     private String isFree;
+
+    /** 上架时间（新书榜用，格式 yyyy-MM-dd HH:mm:ss） */
+    private String shelfTime;
 
     public Integer getRankNo()
     {
@@ -109,16 +112,6 @@ public class AppRankingItem
     public void setAuthorName(String authorName)
     {
         this.authorName = authorName;
-    }
-
-    public String getGenreName()
-    {
-        return genreName;
-    }
-
-    public void setGenreName(String genreName)
-    {
-        this.genreName = genreName;
     }
 
     public BigDecimal getScore()
@@ -209,5 +202,15 @@ public class AppRankingItem
     public void setIsFree(String isFree)
     {
         this.isFree = isFree;
+    }
+
+    public String getShelfTime()
+    {
+        return shelfTime;
+    }
+
+    public void setShelfTime(String shelfTime)
+    {
+        this.shelfTime = shelfTime;
     }
 }

@@ -47,10 +47,14 @@ public class SysOrder extends BaseEntity
 
     /** Transient: work title */
     private String workTitle;
+    /** Transient: work cover url */
+    private String workCover;
     /** Transient: buyer name */
     private String buyerName;
     /** Transient: seller name */
     private String sellerName;
+    /** Transient: keyword 模糊搜索（订单号/作品名/买卖双方昵称），非持久列 */
+    private String keyword;
 
     public Long getOrderId() { return orderId; }
     public void setOrderId(Long orderId) { this.orderId = orderId; }
@@ -96,8 +100,12 @@ public class SysOrder extends BaseEntity
     public void setUpdatedAt(Date updatedAt) { this.updatedAt = updatedAt; }
     public String getWorkTitle() { return workTitle; }
     public void setWorkTitle(String workTitle) { this.workTitle = workTitle; }
+    public String getWorkCover() { return workCover; }
+    public void setWorkCover(String workCover) { this.workCover = workCover; }
     public String getBuyerName() { return buyerName; }
     public void setBuyerName(String buyerName) { this.buyerName = buyerName; }
     public String getSellerName() { return sellerName; }
     public void setSellerName(String sellerName) { this.sellerName = sellerName; }
+    public String getKeyword() { return keyword; }
+    public void setKeyword(String keyword) { this.keyword = keyword; }
 }

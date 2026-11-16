@@ -39,7 +39,7 @@ import com.ruoyi.system.domain.SysOperLog;
  *     与若依原生路径一律跳过（含其 403）；
  *   - 同一请求只记一次（请求级一次性标记），任何异常都被吞掉，不影响被拒响应。
  *
- * 未覆盖：其它模块的 403（A4 {@code @PreAuthorize} 403 由 {@code A4DeniedAccessAuditor} 处置）。
+ * 未覆盖：其它模块的 403（A4 {@code @PreAuthorize} 403 由 {@code AdminDeniedAccessAuditor} 处置）。
  */
 @Component
 public class FilterChainAuthFailureAuditor implements AuthenticationFailureAuditor
@@ -47,7 +47,7 @@ public class FilterChainAuthFailureAuditor implements AuthenticationFailureAudit
     private static final Logger log = LoggerFactory.getLogger(FilterChainAuthFailureAuditor.class);
 
     /** PC 域拒绝审计行标题。 */
-    public static final String TITLE_PC = "A4-PC认证拒绝";
+    public static final String TITLE_PC = "PC认证拒绝";
 
     /** App 域拒绝审计行标题。 */
     public static final String TITLE_APP = "App-认证拒绝";

@@ -3,6 +3,7 @@ package com.ruoyi.framework.config;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
@@ -58,6 +59,15 @@ public class SecurityConfig
     @Autowired
     private PermitAllUrlProperties permitAllUrl;
 
+    /** Only invoke the admin JWT filter inside its Spring Security chain. */
+    @Bean
+    public FilterRegistrationBean<JwtAuthenticationTokenFilter> jwtFilterRegistration()
+    {
+        FilterRegistrationBean<JwtAuthenticationTokenFilter> registration = new FilterRegistrationBean<>(authenticationTokenFilter);
+        registration.setEnabled(false);
+        return registration;
+    }
+
 	/**
 	 * 身份验证实现
 	 */
@@ -101,6 +111,15 @@ public class SecurityConfig
                 permitAllUrl.getUrls().forEach(url -> requests.requestMatchers(url).permitAll());
                 // 对于登录login 注册register 验证码captchaImage 健康检查health 允许匿名访问
                 requests.requestMatchers("/login", "/register", "/captchaImage", "/health").permitAll()
+                    // App 端匿名接口（PC/APP 新接口前缀；Spring Boot 4 下 @Anonymous 扫描时机不可靠，此处显式放行）
+                    .requestMatchers("/api/v1/pc-auth/**").permitAll()
+                    .requestMatchers("/api/v1/welfare/**").permitAll()
+                    .requestMatchers("/api/v1/ad/**").permitAll()
+                    .requestMatchers("/api/v1/ai/**").permitAll()
+                    .requestMatchers("/api/v1/open/**").permitAll()
+                    // 站内实时通知长连接：握手阶段由 NotifyHandshakeInterceptor 校验同一套令牌，
+                    // 这里放行只是让升级请求走到拦截器，不代表连接匿名可用。
+                    .requestMatchers("/ws/**").permitAll()
                     // 静态资源，可匿名访问
                     .requestMatchers(HttpMethod.GET, "/", "/*.html", "/**.html", "/**.css", "/**.js", "/profile/**").permitAll()
                     .requestMatchers("/swagger-ui.html", "/v3/api-docs/**", "/swagger-ui/**", "/druid/**").permitAll()

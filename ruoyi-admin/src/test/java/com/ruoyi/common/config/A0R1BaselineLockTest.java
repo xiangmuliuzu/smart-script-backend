@@ -67,7 +67,11 @@ class A0R1BaselineLockTest
                             String text = Files.readString(p, StandardCharsets.UTF_8);
                             assertFalse(text.contains("\"admin123\"") || text.contains("'admin123'"),
                                     "script " + p + " must not hardcode admin123");
-                            assertTrue(text.contains("VERIFY_ADMIN_PASSWORD") || text.contains("Password"),
+                            // 启动脚本通过 .env.local 的通用循环导入全部私有变量，同样没有硬编码口令。
+                            boolean importsPrivateEnvironment = text.contains(".env.local")
+                                    && text.contains("Set-Item -Path ('Env:' + $key) -Value $value");
+                            assertTrue(text.contains("VERIFY_ADMIN_PASSWORD") || text.contains("Password")
+                                            || importsPrivateEnvironment,
                                     "script " + p + " must take password from env/param");
                         }
                         catch (Exception e)

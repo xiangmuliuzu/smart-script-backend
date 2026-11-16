@@ -29,6 +29,14 @@ public class GlobalExceptionHandler
 {
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
+    /** Removed endpoints and missing resources must return 404, not a generic 500. */
+    @ExceptionHandler(org.springframework.web.servlet.resource.NoResourceFoundException.class)
+    public org.springframework.http.ResponseEntity<AjaxResult> handleMissingResource(
+            org.springframework.web.servlet.resource.NoResourceFoundException e)
+    {
+        return org.springframework.http.ResponseEntity.status(404).body(AjaxResult.error(404, "接口或资源不存在"));
+    }
+
     /**
      * 权限校验异常
      */

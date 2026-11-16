@@ -48,12 +48,13 @@ public class DashboardService {
         stats.add(stat("本月交易额", "¥" + fmtWan(monthTrade) + "万", trend(monthTrade, num(row, "prevMonthTrade"))));
         stats.add(stat("活跃用户数", activeUsers, trend(activeUsers, num(row, "prevActiveUsers"))));
 
-        // 快捷入口
+        // 快捷入口：仅展示审核类待办
         List<Map<String, Object>> quick = new ArrayList<>();
         quick.add(quickItem("作品审核", num(row, "pendingWorks"), "待审核", "/copyright/ai-review/review"));
-        quick.add(quickItem("订单管理", num(row, "pendingOrders"), "待处理", "/trade/orders"));
-        quick.add(quickItem("用户管理", num(row, "pendingUsers"), "待审核", "/user"));
-        quick.add(quickItem("风控管理", num(row, "pendingRisk"), "待处理", "/risk"));
+        quick.add(quickItem("印章审核", num(row, "pendingSeals"), "待审核", "/copyright/seals"));
+        quick.add(quickItem("提现审核", num(row, "pendingWithdraws"), "待审核", "/copyright/withdraw-review"));
+        quick.add(quickItem("实名审核", num(row, "pendingUsers"), "待审核", "/appuser/realname"));
+        quick.add(quickItem("创作者审核", num(row, "pendingCreators"), "待审核", "/appuser/creator-apply"));
 
         // 作品状态分布
         List<Map<String, Object>> statusList = new ArrayList<>();
@@ -79,6 +80,60 @@ public class DashboardService {
         data.put("stats", stats);
         data.put("quick", quick);
         data.put("statusDist", statusList);
+
+        // ===== 业务数据总览：用户/作品各阶段/订单/合同/交易额/平台收成 =====
+        Map<String, Object> biz = dashboardMapper.selectBusinessOverviewRow();
+        long buyers = num(biz, "buyers");
+        long creators = num(biz, "creators");
+        long worksTotal = num(biz, "worksTotal");
+        long worksOnShelf = num(biz, "worksOnShelf");
+        long worksOffShelf = num(biz, "worksOffShelf");
+        long worksReviewing = num(biz, "worksReviewing");
+        long ordersTotal = num(biz, "ordersTotal");
+        long ordersCompleted = num(biz, "ordersCompleted");
+        long ordersUnfinished = num(biz, "ordersUnfinished");
+        long contracts = num(biz, "contracts");
+        double tradeTotal = dnum(biz, "tradeTotal");
+        double tradeCompleted = dnum(biz, "tradeCompleted");
+        double platformFee = dnum(biz, "platformFee");
+
+        Map<String, Object> users = new HashMap<>();
+        users.put("total", buyers);
+        users.put("creators", creators);
+        data.put("users", users);
+
+        Map<String, Object> works = new HashMap<>();
+        works.put("total", worksTotal);
+        works.put("onShelf", worksOnShelf);
+        works.put("offShelf", worksOffShelf);
+        works.put("reviewing", worksReviewing);
+        data.put("works", works);
+
+        Map<String, Object> orders = new HashMap<>();
+        orders.put("total", ordersTotal);
+        orders.put("completed", ordersCompleted);
+        orders.put("unfinished", ordersUnfinished);
+        data.put("orders", orders);
+
+        Map<String, Object> contractMap = new HashMap<>();
+        contractMap.put("total", contracts);
+        data.put("contracts", contractMap);
+
+        Map<String, Object> trade = new HashMap<>();
+        trade.put("totalAmount", tradeTotal);
+        trade.put("completedAmount", tradeCompleted);
+        trade.put("platformFee", platformFee);
+        data.put("trade", trade);
+
+        // 柱状图：用户(买方/创作者) + 作品(上架/下架/审核中)
+        List<Map<String, Object>> bar = new ArrayList<>();
+        bar.add(barItem("买方用户", buyers));
+        bar.add(barItem("创作者", creators));
+        bar.add(barItem("上架作品", worksOnShelf));
+        bar.add(barItem("下架作品", worksOffShelf));
+        bar.add(barItem("审核中作品", worksReviewing));
+        data.put("barChart", bar);
+
         return data;
     }
 
@@ -112,6 +167,13 @@ public class DashboardService {
         item.put("count", count);
         item.put("label", label);
         item.put("route", route);
+        return item;
+    }
+
+    private Map<String, Object> barItem(String name, long value) {
+        Map<String, Object> item = new HashMap<>();
+        item.put("name", name);
+        item.put("value", value);
         return item;
     }
 

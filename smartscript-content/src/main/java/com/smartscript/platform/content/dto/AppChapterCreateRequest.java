@@ -20,6 +20,9 @@ public class AppChapterCreateRequest
     /** 章节内容（可选） */
     private String content;
 
+    /** 章节摘要（可选，≤500；只记本集推进了什么，供后续章节注入前情） */
+    private String summary;
+
     /** 是否免费（可选 "0"/"1"，缺省 "0"） */
     private String isFree;
 
@@ -51,6 +54,16 @@ public class AppChapterCreateRequest
     public void setContent(String content)
     {
         this.content = content;
+    }
+
+    public String getSummary()
+    {
+        return summary;
+    }
+
+    public void setSummary(String summary)
+    {
+        this.summary = summary;
     }
 
     public String getIsFree()

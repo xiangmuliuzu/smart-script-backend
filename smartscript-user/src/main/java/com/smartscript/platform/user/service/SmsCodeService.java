@@ -5,6 +5,8 @@ import java.util.Date;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import com.ruoyi.common.core.redis.RedisCache;
 import com.smartscript.platform.user.config.AppAuthProperties;
 import com.smartscript.platform.user.constant.AppAuthErrorCodes;
@@ -20,7 +22,43 @@ public class SmsCodeService
 {
     private static final Set<String> ALLOWED_SCENES = Set.of(
             "LOGIN", "REGISTER", "SET_PASSWORD", "RESET_PASSWORD",
-            "CHANGE_PHONE_OLD", "CHANGE_PHONE_NEW");
+            "CHANGE_PHONE_OLD", "CHANGE_PHONE_NEW", "DELETE_WORK", "EMAIL_REGISTER", "EMAIL_LOGIN", "EMAIL_RESET_PASSWORD", "EMAIL_DELETE_WORK", "EMAIL_CHANGE_PHONE_OLD", "EMAIL_CHANGE_EMAIL_NEW");
+
+    private RegistrationEmailSender emailSender;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setEmailSender(RegistrationEmailSender emailSender) { this.emailSender = emailSender; }
+
+    public static String normalizeEmail(String email)
+    {
+        String value = email == null ? "" : email.trim().toLowerCase(java.util.Locale.ROOT);
+        if (value.length() > 50 || !value.matches("^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$"))
+            throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "请输入有效邮箱地址");
+        return value;
+    }
+
+    public void sendEmailCode(String email, String ip, String requestId)
+    {
+        sendEmailCode(email, "REGISTER", ip, requestId);
+    }
+
+    public void sendEmailCode(String email, String scene, String ip, String requestId)
+    {
+        if (!Set.of("REGISTER", "LOGIN", "RESET_PASSWORD", "DELETE_WORK", "CHANGE_PHONE_OLD", "CHANGE_EMAIL_NEW").contains(scene))
+            throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "请求场景不正确，请刷新后重试");
+        String normalized = normalizeEmail(email);
+        sendCodeInternal("email:" + normalized, "EMAIL_" + scene, ip, requestId, normalized);
+    }
+
+    public void consumeEmailCode(String email, String code)
+    {
+        consumeEmailCode(email, "REGISTER", code);
+    }
+
+    public void consumeEmailCode(String email, String scene, String code)
+    {
+        consumeOnce("email:" + normalizeEmail(email), "EMAIL_" + scene, code);
+    }
 
     private final AppAuthProperties properties;
     private final AppSmsCodeMapper mapper;
@@ -28,13 +66,16 @@ public class SmsCodeService
     private final RedisCache redisCache;
     private final AppSessionRevocationService revocationService;
     private final AppSecurityEventRecorder securityEvents;
+    /** REQUIRES_NEW 语义：错误次数增量必须独立于调用方事务提交（AUTH-04 失败锁定）。 */
+    private final TransactionTemplate failedAttemptTx;
 
     public SmsCodeService(AppAuthProperties properties,
             AppSmsCodeMapper mapper,
             SmsProvider smsProvider,
             RedisCache redisCache,
             AppSessionRevocationService revocationService,
-            AppSecurityEventRecorder securityEvents)
+            AppSecurityEventRecorder securityEvents,
+            PlatformTransactionManager transactionManager)
     {
         this.properties = properties;
         this.mapper = mapper;
@@ -42,6 +83,10 @@ public class SmsCodeService
         this.redisCache = redisCache;
         this.revocationService = revocationService;
         this.securityEvents = securityEvents;
+        // consumeOnce 在 register/smsLogin 等外层事务里被调用；失败计数若随外层
+        // 事务回滚，max-failed-attempts 锁定就永远不生效，故增量走独立事务提交。
+        this.failedAttemptTx = new TransactionTemplate(transactionManager);
+        this.failedAttemptTx.setPropagationBehavior(TransactionTemplate.PROPAGATION_REQUIRES_NEW);
     }
 
     /** AUTH-06: frequency-limit decisions must leave a security-audit record. */
@@ -49,7 +94,7 @@ public class SmsCodeService
     {
         if (securityEvents != null)
         {
-            securityEvents.record(AppHashes.maskPhone(phone), ip, event,
+            securityEvents.record(phone.startsWith("email:") ? "***@" + phone.substring(phone.indexOf('@') + 1) : AppHashes.maskPhone(phone), ip, event,
                     "scene limit observed=" + observed);
         }
     }
@@ -58,11 +103,18 @@ public class SmsCodeService
     {
         if (phone == null || !phone.matches("^1\\d{10}$"))
         {
-            throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "invalid phone");
+            throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "手机号格式不正确，请检查后重试");
         }
+        if (scene != null && scene.startsWith("EMAIL_"))
+            throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "请求场景不正确，请刷新后重试");
+        sendCodeInternal(phone, scene, ip, requestId, null);
+    }
+
+    private void sendCodeInternal(String phone, String scene, String ip, String requestId, String email)
+    {
         if (scene == null || !ALLOWED_SCENES.contains(scene))
         {
-            throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "invalid scene");
+            throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "请求场景不正确，请刷新后重试");
         }
 
         String cooldownKey = revocationService.key("sms:cooldown:" + phone + ":" + scene);
@@ -70,7 +122,7 @@ public class SmsCodeService
         if (cooling != null)
         {
             long remain = redisCache.getExpire(cooldownKey);
-            throw new AppAuthException(AppAuthErrorCodes.SMS_COOLDOWN, 429, "sms cooldown",
+            throw new AppAuthException(AppAuthErrorCodes.SMS_COOLDOWN, 429, "操作过于频繁，请稍后再试",
                     java.util.Map.of("retryAfterSeconds", Math.max(remain, 1L)));
         }
 
@@ -80,7 +132,7 @@ public class SmsCodeService
         if (phoneToday >= properties.getSms().getPhoneDailyLimit())
         {
             recordSecurityEvent(phone, ip, "SMS_PHONE_DAILY_LIMIT", phoneToday);
-            throw new AppAuthException(AppAuthErrorCodes.SMS_RATE_LIMIT, 429, "phone rate limit");
+            throw new AppAuthException(AppAuthErrorCodes.SMS_RATE_LIMIT, 429, "操作过于频繁，请稍后再试");
         }
         if (ip != null && !ip.isBlank())
         {
@@ -88,7 +140,7 @@ public class SmsCodeService
             if (ipHour >= properties.getSms().getIpHourlyLimit())
             {
                 recordSecurityEvent(phone, ip, "SMS_IP_HOURLY_LIMIT", ipHour);
-                throw new AppAuthException(AppAuthErrorCodes.SMS_RATE_LIMIT, 429, "ip rate limit");
+                throw new AppAuthException(AppAuthErrorCodes.SMS_RATE_LIMIT, 429, "操作过于频繁，请稍后再试");
             }
         }
 
@@ -104,7 +156,7 @@ public class SmsCodeService
         }
 
         String code = AppHashes.randomNumericCode(properties.getSms().getCodeLength());
-        if (smsProvider instanceof MockSmsProvider mock)
+        if (email == null && smsProvider instanceof MockSmsProvider mock)
         {
             code = mock.resolveCode(phone, scene, code);
         }
@@ -118,7 +170,9 @@ public class SmsCodeService
         record.setFailedAttempts(0);
         record.setExpiresAt(expiresAt);
         mapper.insertSmsCode(record);
-        smsProvider.send(phone, scene, code);
+        if (email == null) smsProvider.send(phone, scene, code);
+        else if (emailSender != null) emailSender.send(email, code, properties.getSms().getCodeTtlSeconds());
+        else throw new AppAuthException(AppAuthErrorCodes.SYSTEM_ERROR, 503, "邮箱验证码服务暂不可用");
         redisCache.setCacheObject(cooldownKey, "1", properties.getSms().getCooldownSeconds(), TimeUnit.SECONDS);
     }
 
@@ -126,11 +180,11 @@ public class SmsCodeService
     {
         if (phone == null || code == null || code.isBlank())
         {
-            throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "invalid sms payload");
+            throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "验证码信息不完整，请重新获取");
         }
         if (scene == null || !ALLOWED_SCENES.contains(scene))
         {
-            throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "invalid scene");
+            throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "请求场景不正确，请刷新后重试");
         }
         Date now = new Date();
         // Always evaluate the newest row for this phone+scene. Falling back to an older
@@ -138,32 +192,32 @@ public class SmsCodeService
         AppSmsCode latest = mapper.selectLatest(phone, scene);
         if (latest == null)
         {
-            throw new AppAuthException(AppAuthErrorCodes.SMS_CODE_EXPIRED, 400, "sms code expired");
+            throw new AppAuthException(AppAuthErrorCodes.SMS_CODE_EXPIRED, 400, "验证码已过期，请重新获取");
         }
         if (latest.getUsedAt() != null)
         {
-            throw new AppAuthException(AppAuthErrorCodes.SMS_CODE_USED, 409, "sms code already used");
+            throw new AppAuthException(AppAuthErrorCodes.SMS_CODE_USED, 409, "验证码已使用，请重新获取");
         }
         if (latest.getExpiresAt() == null || !latest.getExpiresAt().after(now))
         {
-            throw new AppAuthException(AppAuthErrorCodes.SMS_CODE_EXPIRED, 400, "sms code expired");
+            throw new AppAuthException(AppAuthErrorCodes.SMS_CODE_EXPIRED, 400, "验证码已过期，请重新获取");
         }
         if (latest.getFailedAttempts() != null
                 && latest.getFailedAttempts() >= properties.getSms().getMaxFailedAttempts())
         {
-            throw new AppAuthException(AppAuthErrorCodes.SMS_CODE_INVALID, 400, "sms code invalid");
+            throw new AppAuthException(AppAuthErrorCodes.SMS_CODE_INVALID, 400, "验证码错误，请重新输入");
         }
         String hash = AppHashes.sha256Hex(code);
         if (!hash.equals(latest.getCodeHash()))
         {
-            mapper.incrementFailed(latest.getId());
-            throw new AppAuthException(AppAuthErrorCodes.SMS_CODE_INVALID, 400, "sms code invalid");
+            failedAttemptTx.execute(status -> mapper.incrementFailed(latest.getId()));
+            throw new AppAuthException(AppAuthErrorCodes.SMS_CODE_INVALID, 400, "验证码错误，请重新输入");
         }
         int updated = mapper.consumeCode(latest.getId(), now);
         if (updated == 0)
         {
             // concurrent consume or already used
-            throw new AppAuthException(AppAuthErrorCodes.SMS_CODE_USED, 409, "sms code already used");
+            throw new AppAuthException(AppAuthErrorCodes.SMS_CODE_USED, 409, "验证码已使用，请重新获取");
         }
     }
 

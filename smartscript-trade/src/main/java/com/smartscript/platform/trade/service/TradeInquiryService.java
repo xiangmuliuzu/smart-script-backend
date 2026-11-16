@@ -9,7 +9,11 @@ import com.ruoyi.common.utils.SecurityUtils;
 import com.ruoyi.common.utils.uuid.Seq;
 import com.smartscript.platform.trade.domain.SysInquiry;
 import com.smartscript.platform.trade.domain.SysOrder;
+import com.smartscript.platform.trade.domain.SysWork;
 import com.smartscript.platform.trade.mapper.SysInquiryMapper;
+import com.smartscript.platform.trade.mapper.SysWorkCopyrightMapper;
+import com.smartscript.platform.trade.mapper.SysWorkMapper;
+import com.smartscript.platform.user.service.UserBlockService;
 
 /**
  * C module: inquiry management service.
@@ -42,7 +46,22 @@ public class TradeInquiryService
     private SysInquiryMapper inquiryMapper;
 
     @Autowired
+    private SysWorkMapper workMapper;
+
+    /** 版权登记发证只读判定（跨域表）：分流有/无版权交易流程. */
+    @Autowired
+    private SysWorkCopyrightMapper copyrightMapper;
+
+    @Autowired
     private TradeOrderService orderService;
+
+    /** 交易全生命周期站内通知统一出口。 */
+    @Autowired
+    private TradeNotifyService notifyService;
+
+    /** 用户个人黑名单：任一方拉黑后，双方不能再发起新的询盘。 */
+    @Autowired
+    private UserBlockService userBlockService;
 
     public List<SysInquiry> selectInquiryList(SysInquiry inquiry)
     {
@@ -54,10 +73,19 @@ public class TradeInquiryService
         return inquiryMapper.selectInquiryById(inquiryId);
     }
 
+    /** 作品是否已完成版权登记发证：true=有版权（走合同流程），false=无版权（跳过合同直达付款）. */
+    public boolean hasCopyright(Long workId)
+    {
+        return workId != null && copyrightMapper.hasCertificatedCopyright(workId);
+    }
+
     /**
      * 发起询盘（分工条目 9，PRD APP-TRADE-02）。
      * 买方对某作品发起合作询盘，落库后置 pending（待回复），生成 inquiry_no 与 expire_at。
      * PC 商务运营管理员可代录；APP 侧待 A 的 APP 鉴权合入后复用本方法。
+     * <p>
+     * 版权分流：有版权作品授权类型必填（现状）；无版权作品去掉授权类型（licenseType 置 null），
+     * 后续接受报价将跳过合同直接进入付款（见 TradeOrderService.generateOrderFromInquiry）。
      */
     @Transactional
     public SysInquiry createInquiry(SysInquiry inquiry)
@@ -74,9 +102,32 @@ public class TradeInquiryService
         {
             throw new RuntimeException("卖方ID不能为空");
         }
-        if (inquiry.getLicenseType() == null || inquiry.getLicenseType().isEmpty())
+        // 不能对自己拥有的作品发起询盘：以作品真实归属 authorId 为准做同源校验，
+        // 防止调用方伪造 sellerId 绕过（APP/PC/企业端所有创建入口在此统一收口）。
+        SysWork work = workMapper.selectWorkById(inquiry.getWorkId());
+        if (work == null)
         {
-            throw new RuntimeException("授权类型不能为空");
+            throw new RuntimeException("作品不存在: " + inquiry.getWorkId());
+        }
+        if (work.getAuthorId() != null && work.getAuthorId().equals(inquiry.getBuyerId()))
+        {
+            throw new RuntimeException("不能对自己的作品发起询盘");
+        }
+        // 以作品归属为准回填卖方，避免调用方传入的 sellerId 与实际作者不一致
+        inquiry.setSellerId(work.getAuthorId());
+        // 个人黑名单：任一方拉黑后，均不能向对方发起询盘
+        userBlockService.requireNotBlocked(inquiry.getBuyerId(), inquiry.getSellerId(), "发起询盘");
+        // 授权类型按版权分流：有版权必填（现状流程）；无版权不要求授权类型，归一置 null 防前端误传
+        if (hasCopyright(work.getWorkId()))
+        {
+            if (inquiry.getLicenseType() == null || inquiry.getLicenseType().isEmpty())
+            {
+                throw new RuntimeException("授权类型不能为空");
+            }
+        }
+        else
+        {
+            inquiry.setLicenseType(null);
         }
         if (inquiry.getIntendedUse() == null || inquiry.getIntendedUse().isEmpty())
         {
@@ -88,9 +139,16 @@ public class TradeInquiryService
         {
             inquiry.setExpireAt(daysFromNow(DEFAULT_INQUIRY_VALID_DAYS));
         }
-        inquiry.setCreateBy(SecurityUtils.getUsername());
+        // APP端已设置createBy时不再调用SecurityUtils.getUsername()
+        if (inquiry.getCreateBy() == null || inquiry.getCreateBy().isEmpty())
+        {
+            inquiry.setCreateBy(SecurityUtils.getUsername());
+        }
         inquiry.setCreateTime(new Date());
         inquiryMapper.insertInquiry(inquiry);
+        // 发起询盘 → 通知卖方及时处理（重查带出作品名/买家昵称等展示字段；通知失败不影响询盘落库）
+        SysInquiry fresh = inquiryMapper.selectInquiryById(inquiry.getInquiryId());
+        notifyService.notifyInquiryCreated(fresh != null ? fresh : inquiry);
         return inquiry;
     }
 
@@ -101,7 +159,30 @@ public class TradeInquiryService
     @Transactional
     public int acceptInquiry(Long inquiryId)
     {
-        return transitionInquiry(inquiryId, INQUIRY_STATUS_QUOTED, INQUIRY_STATUS_PENDING);
+        int rows = transitionInquiry(inquiryId, INQUIRY_STATUS_QUOTED, null, INQUIRY_STATUS_PENDING);
+        notifyInquiryAccepted(inquiryId);
+        return rows;
+    }
+
+    /**
+     * 接受询盘（带操作人，供APP端调用）。
+     */
+    public int acceptInquiry(Long inquiryId, String updateBy)
+    {
+        int rows = transitionInquiry(inquiryId, INQUIRY_STATUS_QUOTED, updateBy, INQUIRY_STATUS_PENDING);
+        notifyInquiryAccepted(inquiryId);
+        return rows;
+    }
+
+    /** 接受询盘成功后通知买方进入会话洽谈（回查买方 ID、询盘编号与展示字段）。 */
+    private void notifyInquiryAccepted(Long inquiryId)
+    {
+        SysInquiry inquiry = inquiryMapper.selectInquiryById(inquiryId);
+        if (inquiry != null)
+        {
+            notifyService.notifyInquiryAccepted(inquiryId, inquiry.getInquiryNo(),
+                    inquiry.getWorkTitle(), inquiry.getSellerName(), inquiry.getBuyerId());
+        }
     }
 
     /**
@@ -110,7 +191,34 @@ public class TradeInquiryService
     @Transactional
     public int rejectInquiry(Long inquiryId)
     {
-        return transitionInquiry(inquiryId, INQUIRY_STATUS_REJECTED, INQUIRY_STATUS_PENDING);
+        int changed = transitionInquiry(inquiryId, INQUIRY_STATUS_REJECTED, null, INQUIRY_STATUS_PENDING);
+        if (changed == 1)
+        {
+            notifyInquiryRejected(inquiryId);
+        }
+        return changed;
+    }
+
+    /**
+     * 拒绝询盘（带操作人，供APP端调用）。
+     */
+    public int rejectInquiry(Long inquiryId, String updateBy)
+    {
+        int changed = transitionInquiry(inquiryId, INQUIRY_STATUS_REJECTED, updateBy, INQUIRY_STATUS_PENDING);
+        if (changed == 1)
+        {
+            notifyInquiryRejected(inquiryId);
+        }
+        return changed;
+    }
+
+    private void notifyInquiryRejected(Long inquiryId)
+    {
+        SysInquiry fresh = inquiryMapper.selectInquiryById(inquiryId);
+        if (fresh != null)
+        {
+            notifyService.notifyInquiryRejected(fresh);
+        }
     }
 
     /**
@@ -120,9 +228,66 @@ public class TradeInquiryService
     @Transactional
     public int closeInquiry(Long inquiryId)
     {
-        return transitionInquiry(inquiryId, INQUIRY_STATUS_CLOSED,
+        int changed = transitionInquiry(inquiryId, INQUIRY_STATUS_CLOSED, null,
                 INQUIRY_STATUS_PENDING, INQUIRY_STATUS_ACCEPTED,
                 INQUIRY_STATUS_QUOTED, INQUIRY_STATUS_REJECTED);
+        if (changed == 1)
+        {
+            notifyInquiryClosed(inquiryId, false, currentUserIdOrNull());
+        }
+        return changed;
+    }
+
+    /**
+     * 关闭询盘（带操作人，供APP端调用）。
+     */
+    public int closeInquiry(Long inquiryId, String updateBy)
+    {
+        int changed = transitionInquiry(inquiryId, INQUIRY_STATUS_CLOSED, updateBy,
+                INQUIRY_STATUS_PENDING, INQUIRY_STATUS_ACCEPTED,
+                INQUIRY_STATUS_QUOTED, INQUIRY_STATUS_REJECTED);
+        if (changed == 1)
+        {
+            notifyInquiryClosed(inquiryId, false, parseUserId(updateBy));
+        }
+        return changed;
+    }
+
+    private void notifyInquiryClosed(Long inquiryId, boolean expired, Long actorId)
+    {
+        SysInquiry fresh = inquiryMapper.selectInquiryById(inquiryId);
+        if (fresh != null)
+        {
+            notifyService.notifyInquiryClosed(fresh, expired, actorId);
+        }
+    }
+
+    private Long currentUserIdOrNull()
+    {
+        try
+        {
+            return SecurityUtils.getUserId();
+        }
+        catch (Exception e)
+        {
+            return null;
+        }
+    }
+
+    private Long parseUserId(String updateBy)
+    {
+        if (updateBy == null || updateBy.isBlank())
+        {
+            return null;
+        }
+        try
+        {
+            return Long.valueOf(updateBy.trim());
+        }
+        catch (NumberFormatException e)
+        {
+            return currentUserIdOrNull();
+        }
     }
 
     /**
@@ -133,39 +298,41 @@ public class TradeInquiryService
     @Transactional
     public int closeExpiredInquiries()
     {
-        return inquiryMapper.closeExpiredInquiries();
+        // 先取本轮将过期的询盘（条件与批量关闭一致），关闭后按 requestId 幂等通知双方
+        List<SysInquiry> expiring = inquiryMapper.selectExpiredOpenInquiries();
+        int changed = inquiryMapper.closeExpiredInquiries();
+        if (changed > 0)
+        {
+            for (SysInquiry inquiry : expiring)
+            {
+                notifyService.notifyInquiryClosed(inquiry, true, null);
+            }
+        }
+        return changed;
     }
 
     /**
      * 询盘状态机：仅当前状态在 allowedFrom 内才允许流转到 target，否则抛错。
+     * <p>
+     * 采用 CAS（{@code UPDATE ... WHERE status IN (allowedFrom)}）而非「先读后无条件写」，
+     * 消除并发下 accept/reject/close/报价 互覆的窗口（问题5）；影响 0 行即视为被并发抢先。
      */
-    private int transitionInquiry(Long inquiryId, String target, String... allowedFrom)
+    private int transitionInquiry(Long inquiryId, String target, String updateBy, String... allowedFrom)
     {
         SysInquiry inquiry = inquiryMapper.selectInquiryById(inquiryId);
         if (inquiry == null)
         {
             throw new RuntimeException("询盘不存在: " + inquiryId);
         }
-        String current = inquiry.getStatus();
-        boolean allowed = false;
-        for (String from : allowedFrom)
+        // APP端已设置updateBy时不再调用SecurityUtils.getUsername()
+        String actor = (updateBy == null || updateBy.isEmpty()) ? SecurityUtils.getUsername() : updateBy;
+        int changed = inquiryMapper.updateStatusCas(inquiryId, target, java.util.Arrays.asList(allowedFrom), actor);
+        if (changed != 1)
         {
-            if (from.equals(current))
-            {
-                allowed = true;
-                break;
-            }
+            // 读到的当前状态已不满足流转条件（多为并发抢先），给出与原语义一致的错误
+            throw new RuntimeException("当前询盘状态不可执行该操作（或状态刚被变更），请刷新后重试: " + inquiry.getStatus());
         }
-        if (!allowed)
-        {
-            throw new RuntimeException("当前询盘状态不可执行该操作: " + current);
-        }
-        SysInquiry update = new SysInquiry();
-        update.setInquiryId(inquiryId);
-        update.setStatus(target);
-        update.setUpdateBy(SecurityUtils.getUsername());
-        update.setUpdateTime(new Date());
-        return inquiryMapper.updateInquiry(update);
+        return changed;
     }
 
     /** 当前时间 + days 天 */

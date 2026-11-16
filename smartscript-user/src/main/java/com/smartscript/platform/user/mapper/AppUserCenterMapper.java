@@ -9,6 +9,7 @@ import com.smartscript.platform.user.domain.UserMessage;
 import com.smartscript.platform.user.domain.UserNotificationPreference;
 import com.smartscript.platform.user.domain.UserPhoneChangeLog;
 import com.smartscript.platform.user.domain.UserCreatorProfile;
+import com.smartscript.platform.user.domain.UserCreatorApplication;
 import com.smartscript.platform.user.domain.UserRealNameAuth;
 
 /**
@@ -27,6 +28,9 @@ import com.smartscript.platform.user.domain.UserRealNameAuth;
  */
 public interface AppUserCenterMapper
 {
+    /** 显式关闭为 false；从未设置能力时为 null。 */
+    Boolean selectCreatorCapabilityEnabled(@Param("userId") Long userId);
+
     // ------------------------------------------------------------------
     // 个人资料
     // ------------------------------------------------------------------
@@ -36,6 +40,9 @@ public interface AppUserCenterMapper
 
     /** 头像变更；返回影响行数。 */
     int updateAvatar(@Param("userId") Long userId, @Param("avatar") String avatar);
+
+    /** 指定头像路径仍被多少未删除用户引用；换头像后清理旧文件的删除前兜底。 */
+    int countAvatarReferences(@Param("avatar") String avatar);
 
     /** 个人简介变更（空串表示清空）；返回影响行数。 */
     int updateBio(@Param("userId") Long userId, @Param("bio") String bio);
@@ -62,6 +69,9 @@ public interface AppUserCenterMapper
     // 实名认证
     // ------------------------------------------------------------------
 
+    /** 提交时锁定用户行，避免并发请求重复消耗外部实名认证额度。 */
+    Long lockRealNameApplicant(@Param("userId") Long userId);
+
     /** 最新一条实名申请（含材料引用）；无记录返回 null。 */
     UserRealNameAuth selectLatestRealName(@Param("userId") Long userId);
 
@@ -70,6 +80,22 @@ public interface AppUserCenterMapper
 
     /** 写入新的实名申请（驳回后重提也走新增，保留完整审计链）。 */
     int insertRealName(UserRealNameAuth record);
+
+    /** 实名核验通过后写明文姓名快照到 sys_user（合同签署域渲染真实姓名用；掩码链不受影响）。 */
+    int markRealNameVerified(@Param("userId") Long userId, @Param("realName") String realName);
+
+    // ------------------------------------------------------------------
+    // 创作者申请
+    // ------------------------------------------------------------------
+
+    /** 最新一条创作者申请；无记录返回 null。 */
+    UserCreatorApplication selectLatestCreatorApplication(@Param("userId") Long userId);
+
+    /** 最新创作者申请状态；无记录返回 null。 */
+    String selectLatestCreatorApplicationStatus(@Param("userId") Long userId);
+
+    /** 写入新的创作者申请（驳回后重提也走新增，保留完整审计链）。 */
+    int insertCreatorApplication(UserCreatorApplication record);
 
     // ------------------------------------------------------------------
     // 消息收件箱

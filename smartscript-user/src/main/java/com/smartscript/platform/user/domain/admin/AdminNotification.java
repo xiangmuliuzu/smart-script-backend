@@ -25,6 +25,8 @@ public class AdminNotification
     private String content;
     private String businessType;
     private String businessId;
+    /** 交易通知受众角色：BUYER/SELLER/BOTH；NULL=通用/非交易，全端可见。 */
+    private String audience;
     private Integer receiverCount;
     private String createdBy;
     private Date createdAt;
@@ -100,6 +102,16 @@ public class AdminNotification
     public void setBusinessId(String businessId)
     {
         this.businessId = businessId;
+    }
+
+    public String getAudience()
+    {
+        return audience;
+    }
+
+    public void setAudience(String audience)
+    {
+        this.audience = audience;
     }
 
     public Integer getReceiverCount()

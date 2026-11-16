@@ -28,8 +28,14 @@ public class SysTag extends BaseEntity
     /** 标签名称 */
     private String tagName;
 
-    /** 标签类型 */
+    /** 标签维度（role 角色 / plot 情节） */
     private String tagType;
+
+    /** 标签分组（同维度内的分区块标题） */
+    private String groupName;
+
+    /** 所属频道ID（NULL=男女通用） */
+    private Long channelId;
 
     /** 使用数量 */
     private Integer useCount;
@@ -74,6 +80,26 @@ public class SysTag extends BaseEntity
         this.tagType = tagType;
     }
 
+    public String getGroupName()
+    {
+        return groupName;
+    }
+
+    public void setGroupName(String groupName)
+    {
+        this.groupName = groupName;
+    }
+
+    public Long getChannelId()
+    {
+        return channelId;
+    }
+
+    public void setChannelId(Long channelId)
+    {
+        this.channelId = channelId;
+    }
+
     public Integer getUseCount()
     {
         return useCount;
@@ -111,6 +137,8 @@ public class SysTag extends BaseEntity
                 .append("tagId", getTagId())
                 .append("tagName", getTagName())
                 .append("tagType", getTagType())
+                .append("groupName", getGroupName())
+                .append("channelId", getChannelId())
                 .append("useCount", getUseCount())
                 .append("sort", getSort())
                 .append("status", getStatus())

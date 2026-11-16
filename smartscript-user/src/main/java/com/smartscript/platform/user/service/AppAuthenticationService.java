@@ -18,24 +18,26 @@ import com.smartscript.platform.user.dto.PasswordLoginRequest;
 import com.smartscript.platform.user.dto.PasswordResetRequest;
 import com.smartscript.platform.user.dto.RegisterRequest;
 import com.smartscript.platform.user.dto.SmsLoginRequest;
-import com.smartscript.platform.user.dto.TokenRefreshRequest;
 import com.smartscript.platform.user.exception.AppAuthException;
 import com.smartscript.platform.user.mapper.AppUserMapper;
+import com.smartscript.platform.user.mapper.AppIdentityMapper;
 import com.smartscript.platform.user.security.AppIdentityContext;
-import com.smartscript.platform.user.service.RefreshSessionService.IssuedSession;
+import com.smartscript.platform.user.security.AppRuoYiSessionService;
 import com.smartscript.platform.identity.IdentityContext;
 import com.smartscript.platform.user.util.AppHashes;
 
 @Service
 public class AppAuthenticationService
 {
+    private static final int CREATE_USER_MAX_ATTEMPTS = 10;
+
     private final AppUserMapper userMapper;
     private final SmsCodeService smsCodeService;
     private final AgreementService agreementService;
-    private final RefreshSessionService refreshSessionService;
+    private final AppRuoYiSessionService sessionService;
     private final AppSessionRevocationService revocationService;
     private final BCryptPasswordEncoder passwordEncoder;
-    private final com.smartscript.platform.identity.IdentityProvider identityProvider;
+    private final AppIdentityMapper identityMapper;
     /**
      * H15-REV-03（§9.3）：登录成功/失败、禁用账号登录的安全审计。可为 null（单测构造兜底）。
      * 事件落 sys_logininfor：actor 为掩码手机号，detail 只含场景/原因/用户 id，绝不含口令/验证码/令牌。
@@ -45,19 +47,19 @@ public class AppAuthenticationService
     public AppAuthenticationService(AppUserMapper userMapper,
             SmsCodeService smsCodeService,
             AgreementService agreementService,
-            RefreshSessionService refreshSessionService,
+            AppRuoYiSessionService sessionService,
             AppSessionRevocationService revocationService,
             BCryptPasswordEncoder passwordEncoder,
-            com.smartscript.platform.identity.IdentityProvider identityProvider,
+            AppIdentityMapper identityMapper,
             AppSecurityEventRecorder securityEvents)
     {
         this.userMapper = userMapper;
         this.smsCodeService = smsCodeService;
         this.agreementService = agreementService;
-        this.refreshSessionService = refreshSessionService;
+        this.sessionService = sessionService;
         this.revocationService = revocationService;
         this.passwordEncoder = passwordEncoder;
-        this.identityProvider = identityProvider;
+        this.identityMapper = identityMapper;
         this.securityEvents = securityEvents;
     }
 
@@ -106,6 +108,11 @@ public class AppAuthenticationService
     @Transactional
     public AuthSessionDto smsLogin(SmsLoginRequest request, String ip)
     {
+        boolean hasEmail = request.getEmail() != null && !request.getEmail().isBlank();
+        boolean hasPhone = request.getPhone() != null && !request.getPhone().isBlank();
+        if (hasEmail == hasPhone) throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "请输入手机号或邮箱");
+        if (hasEmail) return emailCodeLogin(request, ip);
+        if (!request.getPhone().matches("^1\\d{10}$")) throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "请输入正确的手机号");
         try
         {
             smsCodeService.consumeOnce(request.getPhone(), "LOGIN", request.getCode());
@@ -126,7 +133,7 @@ public class AppAuthenticationService
         else if (!user.isUsable())
         {
             audit(maskPhone(request.getPhone()), ip, "APP_LOGIN_DISABLED", "scene=LOGIN userId=" + user.getUserId());
-            throw new AppAuthException(AppAuthErrorCodes.ACCOUNT_DISABLED, 403, "account disabled");
+            throw new AppAuthException(AppAuthErrorCodes.ACCOUNT_DISABLED, 403, "账号暂时无法使用，请联系客服或管理员");
         }
         else if (request.getAgreementAcceptances() != null && !request.getAgreementAcceptances().isEmpty()
                 && !agreementService.hasCurrentConsents(user.getUserId()))
@@ -137,51 +144,84 @@ public class AppAuthenticationService
         return issueSession(user, request.getDeviceId(), request.getDeviceName(), ip);
     }
 
+    private AuthSessionDto emailCodeLogin(SmsLoginRequest request, String ip)
+    {
+        String email = SmsCodeService.normalizeEmail(request.getEmail());
+        smsCodeService.consumeEmailCode(email, "LOGIN", request.getCode());
+        AppUserRecord user = userMapper.selectByVerifiedEmail(email);
+        if (user == null)
+        {
+            if (userMapper.selectByEmail(email) != null || userMapper.selectByLoginIdentifier(email) != null)
+                throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "账号不可用");
+            agreementService.validateCurrent(request.getAgreementAcceptances());
+            user = createAppUser(null, email, null);
+            try { userMapper.insertEmailBinding(user.getUserId(), email); }
+            catch (DuplicateKeyException e) { throw new AppAuthException(AppAuthErrorCodes.PHONE_TAKEN, 409, "邮箱已注册，请重新登录"); }
+            agreementService.recordAcceptances(user.getUserId(), request.getAgreementAcceptances(), ip, request.getDeviceId());
+        }
+        else if (!user.isUsable())
+            throw new AppAuthException(AppAuthErrorCodes.ACCOUNT_DISABLED, 403, "账号暂时无法使用，请联系客服或管理员");
+        else if (request.getAgreementAcceptances() != null && !request.getAgreementAcceptances().isEmpty()
+                && !agreementService.hasCurrentConsents(user.getUserId()))
+            agreementService.recordAcceptances(user.getUserId(), request.getAgreementAcceptances(), ip, request.getDeviceId());
+        auditLoginSuccessAfterCommit("***@" + email.substring(email.indexOf('@') + 1), ip, "scene=EMAIL_LOGIN userId=" + user.getUserId());
+        return issueSession(user, request.getDeviceId(), request.getDeviceName(), ip);
+    }
+
     @Transactional
     public AuthSessionDto passwordLogin(PasswordLoginRequest request, String ip)
     {
         AppUserRecord user = userMapper.selectByPhone(request.getPhone());
         // Same error for unknown phone and wrong password (anti-enumeration).
-        if (user == null || user.getPassword() == null || user.getPassword().isBlank()
-                || !passwordEncoder.matches(request.getPassword(), user.getPassword()))
+        if (user == null || !com.smartscript.platform.user.constant.AppAdminConstants.isManagedUserType(user.getUserType()))
         {
             audit(maskPhone(request.getPhone()), ip, "APP_LOGIN_FAIL", "scene=PASSWORD reason=BAD_CREDENTIAL");
-            throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "phone or password incorrect");
+            throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "手机号或密码错误，请重试");
         }
         if (!user.isUsable())
         {
             audit(maskPhone(request.getPhone()), ip, "APP_LOGIN_DISABLED", "scene=PASSWORD userId=" + user.getUserId());
-            throw new AppAuthException(AppAuthErrorCodes.ACCOUNT_DISABLED, 403, "account disabled");
+            throw new AppAuthException(AppAuthErrorCodes.ACCOUNT_DISABLED, 403, "账号暂时无法使用，请联系客服或管理员");
         }
+        authenticateAndAudit(user, request.getPassword(), request.getCode(), request.getUuid(),
+                maskPhone(request.getPhone()), ip, "PASSWORD");
         auditLoginSuccessAfterCommit(maskPhone(request.getPhone()), ip, "scene=PASSWORD userId=" + user.getUserId());
         return issueSession(user, request.getDeviceId(), request.getDeviceName(), ip);
     }
 
     /**
      * A 模块 PC 统一登录的 App 域入口：01/02/03 账号在 PC 网页上凭用户名或手机号 + 密码登录，
-     * 签发 App 凭证域令牌（与 App 端同一套 access/refresh 体系），绝不签发若依管理端 Token。
+     * 签发 App 凭证域令牌（与 App 端同一套若依 TokenService），绝不签发若依管理端 Token。
      * 账号域判定由调用方（PcUnifiedLoginController）依据 user_type 完成，此处再防御一次：
      * 非 01/02/03 一律按凭据错误处理，避免管理端账号误入 App 凭证域。
      */
     @Transactional
     public AuthSessionDto pcPasswordLogin(String identifier, String password, String ip)
     {
+        return ruoyiPasswordLogin(identifier, password, null, null, ip);
+    }
+
+    @Transactional
+    public AuthSessionDto ruoyiPasswordLogin(String identifier, String password, String code, String uuid, String ip)
+    {
+        String actor = identifier != null && identifier.contains("@") ? "***@" + identifier.substring(identifier.indexOf('@') + 1)
+                : identifier != null && identifier.matches("^1\\d{10}$") ? AppHashes.maskPhone(identifier) : identifier;
         AppUserRecord user = userMapper.selectByLoginIdentifier(identifier);
         boolean credentialOk = user != null
                 && com.smartscript.platform.user.constant.AppAdminConstants.isManagedUserType(user.getUserType())
-                && user.getPassword() != null && !user.getPassword().isBlank()
-                && passwordEncoder.matches(password, user.getPassword());
+                && password != null && !password.isBlank();
         if (!credentialOk)
         {
-            audit(identifier, ip, "APP_LOGIN_FAIL", "scene=PC_PASSWORD reason=BAD_CREDENTIAL");
+            audit(actor, ip, "APP_LOGIN_FAIL", "scene=PC_PASSWORD reason=BAD_CREDENTIAL");
             throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "用户不存在/密码错误");
         }
         if (!user.isUsable())
         {
-            audit(identifier, ip, "APP_LOGIN_DISABLED", "scene=PC_PASSWORD userId=" + user.getUserId());
+            audit(actor, ip, "APP_LOGIN_DISABLED", "scene=PC_PASSWORD userId=" + user.getUserId());
             throw new AppAuthException(AppAuthErrorCodes.ACCOUNT_DISABLED, 403, "账号已停用，请联系管理员");
         }
-        auditLoginSuccessAfterCommit(identifier, ip, "scene=PC_PASSWORD userId=" + user.getUserId());
+        authenticateAndAudit(user, password, code, uuid, actor, ip, "PC_PASSWORD");
+        auditLoginSuccessAfterCommit(actor, ip, "scene=PC_PASSWORD userId=" + user.getUserId());
         return issueSession(user, "pc-web", "PC Web", ip);
     }
 
@@ -189,28 +229,44 @@ public class AppAuthenticationService
     public AuthSessionDto register(RegisterRequest request, String ip)
     {
         validatePasswordPolicy(request.getPassword());
-        smsCodeService.consumeOnce(request.getPhone(), "REGISTER", request.getCode());
-        agreementService.validateCurrent(request.getAgreementAcceptances());
-        AppUserRecord existing = userMapper.selectByPhone(request.getPhone());
-        if (existing != null)
-        {
-            throw new AppAuthException(AppAuthErrorCodes.PHONE_TAKEN, 409, "phone already registered");
+        boolean hasEmail = request.getEmail() != null && !request.getEmail().isBlank();
+        boolean hasPhone = request.getPhone() != null && !request.getPhone().isBlank();
+        if (hasEmail == hasPhone)
+            throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "请输入手机号或邮箱");
+        String email = hasEmail ? SmsCodeService.normalizeEmail(request.getEmail()) : null;
+        if (hasEmail) smsCodeService.consumeEmailCode(email, request.getCode());
+        else {
+            if (!request.getPhone().matches("^1\\d{10}$"))
+                throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "请输入正确的手机号");
+            smsCodeService.consumeOnce(request.getPhone(), "REGISTER", request.getCode());
         }
-        AppUserRecord user = createAppUser(request.getPhone(), passwordEncoder.encode(request.getPassword()));
+        agreementService.validateCurrent(request.getAgreementAcceptances());
+        AppUserRecord existing = hasEmail ? userMapper.selectByEmail(email) : userMapper.selectByPhone(request.getPhone());
+        if (existing != null || (hasEmail && userMapper.selectByLoginIdentifier(email) != null))
+        {
+            throw new AppAuthException(AppAuthErrorCodes.PHONE_TAKEN, 409, hasEmail ? "邮箱已注册" : "该手机号已注册，请直接登录");
+        }
+        AppUserRecord user = createAppUser(request.getPhone(), email, passwordEncoder.encode(request.getPassword()));
+        if (hasEmail) {
+            try { userMapper.insertEmailBinding(user.getUserId(), email); }
+            catch (DuplicateKeyException e) { throw new AppAuthException(AppAuthErrorCodes.PHONE_TAKEN, 409, "邮箱已注册"); }
+        }
         agreementService.recordAcceptances(user.getUserId(), request.getAgreementAcceptances(), ip, request.getDeviceId());
         return issueSession(user, request.getDeviceId(), request.getDeviceName(), ip);
     }
 
-    public AuthSessionDto refresh(TokenRefreshRequest request, String ip)
+    private void authenticateAndAudit(AppUserRecord user, String password, String code, String uuid,
+            String actor, String ip, String scene)
     {
-        IssuedSession session = refreshSessionService.rotate(request.getRefreshToken(), request.getDeviceId(), request.getDeviceName(), ip);
-        AppUserRecord user = userMapper.selectById(session.getUserId());
-        if (user == null || !user.isUsable())
+        try
         {
-            audit("user-" + session.getUserId(), ip, "APP_LOGIN_DISABLED", "scene=REFRESH userId=" + session.getUserId());
-            throw new AppAuthException(AppAuthErrorCodes.ACCOUNT_DISABLED, 403, "account disabled");
+            sessionService.authenticate(user, password, code, uuid);
         }
-        return toAuthSession(session, user);
+        catch (AppAuthException e)
+        {
+            audit(actor, ip, "APP_LOGIN_FAIL", "scene=" + scene + " reason=" + e.getCode());
+            throw e;
+        }
     }
 
     public void logout(AppIdentityContext identity)
@@ -219,7 +275,7 @@ public class AppAuthenticationService
         {
             return;
         }
-        revocationService.revokeSession(identity.getSessionId(), identity.getJti(), "LOGOUT");
+        revocationService.revokeSession(identity.getJti(), "LOGOUT");
     }
 
     public CurrentUserDto me(AppIdentityContext identity)
@@ -227,7 +283,7 @@ public class AppAuthenticationService
         AppUserRecord user = userMapper.selectById(identity.getUserId());
         if (user == null || !user.isUsable())
         {
-            throw new AppAuthException(AppAuthErrorCodes.ACCOUNT_DISABLED, 403, "account disabled");
+            throw new AppAuthException(AppAuthErrorCodes.ACCOUNT_DISABLED, 403, "账号暂时无法使用，请联系客服或管理员");
         }
         return toCurrentUser(user);
     }
@@ -239,10 +295,10 @@ public class AppAuthenticationService
         AppUserRecord user = requireUser(identity.getUserId());
         if (user.getPassword() != null && !user.getPassword().isBlank())
         {
-            throw new AppAuthException(AppAuthErrorCodes.PASSWORD_STATE_CONFLICT, 409, "password already set");
+            throw new AppAuthException(AppAuthErrorCodes.PASSWORD_STATE_CONFLICT, 409, "密码已设置，请直接登录");
         }
         userMapper.updatePassword(user.getUserId(), passwordEncoder.encode(password));
-        revocationService.revokeOthersForUser(user.getUserId(), identity.getSessionId(), "PASSWORD_SET");
+        revocationService.revokeOthersForUser(user.getUserId(), identity.getJti(), "PASSWORD_SET");
     }
 
     @Transactional
@@ -253,11 +309,11 @@ public class AppAuthenticationService
         if (user.getPassword() == null || user.getPassword().isBlank()
                 || !passwordEncoder.matches(request.getOldPassword(), user.getPassword()))
         {
-            throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "old password incorrect");
+            throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "原密码不正确，请重新输入");
         }
         if (passwordEncoder.matches(request.getNewPassword(), user.getPassword()))
         {
-            throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "new password must differ");
+            throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "新密码不能与原密码相同");
         }
         userMapper.updatePassword(user.getUserId(), passwordEncoder.encode(request.getNewPassword()));
         revocationService.revokeAllForUser(user.getUserId(), "PASSWORD_CHANGE");
@@ -267,72 +323,74 @@ public class AppAuthenticationService
     public void resetPassword(PasswordResetRequest request)
     {
         validatePasswordPolicy(request.getNewPassword());
-        smsCodeService.consumeOnce(request.getPhone(), "RESET_PASSWORD", request.getCode());
-        AppUserRecord user = userMapper.selectByPhone(request.getPhone());
+        boolean hasEmail = request.getEmail() != null && !request.getEmail().isBlank();
+        boolean hasPhone = request.getPhone() != null && !request.getPhone().isBlank();
+        if (hasEmail == hasPhone) throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "请输入手机号或邮箱");
+        AppUserRecord user;
+        if (hasEmail) {
+            String email = SmsCodeService.normalizeEmail(request.getEmail());
+            smsCodeService.consumeEmailCode(email, "RESET_PASSWORD", request.getCode());
+            user = userMapper.selectByVerifiedEmail(email);
+        } else {
+            if (!request.getPhone().matches("^1\\d{10}$")) throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "请输入正确的手机号");
+            smsCodeService.consumeOnce(request.getPhone(), "RESET_PASSWORD", request.getCode());
+            user = userMapper.selectByPhone(request.getPhone());
+        }
         if (user == null)
         {
             // Do not reveal existence; still consume code path for security tests via same message.
-            throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "phone or password incorrect");
+            throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "手机号或密码错误，请重试");
         }
         if (user.getPassword() != null && passwordEncoder.matches(request.getNewPassword(), user.getPassword()))
         {
-            throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "new password must differ");
+            throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "新密码不能与原密码相同");
         }
         userMapper.updatePassword(user.getUserId(), passwordEncoder.encode(request.getNewPassword()));
         revocationService.revokeAllForUser(user.getUserId(), "PASSWORD_RESET");
     }
 
-    public void oauthNotOpen(String provider)
-    {
-        if (!"wechat".equals(provider) && !"qq".equals(provider))
-        {
-            throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "unsupported oauth provider");
-        }
-        throw new AppAuthException(AppAuthErrorCodes.OAUTH_NOT_OPEN, 501, "oauth provider not open");
-    }
-
     private AppUserRecord createAppUser(String phone, String encodedPassword)
     {
+        return createAppUser(phone, null, encodedPassword);
+    }
+
+    private AppUserRecord createAppUser(String phone, String email, String encodedPassword)
+    {
         AppUserRecord user = new AppUserRecord();
-        user.setUserName(randomAppUserName());
-        user.setNickName(AppHashes.maskPhone(phone));
         user.setPhonenumber(phone);
+        user.setEmail(email);
         user.setPassword(encodedPassword == null ? "" : encodedPassword);
         user.setUserType("01");
         user.setAvatar("");
         user.setStatus("0");
         user.setDelFlag("0");
-        try
+        for (int attempt = 0; attempt < CREATE_USER_MAX_ATTEMPTS; attempt++)
         {
-            userMapper.insertAppUser(user);
-        }
-        catch (DuplicateKeyException e)
-        {
-            AppUserRecord existing = userMapper.selectByPhone(phone);
-            if (existing == null)
+            user.setUserName(randomAppUserName());
+            user.setNickName(randomAppNickname());
+            try
             {
-                throw e;
+                // 由现有名称唯一索引兜底并发；冲突后重新生成，绝不返回重复名称。
+                userMapper.insertAppUser(user);
+                return user;
             }
-            return existing;
+            catch (DuplicateKeyException e)
+            {
+                AppUserRecord existing = phone == null ? null : userMapper.selectByPhone(phone);
+                if (existing != null)
+                {
+                    return existing;
+                }
+            }
         }
-        return user;
+        throw new AppAuthException(AppAuthErrorCodes.SYSTEM_ERROR, 503, "注册暂不可用，请稍后重试");
     }
 
     private AuthSessionDto issueSession(AppUserRecord user, String deviceId, String deviceName, String ip)
     {
         userMapper.updateLoginInfo(user.getUserId(), ip, new Date());
-        IssuedSession session = refreshSessionService.createSession(user.getUserId(), deviceId, deviceName);
-        return toAuthSession(session, user);
-    }
-
-    private AuthSessionDto toAuthSession(IssuedSession session, AppUserRecord user)
-    {
         AuthSessionDto dto = new AuthSessionDto();
-        dto.setAccessToken(session.getAccessToken().getToken());
-        dto.setRefreshToken(session.getRawRefreshToken());
-        dto.setTokenType("Bearer");
-        dto.setExpiresIn(session.getAccessToken().getExpiresIn());
-        dto.setRefreshExpiresIn(session.getRefreshExpiresIn());
+        dto.setToken(sessionService.issue(user));
         dto.setUser(toCurrentUser(user));
         return dto;
     }
@@ -345,15 +403,15 @@ public class AppAuthenticationService
         dto.setNickname(user.getNickName());
         dto.setAvatar(user.getAvatar() == null || user.getAvatar().isBlank() ? null : user.getAvatar());
         dto.setBio(user.getBio() == null || user.getBio().isBlank() ? null : user.getBio());
-        dto.setPhoneMasked(AppHashes.maskPhone(user.getPhonenumber()));
-        // A5 起 /auth/me 返回真实角色与实名状态，供 App 统一身份能力使用
-        // （规格 §10：AuthState.currentUser.realNameStatus 与 hasRole）。
-        // A6 起补充权限标识与作者能力，并复用统一身份解析结果，避免同一份数据两处查询。
-        IdentityContext identity = identityProvider.currentIdentity();
-        dto.setRoles(identity.getRoleCodes().toArray(new String[0]));
-        dto.setPermissions(identity.getPermissionCodes().toArray(new String[0]));
-        dto.setAuthorCapability(identity.isAuthorCapability());
-        dto.setRealNameStatus(identity.getRealNameStatus());
+        dto.setPhoneMasked(user.getPhonenumber() == null || user.getPhonenumber().isBlank() ? null : AppHashes.maskPhone(user.getPhonenumber()));
+        // 登录入口仍是匿名请求，当前请求身份可能是游客或旧账号。
+        // 只按本次已验证账号查权威表；登录和身份恢复均读取最新授予/撤销状态。
+        Long userId = user.getUserId();
+        dto.setRoles(identityMapper.selectRoleCodes(userId).toArray(new String[0]));
+        dto.setPermissions(identityMapper.selectPermissionCodes(userId).toArray(new String[0]));
+        dto.setAuthorCapability(Boolean.TRUE.equals(identityMapper.selectAuthorCapabilityEnabled(userId)));
+        String realNameStatus = userMapper.selectRealNameStatus(userId);
+        dto.setRealNameStatus(realNameStatus == null ? IdentityContext.REAL_NAME_NOT_SUBMITTED : realNameStatus);
         dto.setHasPassword(user.getPassword() != null && !user.getPassword().isBlank());
         return dto;
     }
@@ -363,7 +421,7 @@ public class AppAuthenticationService
         AppUserRecord user = userMapper.selectById(userId);
         if (user == null || !user.isUsable())
         {
-            throw new AppAuthException(AppAuthErrorCodes.ACCOUNT_DISABLED, 403, "account disabled");
+            throw new AppAuthException(AppAuthErrorCodes.ACCOUNT_DISABLED, 403, "账号暂时无法使用，请联系客服或管理员");
         }
         return user;
     }
@@ -396,11 +454,11 @@ public class AppAuthenticationService
     {
         if (password == null || password.length() < 8 || password.length() > 64)
         {
-            throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "password length must be 8-64");
+            throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "密码长度需为 8-64 位");
         }
         if (password.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > MAX_PASSWORD_BYTES)
         {
-            throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "password must not exceed 72 UTF-8 bytes");
+            throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "密码过长，请修改后重试");
         }
         boolean letter = false;
         boolean digit = false;
@@ -419,8 +477,20 @@ public class AppAuthenticationService
         }
         if (!letter || !digit)
         {
-            throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "password must contain letter and digit");
+            throw new AppAuthException(AppAuthErrorCodes.PARAM, 400, "密码需同时包含字母和数字");
         }
+    }
+
+    /** 与可编辑用户名称的 15 字上限一致，随机后缀同时包含字母和数字。 */
+    private static String randomAppNickname()
+    {
+        String suffix;
+        do
+        {
+            suffix = randomAppUserName().substring(4, 17);
+        }
+        while (!suffix.matches(".*[a-z].*") || !suffix.matches(".*[0-9].*"));
+        return "用户" + suffix;
     }
 
     private static String randomAppUserName()

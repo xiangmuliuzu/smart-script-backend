@@ -20,4 +20,17 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		  and (end_date is null or end_date &gt;= curdate())
 	</select>
 
+	<!--
+	  购买版权兜底：D 模块（版权财务域）尚未落地，投放中的版权交易由 C 模块订单承载完成态。
+	  「已购买」口径：sys_order.work_id=作品 且 buyer_id=当前用户 且 status='completed'。
+	  只取 count，参数全部按 #{} 绑定。
+	-->
+	<select id="countPurchasedOrder" resultType="int">
+		select count(1)
+		from sys_order
+		where work_id = #{workId}
+		  and buyer_id = #{licenseeId}
+		  and status = 'completed'
+	</select>
+
 </mapper>

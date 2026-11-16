@@ -20,6 +20,7 @@
         <result property="createTime"   column="create_time" />
         <result property="remark"       column="remark" />
         <result property="workTitle"    column="work_title" />
+        <result property="workCover"    column="work_cover" />
         <result property="buyerName"    column="buyer_name" />
         <result property="sellerName"   column="seller_name" />
     </resultMap>
@@ -29,6 +30,7 @@
                i.license_type, i.intended_use, i.budget, i.message, i.status,
                i.expire_at, i.created_at, i.updated_at, i.create_by, i.create_time, i.remark,
                w.title as work_title,
+               w.cover as work_cover,
                ub.nick_name as buyer_name,
                us.nick_name as seller_name
         from sys_inquiry i
@@ -36,6 +38,9 @@
         left join sys_user ub on i.buyer_id = ub.user_id
         left join sys_user us on i.seller_id = us.user_id
         <where>
+            <if test="buyerId != null">AND i.buyer_id = #{buyerId}</if>
+            <if test="sellerId != null">AND i.seller_id = #{sellerId}</if>
+            <if test="relatedUserId != null">AND (i.buyer_id = #{relatedUserId} or i.seller_id = #{relatedUserId})</if>
             <if test="inquiryNo != null and inquiryNo != ''">AND i.inquiry_no like concat('%', #{inquiryNo}, '%')</if>
             <if test="status != null and status != ''">AND i.status = #{status}</if>
             <if test="licenseType != null and licenseType != ''">AND i.license_type = #{licenseType}</if>
@@ -48,7 +53,7 @@
     </select>
 
     <select id="selectInquiryById" parameterType="Long" resultMap="SysInquiryResult">
-        select i.*, w.title as work_title,
+        select i.*, w.title as work_title, w.cover as work_cover,
                ub.nick_name as buyer_name, us.nick_name as seller_name
         from sys_inquiry i
         left join sys_work w on i.work_id = w.work_id
@@ -78,6 +83,17 @@
         where inquiry_id = #{inquiryId}
     </update>
 
+    <!-- CAS 状态流转：仅当前 status 落在 allowedFrom 内才写 target，并发抢改则影响 0 行（问题5）。 -->
+    <update id="updateStatusCas">
+        update sys_inquiry
+        set status = #{target},
+            update_by = #{updateBy},
+            update_time = now()
+        where inquiry_id = #{inquiryId}
+          and status in
+          <foreach collection="allowedFrom" item="s" open="(" separator="," close=")">#{s}</foreach>
+    </update>
+
     <!-- P1-08：扫描过期询盘（status ∈ pending/accepted/quoted 且 expire_at < now）批量置 closed。
          由 Quartz 任务 tradeInquiryTask.closeExpiredInquiries 定时调用（见迁移 C_20260928_005）。
          deal/rejected/closed 为终态，不再处理。 -->
@@ -90,5 +106,18 @@
           and expire_at is not null
           and expire_at &lt; now()
     </update>
+
+    <!-- 与 closeExpiredInquiries 同条件的预查询：定时任务关闭后按行发送过期通知 -->
+    <select id="selectExpiredOpenInquiries" resultMap="SysInquiryResult">
+        select i.*, w.title as work_title,
+               ub.nick_name as buyer_name, us.nick_name as seller_name
+        from sys_inquiry i
+        left join sys_work w on i.work_id = w.work_id
+        left join sys_user ub on i.buyer_id = ub.user_id
+        left join sys_user us on i.seller_id = us.user_id
+        where i.status in ('pending', 'accepted', 'quoted')
+          and i.expire_at is not null
+          and i.expire_at &lt; now()
+    </select>
 
 </mapper>

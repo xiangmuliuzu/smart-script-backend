@@ -164,6 +164,12 @@ public class SysLoginService
             AsyncManager.me().execute(AsyncFactory.recordLogininfor(username, Constants.LOGIN_FAIL, MessageUtils.message("user.password.not.match")));
             throw new UserPasswordNotMatchException();
         }
+        validateLoginIp(username);
+    }
+
+    /** Shared by admin password login and App password/SMS registration. */
+    public void validateLoginIp(String username)
+    {
         // IP黑名单校验
         String blackStr = configService.selectConfigByKey("sys.login.blackIPList");
         if (IpUtils.isMatchedIp(blackStr, IpUtils.getIpAddr()))

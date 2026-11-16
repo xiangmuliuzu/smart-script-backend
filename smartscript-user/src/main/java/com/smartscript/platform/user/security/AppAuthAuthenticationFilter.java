@@ -5,6 +5,8 @@ import java.nio.charset.StandardCharsets;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.web.context.RequestAttributeSecurityContextRepository;
+import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.web.filter.OncePerRequestFilter;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -27,7 +29,7 @@ import com.ruoyi.framework.security.handle.AuthenticationFailureAuditor;
  */
 public class AppAuthAuthenticationFilter extends OncePerRequestFilter
 {
-    private final AppAccessTokenService accessTokenService;
+    private final AppRuoYiSessionService accessTokenService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     /**
@@ -35,6 +37,7 @@ public class AppAuthAuthenticationFilter extends OncePerRequestFilter
      * 本过滤器直接短路写响应，不进入 MVC，故必须在此处回调审计。
      */
     private final AuthenticationFailureAuditor authFailureAuditor;
+    private final SecurityContextRepository securityContextRepository;
 
     /**
      * 完全公开端点（与 AppAuthSecurityConfig 的 permitAll 规则一致）：
@@ -42,15 +45,19 @@ public class AppAuthAuthenticationFilter extends OncePerRequestFilter
      */
     private static final String[] PUBLIC_PATHS = {
             "/auth/sms/send",
+            "/auth/email/send",
+            "/trade/alipay/sandbox/notify",
+            "/open/copyright/third-party",
+            "/auth/login",
+            "/auth/captchaImage",
             "/auth/sms/login",
             "/auth/password/login",
             "/auth/password/reset",
             "/auth/register",
-            "/auth/token/refresh",
             "/auth/agreements",
-            "/auth/oauth/wechat/login",
-            "/auth/oauth/qq/login",
             "/pc-auth/login",
+            // 运维端忘记密码：两个 POST 匿名可达，前缀匹配同时覆盖 sms/send 与 password/reset。
+            "/pc-auth/admin",
     };
 
     /**
@@ -63,10 +70,10 @@ public class AppAuthAuthenticationFilter extends OncePerRequestFilter
      */
     private static final String[] OPTIONAL_IDENTITY_PATHS = {
             // 业务模块（B/C/D/E）的公开接口
-            // B 模块书城浏览主链路（第一批）：Banner / 分类 / 标签 / 作品列表与详情 / 榜单。
+            // B 模块书城浏览主链路（第一批）：Banner / 分类页导航 / 标签 / 作品列表与详情 / 榜单。
             // 均为只读公开接口，游客可读；已登录用户带 Token 时仍建立身份，便于后续按身份返回个性化字段。
             "/content/banners",
-            "/content/categories",
+            "/content/categories/nav",
             "/content/tags",
             "/content/works",
             "/content/rankings",
@@ -81,17 +88,29 @@ public class AppAuthAuthenticationFilter extends OncePerRequestFilter
             "/content/drama-feed",
             "/content/external-dramas",
             "/content/episodes",
+            // 任务广场游客可逛：整段前缀登记为「可匿名但可带身份」，与 /content/episodes 同一取向——
+            // 未在 permitAll 中登记的子路径（发布、接单、延时、源剧本、我的任务等）仍由授权层按
+            // authenticated 拒绝并走 AppAuthEntryPoint 返回 401，不会因这里放宽而泄露数据。
+            // 游客能看到的详情范围与字段由 AppTradeDemandController 按「open + 已托管」二次收口。
+            "/trade/demand",
     };
 
-    public AppAuthAuthenticationFilter(AppAccessTokenService accessTokenService)
+    public AppAuthAuthenticationFilter(AppRuoYiSessionService accessTokenService)
     {
         this(accessTokenService, null);
     }
 
-    public AppAuthAuthenticationFilter(AppAccessTokenService accessTokenService, AuthenticationFailureAuditor authFailureAuditor)
+    public AppAuthAuthenticationFilter(AppRuoYiSessionService accessTokenService, AuthenticationFailureAuditor authFailureAuditor)
+    {
+        this(accessTokenService, authFailureAuditor, new RequestAttributeSecurityContextRepository());
+    }
+
+    public AppAuthAuthenticationFilter(AppRuoYiSessionService accessTokenService, AuthenticationFailureAuditor authFailureAuditor,
+            SecurityContextRepository securityContextRepository)
     {
         this.accessTokenService = accessTokenService;
         this.authFailureAuditor = authFailureAuditor;
+        this.securityContextRepository = securityContextRepository;
     }
 
     @Override
@@ -99,7 +118,9 @@ public class AppAuthAuthenticationFilter extends OncePerRequestFilter
             throws ServletException, IOException
     {
         String uri = request.getRequestURI();
-        if (!requiresAppIdentity(uri))
+        // 开屏请求不依赖登录态，旧 Token 也不应阻止展示；其余广告接口仍需身份。
+        boolean publicSplash = "GET".equals(request.getMethod()) && "/api/v1/ad/splash".equals(uri);
+        if (publicSplash || !requiresAppIdentity(uri))
         {
             filterChain.doFilter(request, response);
             return;
@@ -120,7 +141,7 @@ public class AppAuthAuthenticationFilter extends OncePerRequestFilter
                 filterChain.doFilter(request, response);
                 return;
             }
-            writeError(request, response, AppAuthErrorCodes.UNAUTHORIZED, "unauthorized");
+            writeError(request, response, AppAuthErrorCodes.UNAUTHORIZED, "登录状态已过期，请重新登录");
             return;
         }
         String token = header.substring(7).trim();
@@ -128,6 +149,7 @@ public class AppAuthAuthenticationFilter extends OncePerRequestFilter
         {
             AppIdentityContext identity = accessTokenService.parseAndValidate(token);
             SecurityContextHolder.getContext().setAuthentication(identity);
+            securityContextRepository.saveContext(SecurityContextHolder.getContext(), request, response);
             filterChain.doFilter(request, response);
         }
         catch (AppAuthException e)
@@ -196,7 +218,10 @@ public class AppAuthAuthenticationFilter extends OncePerRequestFilter
         response.setStatus(status);
         response.setCharacterEncoding(StandardCharsets.UTF_8.name());
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-        response.getWriter().write(objectMapper.writeValueAsString(AppApiResponse.fail(code, message)));
+        Object body = request.getRequestURI().startsWith("/api/v1/auth/")
+                ? com.ruoyi.common.core.domain.AjaxResult.error(code, message)
+                : AppApiResponse.fail(code, message);
+        response.getWriter().write(objectMapper.writeValueAsString(body));
         // 响应写完之后才回调审计；回调只读请求、不得改动响应（见 AuthenticationFailureAuditor 约定）。
         // 第 15 批：403（凭证域不符/账号禁用）按事件类型携带 reason，由审计器落一条可定位的安全事件。
         if (authFailureAuditor != null)

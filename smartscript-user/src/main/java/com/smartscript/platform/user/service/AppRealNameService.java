@@ -1,13 +1,14 @@
 package com.smartscript.platform.user.service;
 
-import java.util.List;
 import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.transaction.annotation.Transactional;
 import com.smartscript.platform.user.constant.AppUserErrorCodes;
 import com.smartscript.platform.user.domain.UserRealNameAuth;
 import com.smartscript.platform.user.dto.RealNameStatusDto;
 import com.smartscript.platform.user.dto.RealNameSubmitRequest;
 import com.smartscript.platform.user.exception.AppAuthException;
+import com.smartscript.platform.user.integration.AliyunRealNameVerifier;
 import com.smartscript.platform.user.mapper.AppUserCenterMapper;
 import com.smartscript.platform.user.util.AppMasks;
 
@@ -17,15 +18,13 @@ import com.smartscript.platform.user.util.AppMasks;
  * 状态机（与《A用户与认证开发规格》一致，与 A4 常量同集合）：
  *   NOT_SUBMITTED -> PENDING -> APPROVED
  *   PENDING -> REJECTED -> PENDING（驳回后重新提交）
+ *   提交时先进行阿里云二要素核验，核验成功进入人工审核；通道未启用时拒绝提交。
  *
  * 强制边界：
  *   - 审核中（PENDING）不可重复提交，已通过（APPROVED）不可由用户自行覆盖，两者返回 409。
  *   - 只有 REJECTED 或 NOT_SUBMITTED 允许提交；重提走新增行，保留完整审计链。
- *   - 明文姓名与证件号**不落库**：只写 {real_name_mask, id_number_mask}，
- *     与 A4 审核端读取的掩码列一致（A4 不改列名、不解析明文）。
- *   - 材料引用沿用平台上传服务的返回地址；本服务不签发对外地址，
- *     审核端读取材料仍走 A4 的短时授权链路。
- *   - 日志不记录姓名、证件号与材料地址。
+ *   - 证件号只保存掩码；待审核姓名仅用于审核通过后写入合同姓名快照，审核后清除。
+ *   - 日志不记录姓名和证件号。
  */
 @Service
 public class AppRealNameService
@@ -41,17 +40,19 @@ public class AppRealNameService
 
     private static final int REAL_NAME_MIN = 2;
     private static final int REAL_NAME_MAX = 32;
-    private static final int MATERIAL_REFS_MAX = 3;
-    private static final int MATERIAL_REF_MAX_LENGTH = 255;
 
-    /** 身份证号形态：15 位旧证 / 18 位新证（末位可为 X/x）。 */
-    private static final String ID_NUMBER_PATTERN = "^\\d{15}|\\d{17}[0-9Xx]$";
+    /** 身份证号形态：18 位，前 17 位为数字，末位可为 X/x。 */
+    private static final String ID_NUMBER_PATTERN = "^[0-9]{17}[0-9Xx]$";
 
     private final AppUserCenterMapper centerMapper;
+    private final AliyunRealNameVerifier verifier;
+    private final RealNameMaterialStorage materialStorage;
 
-    public AppRealNameService(AppUserCenterMapper centerMapper)
+    public AppRealNameService(AppUserCenterMapper centerMapper, AliyunRealNameVerifier verifier, RealNameMaterialStorage materialStorage)
     {
         this.centerMapper = centerMapper;
+        this.verifier = verifier;
+        this.materialStorage = materialStorage;
     }
 
     /** 查询实名状态；从未提交过时返回 NOT_SUBMITTED 占位而不是 404。 */
@@ -77,36 +78,52 @@ public class AppRealNameService
     @Transactional
     public RealNameStatusDto submit(Long userId, RealNameSubmitRequest request)
     {
-        return doSubmit(userId, request);
+        return doSubmit(userId, request, null, null);
     }
 
     /** 驳回后重新提交。状态不符时与 submit 一样被状态机拒绝。 */
     @Transactional
     public RealNameStatusDto resubmit(Long userId, RealNameSubmitRequest request)
     {
-        return doSubmit(userId, request);
+        return doSubmit(userId, request, null, null);
     }
 
-    private RealNameStatusDto doSubmit(Long userId, RealNameSubmitRequest request)
+    @Transactional
+    public RealNameStatusDto submitWithMaterials(Long userId, RealNameSubmitRequest request, MultipartFile front, MultipartFile back)
+    {
+        return doSubmit(userId, request, front, back);
+    }
+
+    private RealNameStatusDto doSubmit(Long userId, RealNameSubmitRequest request, MultipartFile front, MultipartFile back)
     {
         if (request == null)
         {
-            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "no payload");
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "请求内容不能为空，请刷新后重试");
         }
         String realName = normalizeRealName(request.getRealName());
         String idNumber = normalizeIdNumber(request.getIdNumber());
-        String materialRef = normalizeMaterialRefs(request.getMaterialRefs());
 
+        byte[] frontBytes = materialStorage.validate(front);
+        byte[] backBytes = materialStorage.validate(back);
+
+        // 串行处理该用户的并发提交，避免同时多次调用计费接口。
+        centerMapper.lockRealNameApplicant(userId);
         String current = centerMapper.selectLatestRealNameStatus(userId);
         requireSubmittable(current);
 
+        // 本地校验全部通过后才调用；网络异常中止申请，不伪造核验结果。
+        String rejectReason = verifier.verify(realName, idNumber);
+
+        if (rejectReason != null) throw new AppAuthException(AppUserErrorCodes.PARAM, 400, rejectReason);
         UserRealNameAuth record = new UserRealNameAuth();
         record.setUserId(userId);
-        // 只落掩码：明文姓名与证件号不进入数据库
+        // 申请记录只保存掩码；核验通过后另存合同所需的姓名快照。
         record.setRealNameMask(AppMasks.maskRealName(realName));
         record.setIdNumberMask(AppMasks.maskIdNumber(idNumber));
-        record.setMaterialRef(materialRef);
         record.setStatus(STATUS_PENDING);
+        record.setMaterialRef(materialStorage.save(userId, frontBytes));
+        record.setMaterialBackRef(materialStorage.save(userId, backBytes));
+        record.setPendingRealName(realName);
         centerMapper.insertRealName(record);
         return getStatus(userId);
     }
@@ -131,7 +148,7 @@ public class AppRealNameService
         String value = raw == null ? "" : raw.trim();
         if (value.length() < REAL_NAME_MIN || value.length() > REAL_NAME_MAX)
         {
-            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "real name length invalid");
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "姓名长度不正确，请检查后重试");
         }
         return value;
     }
@@ -141,49 +158,9 @@ public class AppRealNameService
         String value = raw == null ? "" : raw.trim();
         if (!value.matches(ID_NUMBER_PATTERN))
         {
-            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "id number format invalid");
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "身份证号格式不正确，请检查后重试");
         }
         return value;
     }
 
-    /**
-     * 材料引用规范化：1–3 项，去空、去重、限长。
-     * 单值列 user_real_name_auth.material_ref 与 A4 一致按「零或单元素」语义存储，
-     * 因此多项时取首项（不解析分隔符拼接，避免 A4 侧按分隔符误拆）。
-     */
-    static String normalizeMaterialRefs(List<String> refs)
-    {
-        if (refs == null || refs.isEmpty())
-        {
-            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "material required");
-        }
-        String first = null;
-        int count = 0;
-        for (String ref : refs)
-        {
-            if (ref == null || ref.isBlank())
-            {
-                continue;
-            }
-            String value = ref.trim();
-            if (value.length() > MATERIAL_REF_MAX_LENGTH)
-            {
-                throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "material ref too long");
-            }
-            if (first == null)
-            {
-                first = value;
-            }
-            count++;
-            if (count > MATERIAL_REFS_MAX)
-            {
-                throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "too many material refs");
-            }
-        }
-        if (first == null)
-        {
-            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "material required");
-        }
-        return first;
-    }
 }

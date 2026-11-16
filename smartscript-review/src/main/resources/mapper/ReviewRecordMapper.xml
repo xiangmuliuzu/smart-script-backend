@@ -18,8 +18,8 @@
         <result property="remark"       column="remark"          />
         <result property="workTitle"    column="work_title"     />
         <result property="workType"     column="work_type"      />
-        <result property="genreName"    column="genre_name"     />
         <result property="authorName"   column="author_name"    />
+        <result property="userId"       column="user_id"        />
         <result property="aiScore"      column="ai_score"       />
     </resultMap>
 
@@ -27,13 +27,12 @@
         SELECT r.review_id, r.target_type, r.target_id, r.status, r.ai_result,
                r.review_opinion, r.reviewer_id, r.review_end_time,
                r.create_by, r.created_at, r.update_by, r.update_time, r.remark,
-               w.title as work_title, w.work_type, c.category_name as genre_name,
-               u.nick_name as author_name,
+               w.title as work_title, w.work_type,
+               u.nick_name as author_name, w.author_id as user_id,
                CAST(JSON_EXTRACT(r.ai_result, '$.score') AS UNSIGNED) as ai_score
         FROM sys_review_record r
         LEFT JOIN sys_work w ON r.target_id = w.work_id AND r.target_type = 'work'
         LEFT JOIN sys_user u ON w.author_id = u.user_id
-        LEFT JOIN sys_category c ON w.genre_id = c.category_id
     </sql>
 
     <select id="selectReviewRecordList" parameterType="com.smartscript.platform.review.domain.ReviewRecord" resultMap="ReviewRecordResult">
@@ -44,6 +43,15 @@
             </if>
             <if test="targetType != null and targetType != ''">
                 AND r.target_type = #{targetType}
+            </if>
+            <if test="workType != null and workType != ''">
+                AND w.work_type = #{workType}
+            </if>
+            <if test="beginTime != null and beginTime != ''">
+                AND r.created_at &gt;= #{beginTime}
+            </if>
+            <if test="endTime != null and endTime != ''">
+                AND r.created_at &lt;= #{endTime}
             </if>
         </where>
         ORDER BY r.created_at DESC
@@ -94,6 +102,10 @@
             <if test="status != null and status != ''">status = #{status},</if>
             <if test="reviewResult != null and reviewResult != ''">review_result = #{reviewResult},</if>
             <if test="aiResult != null">ai_result = #{aiResult},</if>
+            <if test="aiRiskLevel != null and aiRiskLevel != ''">ai_risk_level = #{aiRiskLevel},</if>
+            <if test="aiSensitiveWords != null">ai_sensitive_words = #{aiSensitiveWords},</if>
+            <if test="aiStartTime != null">ai_start_time = #{aiStartTime},</if>
+            <if test="aiEndTime != null">ai_end_time = #{aiEndTime},</if>
             <if test="reviewOpinion != null">review_opinion = #{reviewOpinion},</if>
             <if test="reviewerId != null">reviewer_id = #{reviewerId},</if>
             <if test="reviewedAt != null">review_end_time = #{reviewedAt},</if>
@@ -104,13 +116,24 @@
         WHERE review_id = #{reviewId}
     </update>
 
+    <!-- 审核通过后把作品置为已上架（lifecycle=approved 的可见性副产物；is_deleted=1 的行不处理） -->
+    <update id="markWorkOnShelf">
+        UPDATE sys_work
+        SET status = 'on_shelf',
+            review_time = sysdate(),
+            update_by = #{updateBy},
+            update_time = sysdate()
+        WHERE work_id = #{workId} AND is_deleted = 0
+    </update>
+
     <delete id="deleteReviewRecordById" parameterType="Long">
         DELETE FROM sys_review_record WHERE review_id = #{reviewId}
     </delete>
 
 
     <select id="selectStatusGroup" resultType="java.util.Map">
-        SELECT status, COUNT(*) AS cnt FROM sys_review_record GROUP BY status
+        SELECT status, COUNT(*) AS cnt FROM sys_review_record
+        GROUP BY status
     </select>
 
 </mapper>

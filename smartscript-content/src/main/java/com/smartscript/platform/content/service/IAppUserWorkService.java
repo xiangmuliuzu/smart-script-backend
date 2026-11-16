@@ -1,5 +1,6 @@
 package com.smartscript.platform.content.service;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 import com.smartscript.platform.content.domain.SysWorkChapter;
@@ -18,26 +19,39 @@ import com.smartscript.platform.content.domain.SysWorkReviewRecord;
 public interface IAppUserWorkService
 {
     /**
-     * 作品详情（含章节目录、最近审核意见）
+     * 作品详情（含章节目录、最近审核意见、作品标签）
      *
      * @param userId 当前用户ID（归属校验）
      * @param workId 作品ID
-     * @return {work, chapters, latestReview}
+     * @return {work, tags, chapters, latestReview}
      */
     Map<String, Object> getWorkDetail(Long userId, Long workId);
 
     /**
-     * 修改作品基本信息（标题/简介/分类）
+     * 修改作品基本信息（标题/简介/封面/标签）
      *
-     * 仅 draft / revision / rejected 状态允许。
+     * 仅「审核中」锁定，其余状态（含已发布）均可修改。
      *
      * @param userId  当前用户ID
      * @param workId  作品ID
      * @param title   作品标题（非空）
      * @param summary 作品简介
-     * @param genreId 分类ID
+     * @param cover   封面地址（2.9.1 上传接口返回的 url；为空不更新）
+     * @param tagIds  标签ID列表（接口文档 2.3.3：全量覆盖，最多 8 个；
+     *                null = 不修改标签，空列表 = 清空标签）
+     * @param channelId 所属频道（146 男频 / 147 女频；null = 不修改）
      */
-    void updateWorkBase(Long userId, Long workId, String title, String summary, Integer genreId);
+    void updateWorkBase(Long userId, Long workId, String title, String summary, String cover,
+            List<Integer> tagIds, BigDecimal price, String tradeType, Integer channelId);
+
+    /**
+     * 兼容旧调用：不修改频道。
+     */
+    default void updateWorkBase(Long userId, Long workId, String title, String summary, String cover,
+            List<Integer> tagIds, BigDecimal price, String tradeType)
+    {
+        updateWorkBase(userId, workId, title, summary, cover, tagIds, price, tradeType, null);
+    }
 
     /**
      * 章节目录（含 content 全文，用户端编辑用）
@@ -55,9 +69,11 @@ public interface IAppUserWorkService
      * @param workId       作品ID
      * @param chapterTitle 章节标题
      * @param content      章节内容
+     * @param summary      章节摘要（本集一条，供后续续写注入；可为空）
+     * @param isFree       免费试读标记（"0"/"1"，null 默认为 "0"）
      * @return 新增后的章节对象
      */
-    SysWorkChapter addChapter(Long userId, Long workId, String chapterTitle, String content);
+    SysWorkChapter addChapter(Long userId, Long workId, String chapterTitle, String content, String summary, String isFree);
 
     /**
      * 修改章节（仅 draft / revision / rejected 状态允许）
@@ -67,8 +83,10 @@ public interface IAppUserWorkService
      * @param chapterId    章节ID
      * @param chapterTitle 章节标题
      * @param content      章节内容
+     * @param summary      章节摘要（本集一条；null 表示不修改，空串表示清空）
+     * @param isFree       免费试读标记（"0"/"1"，null 不修改）
      */
-    void updateChapter(Long userId, Long workId, Long chapterId, String chapterTitle, String content);
+    void updateChapter(Long userId, Long workId, Long chapterId, String chapterTitle, String content, String summary, String isFree);
 
     /**
      * 删除章节（仅 draft / revision / rejected 状态允许）
@@ -99,11 +117,43 @@ public interface IAppUserWorkService
     List<SysWorkReviewRecord> listReviewRecords(Long userId, Long workId);
 
     /**
-     * 我的作品列表（按审核派生状态过滤）
+     * 我的作品列表（A1 工作台「我的作品」页；同时服务 App 端「我的作品」）
      *
-     * @param userId      当前用户ID
-     * @param statusFilter 状态过滤：all / draft / reviewing / revision / rejected / published（null 或 all 表示全部）
-     * @return 作品列表（含派生 status、作者昵称、分类名、更新时间）
+     * 过滤口径：
+     *   - statusFilter：all / draft / reviewing / revision / rejected / published，
+     *     支持逗号分隔多值（如 PC「待修改」= revision,rejected）；null / 空 / all 表示全部。
+     *   - keyword：作品标题模糊匹配（忽略大小写），null / 空表示不筛选。
+     *   - workType：作品类型精确匹配，null / 空表示不筛选。
+     *
+     * @param userId       当前用户ID
+     * @param statusFilter 状态过滤（支持逗号多值）
+     * @param keyword      标题关键词（可空）
+     * @param workType     作品类型（可空）
+     * @return 作品列表（含派生 status、分类名、审核意见摘要、创建/更新时间），按更新时间倒序
      */
-    List<Map<String, Object>> listWorks(Long userId, String statusFilter);
+    List<Map<String, Object>> listWorks(Long userId, String statusFilter, String keyword, String workType);
+
+    /**
+     * 工作台作品统计（A1 工作台首页统计卡片）
+     *
+     * 口径：「待修改」= revision + rejected（与 PC 作品列表「待修改」Tab 一致）。
+     *
+     * @param userId 当前用户ID
+     * @return {workTotal, draftCount, reviewingCount, revisionCount, publishedCount}
+     */
+    Map<String, Object> workStatistics(Long userId);
+
+    /**
+     * 作者申请下架 / 重新上架作品
+     *
+     * - 下架（on_shelf → off_shelf）：只降低可见性，无前置条件，且不修改审核记录，
+     *   因此作者可自助重新上架、免重审；
+     * - 重新上架（off_shelf → on_shelf）：要求最新审核记录为 approved，
+     *   且 reject_reason 为空（有值表示平台强制下架，须改完重新提交审核）。
+     *
+     * @param userId 当前用户ID
+     * @param workId 作品ID
+     * @param status 目标状态：on_shelf / off_shelf
+     */
+    void changeShelfStatus(Long userId, Long workId, String status);
 }

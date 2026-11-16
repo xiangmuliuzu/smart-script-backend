@@ -30,9 +30,21 @@ public class ReviewRecord {
     // 扩展字段
     private String workTitle;
     private String workType;
-    private String genreName;
     private String authorName;
+    private Long userId;
     private Integer aiScore;
+    /** 开始时间（筛选） */
+    private String beginTime;
+    /** 结束时间（筛选） */
+    private String endTime;
+    /** AI风险评估等级 low/medium/high */
+    private String aiRiskLevel;
+    /** AI命中敏感词（逗号分隔） */
+    private String aiSensitiveWords;
+    /** AI开始时间 */
+    private Date aiStartTime;
+    /** AI结束时间 */
+    private Date aiEndTime;
 
     // getter and setter
     public Long getReviewId() { return reviewId; }
@@ -67,10 +79,22 @@ public class ReviewRecord {
     public void setWorkTitle(String workTitle) { this.workTitle = workTitle; }
     public String getWorkType() { return workType; }
     public void setWorkType(String workType) { this.workType = workType; }
-    public String getGenreName() { return genreName; }
-    public void setGenreName(String genreName) { this.genreName = genreName; }
     public String getAuthorName() { return authorName; }
     public void setAuthorName(String authorName) { this.authorName = authorName; }
+    public Long getUserId() { return userId; }
+    public void setUserId(Long userId) { this.userId = userId; }
     public Integer getAiScore() { return aiScore; }
     public void setAiScore(Integer aiScore) { this.aiScore = aiScore; }
+    public String getAiRiskLevel() { return aiRiskLevel; }
+    public void setAiRiskLevel(String aiRiskLevel) { this.aiRiskLevel = aiRiskLevel; }
+    public String getAiSensitiveWords() { return aiSensitiveWords; }
+    public void setAiSensitiveWords(String aiSensitiveWords) { this.aiSensitiveWords = aiSensitiveWords; }
+    public Date getAiStartTime() { return aiStartTime; }
+    public void setAiStartTime(Date aiStartTime) { this.aiStartTime = aiStartTime; }
+    public Date getAiEndTime() { return aiEndTime; }
+    public void setAiEndTime(Date aiEndTime) { this.aiEndTime = aiEndTime; }
+    public String getBeginTime() { return beginTime; }
+    public void setBeginTime(String beginTime) { this.beginTime = beginTime; }
+    public String getEndTime() { return endTime; }
+    public void setEndTime(String endTime) { this.endTime = endTime; }
 }

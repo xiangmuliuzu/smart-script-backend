@@ -72,7 +72,7 @@ public class ReportController {
         Map<String, Object> result = new HashMap<>();
         if (report.getReportId() == null) {
             result.put("code", 400);
-            result.put("msg", "reportId不能为空");
+            result.put("msg", "举报信息不完整，请刷新后重试");
             return result;
         }
         reportService.updateReport(report);

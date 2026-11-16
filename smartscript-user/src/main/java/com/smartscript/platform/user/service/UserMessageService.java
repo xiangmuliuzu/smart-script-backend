@@ -37,7 +37,7 @@ import com.smartscript.platform.user.mapper.AppUserCenterMapper;
 public class UserMessageService
 {
     /** 通知渠道：站内信。 */
-    public static final String CHANNEL_INBOX = "INBOX";
+    public static final String CHANNEL_INBOX = AppAdminConstants.NOTIFICATION_CHANNEL_INBOX;
     /** 通知渠道：推送。 */
     public static final String CHANNEL_PUSH = "PUSH";
 
@@ -50,6 +50,10 @@ public class UserMessageService
             AppAdminConstants.NOTIFICATION_REVIEW,
             AppAdminConstants.NOTIFICATION_TRANSACTION,
             AppAdminConstants.NOTIFICATION_BENEFIT);
+
+    private static final List<String> PREFERENCE_TYPES = List.of(
+            "INQUIRY", "ORDER", "CONTRACT", "SYSTEM", "REVIEW", "BENEFIT", "TRANSACTION");
+    private static final Set<String> TRADE_PREFERENCE_TYPES = Set.of("INQUIRY", "ORDER", "CONTRACT");
 
     /** 列表摘要长度：列表只展示摘要，正文在详情返回。 */
     private static final int SUMMARY_LENGTH = 80;
@@ -70,9 +74,19 @@ public class UserMessageService
      */
     public PageResult<Map<String, Object>> page(Long userId, String type, int pageNum, int pageSize)
     {
+        return page(userId, type, null, pageNum, pageSize);
+    }
+
+    /** portalRole 为门户受众（BUYER/SELLER），只展示通用/BOTH/本角色通知；空则不过滤（APP 端全量）。 */
+    public PageResult<Map<String, Object>> page(Long userId, String type, String portalRole, int pageNum, int pageSize)
+    {
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("userId", userId);
         params.put("type", normalizeType(type, true));
+        if ("BUYER".equals(portalRole) || "SELLER".equals(portalRole))
+        {
+            params.put("portalRole", portalRole);
+        }
         PageHelper.startPage(pageNum, pageSize);
         List<UserMessage> rows = centerMapper.selectMyMessages(params);
         long total = new PageInfo<>(rows).getTotal();
@@ -171,9 +185,13 @@ public class UserMessageService
         List<Map<String, Object>> matrix = new ArrayList<>();
         for (String channel : CHANNELS)
         {
-            for (String type : TYPES)
+            for (String type : PREFERENCE_TYPES)
             {
                 Boolean storedValue = storedMap.get(channel + "/" + type);
+                if (storedValue == null && TRADE_PREFERENCE_TYPES.contains(type))
+                {
+                    storedValue = storedMap.get(channel + "/TRANSACTION");
+                }
                 Map<String, Object> item = new LinkedHashMap<>();
                 item.put("channel", channel);
                 item.put("type", type);
@@ -195,7 +213,7 @@ public class UserMessageService
     {
         if (request == null || request.getPreferences() == null || request.getPreferences().isEmpty())
         {
-            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "preferences required");
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "请先选择消息偏好");
         }
         Set<String> seen = new LinkedHashSet<>();
         int changed = 0;
@@ -203,23 +221,23 @@ public class UserMessageService
         {
             if (item == null)
             {
-                throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "preference item invalid");
+                throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "偏好设置不正确，请检查后重试");
             }
             String channel = normalizeChannel(item.getChannel());
-            String type = normalizeType(item.getType(), false);
+            String type = normalizePreferenceType(item.getType());
             String key = channel + "/" + type;
             if (!seen.add(key))
             {
-                throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "duplicate preference item");
+                throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "偏好设置重复，请检查后重试");
             }
-            if (item.isEnabled())
+            if (item.isEnabled() && !TRADE_PREFERENCE_TYPES.contains(type))
             {
                 // 默认开启：删除落库行即可表达同一语义
                 centerMapper.deletePreference(userId, channel, type);
             }
             else
             {
-                centerMapper.upsertPreference(userId, channel, type, false);
+                centerMapper.upsertPreference(userId, channel, type, item.isEnabled());
             }
             changed++;
         }
@@ -231,7 +249,17 @@ public class UserMessageService
         String value = channel == null ? "" : channel.trim().toUpperCase();
         if (!CHANNELS.contains(value))
         {
-            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "invalid channel");
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "消息渠道不正确，请刷新后重试");
+        }
+        return value;
+    }
+
+    static String normalizePreferenceType(String type)
+    {
+        String value = type == null ? "" : type.trim().toUpperCase();
+        if (!PREFERENCE_TYPES.contains(value))
+        {
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "消息类型不正确，请刷新后重试");
         }
         return value;
     }
@@ -249,12 +277,12 @@ public class UserMessageService
             {
                 return null;
             }
-            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "invalid type");
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "消息类型不正确，请刷新后重试");
         }
         String value = type.trim().toUpperCase();
         if (!TYPES.contains(value))
         {
-            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "invalid type");
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "消息类型不正确，请刷新后重试");
         }
         return value;
     }
@@ -266,6 +294,9 @@ public class UserMessageService
         item.put("type", message.getType());
         item.put("title", message.getTitle());
         item.put("summary", summarize(message.getContent()));
+        // 交易域通知携带业务主键，供前端跳转到对应的询盘/订单/合同（非交易通知为 null）。
+        item.put("businessType", message.getBusinessType());
+        item.put("businessId", message.getBusinessId());
         item.put("read", message.isRead());
         item.put("createdAt", message.getCreatedAt());
         return item;

@@ -37,4 +37,10 @@ public interface BlacklistMapper {
      * 删除黑名单
      */
     int deleteBlacklistById(@Param("id") Long id);
+
+    /**
+     * 查询目标未过期的有效黑名单（业务 check 用）
+     */
+    Blacklist selectActiveByTarget(@Param("targetType") String targetType,
+                                   @Param("targetValue") String targetValue);
 }

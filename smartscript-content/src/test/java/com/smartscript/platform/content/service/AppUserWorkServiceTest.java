@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -16,10 +17,12 @@ import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import com.smartscript.platform.content.domain.SysTag;
 import com.smartscript.platform.content.domain.SysWork;
 import com.smartscript.platform.content.domain.SysWorkChapter;
 import com.smartscript.platform.content.domain.SysWorkReviewRecord;
 import com.smartscript.platform.content.mapper.SysContentWorkMapper;
+import com.smartscript.platform.content.mapper.SysTagMapper;
 import com.smartscript.platform.content.mapper.SysWorkChapterMapper;
 import com.smartscript.platform.content.mapper.SysWorkReviewRecordMapper;
 import com.smartscript.platform.content.service.impl.AppUserWorkServiceImpl;
@@ -40,6 +43,8 @@ class AppUserWorkServiceTest
     private SysContentWorkMapper workMapper;
     private SysWorkChapterMapper chapterMapper;
     private SysWorkReviewRecordMapper reviewRecordMapper;
+    private SysTagMapper tagMapper;
+    private com.smartscript.platform.review.service.AiReviewService aiReviewService;
     private AppUserWorkServiceImpl service;
 
     @BeforeEach
@@ -48,7 +53,10 @@ class AppUserWorkServiceTest
         workMapper = mock(SysContentWorkMapper.class);
         chapterMapper = mock(SysWorkChapterMapper.class);
         reviewRecordMapper = mock(SysWorkReviewRecordMapper.class);
-        service = new AppUserWorkServiceImpl(workMapper, chapterMapper, reviewRecordMapper);
+        tagMapper = mock(SysTagMapper.class);
+        aiReviewService = mock(com.smartscript.platform.review.service.AiReviewService.class);
+        service = new AppUserWorkServiceImpl(workMapper, chapterMapper, reviewRecordMapper, tagMapper, aiReviewService,
+                mock(com.smartscript.platform.review.service.RiskCheckService.class));
     }
 
     private SysWork workOf()
@@ -58,6 +66,23 @@ class AppUserWorkServiceTest
         work.setAuthorId(OWNER);
         work.setStatus("on_shelf");
         work.setTitle("测试作品");
+        return work;
+    }
+
+    private SysTag tagOf(int tagId, String tagType)
+    {
+        SysTag tag = new SysTag();
+        tag.setTagId((long) tagId);
+        tag.setTagType(tagType);
+        tag.setTagName("标签" + tagId);
+        return tag;
+    }
+
+    /** 带 rejectReason 的作品（平台强制下架场景） */
+    private SysWork workOf(String rejectReason)
+    {
+        SysWork work = workOf();
+        work.setRejectReason(rejectReason);
         return work;
     }
 
@@ -159,8 +184,43 @@ class AppUserWorkServiceTest
     {
         when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
         when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of());
-        service.updateWorkBase(OWNER, WORK_ID, "新标题", "新简介", 5);
+        service.updateWorkBase(OWNER, WORK_ID, "新标题", "新简介", null, null, null, null);
         verify(workMapper).updateWorkBaseInfo(any(SysWork.class));
+    }
+
+    @Test
+    @DisplayName("作品设置保存定价和合作方式，并拒绝无效值")
+    void updateWorkBaseValidatesTradeSettings()
+    {
+        when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
+        when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of());
+        service.updateWorkBase(OWNER, WORK_ID, "标题", "简介", null, null,
+                new java.math.BigDecimal("123.45"), "non_exclusive");
+        verify(workMapper).updateWorkBaseInfo(argThat(work ->
+                new java.math.BigDecimal("123.45").equals(work.getPrice())
+                && "non_exclusive".equals(work.getTradeType())));
+        for (String price : List.of("-1", "1.001", "10000000000"))
+            assertThrows(IllegalArgumentException.class, () -> service.updateWorkBase(
+                    OWNER, WORK_ID, "标题", "简介", null, null, new java.math.BigDecimal(price), "exclusive"));
+        assertThrows(IllegalArgumentException.class, () -> service.updateWorkBase(
+                OWNER, WORK_ID, "标题", "简介", null, null, null, "negotiable"));
+        verify(workMapper).updateWorkBaseInfo(any());
+    }
+
+    @Test
+    @DisplayName("作品设置保存目标读者频道，非法频道拒绝")
+    void updateWorkBasePersistsChannel()
+    {
+        when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
+        when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of());
+        when(workMapper.countEnabledChannel(147)).thenReturn(1);
+        service.updateWorkBase(OWNER, WORK_ID, "标题", "简介", null, null, null, null, 147);
+        verify(workMapper).updateWorkBaseInfo(argThat(work ->
+                Integer.valueOf(147).equals(work.getChannelId())));
+
+        when(workMapper.countEnabledChannel(999)).thenReturn(0);
+        assertThrows(IllegalArgumentException.class, () -> service.updateWorkBase(
+                OWNER, WORK_ID, "标题", "简介", null, null, null, null, 999));
     }
 
     @Test
@@ -169,7 +229,7 @@ class AppUserWorkServiceTest
     {
         when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
         when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of(recordOf("revision")));
-        service.updateWorkBase(OWNER, WORK_ID, "新标题", "新简介", 5);
+        service.updateWorkBase(OWNER, WORK_ID, "新标题", "新简介", null, null, null, null);
         verify(workMapper).updateWorkBaseInfo(any(SysWork.class));
     }
 
@@ -180,19 +240,95 @@ class AppUserWorkServiceTest
         when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
         when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of(recordOf("pending")));
         assertThrows(IllegalStateException.class,
-                () -> service.updateWorkBase(OWNER, WORK_ID, "新标题", "新简介", 5));
+                () -> service.updateWorkBase(OWNER, WORK_ID, "新标题", "新简介", null, null, null, null));
         verify(workMapper, never()).updateWorkBaseInfo(any());
     }
 
     @Test
-    @DisplayName("修改基本信息：approved（已通过）禁止")
-    void updateWorkBaseRejectedInApproved()
+    @DisplayName("修改基本信息：approved（已发布）可编辑封面后重新送审")
+    void updateWorkBaseAllowedInApproved()
     {
         when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
         when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of(recordOf("approved")));
-        assertThrows(IllegalStateException.class,
-                () -> service.updateWorkBase(OWNER, WORK_ID, "新标题", "新简介", 5));
-        verify(workMapper, never()).updateWorkBaseInfo(any());
+        service.updateWorkBase(OWNER, WORK_ID, "新标题", "新简介", "/profile/upload/cover.png", null, null, null);
+        verify(workMapper).updateWorkBaseInfo(argThat(work -> "/profile/upload/cover.png".equals(work.getCover())));
+    }
+
+    @Test
+    @DisplayName("设置标签：全量覆盖，先清空再批量写入，重复ID去重")
+    void updateWorkBaseReplacesTags()
+    {
+        when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
+        when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of());
+        when(tagMapper.selectTagById(1L)).thenReturn(tagOf(1, "theme"));
+        when(tagMapper.selectTagById(3L)).thenReturn(tagOf(3, "theme"));
+
+        service.updateWorkBase(OWNER, WORK_ID, "新标题", "新简介", null, List.of(3, 1, 3), null, null);
+
+        verify(tagMapper).deleteWorkTagByWorkId(WORK_ID);
+        // 3 重复出现两次，去重后只写 2 条，避免撞 uk_work_tag(work_id, tag_id)
+        verify(tagMapper).batchInsertWorkTag(anyLong(),
+                argThat(ids -> ids.size() == 2 && ids.containsAll(List.of(1, 3))), anyString());
+        // 标签引用已变化：必须刷新使用数量，保证 use_count 与实际引用接轨
+        verify(tagMapper).syncTagUseCount();
+    }
+
+    @Test
+    @DisplayName("设置标签：空列表表示清空，且不写入新关联")
+    void updateWorkBaseClearsTags()
+    {
+        when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
+        when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of());
+
+        service.updateWorkBase(OWNER, WORK_ID, "新标题", "新简介", null, List.of(), null, null);
+
+        verify(tagMapper).deleteWorkTagByWorkId(WORK_ID);
+        verify(tagMapper, never()).batchInsertWorkTag(anyLong(), any(), anyString());
+        // 清空后引用数归零：同样要刷新使用数量
+        verify(tagMapper).syncTagUseCount();
+    }
+
+    @Test
+    @DisplayName("设置标签：tagIds 未下发（null）时不动标签")
+    void updateWorkBaseSkipsTagsWhenAbsent()
+    {
+        when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
+        when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of());
+
+        service.updateWorkBase(OWNER, WORK_ID, "新标题", "新简介", null, null, null, null);
+
+        verify(tagMapper, never()).deleteWorkTagByWorkId(anyLong());
+        // 标签未变动，不应触发使用数量刷新
+        verify(tagMapper, never()).syncTagUseCount();
+    }
+
+    @Test
+    @DisplayName("设置标签：超过 7 个拒绝，且不产生任何删除")
+    void updateWorkBaseRejectsTooManyTags()
+    {
+        when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
+        when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of());
+
+        assertThrows(IllegalArgumentException.class, () -> service.updateWorkBase(
+                OWNER, WORK_ID, "新标题", "新简介", null, List.of(1, 2, 3, 4, 5, 6, 7, 8, 9), null, null));
+
+        verify(tagMapper, never()).deleteWorkTagByWorkId(anyLong());
+    }
+
+    @Test
+    @DisplayName("设置标签：同一维度超过上限（主分类 2 个）拒绝")
+    void updateWorkBaseRejectsTooManyTagsInDimension()
+    {
+        when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
+        when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of());
+        when(tagMapper.selectTagById(1L)).thenReturn(tagOf(1, "hot"));
+        when(tagMapper.selectTagById(2L)).thenReturn(tagOf(2, "hot"));
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> service.updateWorkBase(OWNER, WORK_ID, "新标题", "新简介", null, List.of(1, 2), null, null));
+        assertEquals("主分类最多选择 1 个", ex.getMessage());
+
+        verify(tagMapper, never()).deleteWorkTagByWorkId(anyLong());
     }
 
     @Test
@@ -203,7 +339,7 @@ class AppUserWorkServiceTest
         when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of());
         when(chapterMapper.selectMaxChapterNo(WORK_ID)).thenReturn(3);
 
-        SysWorkChapter created = service.addChapter(OWNER, WORK_ID, "第四章", "这是第四章内容。Hello world!");
+        SysWorkChapter created = service.addChapter(OWNER, WORK_ID, "第四章", "这是第四章内容。Hello world!", null, null);
 
         assertEquals(4, created.getChapterNo());
         assertEquals("这是第四章内容。Helloworld!", created.getContent().replace(" ", ""));
@@ -234,17 +370,22 @@ class AppUserWorkServiceTest
     }
 
     @Test
-    @DisplayName("提交审核：无记录可提交，写入 pending 审核记录，不改 sys_work.status")
+    @DisplayName("提交审核：写入 ai_reviewing 审核记录，触发异步AI初审")
     void submitReviewWritesRecordOnly()
     {
         when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
         when(reviewRecordMapper.countPendingByWorkId(WORK_ID)).thenReturn(0);
         when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of());
         when(reviewRecordMapper.countTodayByPrefix(anyString())).thenReturn(2);
+        when(chapterMapper.selectChapterListWithContentByWorkId(WORK_ID)).thenReturn(List.of());
 
         service.submitReview(OWNER, WORK_ID);
 
-        verify(reviewRecordMapper).insertRecord(any(SysWorkReviewRecord.class));
+        org.mockito.ArgumentCaptor<SysWorkReviewRecord> captor =
+                org.mockito.ArgumentCaptor.forClass(SysWorkReviewRecord.class);
+        verify(reviewRecordMapper).insertRecord(captor.capture());
+        assertEquals("ai_reviewing", captor.getValue().getStatus());
+        assertEquals("ai_reviewing", captor.getValue().getReviewResult());
     }
 
     @Test
@@ -284,14 +425,13 @@ class AppUserWorkServiceTest
     }
 
     @Test
-    @DisplayName("提交审核：approved（已通过）禁止重复提交")
-    void submitReviewRejectedWhenApproved()
+    @DisplayName("提交审核：approved（已发布）允许改动后重新送审")
+    void submitReviewAllowedWhenApproved()
     {
         when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
         when(reviewRecordMapper.countPendingByWorkId(WORK_ID)).thenReturn(0);
-        when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of(recordOf("approved")));
-        assertThrows(IllegalStateException.class, () -> service.submitReview(OWNER, WORK_ID));
-        verify(reviewRecordMapper, never()).insertRecord(any());
+        service.submitReview(OWNER, WORK_ID);
+        verify(reviewRecordMapper).insertRecord(argThat(record -> "ai_reviewing".equals(record.getStatus())));
     }
 
     @Test
@@ -332,7 +472,7 @@ class AppUserWorkServiceTest
                 .thenReturn(List.of(workWith(101L, "作品A"), workWith(102L, "作品B")));
         when(reviewRecordMapper.selectByWorkIds(any())).thenReturn(List.of());
 
-        List<Map<String, Object>> list = service.listWorks(OWNER, "all");
+        List<Map<String, Object>> list = service.listWorks(OWNER, "all", null, null);
 
         assertEquals(2, list.size());
         assertEquals("draft", list.get(0).get("status"));
@@ -349,7 +489,7 @@ class AppUserWorkServiceTest
         when(reviewRecordMapper.selectByWorkIds(any()))
                 .thenReturn(List.of(recordWith(102L, "pending")));
 
-        List<Map<String, Object>> list = service.listWorks(OWNER, "reviewing");
+        List<Map<String, Object>> list = service.listWorks(OWNER, "reviewing", null, null);
 
         assertEquals(1, list.size());
         assertEquals(102L, list.get(0).get("workId"));
@@ -365,11 +505,133 @@ class AppUserWorkServiceTest
         when(reviewRecordMapper.selectByWorkIds(any()))
                 .thenReturn(List.of(recordWith(103L, "approved")));
 
-        List<Map<String, Object>> published = service.listWorks(OWNER, "published");
+        List<Map<String, Object>> published = service.listWorks(OWNER, "published", null, null);
         assertEquals(1, published.size());
         assertEquals("published", published.get(0).get("status"));
 
         when(workMapper.selectWorkListByAuthor(OWNER)).thenReturn(List.of());
-        assertEquals(0, service.listWorks(OWNER, "all").size());
+        assertEquals(0, service.listWorks(OWNER, "all", null, null).size());
+    }
+
+    // ------------------------------------------------------------------
+    // 上下架与章节两态（作品生命周期重构）
+    // ------------------------------------------------------------------
+
+    @Test
+    @DisplayName("下架：作者申请下架无前置条件，写入 off_shelf")
+    void changeShelfStatusOffShelfSuccess()
+    {
+        when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
+        when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of(recordOf("approved")));
+
+        service.changeShelfStatus(OWNER, WORK_ID, "off_shelf");
+
+        verify(workMapper).updateWorkStatus(argThat(w -> "off_shelf".equals(w.getStatus())));
+    }
+
+    @Test
+    @DisplayName("重新上架：最新审核 approved 且无违规原因，写入 on_shelf")
+    void changeShelfStatusOnShelfSuccess()
+    {
+        when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
+        when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of(recordOf("approved")));
+
+        service.changeShelfStatus(OWNER, WORK_ID, "on_shelf");
+
+        verify(workMapper).updateWorkStatus(argThat(w -> "on_shelf".equals(w.getStatus())));
+    }
+
+    @Test
+    @DisplayName("重新上架：平台强制下架（reject_reason 非空）→ IllegalStateException 且不写库")
+    void changeShelfStatusOnShelfBlockedByRejectReason()
+    {
+        when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf("违规内容"));
+
+        assertThrows(IllegalStateException.class, () -> service.changeShelfStatus(OWNER, WORK_ID, "on_shelf"));
+        verify(workMapper, never()).updateWorkStatus(any());
+    }
+
+    @Test
+    @DisplayName("重新上架：最新审核非 approved → IllegalStateException 且不写库")
+    void changeShelfStatusOnShelfBlockedWhenNotApproved()
+    {
+        when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
+        when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of(recordOf("pending")));
+
+        assertThrows(IllegalStateException.class, () -> service.changeShelfStatus(OWNER, WORK_ID, "on_shelf"));
+        verify(workMapper, never()).updateWorkStatus(any());
+    }
+
+    @Test
+    @DisplayName("上下架：非法 status 参数 → IllegalArgumentException 且不写库")
+    void changeShelfStatusRejectsIllegalStatus()
+    {
+        when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
+
+        assertThrows(IllegalArgumentException.class, () -> service.changeShelfStatus(OWNER, WORK_ID, "draft"));
+        verify(workMapper, never()).updateWorkStatus(any());
+    }
+
+    @Test
+    @DisplayName("新增章节：默认 status='1'（草稿，仅作者可见）")
+    void addChapterDefaultsToDraftStatus()
+    {
+        when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
+        when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of());
+        when(chapterMapper.selectMaxChapterNo(WORK_ID)).thenReturn(0);
+        when(chapterMapper.insertChapter(any(SysWorkChapter.class))).thenReturn(1);
+
+        service.addChapter(OWNER, WORK_ID, "第一章", "内容", null, null);
+
+        verify(chapterMapper).insertChapter(argThat(c -> "1".equals(c.getStatus()) && "0".equals(c.getIsFree())));
+    }
+
+    @Test
+    void trialChapterCanBeCreated()
+    {
+        when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
+        when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of());
+        SysWorkChapter created = service.addChapter(OWNER, WORK_ID, "试读章节", "正文", null, "1");
+        assertEquals("1", created.getIsFree());
+        assertEquals("1", created.getStatus());
+    }
+
+    @Test
+    void trialFlagCanBeEnabledDisabledOrOmittedWithoutChangingPublicationStatus()
+    {
+        when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
+        when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of());
+        SysWorkChapter chapter = new SysWorkChapter();
+        chapter.setChapterId(55L);
+        chapter.setWorkId(WORK_ID);
+        chapter.setIsFree("1");
+        chapter.setContent("原正文");
+        when(chapterMapper.selectChapterDetail(55L)).thenReturn(chapter);
+
+        for (String flag : new String[] { "1", "0", null })
+        {
+            service.updateChapter(OWNER, WORK_ID, 55L, null, null, null, flag);
+            verify(chapterMapper).updateChapter(argThat(c -> java.util.Objects.equals(flag, c.getIsFree())
+                    && c.getStatus() == null && "原正文".equals(c.getContent())));
+        }
+    }
+
+    @Test
+    void trialFlagRejectsInvalidValuesAndUnauthorizedOrReviewingChanges()
+    {
+        when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
+        when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of());
+        SysWorkChapter chapter = new SysWorkChapter();
+        chapter.setChapterId(55L);
+        chapter.setWorkId(WORK_ID);
+        when(chapterMapper.selectChapterDetail(55L)).thenReturn(chapter);
+
+        assertThrows(IllegalArgumentException.class, () -> service.addChapter(OWNER, WORK_ID, "标题", "正文", null, "true"));
+        assertThrows(IllegalArgumentException.class, () -> service.updateChapter(OWNER, WORK_ID, 55L, null, null, null, "2"));
+        assertThrows(SecurityException.class, () -> service.updateChapter(OTHER, WORK_ID, 55L, null, null, null, "1"));
+        when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of(recordOf("pending")));
+        assertThrows(IllegalStateException.class, () -> service.updateChapter(OWNER, WORK_ID, 55L, null, null, null, "1"));
+        verify(chapterMapper, never()).insertChapter(any());
+        verify(chapterMapper, never()).updateChapter(any());
     }
 }

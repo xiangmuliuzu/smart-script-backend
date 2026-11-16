@@ -8,8 +8,15 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import com.ruoyi.framework.storage.ProfileStorageService;
 import com.smartscript.platform.user.constant.AppAuthErrorCodes;
 import com.smartscript.platform.user.constant.AppUserErrorCodes;
 import com.smartscript.platform.user.constant.CreatorSpecialtyDictionary;
@@ -38,8 +45,10 @@ import com.smartscript.platform.user.util.AppHashes;
 @Service
 public class AppUserProfileService
 {
-    /** 昵称长度上限，与 sys_user.nick_name 列宽（30）一致。 */
-    private static final int NICKNAME_MAX = 30;
+    private static final Logger log = LoggerFactory.getLogger(AppUserProfileService.class);
+
+    /** 用户名称最多 15 个 Unicode 字符；数据库保留原列宽以兼容历史资料。 */
+    private static final int NICKNAME_MAX = 15;
 
     /** 头像地址长度上限，与 sys_user.avatar 列宽（100）一致。 */
     private static final int AVATAR_MAX = 100;
@@ -58,13 +67,23 @@ public class AppUserProfileService
     private final AppUserMapper userMapper;
     private final AppUserCenterMapper centerMapper;
     private final AuthorCapabilityAdminMapper capabilityMapper;
+    private final ProfileStorageService storage;
 
+    @Autowired
     public AppUserProfileService(AppUserMapper userMapper, AppUserCenterMapper centerMapper,
-            AuthorCapabilityAdminMapper capabilityMapper)
+            AuthorCapabilityAdminMapper capabilityMapper, ProfileStorageService storage)
     {
         this.userMapper = userMapper;
         this.centerMapper = centerMapper;
         this.capabilityMapper = capabilityMapper;
+        this.storage = storage;
+    }
+
+    /** 单元测试保持原构造签名：只清理本地文件。 */
+    public AppUserProfileService(AppUserMapper userMapper, AppUserCenterMapper centerMapper,
+            AuthorCapabilityAdminMapper capabilityMapper)
+    {
+        this(userMapper, centerMapper, capabilityMapper, ProfileStorageService.localOnly());
     }
 
     public UserProfileDto getProfile(Long userId)
@@ -81,20 +100,34 @@ public class AppUserProfileService
     {
         if (request == null || (request.getNickname() == null && request.getAvatar() == null && request.getBio() == null))
         {
-            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "no updatable field");
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "没有可更新的内容，请修改后重试");
         }
         AppUserRecord user = requireUser(userId);
         if (request.getNickname() != null)
         {
             String nickName = normalizeNickname(request.getNickname());
-            centerMapper.updateNickName(userId, nickName);
+            try
+            {
+                centerMapper.updateNickName(userId, nickName);
+            }
+            catch (DuplicateKeyException e)
+            {
+                throw new AppAuthException(AppUserErrorCodes.NICKNAME_TAKEN, 409, "用户名称已被使用，请更换名称");
+            }
             user.setNickName(nickName);
         }
         if (request.getAvatar() != null)
         {
             String avatar = normalizeAvatar(request.getAvatar());
+            // 通过上传端点得到的头像每次都是新文件名（短 UUID），换头像会留下被替换的旧文件。
+            // 记下换之前的地址，提交成功后回收，避免上传目录随时间无限增长。
+            String previousAvatar = user.getAvatar();
             centerMapper.updateAvatar(userId, avatar);
             user.setAvatar(avatar);
+            if (!avatar.equals(previousAvatar))
+            {
+                deleteReplacedAvatarAfterCommit(userId, previousAvatar);
+            }
         }
         if (request.getBio() != null)
         {
@@ -110,11 +143,11 @@ public class AppUserProfileService
         String value = raw == null ? "" : raw.trim();
         if (value.isEmpty())
         {
-            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "nickname required");
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "用户名称不能为空");
         }
-        if (value.length() > NICKNAME_MAX)
+        if (value.codePointCount(0, value.length()) > NICKNAME_MAX)
         {
-            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "nickname too long");
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "用户名称不能超过 15 个字符");
         }
         return value;
     }
@@ -153,16 +186,16 @@ public class AppUserProfileService
             }
             catch (IllegalArgumentException e)
             {
-                throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "avatar must be a platform path or http(s) url");
+                throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "头像地址格式不正确，请重新上传");
             }
         }
         if (value.startsWith("/profile/") && !validAvatarPath(value))
         {
-            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "invalid avatar path");
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "头像地址不正确，请重新上传");
         }
         if (value.length() > AVATAR_MAX)
         {
-            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "avatar too long");
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "头像地址过长，请重新上传");
         }
         return value;
     }
@@ -181,6 +214,60 @@ public class AppUserProfileService
     }
 
     /**
+     * 换头像后回收被替换的旧头像文件：事务提交后再删，回滚则保留
+     * （与 {@link AppAuthenticationService} 的 afterCommit 审计同一约定）。
+     * 仅删除平台自管的上传路径，且删除前确认已无任何用户引用该路径。
+     */
+    private void deleteReplacedAvatarAfterCommit(Long userId, String previousAvatar)
+    {
+        if (previousAvatar == null || previousAvatar.isBlank())
+        {
+            return;
+        }
+        if (TransactionSynchronizationManager.isSynchronizationActive())
+        {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization()
+            {
+                @Override
+                public void afterCommit()
+                {
+                    deleteManagedAvatarFile(userId, previousAvatar);
+                }
+            });
+        }
+        else
+        {
+            // 无事务上下文（单测/非事务路径）直接清理
+            deleteManagedAvatarFile(userId, previousAvatar);
+        }
+    }
+
+    /**
+     * 删除受管的头像源文件。只处理 /profile/** 且能映射为上传根下文件的路径；
+     * 仍被引用或非本平台路径时跳过，只留一行可追踪日志（不落原始地址）。
+     */
+    private void deleteManagedAvatarFile(Long userId, String avatar)
+    {
+        try
+        {
+            if (centerMapper.countAvatarReferences(avatar) > 0)
+            {
+                return;
+            }
+            String key = storage.keyOf(avatar);
+            if (!key.isEmpty())
+            {
+                storage.delete(key);
+                log.info("a5-avatar replaced file removed userId={}", userId);
+            }
+        }
+        catch (Exception e)
+        {
+            log.warn("a5-avatar cleanup skipped: {}", e.getClass().getSimpleName());
+        }
+    }
+
+    /**
      * 简介规范化：去首尾空白；允许空串（清空）；上限 {@link #BIO_MAX}。
      * 与昵称不同，空简介合法（用户可随时清空）。
      */
@@ -189,7 +276,7 @@ public class AppUserProfileService
         String value = raw == null ? "" : raw.trim();
         if (value.length() > BIO_MAX)
         {
-            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "bio too long");
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "个人简介过长，请精简后重试");
         }
         return value;
     }
@@ -199,7 +286,7 @@ public class AppUserProfileService
         AppUserRecord user = userMapper.selectById(userId);
         if (user == null || !user.isUsable())
         {
-            throw new AppAuthException(AppAuthErrorCodes.ACCOUNT_DISABLED, 403, "account disabled");
+            throw new AppAuthException(AppAuthErrorCodes.ACCOUNT_DISABLED, 403, "账号暂时无法使用，请联系客服或管理员");
         }
         return user;
     }
@@ -211,7 +298,9 @@ public class AppUserProfileService
         dto.setNickname(user.getNickName());
         dto.setAvatar(emptyToNull(user.getAvatar()));
         dto.setBio(emptyToNull(user.getBio()));
-        dto.setPhoneMasked(AppHashes.maskPhone(user.getPhonenumber()));
+        dto.setPhoneMasked(user.getPhonenumber() == null || user.getPhonenumber().isBlank() ? null : AppHashes.maskPhone(user.getPhonenumber()));
+        String email = userMapper.selectVerifiedEmailByUserId(user.getUserId());
+        dto.setEmailMasked(email == null ? null : "***@" + email.substring(email.indexOf('@') + 1));
         dto.setUserType(AppAuthenticationService.normalizeUserType(user.getUserType()));
         dto.setRealNameStatus(realNameStatus(user.getUserId()));
         // A4 增量：注册时间、账号状态原始代码与创作者资料投影
@@ -237,8 +326,9 @@ public class AppUserProfileService
     /**
      * 创作者资料投影：无作者能力返回 null；有能力时读 user_creator_profile，
      * 无资料行也返回对象本身（字段 null / 空列表，由前端显示「未填写」）。
+     * 公开给个人主页复用（他人查看创作者主页时同样展示笔名/擅长）。
      */
-    private CreatorProfileDto creatorProfile(Long userId)
+    public CreatorProfileDto creatorProfile(Long userId)
     {
         Boolean enabled = capabilityMapper.selectEnabledByUserId(userId);
         if (enabled == null || !enabled)

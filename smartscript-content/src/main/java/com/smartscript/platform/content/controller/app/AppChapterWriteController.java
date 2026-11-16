@@ -2,6 +2,7 @@ package com.smartscript.platform.content.controller.app;
 
 import java.util.HashMap;
 import java.util.Map;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -34,6 +35,7 @@ import com.smartscript.platform.content.service.IAppChapterAuthorService;
  * @author xiangsipeng
  */
 @RestController
+@PreAuthorize("@contentAuthorAccess.allowed()")
 @RequestMapping("/api/v1/content")
 public class AppChapterWriteController
 {
@@ -111,20 +113,20 @@ public class AppChapterWriteController
         }
         if (request == null || request.getChapterNo() == null || request.getChapterNo() <= 0)
         {
-            return AppApiResponse.fail(CODE_BAD_REQUEST, "chapterNo 不能为空且必须为正整数");
+            return AppApiResponse.fail(CODE_BAD_REQUEST, "章节序号不正确，请检查后重试");
         }
         String title = trimToNull(request.getChapterTitle());
         if (title == null)
         {
-            return AppApiResponse.fail(CODE_BAD_REQUEST, "chapterTitle 不能为空");
+            return AppApiResponse.fail(CODE_BAD_REQUEST, "章节标题不能为空，请填写后重试");
         }
         if (title.length() > TITLE_MAX_LENGTH)
         {
-            return AppApiResponse.fail(CODE_BAD_REQUEST, "chapterTitle 长度不能超过 " + TITLE_MAX_LENGTH);
+            return AppApiResponse.fail(CODE_BAD_REQUEST, "章节标题过长，请精简后重试");
         }
         if (!isValidFlag(request.getIsFree()))
         {
-            return AppApiResponse.fail(CODE_BAD_REQUEST, "isFree 只能为 \"0\" 或 \"1\"");
+            return AppApiResponse.fail(CODE_BAD_REQUEST, "章节收费设置不正确，请刷新后重试");
         }
         if (chapterService.chapterNoExists(workId, request.getChapterNo()))
         {
@@ -172,7 +174,7 @@ public class AppChapterWriteController
         String rawStatus = request == null ? null : request.getStatus();
         if (!isValidFlag(rawIsFree) || !isValidFlag(rawStatus))
         {
-            return AppApiResponse.fail(CODE_BAD_REQUEST, "isFree/status 只能为 \"0\" 或 \"1\"");
+            return AppApiResponse.fail(CODE_BAD_REQUEST, "章节状态不正确，请刷新后重试");
         }
         String title = trimToNull(request == null ? null : request.getChapterTitle());
         String content = request == null ? null : request.getContent();
@@ -181,7 +183,7 @@ public class AppChapterWriteController
         String status = trimToNull(rawStatus);
         if (title != null && title.length() > TITLE_MAX_LENGTH)
         {
-            return AppApiResponse.fail(CODE_BAD_REQUEST, "chapterTitle 长度不能超过 " + TITLE_MAX_LENGTH);
+            return AppApiResponse.fail(CODE_BAD_REQUEST, "章节标题过长，请精简后重试");
         }
         if (title == null && content == null && isFree == null && status == null)
         {

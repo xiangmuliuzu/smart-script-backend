@@ -54,6 +54,12 @@ public class TaskConfigController {
         if (taskConfig.getIcon() == null) {
             taskConfig.setIcon("");
         }
+        if (taskConfig.getDescription() == null) {
+            taskConfig.setDescription("");
+        }
+        if (taskConfig.getDailyLimit() == null) {
+            taskConfig.setDailyLimit(0);
+        }
         taskConfigService.insertTaskConfig(taskConfig);
         result.put("code", 200);
         result.put("msg", "操作成功");

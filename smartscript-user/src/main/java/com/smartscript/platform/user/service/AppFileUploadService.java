@@ -13,6 +13,7 @@ import javax.imageio.ImageReader;
 import javax.imageio.stream.ImageInputStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 import com.ruoyi.common.config.RuoYiConfig;
@@ -22,6 +23,7 @@ import com.ruoyi.common.exception.file.InvalidExtensionException;
 import com.ruoyi.common.utils.file.FileUploadUtils;
 import com.ruoyi.common.utils.file.MimeTypeUtils;
 import com.ruoyi.framework.config.ServerConfig;
+import com.ruoyi.framework.storage.ProfileStorageService;
 import com.smartscript.platform.user.constant.AppAuthErrorCodes;
 import com.smartscript.platform.user.constant.AppUserErrorCodes;
 import com.smartscript.platform.user.exception.AppAuthException;
@@ -61,9 +63,19 @@ public class AppFileUploadService
 
     private final ServerConfig serverConfig;
 
-    public AppFileUploadService(ServerConfig serverConfig)
+    private final ProfileStorageService storage;
+
+    @Autowired
+    public AppFileUploadService(ServerConfig serverConfig, ProfileStorageService storage)
     {
         this.serverConfig = serverConfig;
+        this.storage = storage;
+    }
+
+    /** 单元测试保持原构造签名：只落本地目录。 */
+    public AppFileUploadService(ServerConfig serverConfig)
+    {
+        this(serverConfig, ProfileStorageService.localOnly());
     }
 
     /**
@@ -107,6 +119,8 @@ public class AppFileUploadService
             // 短 UUID 文件名与实际图片格式，避免原名过长或旧客户端统一命名 JPG。
             storedPath = FileUploadUtils.upload(RuoYiConfig.getUploadPath(),
                     new ImageFile(file, format), MimeTypeUtils.IMAGE_EXTENSION, true);
+            // 同步到 MinIO（未启用时为空操作）
+            storage.publishUrl(storedPath);
         }
         catch (InvalidExtensionException | FileSizeLimitExceededException | FileNameLengthLimitExceededException e)
         {

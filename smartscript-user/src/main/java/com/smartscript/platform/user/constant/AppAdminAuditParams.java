@@ -2,7 +2,7 @@ package com.smartscript.platform.user.constant;
 
 /**
  * A4 PC 管理写接口的参数名登记表：① {@code @Log(excludeParamNames=...)} 的排除名（H9-LOG-02）；
- * ② 请求体白名单投影的契约字段名（第 12 批 H9-LOG-02 系统性修复，见 {@code A4AuditParamProjection}）。
+ * ② 请求体白名单投影的契约字段名（第 12 批 H9-LOG-02 系统性修复，见 {@code AdminAuditParamProjection}）。
  *
  * 背景：A4 写接口以 {@code Map<String,Object>} 接收请求体，若依 {@code LogAspect} 会把整张 Map
  * 序列化进 {@code sys_oper_log.oper_param}，而框架 {@code EXCLUDE_PROPERTIES} 只覆盖 4 个密码字段名。
@@ -57,7 +57,7 @@ public final class AppAdminAuditParams
     public static final String STATUS = "status";
     /** §5.1 `PUT /app-users/{id}/roles`。 */
     public static final String ROLE_IDS = "roleIds";
-    /** §5.2 `PUT /real-name-applications/{id}/decision`。 */
+    /** 创作者申请审核的决定。 */
     public static final String DECISION = "decision";
     /** §5.2 / §5.5 乐观并发期望状态。 */
     public static final String EXPECTED_STATUS = "expectedStatus";

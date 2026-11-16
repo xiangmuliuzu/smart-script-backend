@@ -2,10 +2,16 @@ package com.smartscript.platform.review.service;
 
 import com.smartscript.platform.review.domain.ReviewLog;
 import com.smartscript.platform.review.domain.ReviewRecord;
+import com.smartscript.platform.review.domain.vo.WorkChapterVO;
+import com.smartscript.platform.review.domain.vo.WorkContentVO;
 import com.smartscript.platform.review.mapper.ReviewLogMapper;
 import com.smartscript.platform.review.mapper.ReviewRecordMapper;
+import com.smartscript.platform.review.mapper.ReviewWorkContentMapper;
+import com.smartscript.platform.review.mapper.OperationLogMapper;
+import com.smartscript.platform.review.util.ReviewContentText;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 
 /**
@@ -22,6 +28,12 @@ public class ReviewService {
     @Autowired
     private ReviewLogMapper reviewLogMapper;
 
+    @Autowired
+    private OperationLogMapper operationLogMapper;
+
+    @Autowired
+    private ReviewWorkContentMapper reviewWorkContentMapper;
+
     /**
      * 查询审核记录列表
      */
@@ -34,6 +46,217 @@ public class ReviewService {
      */
     public ReviewRecord selectReviewRecordById(Long reviewId) {
         return reviewRecordMapper.selectReviewRecordById(reviewId);
+    }
+
+    /**
+     * 查询审核作品完整内容（人工审核用）：简介 + 各章节正文（纯文本）。
+     * 同时返回 AI 审核结果（aiInfo）与章节级问题定位（issues：命中词 + 上下文片段），
+     * 供审核工作台「详情」只展示有问题的地方（问题片段红字 + 章节后驳回原因）。
+     * @return 内容数据；审核记录不存在或非作品类型时返回 null
+     */
+    public java.util.Map<String, Object> selectReviewContent(Long reviewId) {
+        ReviewRecord record = reviewRecordMapper.selectReviewRecordById(reviewId);
+        if (record == null || record.getTargetId() == null) {
+            return null;
+        }
+        Long workId = record.getTargetId();
+        WorkContentVO work = reviewWorkContentMapper.selectWorkContent(workId);
+        List<WorkChapterVO> chapters = reviewWorkContentMapper.selectWorkChapters(workId);
+        for (WorkChapterVO ch : chapters) {
+            ch.setContent(ReviewContentText.plain(ch.getContent()));
+        }
+        java.util.Map<String, Object> data = new java.util.HashMap<>();
+        data.put("reviewId", reviewId);
+        data.put("workId", workId);
+        data.put("work", work);
+        data.put("chapters", chapters);
+
+        // AI 审核结果（优先从 ai_result JSON 解析；ai_score 列可能未被写入）
+        java.util.Map<String, Object> aiInfo = new java.util.HashMap<>();
+        aiInfo.put("score", record.getAiScore());
+        aiInfo.put("level", record.getAiRiskLevel());
+        java.util.List<String> keywords = new java.util.ArrayList<>();
+        java.util.List<String> aiQuotes = new java.util.ArrayList<>();
+        if (record.getAiResult() != null) {
+            try {
+                com.fasterxml.jackson.databind.JsonNode node = new com.fasterxml.jackson.databind.ObjectMapper().readTree(record.getAiResult());
+                if (node.path("score").isNumber()) {
+                    aiInfo.put("score", node.path("score").asInt());
+                }
+                if (node.path("level").isTextual() && !node.path("level").asText().isBlank()) {
+                    aiInfo.put("level", node.path("level").asText());
+                }
+                if (node.path("keywords").isArray()) {
+                    for (com.fasterxml.jackson.databind.JsonNode k : node.path("keywords")) {
+                        String s = k.asText("").trim();
+                        if (!s.isEmpty()) {
+                            keywords.add(s);
+                        }
+                    }
+                }
+                // AI 引用的正文原文片段（issues[].quote），用于精确问题定位
+                if (node.path("issues").isArray()) {
+                    for (com.fasterxml.jackson.databind.JsonNode iss : node.path("issues")) {
+                        String q = iss.path("quote").asText("").trim();
+                        if (!q.isEmpty() && !aiQuotes.contains(q)) {
+                            aiQuotes.add(q);
+                        }
+                    }
+                }
+            } catch (Exception ignored) {
+                // ai_result 非 JSON（历史脏数据）时忽略，仅用 ai_sensitive_words 定位
+            }
+        }
+        // 补充 AI 命中的敏感词列（逗号/顿号/分号/竖线分隔）
+        if (record.getAiSensitiveWords() != null) {
+            for (String s : record.getAiSensitiveWords().split("[,，;；|]+")) {
+                String w = s.trim();
+                if (!w.isEmpty() && !keywords.contains(w)) {
+                    keywords.add(w);
+                }
+            }
+        }
+        aiInfo.put("keywords", new java.util.ArrayList<>(keywords));
+
+        // 逐章节定位问题 → 问题片段（只输出有问题章节）
+        // 优先级：AI 引用句(quote)精确定位 > 关键词字面定位
+        java.util.List<java.util.Map<String, Object>> issues = new java.util.ArrayList<>();
+        for (WorkChapterVO ch : chapters) {
+            String text = ch.getContent() == null ? "" : ch.getContent();
+            java.util.List<java.util.Map<String, Object>> hits = new java.util.ArrayList<>();
+            // 1) AI 引用句：整句精确匹配，标点差异时去标点再匹配
+            for (String q : aiQuotes) {
+                int idx = indexOfQuote(text, q);
+                if (idx >= 0 && !containsWord(hits, q)) {
+                    java.util.Map<String, Object> hit = new java.util.HashMap<>();
+                    hit.put("word", q);
+                    hit.put("snippet", snippetAround(text, idx, q.length(), 30));
+                    hits.add(hit);
+                }
+            }
+            // 2) 关键词字面定位（与引用句命中去重）
+            hits.addAll(hitsOf(text, keywords));
+            if (!hits.isEmpty()) {
+                java.util.Map<String, Object> issue = new java.util.HashMap<>();
+                issue.put("chapterId", ch.getChapterId());
+                issue.put("chapterNo", ch.getChapterNo());
+                issue.put("chapterTitle", ch.getChapterTitle());
+                issue.put("hits", hits);
+                issues.add(issue);
+            }
+        }
+        // 简介中的命中词也作为「简介」问题项输出
+        String summary = work == null ? null : work.getSummary();
+        if (summary != null && !summary.isEmpty()) {
+            java.util.List<java.util.Map<String, Object>> hits = new java.util.ArrayList<>();
+            for (String q : aiQuotes) {
+                int idx = indexOfQuote(summary, q);
+                if (idx >= 0 && !containsWord(hits, q)) {
+                    java.util.Map<String, Object> hit = new java.util.HashMap<>();
+                    hit.put("word", q);
+                    hit.put("snippet", snippetAround(summary, idx, q.length(), 30));
+                    hits.add(hit);
+                }
+            }
+            hits.addAll(hitsOf(summary, keywords));
+            if (!hits.isEmpty()) {
+                java.util.Map<String, Object> issue = new java.util.HashMap<>();
+                issue.put("chapterId", null);
+                issue.put("chapterNo", 0);
+                issue.put("chapterTitle", "简介");
+                issue.put("hits", hits);
+                issues.add(0, issue);
+            }
+        }
+        data.put("aiInfo", aiInfo);
+        data.put("issues", issues);
+        return data;
+    }
+
+    /** 去掉中英文标点/空白/括号，用于 AI 引用句与正文存在细微标点差异时的兜底匹配 */
+    private String stripPunct(String s) {
+        return s == null ? "" : s.replaceAll("[，。、；：！？!?\"“”'（）()《》<>\\s\\[\\]【】]", "");
+    }
+
+    /** 引用句模糊定位：优先整句精确匹配；标点差异时在去标点文本中匹配，并把命中位置映射回原文本 */
+    private int indexOfQuote(String text, String quote) {
+        if (text == null || quote == null || quote.isEmpty()) {
+            return -1;
+        }
+        int idx = text.indexOf(quote);
+        if (idx >= 0) {
+            return idx;
+        }
+        String t = stripPunct(text);
+        String q = stripPunct(quote);
+        if (q.isEmpty()) {
+            return -1;
+        }
+        int qi = t.indexOf(q);
+        if (qi < 0) {
+            return -1;
+        }
+        // 映射回原文本：数到去标点串第 qi 个非标点字符在原文的位置
+        int ti = 0;
+        int nonPunct = 0;
+        while (ti < text.length() && nonPunct < qi) {
+            if (stripPunct(String.valueOf(text.charAt(ti))).length() > 0) {
+                nonPunct++;
+            }
+            ti++;
+        }
+        return ti < text.length() ? ti : -1;
+    }
+
+    /** 在文本中查找所有命中词及其上下文片段。整词未命中时按标点/符号拆词再查（如
+     *  AI 给出的语义化关键词"疑似《斗破苍穹》原文，版权风险"可拆出"斗破苍穹"等原文词），
+     *  拆词命中项 word 记录实际命中的词，便于前端红字定位。 */
+    private java.util.List<java.util.Map<String, Object>> hitsOf(String text, java.util.List<String> keywords) {
+        java.util.List<java.util.Map<String, Object>> hits = new java.util.ArrayList<>();
+        if (text == null || text.isEmpty()) {
+            return hits;
+        }
+        for (String kw : keywords) {
+            int idx = text.indexOf(kw);
+            if (idx >= 0) {
+                java.util.Map<String, Object> hit = new java.util.HashMap<>();
+                hit.put("word", kw);
+                hit.put("snippet", snippetAround(text, idx, kw.length(), 30));
+                hits.add(hit);
+                continue;
+            }
+            // 整词未命中：拆词兜底（仅取长度>=2 的子词，避免单字噪声）
+            for (String part : kw.split("[，。、；：！？!?\"“”'（）()《》<>\\s\\[\\]【】]+")) {
+                String w = part.trim();
+                if (w.length() < 2) {
+                    continue;
+                }
+                int p = text.indexOf(w);
+                if (p >= 0 && !containsWord(hits, w)) {
+                    java.util.Map<String, Object> hit = new java.util.HashMap<>();
+                    hit.put("word", w);
+                    hit.put("snippet", snippetAround(text, p, w.length(), 30));
+                    hits.add(hit);
+                }
+            }
+        }
+        return hits;
+    }
+
+    private boolean containsWord(java.util.List<java.util.Map<String, Object>> hits, String word) {
+        for (java.util.Map<String, Object> h : hits) {
+            if (word.equals(h.get("word"))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 截取命中词前后各 pad 个字符作为上下文片段 */
+    private String snippetAround(String text, int start, int len, int pad) {
+        int from = Math.max(0, start - pad);
+        int to = Math.min(text.length(), start + len + pad);
+        return text.substring(from, to);
     }
 
     /**
@@ -58,10 +281,41 @@ public class ReviewService {
     }
 
     /**
-     * 审核操作（通过/驳回/发回修改）
+     * 审核状态机：合法流转表（状态不能跳跃）。
+     * ai_reviewing(AI初筛中) -> approved(AI高分直接通过) / pending(待人工) / revision(发回修改) / rejected(驳回)
+     * pending -> approved(通过) / rejected(驳回) / revision(发回修改)
+     * revision(发回修改) -> ai_reviewing(重新初筛) / pending
+     * rejected(驳回) -> ai_reviewing(重新提交重审)
+     * approved(通过) -> 终态，不可再流转
      */
-    public int operateReview(Long reviewId, String status, String reviewOpinion, Long reviewerId, String operatorName) {
+    private static final java.util.Map<String, java.util.List<String>> STATUS_FLOW = new java.util.HashMap<>();
+    static {
+        STATUS_FLOW.put("ai_reviewing", java.util.Arrays.asList("approved", "pending", "revision", "rejected"));
+        STATUS_FLOW.put("pending", java.util.Arrays.asList("approved", "rejected", "revision"));
+        STATUS_FLOW.put("revision", java.util.Arrays.asList("ai_reviewing", "pending"));
+        STATUS_FLOW.put("rejected", java.util.Arrays.asList("ai_reviewing"));
+        STATUS_FLOW.put("approved", java.util.Collections.emptyList());
+    }
+
+    /**
+     * 审核操作（通过/驳回/发回修改），带状态机校验，非法流转直接拒绝。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public java.util.Map<String, Object> operateReview(Long reviewId, String status, String reviewOpinion, Long reviewerId, String operatorName) {
+        java.util.Map<String, Object> result = new java.util.HashMap<>();
         ReviewRecord before = reviewRecordMapper.selectReviewRecordById(reviewId);
+        if (before == null) {
+            result.put("code", 404);
+            result.put("msg", "审核记录不存在: " + reviewId);
+            return result;
+        }
+        String from = before.getStatus();
+        java.util.List<String> allowed = STATUS_FLOW.get(from);
+        if (allowed == null || !allowed.contains(status)) {
+            result.put("code", 400);
+            result.put("msg", "非法状态流转: " + from + " -> " + status + "，审核状态不允许跳跃");
+            return result;
+        }
         ReviewRecord reviewRecord = new ReviewRecord();
         reviewRecord.setReviewId(reviewId);
         reviewRecord.setStatus(status);
@@ -69,42 +323,58 @@ public class ReviewService {
         reviewRecord.setReviewOpinion(reviewOpinion);
         reviewRecord.setReviewerId(reviewerId);
         int cnt = reviewRecordMapper.updateReviewRecord(reviewRecord);
+        // 审核通过 → 内容侧作品自动上架（两个业务模块无编译期依赖，故在共享库的 Mapper 层落地）
+        if (cnt > 0 && "approved".equals(status) && "work".equals(before.getTargetType()) && before.getTargetId() != null)
+        {
+            reviewRecordMapper.markWorkOnShelf(before.getTargetId(),
+                    reviewerId == null ? null : String.valueOf(reviewerId));
+        }
         // 写审核操作日志（真实落库）
         ReviewLog log = new ReviewLog();
         log.setReviewId(reviewId);
-        log.setAction("operate");
+        log.setAction(actionOf(status));
         log.setOperatorId(reviewerId);
         log.setOperatorName(operatorName);
-        log.setBeforeStatus(before != null ? before.getStatus() : null);
+        log.setBeforeStatus(from);
         log.setAfterStatus(status);
         log.setReviewOpinion(reviewOpinion);
         reviewLogMapper.insertReviewLog(log);
-        return cnt;
+        logOp(actionOf(status), reviewId, reviewerId, operatorName, from, status, reviewOpinion);
+        result.put("code", 200);
+        result.put("msg", "审核操作成功");
+        result.put("from", from);
+        result.put("to", status);
+        result.put("cnt", cnt);
+        return result;
     }
 
-    /**
-     * 批量分配审核任务
-     */
-    public int batchAssign(List<Long> reviewIds, Long reviewerId, String operatorName) {
-        int count = 0;
-        for (Long reviewId : reviewIds) {
-            ReviewRecord before = reviewRecordMapper.selectReviewRecordById(reviewId);
-            ReviewRecord reviewRecord = new ReviewRecord();
-            reviewRecord.setReviewId(reviewId);
-            reviewRecord.setReviewerId(reviewerId);
-            reviewRecord.setStatus("pending_review");
-            count += reviewRecordMapper.updateReviewRecord(reviewRecord);
-            // 写分配日志
-            ReviewLog log = new ReviewLog();
-            log.setReviewId(reviewId);
-            log.setAction("assign");
-            log.setOperatorId(reviewerId);
-            log.setOperatorName(operatorName);
-            log.setBeforeStatus(before != null ? before.getStatus() : null);
-            log.setAfterStatus("pending_review");
-            reviewLogMapper.insertReviewLog(log);
+    private String actionOf(String status) {
+        switch (status == null ? "" : status) {
+            case "approved": return "approve";
+            case "rejected": return "reject";
+            case "revision": return "revision";
+            case "ai_reviewing": return "ai_review";
+            case "pending": return "pending";
+            default: return "operate";
         }
-        return count;
+    }
+
+    private void logOp(String operation, Long reviewId, Long operatorId, String operatorName,
+                       String from, String to, String opinion) {
+        try {
+            com.smartscript.platform.review.domain.OperationLog log = new com.smartscript.platform.review.domain.OperationLog();
+            log.setModule("review");
+            log.setOperation(operation);
+            log.setTargetType("review_record");
+            log.setTargetId(String.valueOf(reviewId));
+            log.setOperatorId(operatorId == null ? 0L : operatorId);
+            log.setOperatorName(operatorName == null ? "system" : operatorName);
+            log.setStatus("success");
+            log.setRemark("审核流转: " + from + " -> " + to + (opinion == null ? "" : ("，意见: " + opinion)));
+            operationLogMapper.insertOperationLog(log);
+        } catch (Exception e) {
+            // 埋点失败不阻断审核
+        }
     }
 
     /**
@@ -125,7 +395,7 @@ public class ReviewService {
         for (java.util.Map<String, Object> row : reviewRecordMapper.selectStatusGroup()) {
             String status = String.valueOf(row.get("status"));
             int cnt = ((Number) row.get("cnt")).intValue();
-            if ("pending".equals(status) || "pending_review".equals(status)) pending += cnt;
+            if ("pending".equals(status)) pending += cnt;
             else if ("ai_reviewing".equals(status)) aiReviewing += cnt;
             else if ("approved".equals(status)) approved += cnt;
             else if ("rejected".equals(status)) rejected += cnt;
@@ -138,4 +408,5 @@ public class ReviewService {
         stats.put("revision", revision);
         return stats;
     }
+
 }

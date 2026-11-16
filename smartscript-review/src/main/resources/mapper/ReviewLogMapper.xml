@@ -20,12 +20,15 @@
     </resultMap>
 
     <sql id="selectReviewLogVo">
-        SELECT l.log_id, l.review_id, l.action, l.operator_id, l.operator_name, l.before_status, l.after_status, l.review_opinion,
+        SELECT l.log_id, l.review_id, l.action, l.operator_id,
+               IFNULL(l.operator_name, u.nick_name) AS operator_name,
+               l.before_status, l.after_status, l.review_opinion,
                w.title AS work_title,
                l.create_by, l.created_at, l.update_by, l.update_time, l.remark
         FROM sys_review_log l
         LEFT JOIN sys_review_record r ON l.review_id = r.review_id
         LEFT JOIN sys_work w ON r.target_id = w.work_id AND r.target_type = 'work'
+        LEFT JOIN sys_user u ON l.operator_id = u.user_id
     </sql>
 
     <select id="selectReviewLogList" parameterType="com.smartscript.platform.review.domain.ReviewLog" resultMap="ReviewLogResult">

@@ -18,6 +18,9 @@ public interface TaskConfigMapper {
 
     TaskConfig selectTaskConfigById(Long taskId);
 
+    /** 按任务编码查询（task_code 唯一） */
+    TaskConfig selectTaskConfigByCode(@Param("taskCode") String taskCode);
+
     int insertTaskConfig(TaskConfig taskConfig);
 
     int updateTaskConfig(TaskConfig taskConfig);

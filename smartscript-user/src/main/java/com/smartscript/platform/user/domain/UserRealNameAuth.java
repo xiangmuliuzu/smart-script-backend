@@ -15,6 +15,8 @@ public class UserRealNameAuth
     private String realNameMask;
     private String idNumberMask;
     private String materialRef;
+    private String materialBackRef;
+    private String pendingRealName;
     private String status;
     private String rejectReason;
     private Date submittedAt;
@@ -68,6 +70,11 @@ public class UserRealNameAuth
     public void setMaterialRef(String materialRef) {
         this.materialRef = materialRef;
     }
+
+    public String getMaterialBackRef() { return materialBackRef; }
+    public void setMaterialBackRef(String value) { materialBackRef = value; }
+    public String getPendingRealName() { return pendingRealName; }
+    public void setPendingRealName(String value) { pendingRealName = value; }
 
     public String getStatus()
     {

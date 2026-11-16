@@ -1,0 +1,380 @@
+package com.smartscript.platform.content.service;
+
+import java.util.LinkedHashMap;
+import java.util.Map;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.smartscript.platform.content.domain.SysWorkLedger;
+
+/**
+ * 「本章摘要 + 创作台账变更」的解析与合并。
+ *
+ * 与 AI 调用解耦，便于单测：提示词只要求模型输出一段 JSON，
+ * 由本类负责容错解析（去 Markdown 包裹、截取最外层大括号），
+ * 合并台账时只覆盖模型明确给出的非空字段，人工写过而模型未提及的内容一律保留。
+ */
+public final class ChapterSummarySupport
+{
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+
+    /** 模型 JSON 被截断时的兜底：直接从原文里抠 summary 字段，保证摘要不丢。 */
+    private static final java.util.regex.Pattern SUMMARY_FIELD =
+            java.util.regex.Pattern.compile("\"summary\"\\s*:\\s*\"((?:\\\\.|[^\"\\\\])*)\"");
+
+    /** 正文注入上限（字符）：超长时保留开头 1/3 与结尾 2/3，结尾常含钩子，权重更高。 */
+    public static final int BODY_CLIP = 6000;
+
+    /** 摘要落库上限（sys_work_chapter.summary 为 varchar(500)）。 */
+    public static final int SUMMARY_MAX = 500;
+
+    /** 正文过短阈值：太短的正文提炼不出可用摘要，直接拒绝，不浪费积分。 */
+    public static final int MIN_BODY = 50;
+
+    private ChapterSummarySupport()
+    {
+    }
+
+    /** 压缩注入正文。 */
+    public static String clipBody(String body, int max)
+    {
+        String text = body == null ? "" : body.trim();
+        if (max <= 0 || text.length() <= max)
+        {
+            return text;
+        }
+        int head = max / 3;
+        int tail = max - head;
+        return text.substring(0, head) + "\n……（中间略）……\n"
+                + text.substring(text.length() - tail);
+    }
+
+    /** 解析 AI 返回的 JSON：容忍 ```json 包裹与前后说明文字；解析失败返回空对象。 */
+    public static JsonNode parseJson(String raw)
+    {
+        String s = raw == null ? "" : raw.trim();
+        if (s.isEmpty())
+        {
+            return MAPPER.createObjectNode();
+        }
+        if (s.startsWith("```"))
+        {
+            int newline = s.indexOf('\n');
+            if (newline >= 0)
+            {
+                s = s.substring(newline + 1);
+            }
+            if (s.endsWith("```"))
+            {
+                s = s.substring(0, s.length() - 3);
+            }
+            s = s.trim();
+        }
+        int start = s.indexOf('{');
+        int end = s.lastIndexOf('}');
+        if (start >= 0 && end > start)
+        {
+            s = s.substring(start, end + 1);
+        }
+        try
+        {
+            return MAPPER.readTree(s);
+        }
+        catch (Exception e)
+        {
+            // 输出被 max_tokens 截断时整体解析必然失败，但 summary 通常已完整出现在开头，
+            // 用正则抠出来让摘要仍能落库（台账这次放弃，下次再补）。
+            return salvageSummary(s);
+        }
+    }
+
+    /** 从残缺 JSON 中抠出 summary 字段；抠不到返回空对象。 */
+    private static JsonNode salvageSummary(String text)
+    {
+        ObjectNode node = MAPPER.createObjectNode();
+        java.util.regex.Matcher matcher = SUMMARY_FIELD.matcher(text);
+        if (matcher.find())
+        {
+            node.put("summary", unescape(matcher.group(1)));
+        }
+        return node;
+    }
+
+    private static String unescape(String value)
+    {
+        return value.replace("\\r", "")
+                .replace("\\n", "\n")
+                .replace("\\t", " ")
+                .replace("\\\"", "\"")
+                .replace("\\\\", "\\");
+    }
+
+    /** 取摘要文本（summary，兼容 chapterSummary），并按落库上限截断。 */
+    public static String summaryOf(JsonNode root)
+    {
+        if (root == null || root.isMissingNode() || root.isNull())
+        {
+            return "";
+        }
+        String text = root.path("summary").asText("");
+        if (text.isBlank())
+        {
+            text = root.path("chapterSummary").asText("");
+        }
+        text = text.trim();
+        return text.length() <= SUMMARY_MAX ? text : text.substring(0, SUMMARY_MAX);
+    }
+
+    /** 台账补丁：仅取 ledger 对象里九类非空文本。 */
+    public static Map<String, String> ledgerPatch(JsonNode root)
+    {
+        Map<String, String> patch = new LinkedHashMap<>();
+        if (root == null || root.isMissingNode() || root.isNull())
+        {
+            return patch;
+        }
+        JsonNode ledger = root.path("ledger");
+        if (!ledger.isObject())
+        {
+            return patch;
+        }
+        putIfText(patch, ledger, "storySummary");
+        putIfText(patch, ledger, "characters");
+        putIfText(patch, ledger, "relations");
+        putIfText(patch, ledger, "foreshadow");
+        putIfText(patch, ledger, "timeline");
+        putIfText(patch, ledger, "items");
+        putIfText(patch, ledger, "props");
+        putIfText(patch, ledger, "styleGuide");
+        putIfText(patch, ledger, "threads");
+        return patch;
+    }
+
+    private static void putIfText(Map<String, String> patch, JsonNode ledger, String key)
+    {
+        String value = ledger.path(key).asText("").trim();
+        if (!value.isEmpty())
+        {
+            patch.put(key, value);
+        }
+    }
+
+    /**
+     * 把补丁并入台账：只处理模型给出的非空字段，其余保留原值（含人工内容）。
+     *
+     * 模型可能给「更新后的完整文本」，也可能只给本集新增条目：
+     * 完整文本（新值里出现了旧值开头）直接替换；否则按行去重后追加，
+     * 这样既不会清空旧台账，也不会因为要求模型复述旧文本把输出撑爆。
+     *
+     * @return 是否有字段被改动
+     */
+    public static boolean mergeLedger(SysWorkLedger ledger, Map<String, String> patch)
+    {
+        if (ledger == null || patch == null || patch.isEmpty())
+        {
+            return false;
+        }
+        boolean changed = false;
+        changed |= apply(ledger.getStorySummary(), patch.get("storySummary"), ledger::setStorySummary);
+        changed |= apply(ledger.getCharacters(), patch.get("characters"), ledger::setCharacters);
+        changed |= apply(ledger.getRelations(), patch.get("relations"), ledger::setRelations);
+        changed |= apply(ledger.getForeshadow(), patch.get("foreshadow"), ledger::setForeshadow);
+        changed |= apply(ledger.getTimeline(), patch.get("timeline"), ledger::setTimeline);
+        changed |= apply(ledger.getItems(), patch.get("items"), ledger::setItems);
+        changed |= mergeProps(ledger, patch.get("props"));
+        changed |= apply(ledger.getStyleGuide(), patch.get("styleGuide"), ledger::setStyleGuide);
+        changed |= mergeThreads(ledger, patch.get("threads"));
+        return changed;
+    }
+
+    /**
+     * 未解线索按条目合并：同一悬念以新状态覆盖旧条目（未结→已结），不同悬念保留。
+     *
+     * 普通 apply 只会追加，旧行「未结」会一直和新行「已结」并存，
+     * 导致已兑现的悬念仍被当成未结、持续注入后续集。
+     */
+    public static boolean mergeThreads(SysWorkLedger ledger, String patch)
+    {
+        if (ledger == null || patch == null || patch.isBlank())
+        {
+            return false;
+        }
+        String oldText = ledger.getThreads() == null ? "" : ledger.getThreads().trim();
+        Map<String, String> items = new LinkedHashMap<>();
+        for (String line : oldText.split("\\n"))
+        {
+            if (!line.isBlank())
+            {
+                items.put(threadKey(line), line.trim());
+            }
+        }
+        for (String line : patch.trim().split("\\n"))
+        {
+            if (!line.isBlank())
+            {
+                items.put(threadKey(line), line.trim());
+            }
+        }
+        String merged = String.join("\n", items.values());
+        if (merged.equals(oldText))
+        {
+            return false;
+        }
+        ledger.setThreads(merged);
+        return true;
+    }
+
+    /** 线索条目主键：取第一个「｜」前的悬念名；没有分隔符时取前 12 字。 */
+    private static String threadKey(String line)
+    {
+        String text = line == null ? "" : line.trim();
+        text = text.replaceFirst("^(未解线索|线索)[：:]", "").trim();
+        int bar = text.indexOf('｜');
+        String key = bar > 0 ? text.substring(0, bar) : text;
+        key = key.trim();
+        return key.length() <= 12 ? key : key.substring(0, 12);
+    }
+
+    /** 单字段合并：模型没给、给了空串、或与现值相同都不动；增量条目追加到旧值后面。 */
+    private static boolean apply(String oldValue, String newValue, java.util.function.Consumer<String> setter)
+    {
+        if (newValue == null || newValue.isBlank())
+        {
+            return false;
+        }
+        String oldText = oldValue == null ? "" : oldValue.trim();
+        String newText = newValue.trim();
+        if (newText.equals(oldText))
+        {
+            return false;
+        }
+        if (oldText.isEmpty())
+        {
+            setter.accept(newText);
+            return true;
+        }
+        // 新值是完整重写：旧值开头那段出现在新值里，直接替换。
+        String oldHead = oldText.length() <= 12 ? oldText : oldText.substring(0, 12);
+        if (newText.contains(oldHead))
+        {
+            setter.accept(newText);
+            return true;
+        }
+        String merged = appendNewLines(oldText, newText);
+        if (merged.equals(oldText))
+        {
+            return false;
+        }
+        setter.accept(merged);
+        return true;
+    }
+
+    /** 逐行追加，旧值里已存在的那一行跳过，避免每集重复叠同一句。 */
+    private static String appendNewLines(String oldText, String newText)
+    {
+        StringBuilder sb = new StringBuilder(oldText);
+        for (String line : newText.split("\n"))
+        {
+            String l = line.trim();
+            if (l.isEmpty() || oldText.contains(l))
+            {
+                continue;
+            }
+            if (sb.length() > 0)
+            {
+                sb.append('\n');
+            }
+            sb.append(l);
+        }
+        return sb.toString();
+    }
+
+    /**
+     * 道具档案按「道具名」合并：同名行用新行整行替换，旧档案里没提到的道具原样保留，新道具追加。
+     *
+     * 不能走 apply 的整段追加：同一件道具若每集各追加一行，久而久之会出现
+     * 「十二面」「十三面」并存的矛盾（实测 45 集后 items/props 里 11/12/13 面混在一起）。
+     */
+    private static boolean mergeProps(SysWorkLedger ledger, String newValue)
+    {
+        if (newValue == null || newValue.isBlank())
+        {
+            return false;
+        }
+        String oldText = ledger.getProps() == null ? "" : ledger.getProps().trim();
+        String newText = newValue.trim();
+        java.util.List<String> merged = new java.util.ArrayList<>();
+        java.util.Map<String, Integer> indexOf = new java.util.HashMap<>();
+        if (!oldText.isEmpty())
+        {
+            for (String line : oldText.split("\n"))
+            {
+                String l = line.trim();
+                if (l.isEmpty())
+                {
+                    continue;
+                }
+                indexOf.put(propsKey(l), merged.size());
+                merged.add(l);
+            }
+        }
+        for (String line : newText.split("\n"))
+        {
+            String l = line.trim();
+            if (l.isEmpty())
+            {
+                continue;
+            }
+            String key = propsKey(l);
+            Integer at = indexOf.get(key);
+            if (at == null)
+            {
+                indexOf.put(key, merged.size());
+                merged.add(l);
+            }
+            else
+            {
+                merged.set(at, l);
+            }
+        }
+        String result = String.join("\n", merged);
+        if (result.equals(oldText))
+        {
+            return false;
+        }
+        ledger.setProps(result);
+        return true;
+    }
+
+    /** 道具行的键：优先取第一个「｜」或「|」前的名称，没有分隔符时取前 12 字。 */
+    private static String propsKey(String line)
+    {
+        int bar = line.indexOf('｜');
+        int ascii = line.indexOf('|');
+        if (bar < 0 || (ascii >= 0 && ascii < bar))
+        {
+            bar = ascii;
+        }
+        String key = bar > 0 ? line.substring(0, bar) : line;
+        key = key.trim();
+        return key.length() <= 12 ? key : key.substring(0, 12);
+    }
+
+    /** 九类字段名（供提示词与测试复用）。 */
+    public static final String[] LEDGER_KEYS = {
+            "storySummary", "characters", "relations", "foreshadow", "timeline", "items", "props",
+            "styleGuide", "threads"};
+
+    /** 组装一段空 JSON 骨架提示（让模型知道必须给全九个键）；summary 放最前，便于截断时兜底。 */
+    public static String emptyLedgerJson()
+    {
+        ObjectNode node = MAPPER.createObjectNode();
+        node.put("summary", "");
+        ObjectNode ledger = node.putObject("ledger");
+        for (String key : LEDGER_KEYS)
+        {
+            ledger.put(key, "");
+        }
+        return node.toString();
+    }
+}

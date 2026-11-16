@@ -1,12 +1,11 @@
 package com.smartscript.platform.user.dto;
 
 import jakarta.validation.constraints.NotBlank;
-import java.util.List;
 
 /**
  * A5 实名提交请求（契约 §1.3）。
  *
- * 服务端只把掩码与材料引用落库；明文姓名与证件号不写日志、不落库、不回传。
+ * 证件号只保存掩码，核验通过后姓名快照用于合同；明文不写入日志。
  */
 public class RealNameSubmitRequest
 {
@@ -15,8 +14,6 @@ public class RealNameSubmitRequest
 
     @NotBlank
     private String idNumber;
-
-    private List<String> materialRefs;
 
     public String getRealName()
     {
@@ -38,13 +35,4 @@ public class RealNameSubmitRequest
         this.idNumber = idNumber;
     }
 
-    public List<String> getMaterialRefs()
-    {
-        return materialRefs;
-    }
-
-    public void setMaterialRefs(List<String> materialRefs)
-    {
-        this.materialRefs = materialRefs;
-    }
 }

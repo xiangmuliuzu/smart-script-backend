@@ -9,6 +9,7 @@ import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.common.core.domain.model.LoginBody;
 import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.framework.web.service.SysLoginService;
+import com.smartscript.platform.review.service.RiskCheckService;
 import com.smartscript.platform.user.constant.AppAdminConstants;
 import com.smartscript.platform.user.domain.AppUserRecord;
 import com.smartscript.platform.user.dto.AuthSessionDto;
@@ -36,14 +37,17 @@ public class PcUnifiedLoginController
     private final AppUserMapper userMapper;
     private final SysLoginService loginService;
     private final AppAuthenticationService appAuthenticationService;
+    private final RiskCheckService riskCheckService;
 
     public PcUnifiedLoginController(AppUserMapper userMapper,
             SysLoginService loginService,
-            AppAuthenticationService appAuthenticationService)
+            AppAuthenticationService appAuthenticationService,
+            RiskCheckService riskCheckService)
     {
         this.userMapper = userMapper;
         this.loginService = loginService;
         this.appAuthenticationService = appAuthenticationService;
+        this.riskCheckService = riskCheckService;
     }
 
     @PostMapping("/login")
@@ -55,6 +59,8 @@ public class PcUnifiedLoginController
         {
             return AjaxResult.error("用户不存在/密码错误");
         }
+        // 风控：登录频控（login 规则，按 IP 计数）
+        riskCheckService.checkFrequencyOrThrow(null, clientIp(http), "login");
 
         AppUserRecord account = userMapper.selectByLoginIdentifier(identifier);
         if (account == null || AppAdminConstants.USER_TYPE_PC_ADMIN.equals(account.getUserType()))
@@ -72,12 +78,14 @@ public class PcUnifiedLoginController
         if (AppAdminConstants.isManagedUserType(account.getUserType()))
         {
             // App 用户域：验证码与 App 端登录共用若依验证码体系（config 关闭时跳过）。
-            loginService.validateCaptcha(identifier, body.getCode(), body.getUuid());
             try
             {
-                AuthSessionDto session = appAuthenticationService.pcPasswordLogin(identifier, password, clientIp(http));
+                AuthSessionDto session = appAuthenticationService.ruoyiPasswordLogin(identifier, password,
+                        body.getCode(), body.getUuid(), clientIp(http));
                 AjaxResult ajax = AjaxResult.success();
                 ajax.put("accountType", account.getUserType());
+                ajax.put("token", session.getToken());
+                ajax.put("user", session.getUser());
                 ajax.put("session", session);
                 return ajax;
             }

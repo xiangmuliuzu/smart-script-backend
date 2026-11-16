@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.trade.mapper.SysInvoiceMapper">
+
+    <resultMap type="com.smartscript.platform.trade.domain.SysInvoice" id="SysInvoiceResult">
+        <result property="invoiceId"    column="invoice_id" />
+        <result property="invoiceNo"    column="invoice_no" />
+        <result property="orderId"      column="order_id" />
+        <result property="applicantId"  column="applicant_id" />
+        <result property="invoiceType"  column="invoice_type" />
+        <result property="email"        column="email" />
+        <result property="title"        column="title" />
+        <result property="taxNo"        column="tax_no" />
+        <result property="amount"       column="amount" />
+        <result property="invoiceUrl"   column="invoice_url" />
+        <result property="status"       column="status" />
+        <result property="rejectReason" column="reject_reason" />
+        <result property="invoiceTime"  column="invoice_time" />
+        <result property="createdAt"    column="created_at" />
+        <result property="updatedAt"    column="updated_at" />
+        <result property="orderNo"      column="order_no" />
+        <result property="workTitle"    column="work_title" />
+    </resultMap>
+
+    <select id="selectInvoiceList" parameterType="com.smartscript.platform.trade.domain.SysInvoice" resultMap="SysInvoiceResult">
+        select i.invoice_id, i.invoice_no, i.order_id, i.applicant_id, i.invoice_type,
+               i.email, i.title, i.tax_no, i.amount, i.invoice_url,
+               i.status, i.reject_reason, i.invoice_time,
+               i.created_at, i.updated_at,
+               o.order_no,
+               w.title as work_title
+        from sys_invoice i
+        left join sys_order o on i.order_id = o.order_id
+        left join sys_work w on o.work_id = w.work_id
+        <where>
+            <if test="status != null and status != ''">AND i.status = #{status}</if>
+            <if test="applicantId != null">AND i.applicant_id = #{applicantId}</if>
+            <if test="invoiceType != null and invoiceType != ''">AND i.invoice_type = #{invoiceType}</if>
+        </where>
+        order by i.created_at desc
+    </select>
+
+    <select id="selectInvoiceById" parameterType="Long" resultMap="SysInvoiceResult">
+        select i.invoice_id, i.invoice_no, i.order_id, i.applicant_id, i.invoice_type,
+               i.email, i.title, i.tax_no, i.amount, i.invoice_url,
+               i.status, i.reject_reason, i.invoice_time,
+               i.created_at, i.updated_at, i.remark,
+               o.order_no,
+               w.title as work_title
+        from sys_invoice i
+        left join sys_order o on i.order_id = o.order_id
+        left join sys_work w on o.work_id = w.work_id
+        where i.invoice_id = #{invoiceId}
+    </select>
+
+    <insert id="insertInvoice" parameterType="com.smartscript.platform.trade.domain.SysInvoice" useGeneratedKeys="true" keyProperty="invoiceId">
+        insert into sys_invoice (
+            invoice_no, order_id, applicant_id, invoice_type, email,
+            title, tax_no, amount, status, created_at
+        ) values (
+            #{invoiceNo}, #{orderId}, #{applicantId}, #{invoiceType}, #{email},
+            #{title}, #{taxNo}, #{amount}, 'pending', NOW()
+        )
+    </insert>
+
+</mapper>

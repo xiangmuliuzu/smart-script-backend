@@ -5,13 +5,16 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import com.smartscript.platform.api.AppApiResponse;
+import com.ruoyi.common.core.domain.AjaxResult;
+import com.ruoyi.common.core.domain.model.LoginBody;
 import com.smartscript.platform.user.dto.AuthSessionDto;
 import com.smartscript.platform.user.dto.CurrentUserDto;
 import com.smartscript.platform.user.dto.PasswordChangeRequest;
@@ -21,7 +24,6 @@ import com.smartscript.platform.user.dto.PasswordSetRequest;
 import com.smartscript.platform.user.dto.RegisterRequest;
 import com.smartscript.platform.user.dto.SmsLoginRequest;
 import com.smartscript.platform.user.dto.SmsSendRequest;
-import com.smartscript.platform.user.dto.TokenRefreshRequest;
 import com.smartscript.platform.user.exception.AppAuthException;
 import com.smartscript.platform.user.security.AppIdentityContext;
 import com.smartscript.platform.user.service.AppAuthenticationService;
@@ -40,98 +42,181 @@ public class AppAuthController
     private final AppAuthenticationService authenticationService;
     private final SmsCodeService smsCodeService;
     private final com.smartscript.platform.user.config.AppAuthProperties properties;
+    private final com.smartscript.platform.review.service.RiskCheckService riskCheckService;
 
     public AppAuthController(AppAuthenticationService authenticationService,
             SmsCodeService smsCodeService,
-            com.smartscript.platform.user.config.AppAuthProperties properties)
+            com.smartscript.platform.user.config.AppAuthProperties properties,
+            com.smartscript.platform.review.service.RiskCheckService riskCheckService)
     {
         this.authenticationService = authenticationService;
         this.smsCodeService = smsCodeService;
         this.properties = properties;
+        this.riskCheckService = riskCheckService;
     }
 
     @PostMapping("/sms/send")
-    public AppApiResponse<Map<String, Object>> sendSms(@Valid @RequestBody SmsSendRequest request,
+    public AjaxResult sendSms(@Valid @RequestBody SmsSendRequest request,
             HttpServletRequest http,
             @RequestHeader(value = "X-Request-Id", required = false) String requestId)
     {
+        if ("DELETE_WORK".equals(request.getScene()))
+        {
+            throw new com.smartscript.platform.user.exception.AppAuthException(
+                    com.smartscript.platform.user.constant.AppAuthErrorCodes.PARAM,
+                    400, "请从作品设置中获取删除验证码");
+        }
+        // 风控：短信发送按 login 频控防轰炸（DELETE_WORK 拒绝路径先行）
+        riskCheckService.checkFrequencyOrThrow(null, clientIp(http), "login");
         smsCodeService.sendCode(request.getPhone(), request.getScene(), clientIp(http), requestId);
-        return AppApiResponse.ok(Map.of(
+        return AjaxResult.success(Map.of(
                 "cooldownSeconds", properties.getSms().getCooldownSeconds(),
                 "expiresIn", properties.getSms().getCodeTtlSeconds()));
     }
 
-    @PostMapping("/sms/login")
-    public AppApiResponse<AuthSessionDto> smsLogin(@Valid @RequestBody SmsLoginRequest request, HttpServletRequest http)
+    @PostMapping("/email/send")
+    public AjaxResult sendEmail(@Valid @RequestBody com.smartscript.platform.user.dto.EmailCodeRequest request,
+            HttpServletRequest http, @RequestHeader(value = "X-Request-Id", required = false) String requestId)
     {
+        riskCheckService.checkFrequencyOrThrow(null, clientIp(http), "login");
+        String scene = request.getScene() == null ? "REGISTER" : request.getScene();
+        if (!java.util.Set.of("REGISTER", "LOGIN", "RESET_PASSWORD").contains(scene))
+            throw new AppAuthException(40000, 400, "请求场景不正确，请刷新后重试");
+        smsCodeService.sendEmailCode(request.getEmail(), scene, clientIp(http), requestId);
+        return AjaxResult.success(Map.of("cooldownSeconds", properties.getSms().getCooldownSeconds(),
+                "expiresIn", properties.getSms().getCodeTtlSeconds()));
+    }
+
+    @PostMapping("/sms/login")
+    public AjaxResult smsLogin(@Valid @RequestBody SmsLoginRequest request, HttpServletRequest http)
+    {
+        riskCheckService.checkFrequencyOrThrow(null, clientIp(http), "login");
         AuthSessionDto session = authenticationService.smsLogin(request, clientIp(http));
-        return AppApiResponse.ok(session);
+        return loginResult(session);
+    }
+
+    @PostMapping("/login")
+    public AjaxResult login(@RequestBody LoginBody request, HttpServletRequest http)
+    {
+        riskCheckService.checkFrequencyOrThrow(null, clientIp(http), "login");
+        String identifier = request.getUsername() == null ? "" : request.getUsername().trim();
+        return loginResult(authenticationService.ruoyiPasswordLogin(identifier, request.getPassword(),
+                request.getCode(), request.getUuid(), clientIp(http)));
+    }
+
+    @ExceptionHandler(com.ruoyi.common.exception.ServiceException.class)
+    public ResponseEntity<AjaxResult> riskRejected(com.ruoyi.common.exception.ServiceException error)
+    {
+        // 风控拦截：业务码 500 + 明确文案（App 端按 code 判失败并展示 msg）
+        return ResponseEntity.ok(AjaxResult.error(error.getMessage()));
+    }
+
+    private static AjaxResult loginResult(AuthSessionDto session)
+    {
+        AjaxResult result = AjaxResult.success();
+        result.put("token", session.getToken());
+        result.put("user", session.getUser());
+        return result;
+    }
+
+    @ExceptionHandler(AppAuthException.class)
+    public ResponseEntity<AjaxResult> authError(AppAuthException error)
+    {
+        AjaxResult result = AjaxResult.error(error.getCode(),
+                AppAuthExceptionHandler.safeMessage(error.getCode(), error.getMessage()));
+        if (error.getData() != null) result.put("data", error.getData());
+        return ResponseEntity.status(error.getHttpStatus()).body(result);
+    }
+
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<AjaxResult> invalidLogin(MethodArgumentNotValidException error)
+    {
+        AjaxResult result = AjaxResult.error(40000, "您的信息不符合规范，请检查后重试");
+        var fields = error.getBindingResult().getFieldErrors().stream().collect(
+                java.util.stream.Collectors.toMap(org.springframework.validation.FieldError::getField,
+                        field -> field.getDefaultMessage() == null ? "填写不正确" : field.getDefaultMessage(), (a, b) -> a));
+        result.put("data", java.util.Map.of("fieldErrors", fields));
+        return ResponseEntity.badRequest().body(result);
+    }
+
+    @ExceptionHandler({org.springframework.http.converter.HttpMessageNotReadableException.class,
+            org.springframework.web.method.annotation.MethodArgumentTypeMismatchException.class,
+            org.springframework.web.bind.MissingServletRequestParameterException.class})
+    public ResponseEntity<AjaxResult> malformedRequest(Exception error)
+    {
+        return ResponseEntity.badRequest().body(AjaxResult.error(40000, "您的信息不符合规范，请检查后重试"));
+    }
+
+    @ExceptionHandler(RuntimeException.class)
+    public ResponseEntity<AjaxResult> unexpectedError(RuntimeException error)
+    {
+        return ResponseEntity.internalServerError().body(AjaxResult.error(50000, "服务暂时不可用，请稍后再试"));
     }
 
     @PostMapping("/password/login")
-    public AppApiResponse<AuthSessionDto> passwordLogin(@Valid @RequestBody PasswordLoginRequest request,
+    public AjaxResult passwordLogin(@Valid @RequestBody PasswordLoginRequest request,
             HttpServletRequest http)
     {
-        return AppApiResponse.ok(authenticationService.passwordLogin(request, clientIp(http)));
+        riskCheckService.checkFrequencyOrThrow(null, clientIp(http), "login");
+        return AjaxResult.success(authenticationService.passwordLogin(request, clientIp(http)));
     }
 
     @PostMapping("/register")
-    public AppApiResponse<AuthSessionDto> register(@Valid @RequestBody RegisterRequest request, HttpServletRequest http)
+    public AjaxResult register(@Valid @RequestBody RegisterRequest request, HttpServletRequest http)
     {
-        return AppApiResponse.ok(authenticationService.register(request, clientIp(http)));
-    }
-
-    @PostMapping("/token/refresh")
-    public AppApiResponse<AuthSessionDto> refresh(@Valid @RequestBody TokenRefreshRequest request, HttpServletRequest http)
-    {
-        return AppApiResponse.ok(authenticationService.refresh(request, clientIp(http)));
+        riskCheckService.checkFrequencyOrThrow(null, clientIp(http), "login");
+        return loginResult(authenticationService.register(request, clientIp(http)));
     }
 
     @PostMapping("/logout")
-    public AppApiResponse<Void> logout()
+    public AjaxResult logout()
     {
         authenticationService.logout(currentIdentity());
-        return AppApiResponse.ok();
+        return AjaxResult.success();
     }
 
     @GetMapping("/me")
-    public AppApiResponse<CurrentUserDto> me()
+    public AjaxResult me()
     {
-        return AppApiResponse.ok(authenticationService.me(currentIdentity()));
+        return AjaxResult.success(authenticationService.me(currentIdentity()));
+    }
+
+    @GetMapping("/getInfo")
+    public AjaxResult getInfo()
+    {
+        CurrentUserDto user = authenticationService.me(currentIdentity());
+        AjaxResult result = AjaxResult.success();
+        result.put("user", user);
+        result.put("roles", user.getRoles());
+        result.put("permissions", user.getPermissions());
+        return result;
     }
 
     @PostMapping("/password/set")
-    public AppApiResponse<Void> setPassword(@Valid @RequestBody PasswordSetRequest request)
+    public AjaxResult setPassword(@Valid @RequestBody PasswordSetRequest request)
     {
         authenticationService.setPassword(currentIdentity(), request.getPassword());
-        return AppApiResponse.ok();
+        return AjaxResult.success();
     }
 
     @PostMapping("/password/change")
-    public AppApiResponse<Void> changePassword(@Valid @RequestBody PasswordChangeRequest request)
+    public AjaxResult changePassword(@Valid @RequestBody PasswordChangeRequest request)
     {
         authenticationService.changePassword(currentIdentity(), request);
-        return AppApiResponse.ok();
+        return AjaxResult.success();
     }
 
     @PostMapping("/password/reset")
-    public AppApiResponse<Void> resetPassword(@Valid @RequestBody PasswordResetRequest request)
+    public AjaxResult resetPassword(@Valid @RequestBody PasswordResetRequest request)
     {
         authenticationService.resetPassword(request);
-        return AppApiResponse.ok();
+        return AjaxResult.success();
     }
 
     @GetMapping("/agreements")
-    public AppApiResponse<Map<String, Object>> agreements()
+    public AjaxResult agreements()
     {
-        return AppApiResponse.ok(authenticationService.agreementsPayload());
-    }
-
-    @PostMapping("/oauth/{provider}/login")
-    public AppApiResponse<Void> oauthLogin(@PathVariable("provider") String provider)
-    {
-        authenticationService.oauthNotOpen(provider);
-        return AppApiResponse.fail(50101, "oauth provider not open");
+        return AjaxResult.success(authenticationService.agreementsPayload());
     }
 
     private AppIdentityContext currentIdentity()
@@ -141,7 +226,7 @@ public class AppAuthController
         {
             return identity;
         }
-        throw new AppAuthException(40100, 401, "unauthorized");
+        throw new AppAuthException(40100, 401, "登录状态已过期，请重新登录");
     }
 
     private static String clientIp(HttpServletRequest request)

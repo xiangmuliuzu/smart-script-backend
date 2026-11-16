@@ -15,6 +15,9 @@ public class UserProfileDto
     /** 个人简介；null 表示未填写。 */
     private String bio;
     private String phoneMasked;
+    private String emailMasked;
+    public String getEmailMasked() { return emailMasked; }
+    public void setEmailMasked(String emailMasked) { this.emailMasked = emailMasked; }
     private String userType;
     private String realNameStatus;
 

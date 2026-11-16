@@ -14,10 +14,19 @@ public class AiQuotaRecord {
     private Long recordId;
     private Long accountId;
     private Long userId;
+    /** 业务流水号（NOT NULL） */
+    private String recordNo;
+    /** 变动类型：earn/consume/refund */
     private String type;
     private String businessType;
+    /** 变动数量 */
     private BigDecimal amount;
+    /** 变动后余额 */
     private BigDecimal balance;
+    /** 变动前余额 */
+    private BigDecimal beforeBalance;
+    /** 幂等键（uk 唯一，防重复扣减/补偿） */
+    private String idempotencyKey;
     private String source;
     private String relatedId;
     private String status;
@@ -38,6 +47,12 @@ public class AiQuotaRecord {
 
     public String getType() { return type; }
     public void setType(String type) { this.type = type; }
+    public String getRecordNo() { return recordNo; }
+    public void setRecordNo(String recordNo) { this.recordNo = recordNo; }
+    public BigDecimal getBeforeBalance() { return beforeBalance; }
+    public void setBeforeBalance(BigDecimal beforeBalance) { this.beforeBalance = beforeBalance; }
+    public String getIdempotencyKey() { return idempotencyKey; }
+    public void setIdempotencyKey(String idempotencyKey) { this.idempotencyKey = idempotencyKey; }
     public BigDecimal getAmount() { return amount; }
     public void setAmount(BigDecimal amount) { this.amount = amount; }
     public BigDecimal getBalance() { return balance; }

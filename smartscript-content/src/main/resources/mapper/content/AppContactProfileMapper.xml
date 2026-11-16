@@ -15,16 +15,23 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 	<resultMap type="com.smartscript.platform.content.dto.AppContactDto" id="AppContactDtoResult">
 		<result property="hasContact"   column="has_contact"   />
 		<result property="displayScope" column="display_scope" />
+		<result property="phone"        column="phone"         />
+		<result property="email"        column="email"         />
+		<result property="wechat"       column="wechat"        />
 	</resultMap>
 
 	<select id="selectContactByOwnerId" resultMap="AppContactDtoResult">
-		select display_scope,
-		       case when coalesce(phone_cipher, '') != ''
-		              or coalesce(email_cipher, '') != ''
-		              or coalesce(wechat_cipher, '') != ''
-		            then 1 else 0 end as has_contact
-		from sys_contact_profile
-		where owner_id = #{ownerId}
+		select cp.display_scope,
+		       case when coalesce(cp.phone_cipher, '') != ''
+		              or coalesce(cp.email_cipher, '') != ''
+		              or coalesce(cp.wechat_cipher, '') != ''
+		            then 1 else 0 end as has_contact,
+		       coalesce(nullif(cp.phone_cipher, ''), u.phonenumber) as phone,
+		       cp.email_cipher  as email,
+		       cp.wechat_cipher as wechat
+		from sys_user u
+		left join sys_contact_profile cp on cp.owner_id = u.user_id
+		where u.user_id = #{ownerId}
 		limit 1
 	</select>
 

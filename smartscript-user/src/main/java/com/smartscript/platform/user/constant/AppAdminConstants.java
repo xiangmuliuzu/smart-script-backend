@@ -62,16 +62,23 @@ public final class AppAdminConstants
     public static final String NOTIFICATION_TRANSACTION = "TRANSACTION";
     public static final String NOTIFICATION_BENEFIT = "BENEFIT";
 
+    // ---- 通知渠道（规格 §8.6，与 user_notification_preference.channel 同源）----
+    /** 站内信渠道：关闭即停止投递站内消息（消息主体仍按幂等键保留）。 */
+    public static final String NOTIFICATION_CHANNEL_INBOX = "INBOX";
+
     // ---- 权限标识（契约 §4 / 实施方案 §8）----
     public static final String PERM_APP_LIST = "user:app:list";
     public static final String PERM_APP_QUERY = "user:app:query";
     public static final String PERM_APP_STATUS = "user:app:status";
     public static final String PERM_APP_GRANT = "user:app:grant";
     public static final String PERM_REALNAME_LIST = "user:realname:list";
-    public static final String PERM_REALNAME_QUERY = "user:realname:query";
     public static final String PERM_REALNAME_AUDIT = "user:realname:audit";
+    public static final String PERM_REALNAME_QUERY = "user:realname:query";
     public static final String PERM_CREATOR_LIST = "user:creator:list";
     public static final String PERM_CREATOR_UPDATE = "user:creator:update";
+    public static final String PERM_CREATOR_APP_LIST = "user:creatorapp:list";
+    public static final String PERM_CREATOR_APP_QUERY = "user:creatorapp:query";
+    public static final String PERM_CREATOR_APP_AUDIT = "user:creatorapp:audit";
     public static final String PERM_MESSAGE_LIST = "user:message:list";
     public static final String PERM_MESSAGE_ADD = "user:message:add";
     public static final String PERM_MESSAGE_QUERY = "user:message:query";
@@ -80,7 +87,7 @@ public final class AppAdminConstants
     public static final String PERM_FEEDBACK_HANDLE = "user:feedback:handle";
 
     /** 默认权限父菜单：A4 顶级目录（迁移 002 固定 menu_id）。 */
-    public static final long A4_MENU_ROOT_ID = 3000L;
+    public static final long ADMIN_MENU_ROOT_ID = 3000L;
 
     /**
      * 超级管理员角色判定：角色主键与角色编码。

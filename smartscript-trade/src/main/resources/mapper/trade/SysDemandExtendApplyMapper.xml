@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.trade.mapper.SysDemandExtendApplyMapper">
+
+    <resultMap type="com.smartscript.platform.trade.domain.SysDemandExtendApply" id="ExtendApplyResult">
+        <result property="applyId"    column="apply_id" />
+        <result property="demandId"   column="demand_id" />
+        <result property="stageId"    column="stage_id" />
+        <result property="stageOrder" column="stage_order" />
+        <result property="creatorId"  column="creator_id" />
+        <result property="days"       column="days" />
+        <result property="hours"      column="hours" />
+        <result property="reason"     column="reason" />
+        <result property="status"     column="status" />
+        <result property="applyType"  column="apply_type" />
+        <result property="appliedAt"  column="applied_at" />
+        <result property="decidedAt"  column="decided_at" />
+        <result property="decidedBy"  column="decided_by" />
+        <result property="dueAfter"   column="due_after" />
+    </resultMap>
+
+    <!-- 延时历史写入：request（创作者申请）落 pending 等处理；self（发布者自主延时）落 approved 并即时记生效时间 -->
+    <insert id="insert" parameterType="com.smartscript.platform.trade.domain.SysDemandExtendApply"
+            useGeneratedKeys="true" keyProperty="applyId">
+        INSERT INTO sys_demand_extend_apply (
+            demand_id, stage_id, creator_id, days, hours, reason,
+            status, apply_type, applied_at, decided_at, decided_by, due_after, created_at, updated_at
+        ) VALUES (
+            #{demandId}, #{stageId}, #{creatorId}, #{days}, #{hours}, #{reason},
+            COALESCE(#{status}, 'pending'), COALESCE(#{applyType}, 'request'), NOW(),
+            CASE WHEN COALESCE(#{status}, 'pending') = 'pending' THEN NULL ELSE NOW() END,
+            CASE WHEN COALESCE(#{status}, 'pending') = 'pending' THEN NULL ELSE #{decidedBy} END,
+            CASE WHEN COALESCE(#{status}, 'pending') = 'pending' THEN NULL ELSE #{dueAfter} END,
+            NOW(), NOW()
+        )
+    </insert>
+
+    <!-- 锁定轮次行：串行化同轮并发申请（须在主事务内调用） -->
+    <select id="lockStage" resultType="java.lang.Long">
+        SELECT stage_id FROM sys_demand_stage
+        WHERE stage_id = #{stageId}
+        FOR UPDATE
+    </select>
+
+    <select id="selectPendingByStageId" resultMap="ExtendApplyResult">
+        SELECT * FROM sys_demand_extend_apply
+        WHERE stage_id = #{stageId} AND status = 'pending'
+        ORDER BY applied_at DESC, apply_id DESC
+        LIMIT 1
+    </select>
+
+    <!-- 定时扫描：发布者超过 N 小时未处理的申请延时（附轮次序号供通知文案使用），自主延时不列入 -->
+    <select id="selectStalePendingApplies" resultMap="ExtendApplyResult">
+        SELECT a.*, s.stage_order
+        FROM sys_demand_extend_apply a
+        LEFT JOIN sys_demand_stage s ON s.stage_id = a.stage_id
+        WHERE a.status = 'pending'
+          AND a.apply_type = 'request'
+          AND a.applied_at &lt; DATE_SUB(NOW(), INTERVAL #{hours} HOUR)
+        ORDER BY a.apply_id ASC
+    </select>
+
+    <!-- 条件更新：仍是 pending 才落决定，并发下只有一个生效；同意时落新截止时间；
+         系统自动驳回不归属任何处理人，decidedBy 传 null 时保持该列为空 -->
+    <update id="decide">
+        UPDATE sys_demand_extend_apply
+        SET status = #{status},
+            decided_at = NOW(),
+            <if test="decidedBy != null">decided_by = #{decidedBy},</if>
+            <if test="dueAfter != null">due_after = #{dueAfter},</if>
+            updated_at = NOW()
+        WHERE apply_id = #{applyId}
+          AND status = 'pending'
+    </update>
+
+    <!-- 某轮全部延时记录（申请延时 + 自主延时），按发生时间倒序 -->
+    <select id="selectByStageId" resultMap="ExtendApplyResult">
+        SELECT a.*, s.stage_order
+        FROM sys_demand_extend_apply a
+        LEFT JOIN sys_demand_stage s ON s.stage_id = a.stage_id
+        WHERE a.stage_id = #{stageId}
+        ORDER BY a.applied_at DESC, a.apply_id DESC
+    </select>
+
+    <!-- 某任务全部延时记录（申请延时 + 自主延时，含各轮），按发生时间倒序 -->
+    <select id="selectByDemandId" resultMap="ExtendApplyResult">
+        SELECT a.*, s.stage_order
+        FROM sys_demand_extend_apply a
+        LEFT JOIN sys_demand_stage s ON s.stage_id = a.stage_id
+        WHERE a.demand_id = #{demandId}
+        ORDER BY a.applied_at DESC, a.apply_id DESC
+    </select>
+
+</mapper>

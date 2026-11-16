@@ -105,6 +105,45 @@ public class AiQuotaController {
     }
 
     /**
+     * 查询「1积分=N token」配置（AI创作按实际token扣积分）
+     */
+    @GetMapping("/token-per-point")
+    public Map<String, Object> tokenPerPoint() {
+        Map<String, Object> result = new HashMap<>();
+        result.put("code", 200);
+        result.put("msg", "操作成功");
+        result.put("data", aiQuotaService.getTokenPerPoint());
+        return result;
+    }
+
+    /**
+     * 更新「1积分=N token」配置
+     * PUT /api/v1/admin/ai/quota/token-per-point {"tokenPerPoint":1000}
+     */
+    @PutMapping("/token-per-point")
+    public Map<String, Object> updateTokenPerPoint(@RequestBody Map<String, Object> body) {
+        Map<String, Object> result = new HashMap<>();
+        Object r = body.get("tokenPerPoint");
+        if (r == null) {
+            result.put("code", 400);
+            result.put("msg", "tokenPerPoint 必填");
+            return result;
+        }
+        try {
+            int tokenPerPoint = Integer.parseInt(String.valueOf(r).trim());
+            Map<String, Object> r2 = aiQuotaService.updateTokenPerPoint(tokenPerPoint);
+            result.put("code", r2.get("code"));
+            result.put("msg", r2.get("msg"));
+            result.put("data", r2.get("tokenPerPoint"));
+            return result;
+        } catch (NumberFormatException e) {
+            result.put("code", 400);
+            result.put("msg", "tokenPerPoint 必须为整数");
+            return result;
+        }
+    }
+
+    /**
      * 查询AI配额记录列表
      */
     @GetMapping("/record/list")

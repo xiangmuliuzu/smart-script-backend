@@ -84,9 +84,8 @@ class SmartscriptUserModuleAssemblyTest
                     String src = Files.readString(p, StandardCharsets.UTF_8);
                     for (String forbidden : new String[] {
                             "class SysUser", "class SysRole", "class SysMenu",
-                            "class LoginBody", "class LoginUser", "SysLoginService",
-                            "class TokenService", "framework.web.service.TokenService",
-                            "SysPermissionService"
+                            "class LoginBody", "class LoginUser", "class SysLoginService",
+                            "class TokenService", "class SysPermissionService"
                     })
                     {
                         assertFalse(src.contains(forbidden),

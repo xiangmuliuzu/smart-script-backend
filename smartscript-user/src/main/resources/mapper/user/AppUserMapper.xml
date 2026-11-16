@@ -8,6 +8,7 @@
         <result property="userName" column="user_name"/>
         <result property="nickName" column="nick_name"/>
         <result property="phonenumber" column="phonenumber"/>
+        <result property="email" column="email"/>
         <result property="password" column="password"/>
         <result property="userType" column="user_type"/>
         <result property="avatar" column="avatar"/>
@@ -18,7 +19,7 @@
     </resultMap>
 
     <sql id="appUserColumns">
-        user_id, user_name, nick_name, phonenumber, password, user_type, avatar, status, del_flag, bio, create_time
+        user_id, user_name, nick_name, phonenumber, email, password, user_type, avatar, status, del_flag, bio, create_time
     </sql>
 
     <select id="selectByPhone" resultMap="AppUserResult">
@@ -28,11 +29,36 @@
         LIMIT 1
     </select>
 
+    <select id="selectByEmail" resultMap="AppUserResult">
+        SELECT <include refid="appUserColumns"/> FROM sys_user
+        WHERE email = #{email} AND del_flag = '0' LIMIT 1
+    </select>
+
+    <select id="selectByVerifiedEmail" resultMap="AppUserResult">
+        SELECT <include refid="appUserColumns"/> FROM sys_user
+        WHERE del_flag = '0' AND EXISTS (SELECT 1 FROM app_user_email e WHERE e.user_id = sys_user.user_id AND e.email = #{email}) LIMIT 1
+    </select>
+
+    <select id="selectVerifiedEmailByUserId" resultType="string">
+        SELECT email FROM app_user_email WHERE user_id = #{userId} LIMIT 1
+    </select>
+
+    <update id="updateEmailBinding">
+        UPDATE app_user_email SET email = #{email} WHERE user_id = #{userId}
+    </update>
+    <update id="updateEmail">
+        UPDATE sys_user SET email = #{email}, update_time = NOW(), update_by = 'app-auth' WHERE user_id = #{userId}
+    </update>
+
+    <insert id="insertEmailBinding">
+        INSERT INTO app_user_email (user_id, email) VALUES (#{userId}, #{email})
+    </insert>
+
     <select id="selectByLoginIdentifier" resultMap="AppUserResult">
         SELECT <include refid="appUserColumns"/>
         FROM sys_user
         WHERE del_flag = '0'
-          AND (user_name = #{identifier} OR phonenumber = #{identifier})
+          AND (user_name = #{identifier} OR phonenumber = #{identifier} OR EXISTS (SELECT 1 FROM app_user_email e WHERE e.user_id = sys_user.user_id AND e.email = #{identifier}))
         <!-- 用户名与手机号同时命中不同账号时，确定性取用户名命中的记录，保证分流结果稳定 -->
         ORDER BY CASE WHEN user_name = #{identifier} THEN 0 ELSE 1 END
         LIMIT 1
@@ -51,7 +77,7 @@
         (user_name, nick_name, phonenumber, password, user_type, avatar, status, del_flag, email, sex,
          create_by, create_time, remark)
         VALUES
-        (#{userName}, #{nickName}, #{phonenumber}, #{password}, #{userType}, #{avatar}, #{status}, #{delFlag}, '',
+        (#{userName}, #{nickName}, #{phonenumber}, #{password}, #{userType}, #{avatar}, #{status}, #{delFlag}, COALESCE(#{email}, ''),
          '0', 'app-auth', NOW(), '')
     </insert>
 

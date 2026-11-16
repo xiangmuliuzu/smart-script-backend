@@ -30,6 +30,8 @@
         <commons.io.version>2.21.0</commons.io.version>
         <poi.version>4.1.2</poi.version>
         <velocity.version>2.3</velocity.version>
+        <!-- 对象存储：上传文件共享到 MinIO，避免文件只留在上传者本机 -->
+        <minio.version>8.5.17</minio.version>
         <jwt.version>0.9.1</jwt.version>
         <jaxb-api.version>2.3.1</jaxb-api.version>
         <springdoc.version>3.0.2</springdoc.version>
@@ -45,6 +47,12 @@
             <dependency> <!-- #1 tomcat-embed-core CRITICAL×3（DIGEST 重放绕过/访问控制/FORM 授权） -->
                 <groupId>org.apache.tomcat.embed</groupId>
                 <artifactId>tomcat-embed-core</artifactId>
+                <version>11.0.25</version>
+            </dependency>
+            <!-- 与上方 core 同版本：websocket 实现与容器核心强耦合，混版会在握手期抛 NoSuchMethodError -->
+            <dependency>
+                <groupId>org.apache.tomcat.embed</groupId>
+                <artifactId>tomcat-embed-websocket</artifactId>
                 <version>11.0.25</version>
             </dependency>
             <dependency> <!-- #2/#3 netty-handler CRITICAL(SNI 绕过)+netty-codec-dns MODERATE，BOM 收敛两件 -->
@@ -150,6 +158,13 @@
                 <groupId>org.apache.poi</groupId>
                 <artifactId>poi-ooxml</artifactId>
                 <version>${poi.version}</version>
+            </dependency>
+
+            <!-- 对象存储（MinIO / S3 兼容） -->
+            <dependency>
+                <groupId>io.minio</groupId>
+                <artifactId>minio</artifactId>
+                <version>${minio.version}</version>
             </dependency>
 
             <!-- velocity代码生成使用模板 -->

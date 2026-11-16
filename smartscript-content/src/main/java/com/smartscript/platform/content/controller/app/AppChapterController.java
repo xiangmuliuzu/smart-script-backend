@@ -18,8 +18,9 @@ import com.smartscript.platform.content.service.IAppBookstoreService;
  * 用于「已获版权授权则放开全文」的判定。
  *
  * 可读边界 = 试读范围（sys_work.preview_enabled / preview_episodes）
+ *           或 作者标记的免费章节（sys_work_chapter.is_free='1'）
  *           或 当前身份持有生效中的版权授权（sys_copyright_authorization）。
- * 两条分支都不满足时，章节正文按 403 拒绝且不下发 content。
+ * 三条分支都不满足时，章节正文按 403 拒绝且不下发 content。
  *
  * 路由：本控制器以 /api/v1/content 为前缀收拢两个路径；
  * 目录路径与 AppWorkController 的 /{workId} 段数不同，不会互相覆盖。
@@ -67,8 +68,8 @@ public class AppChapterController
      * 章节正文
      *
      * @param chapterId 章节ID
-     * @return 可读（试读范围内 或 已获授权）时下发 content；
-     *         两条分支都不满足按 403 返回且 data 不含 content。
+     * @return 可读（试读范围内 或 作者标记免费章节 或 已获授权）时下发 content；
+     *         三条分支都不满足按 403 返回且 data 不含 content。
      */
     @GetMapping("/chapters/{chapterId}")
     public AppApiResponse<AppChapterDetailDto> chapterDetail(@PathVariable Long chapterId)

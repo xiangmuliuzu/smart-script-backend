@@ -23,12 +23,6 @@ public class AppDraftWorkItem
     /** 封面地址 */
     private String cover;
 
-    /** 题材ID */
-    private Integer genreId;
-
-    /** 题材名称（JOIN sys_category.category_name） */
-    private String genreName;
-
     /** 简介 */
     private String summary;
 
@@ -70,26 +64,6 @@ public class AppDraftWorkItem
     public void setCover(String cover)
     {
         this.cover = cover;
-    }
-
-    public Integer getGenreId()
-    {
-        return genreId;
-    }
-
-    public void setGenreId(Integer genreId)
-    {
-        this.genreId = genreId;
-    }
-
-    public String getGenreName()
-    {
-        return genreName;
-    }
-
-    public void setGenreName(String genreName)
-    {
-        this.genreName = genreName;
     }
 
     public String getSummary()

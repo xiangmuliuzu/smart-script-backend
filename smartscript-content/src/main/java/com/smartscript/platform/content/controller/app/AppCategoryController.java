@@ -1,19 +1,18 @@
 package com.smartscript.platform.content.controller.app;
 
-import java.util.Map;
-import java.util.LinkedHashMap;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import com.smartscript.platform.api.AppApiResponse;
+import com.smartscript.platform.content.dto.AppCategoryNavDto;
 import com.smartscript.platform.content.service.IAppBookstoreService;
 
 /**
- * App 分类列表（B 模块，接口文档 2.7.1 作品列表的分类筛选项 / 2.10 分类）。
+ * App 分类页导航（B 模块，接口文档 2.10 分类）。
  *
+ * 标签墙体系下作品只按标签归属，不再有分类树；本控制器仅保留「频道 + 四维度标签」导航。
  * 鉴权：公开接口，游客可读。
- * 返回：App 信封 {code, message, data:{list}}；只下发 status 正常的分类。
  *
  * @author xiangsipeng
  */
@@ -29,18 +28,13 @@ public class AppCategoryController
     }
 
     /**
-     * 分类列表
+     * 分类页导航：频道 + 热门标签 / 主题 / 角色 / 情节 四维度
      *
-     * @param categoryType 分类类型（可选）
-     * @param parentId     父分类ID（可选，传 0 取顶级分类）
+     * @param channelId 频道ID（可选，为空时回落第一个频道）
      */
-    @GetMapping
-    public AppApiResponse<Map<String, Object>> list(
-            @RequestParam(required = false) String categoryType,
-            @RequestParam(required = false) Long parentId)
+    @GetMapping("/nav")
+    public AppApiResponse<AppCategoryNavDto> nav(@RequestParam(required = false) Long channelId)
     {
-        Map<String, Object> data = new LinkedHashMap<>();
-        data.put("list", bookstoreService.listCategories(categoryType, parentId));
-        return AppApiResponse.ok(data);
+        return AppApiResponse.ok(bookstoreService.getCategoryNav(channelId));
     }
 }

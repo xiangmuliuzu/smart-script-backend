@@ -6,9 +6,11 @@ import jakarta.validation.constraints.Size;
 
 public class PasswordResetRequest
 {
-    @NotBlank
-    @Pattern(regexp = "^1\\d{10}$")
     private String phone;
+    @Size(max = 50)
+    private String email;
+    public String getEmail() { return email; }
+    public void setEmail(String email) { this.email = email; }
 
     @NotBlank
     @Size(min = 4, max = 8)

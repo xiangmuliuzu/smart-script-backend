@@ -16,14 +16,30 @@ public class AppUserSummary
     private String userType;
     private String nickname;
     private String phoneMasked;
+    private String email;
     private String status;
     private String realNameStatus;
+    private String creatorApplicationStatus;
     private Boolean authorCapability;
+    /** 最近一次作者能力变更记录，与用户列表一起返回。 */
+    private String reason;
+    private String operatorName;
+    private Date updatedAt;
     private Date createTime;
     private Date lastLoginTime;
 
     /** 该用户已授予的角色编码，由批量查询装配。 */
     private List<String> roleCodes = new ArrayList<>();
+
+    public String getCreatorApplicationStatus()
+    {
+        return creatorApplicationStatus;
+    }
+
+    public void setCreatorApplicationStatus(String status)
+    {
+        this.creatorApplicationStatus = status;
+    }
 
     public Long getUserId()
     {
@@ -65,6 +81,16 @@ public class AppUserSummary
         this.phoneMasked = phoneMasked;
     }
 
+    public String getEmail()
+    {
+        return email;
+    }
+
+    public void setEmail(String email)
+    {
+        this.email = email;
+    }
+
     public String getStatus()
     {
         return status;
@@ -98,6 +124,36 @@ public class AppUserSummary
     public Date getCreateTime()
     {
         return createTime;
+    }
+
+    public String getReason()
+    {
+        return reason;
+    }
+
+    public void setReason(String reason)
+    {
+        this.reason = reason;
+    }
+
+    public String getOperatorName()
+    {
+        return operatorName;
+    }
+
+    public void setOperatorName(String operatorName)
+    {
+        this.operatorName = operatorName;
+    }
+
+    public Date getUpdatedAt()
+    {
+        return updatedAt;
+    }
+
+    public void setUpdatedAt(Date updatedAt)
+    {
+        this.updatedAt = updatedAt;
     }
 
     public void setCreateTime(Date createTime)

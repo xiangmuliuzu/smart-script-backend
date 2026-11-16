@@ -28,7 +28,7 @@ class UserInboxServiceTest
             row.setType("SYSTEM"); row.setTitle("服务升级");
             row.setContent("<p>升级正文</p><script>alert(1)</script>"); rows.add(row);
         }
-        when(mapper.selectInbox(12L, "SYSTEM")).thenReturn(rows);
+        when(mapper.selectInbox(12L, "SYSTEM", null)).thenReturn(rows);
         try
         {
             var result = service.page(12L, "01", "SYSTEM", 1, 2);
@@ -45,7 +45,7 @@ class UserInboxServiceTest
     {
         var original = Map.of("SYSTEM", 2, "REVIEW", 1);
         when(messages.unreadCount(12L)).thenReturn(Map.of("total", 3, "byType", original));
-        when(notices.unreadCount(12L, "03")).thenReturn(4);
+        when(mapper.countUnreadAnnouncements(12L)).thenReturn(4);
         var combined = service.unreadCount(12L, "03");
         assertEquals(7, combined.get("total"));
         assertEquals(Map.of("SYSTEM", 6, "REVIEW", 1), combined.get("byType"));

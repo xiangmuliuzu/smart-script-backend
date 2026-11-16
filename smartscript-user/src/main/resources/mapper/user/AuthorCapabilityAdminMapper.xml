@@ -85,6 +85,12 @@
         LIMIT 1
     </select>
 
+    <select id="selectLatestCreatorApplicationStatus" resultType="java.lang.String">
+        SELECT status FROM user_creator_application
+        WHERE user_id = #{userId}
+        ORDER BY id DESC LIMIT 1
+    </select>
+
     <select id="selectEnabledByUserId" resultType="java.lang.Boolean">
         SELECT uac.enabled
         FROM user_author_capability uac

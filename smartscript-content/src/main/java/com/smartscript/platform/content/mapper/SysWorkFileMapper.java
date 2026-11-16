@@ -37,4 +37,15 @@ public interface SysWorkFileMapper
      * @return 可预览文件集合
      */
     public List<SysWorkFile> selectPreviewFilesByWorkId(Long workId);
+
+    /**
+     * 新增作品文件
+     *
+     * 用于 App 创建作品（2.9.2）时登记随作品提交的剧本文件；
+     * workId/fileName/fileUrl/fileType/fileSize/isPreview/sort 均为库中 NOT NULL 列，需调用方填充。
+     *
+     * @param file 作品文件
+     * @return 影响行数
+     */
+    public int insertWorkFile(SysWorkFile file);
 }

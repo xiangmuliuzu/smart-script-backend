@@ -68,4 +68,12 @@ public interface ISysCategoryService
      * @return 影响行数
      */
     public int updateCategorySort(SysCategory category);
+
+    /**
+     * 批量删除剧本分类（物理删除；删除前校验作品引用）
+     *
+     * @param categoryIds 分类ID数组
+     * @return 影响行数
+     */
+    public int deleteCategoryByIds(Long[] categoryIds);
 }

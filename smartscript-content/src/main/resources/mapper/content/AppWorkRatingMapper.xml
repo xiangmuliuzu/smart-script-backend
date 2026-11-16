@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.content.mapper.AppWorkRatingMapper">
+
+	<!--
+	  依据：云端 script_platform_dev 库 sys_work_rating 表
+	  （迁移脚本 sql/migrations/b/B_20261014_001__create_work_rating_table.sql）。
+	  反推处理点：
+	  1. (work_id, user_id) 有唯一键 uk_work_user，覆盖更新用 INSERT ... ON DUPLICATE KEY UPDATE，
+	     同一用户重复评分不新增记录、评分数（COUNT）不增长。
+	  2. created_at/updated_at 为 NOT NULL DEFAULT CURRENT_TIMESTAMP(ON UPDATE)，仍显式写 now()，
+	     不依赖库默认值差异；updated_at 在覆盖分支需手动刷新（ON UPDATE 仅在值真的变化时才触发）。
+	  3. 平均分回写 sys_work.rating；子查询取自 sys_work_rating（与 sys_work 不同表），
+	     不触发 MySQL「不能在子查询中引用被更新的表」限制。
+	  4. 无评分时 rating 回落 0：该列 NOT NULL，不能留 NULL。
+	-->
+	<insert id="upsertRating">
+		insert into sys_work_rating (work_id, user_id, score, created_at, updated_at)
+		values (#{workId}, #{userId}, #{score}, now(), now())
+		on duplicate key update score = values(score), updated_at = now()
+	</insert>
+
+	<select id="selectMyScore" resultType="java.lang.Integer">
+		select score
+		from sys_work_rating
+		where user_id = #{userId}
+		  and work_id = #{workId}
+	</select>
+
+	<select id="countByWork" resultType="int">
+		select count(1)
+		from sys_work_rating
+		where work_id = #{workId}
+	</select>
+
+	<select id="selectAvgRating" resultType="java.math.BigDecimal">
+		select round(avg(score), 1)
+		from sys_work_rating
+		where work_id = #{workId}
+	</select>
+
+	<update id="refreshWorkRating">
+		update sys_work w
+		set rating = coalesce((select round(avg(r.score), 1)
+		                       from sys_work_rating r
+		                       where r.work_id = w.work_id), 0)
+		where w.work_id = #{workId}
+	</update>
+
+</mapper>

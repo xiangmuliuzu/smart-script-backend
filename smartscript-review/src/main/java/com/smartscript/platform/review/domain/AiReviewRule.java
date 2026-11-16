@@ -14,6 +14,8 @@ public class AiReviewRule {
     private String ruleName;
     private String ruleType;
     private String ruleContent;
+    /** 违禁词词库：JSON 字符串，如 {"words":["暴力","血腥"]}；空表示该规则不走词库命中，走 AI 综合判断（如版权查重） */
+    private String ruleValue;
     private String action;
     private Integer threshold;
     private String status;
@@ -35,6 +37,8 @@ public class AiReviewRule {
     public void setRuleType(String ruleType) { this.ruleType = ruleType; }
     public String getRuleContent() { return ruleContent; }
     public void setRuleContent(String ruleContent) { this.ruleContent = ruleContent; }
+    public String getRuleValue() { return ruleValue; }
+    public void setRuleValue(String ruleValue) { this.ruleValue = ruleValue; }
     public String getAction() { return action; }
     public void setAction(String action) { this.action = action; }
 

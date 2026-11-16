@@ -1,0 +1,174 @@
+package com.smartscript.platform.content.service;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sun.net.httpserver.HttpServer;
+import com.smartscript.platform.content.exception.AiServiceUnavailableException;
+
+class AiServiceClientIsolationTest
+{
+    private final ObjectMapper json = new ObjectMapper();
+    private final List<JsonNode> captured = new CopyOnWriteArrayList<>();
+    private final ExecutorService executor = Executors.newCachedThreadPool();
+    private HttpServer server;
+    private AiServiceClient client;
+    private volatile CountDownLatch bothRequests;
+    private boolean truncateStream;
+    private boolean lengthFinish;
+
+    @BeforeEach
+    void start() throws Exception
+    {
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.setExecutor(executor);
+        server.createContext("/v1/chat/completions", exchange -> {
+            try
+            {
+                JsonNode body = json.readTree(exchange.getRequestBody());
+                captured.add(body);
+                String content = body.path("messages").path(1).path("content").asText();
+                boolean streaming = body.path("stream").asBoolean();
+                if (bothRequests != null)
+                {
+                    bothRequests.countDown();
+                    if (!bothRequests.await(5, TimeUnit.SECONDS))
+                    {
+                        throw new IllegalStateException("Requests did not overlap");
+                    }
+                }
+                String response;
+                if (streaming)
+                {
+                    exchange.getResponseHeaders().set("Content-Type", "text/event-stream");
+                    int middle = content.length() / 2;
+                    response = delta(content.substring(0, middle));
+                    if (!truncateStream) response += delta(content.substring(middle))
+                            + "data: {\"choices\":[{\"finish_reason\":\""
+                            + (lengthFinish ? "length" : "stop") + "\"}]}\n\ndata: [DONE]\n\n";
+                }
+                else
+                {
+                    exchange.getResponseHeaders().set("Content-Type", "application/json");
+                    response = "{\"choices\":[{\"message\":{\"content\":"
+                            + json.writeValueAsString(content) + "}}]}";
+                }
+                byte[] bytes = response.getBytes(StandardCharsets.UTF_8);
+                exchange.sendResponseHeaders(200, bytes.length);
+                exchange.getResponseBody().write(bytes);
+            }
+            catch (InterruptedException e)
+            {
+                Thread.currentThread().interrupt();
+            }
+            finally
+            {
+                exchange.close();
+            }
+        });
+        server.start();
+        client = new AiServiceClient("http://127.0.0.1:" + server.getAddress().getPort(),
+                "synthetic-test-key", "test-model");
+    }
+
+    @AfterEach
+    void stop()
+    {
+        server.stop(0);
+        executor.shutdownNow();
+    }
+
+    @Test
+    void truncatedUpstreamFailsInsteadOfConfirmingPartialContent()
+    {
+        truncateStream = true;
+        StringBuilder received = new StringBuilder();
+        assertThrows(AiServiceUnavailableException.class,
+                () -> client.writeStream("尚未完成的故事", null, null, received::append));
+        assertFalse(received.isEmpty());
+    }
+
+    @Test
+    void lengthFinishIsReportedAsTruncatedInsteadOfSuccess()
+    {
+        lengthFinish = true;
+        StringBuilder received = new StringBuilder();
+        AiCallResult r = client.writeStream("写到一半的故事", null, null, received::append);
+        assertFalse(received.isEmpty(), "截断前已收到的内容仍要回显");
+        assertTrue(r.isTruncated(), "finish_reason=length 必须标记为截断");
+    }
+
+    @Test
+    void stopFinishIsNotReportedAsTruncated()
+    {
+        StringBuilder received = new StringBuilder();
+        AiCallResult r = client.writeStream("完整的故事", null, null, received::append);
+        assertFalse(r.isTruncated());
+    }
+
+    @Test
+    void streamingOutlineRequestsReadableTextRatherThanWaitingForJson()
+    {
+        StringBuilder received = new StringBuilder();
+        AiCallResult r = client.outlineStream("雨夜故事", "悬疑", "紧凑", null, received::append);
+        String result = r.getContent();
+        // 设定块与事件卡块之间用 "\n\n" 分隔推送，最终 content 会 trim 首尾空白，比较时同样 trim。
+        assertEquals(result, received.toString().trim());
+        // 两阶段（设定块 + 事件卡）都必须要求可读中文文本，而不是 JSON。
+        assertTrue(captured.get(0).path("messages").path(0).path("content").asText()
+                .contains("直接输出中文可读文本"));
+    }
+
+    @Test
+    void subsequentRequestDoesNotContainAnotherRequestsPromptOrResponse()
+    {
+        String privateStory = "SYNTHETIC-ALPHA-101-secret-story";
+        assertEquals(privateStory, client.write(privateStory, null, null).getContent());
+        assertEquals("继续", client.write("继续", null, null).getContent());
+        assertEquals(2, captured.size());
+        assertFalse(captured.get(1).toString().contains(privateStory));
+        assertEquals(2, captured.get(1).path("messages").size());
+    }
+
+    @Test
+    void overlappingStreamsKeepTheirRequestAndDeltaBuffersSeparate() throws Exception
+    {
+        bothRequests = new CountDownLatch(2);
+        String privateStory = "SYNTHETIC-ALPHA-101-secret-story";
+        StringBuilder firstDeltas = new StringBuilder();
+        StringBuilder secondDeltas = new StringBuilder();
+        CompletableFuture<AiCallResult> first = CompletableFuture.supplyAsync(
+                () -> client.writeStream(privateStory, null, null, firstDeltas::append), executor);
+        CompletableFuture<AiCallResult> second = CompletableFuture.supplyAsync(
+                () -> client.writeStream("继续", null, null, secondDeltas::append), executor);
+
+        assertEquals(privateStory, first.get(10, TimeUnit.SECONDS).getContent());
+        assertEquals("继续", second.get(10, TimeUnit.SECONDS).getContent());
+        assertEquals(privateStory, firstDeltas.toString());
+        assertEquals("继续", secondDeltas.toString());
+        assertEquals(2, captured.size());
+        assertTrue(captured.stream().allMatch(body -> body.path("messages").size() == 2));
+        assertEquals(1, captured.stream().filter(body -> body.toString().contains(privateStory)).count());
+    }
+
+    private String delta(String content) throws java.io.IOException
+    {
+        return "data: {\"choices\":[{\"delta\":{\"content\":"
+                + json.writeValueAsString(content) + "}}]}\n\n";
+    }
+}

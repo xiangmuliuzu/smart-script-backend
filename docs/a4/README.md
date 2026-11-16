@@ -2,7 +2,7 @@
 
 本次扩展个人资料只读字段和创作者资料投影，限制资料可修改字段；头像文件校验真实图片内容而非只检查扩展名；密码分类按 Unicode 码点遍历，并在进入 BCrypt 前执行 UTF-8 字节上限校验。
 
-配套前端、开发文档及校验标准见 [PC 用户中心交付文档](https://github.com/xiangmuliuzu/smart-script-web/tree/main/docs/a4)。功能验收为 63 通过、11 协作阻塞；作品、聊天与印章等协作模块仍需联调。
+配套前端、开发文档及校验标准见 [PC 用户中心交付文档](https://github.com/xiangmuliuzu/smart-script-web-admin/tree/main/docs/a4)。功能验收为 63 通过、11 协作阻塞；作品、聊天与印章等协作模块仍需联调。
 
 数据库新增 `user_creator_profile`，与 `user_id` 一对一。部署前按仓库现有流程运行 `sql/smartscript_full_init.sql`，创建该表并保留其他模块的最新初始化内容。创作者资料维护来源与擅长类型字典尚待协作确认，未登记类型名称回退为代码，不虚构名称。
 

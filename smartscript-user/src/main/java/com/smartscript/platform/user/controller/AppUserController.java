@@ -7,6 +7,8 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -22,13 +24,20 @@ import com.smartscript.platform.user.dto.PhoneChangeVerifyRequest;
 import com.smartscript.platform.user.dto.PhoneStepUpResult;
 import com.smartscript.platform.user.dto.RealNameStatusDto;
 import com.smartscript.platform.user.dto.RealNameSubmitRequest;
+import com.smartscript.platform.user.dto.CreatorApplyStatusDto;
+import com.smartscript.platform.user.dto.CreatorApplySubmitRequest;
 import com.smartscript.platform.user.dto.UserProfileDto;
 import com.smartscript.platform.user.dto.UserProfileUpdateRequest;
+import com.smartscript.platform.user.dto.UserPublicProfileDto;
+import com.smartscript.platform.user.dto.UserSummaryDto;
 import com.smartscript.platform.user.exception.AppAuthException;
 import com.smartscript.platform.user.security.AppIdentityContext;
 import com.smartscript.platform.user.service.AppFileUploadService;
 import com.smartscript.platform.user.service.AppPhoneChangeService;
 import com.smartscript.platform.user.service.AppRealNameService;
+import com.smartscript.platform.user.service.CreatorApplyService;
+import com.smartscript.platform.user.service.UserBlockService;
+import com.smartscript.platform.user.service.UserSocialService;
 import com.smartscript.platform.user.service.AppUserProfileService;
 import com.smartscript.platform.user.service.UserMessageService;
 import com.smartscript.platform.user.util.AppClientIp;
@@ -53,18 +62,27 @@ public class AppUserController
     private final AppPhoneChangeService phoneChangeService;
     private final UserMessageService messageService;
     private final AppFileUploadService uploadService;
+    private final CreatorApplyService creatorApplyService;
+    private final UserSocialService socialService;
+    private final UserBlockService blockService;
 
     public AppUserController(AppUserProfileService profileService,
             AppRealNameService realNameService,
             AppPhoneChangeService phoneChangeService,
             UserMessageService messageService,
-            AppFileUploadService uploadService)
+            AppFileUploadService uploadService,
+            CreatorApplyService creatorApplyService,
+            UserSocialService socialService,
+            UserBlockService blockService)
     {
         this.profileService = profileService;
         this.realNameService = realNameService;
         this.phoneChangeService = phoneChangeService;
         this.messageService = messageService;
         this.uploadService = uploadService;
+        this.creatorApplyService = creatorApplyService;
+        this.socialService = socialService;
+        this.blockService = blockService;
     }
 
     // ------------------------------------------------------------------
@@ -106,16 +124,110 @@ public class AppUserController
         return AppApiResponse.ok(realNameService.getStatus(currentUserId()));
     }
 
-    @PostMapping("/me/real-name")
+    @PostMapping(value = "/me/real-name", consumes = "application/json")
     public AppApiResponse<RealNameStatusDto> submitRealName(@Valid @RequestBody RealNameSubmitRequest request)
     {
         return AppApiResponse.ok(realNameService.submit(currentUserId(), request));
     }
 
-    @PostMapping("/me/real-name/resubmit")
+    @PostMapping(value = "/me/real-name/resubmit", consumes = "application/json")
     public AppApiResponse<RealNameStatusDto> resubmitRealName(@Valid @RequestBody RealNameSubmitRequest request)
     {
         return AppApiResponse.ok(realNameService.resubmit(currentUserId(), request));
+    }
+
+    @PostMapping(value = {"/me/real-name", "/me/real-name/resubmit"}, consumes = "multipart/form-data")
+    public AppApiResponse<RealNameStatusDto> submitRealNameMaterials(@RequestParam("realName") String name,
+            @RequestParam("idNumber") String idNumber, @RequestParam("front") MultipartFile front,
+            @RequestParam("back") MultipartFile back)
+    {
+        RealNameSubmitRequest request = new RealNameSubmitRequest();
+        request.setRealName(name);
+        request.setIdNumber(idNumber);
+        return AppApiResponse.ok(realNameService.submitWithMaterials(currentUserId(), request, front, back));
+    }
+
+    // ------------------------------------------------------------------
+    // 创作者申请（§1.6）
+    // ------------------------------------------------------------------
+
+    @GetMapping("/me/creator-application")
+    public AppApiResponse<CreatorApplyStatusDto> creatorApplication()
+    {
+        return AppApiResponse.ok(creatorApplyService.getStatus(currentUserId()));
+    }
+
+    @PostMapping("/me/creator-application")
+    public AppApiResponse<CreatorApplyStatusDto> submitCreatorApplication(
+            @Valid @RequestBody CreatorApplySubmitRequest request)
+    {
+        return AppApiResponse.ok(creatorApplyService.submit(currentUserId(), request));
+    }
+
+    // ------------------------------------------------------------------
+    // 个人主页与关注（§1.7）
+    // ------------------------------------------------------------------
+
+    /** 查看指定用户的公开资料（自己或他人主页，统一入口）。 */
+    @GetMapping("/{userId}/public-profile")
+    public AppApiResponse<UserPublicProfileDto> publicProfile(@PathVariable Long userId)
+    {
+        return AppApiResponse.ok(socialService.publicProfile(currentUserId(), userId));
+    }
+
+    @GetMapping("/{userId}/following")
+    public AppApiResponse<Map<String, Object>> following(@PathVariable Long userId)
+    {
+        return AppApiResponse.ok(Map.of("list", socialService.following(userId, currentUserId())));
+    }
+
+    @GetMapping("/{userId}/followers")
+    public AppApiResponse<Map<String, Object>> followers(@PathVariable Long userId)
+    {
+        return AppApiResponse.ok(Map.of("list", socialService.followers(userId, currentUserId())));
+    }
+
+    /** 关注该用户（幂等）。 */
+    @PostMapping("/{userId}/follow")
+    public AppApiResponse<Map<String, Object>> follow(@PathVariable Long userId)
+    {
+        boolean changed = socialService.follow(currentUserId(), userId);
+        UserPublicProfileDto profile = socialService.publicProfile(currentUserId(), userId);
+        return AppApiResponse.ok(Map.of("following", true, "changed", changed,
+                "followerCount", profile.getFollowerCount()));
+    }
+
+    /** 取消关注该用户（幂等）。 */
+    @DeleteMapping("/{userId}/follow")
+    public AppApiResponse<Map<String, Object>> unfollow(@PathVariable Long userId)
+    {
+        boolean changed = socialService.unfollow(currentUserId(), userId);
+        UserPublicProfileDto profile = socialService.publicProfile(currentUserId(), userId);
+        return AppApiResponse.ok(Map.of("following", false, "changed", changed,
+                "followerCount", profile.getFollowerCount()));
+    }
+
+    /** 将指定用户加入黑名单（幂等）：被拉黑方无法再发起询盘、会话、消息与关注。 */
+    @PostMapping("/{userId}/block")
+    public AppApiResponse<Map<String, Object>> block(@PathVariable Long userId)
+    {
+        boolean changed = blockService.block(currentUserId(), userId);
+        return AppApiResponse.ok(Map.of("blocked", true, "changed", changed));
+    }
+
+    /** 解除对指定用户的拉黑（幂等）。 */
+    @DeleteMapping("/{userId}/block")
+    public AppApiResponse<Map<String, Object>> unblock(@PathVariable Long userId)
+    {
+        boolean changed = blockService.unblock(currentUserId(), userId);
+        return AppApiResponse.ok(Map.of("blocked", false, "changed", changed));
+    }
+
+    /** 我拉黑的用户列表（抽屉「黑名单」页）。 */
+    @GetMapping("/me/blocks")
+    public AppApiResponse<Map<String, Object>> myBlocks()
+    {
+        return AppApiResponse.ok(Map.of("list", blockService.listBlocked(currentUserId())));
     }
 
     // ------------------------------------------------------------------
@@ -160,6 +272,21 @@ public class AppUserController
                 phoneChangeService.confirm(currentIdentity(), request, AppClientIp.resolve(http)));
     }
 
+    @PostMapping("/me/email/change/new/send")
+    public AppApiResponse<Map<String, Object>> sendNewEmailCode(
+            @Valid @RequestBody com.smartscript.platform.user.dto.EmailChangeRequest request,
+            HttpServletRequest http, @RequestHeader(value = "X-Request-Id", required = false) String requestId)
+    {
+        return AppApiResponse.ok(phoneChangeService.sendNewEmailCode(currentIdentity(), request, AppClientIp.resolve(http), requestId));
+    }
+
+    @PostMapping("/me/email/change/confirm")
+    public AppApiResponse<Map<String, Object>> confirmEmailChange(
+            @Valid @RequestBody com.smartscript.platform.user.dto.EmailChangeRequest request)
+    {
+        return AppApiResponse.ok(phoneChangeService.confirmEmailChange(currentIdentity(), request));
+    }
+
     // ------------------------------------------------------------------
     // 通知偏好（§1.5）
     // ------------------------------------------------------------------
@@ -189,7 +316,7 @@ public class AppUserController
             return identity;
         }
         // 到达这里说明过滤器链未建立 App 身份（配置错误或凭证域不符）
-        throw new AppAuthException(AppAuthErrorCodes.UNAUTHORIZED, 401, "unauthorized");
+        throw new AppAuthException(AppAuthErrorCodes.UNAUTHORIZED, 401, "登录状态已过期，请重新登录");
     }
 
     private Long currentUserId()

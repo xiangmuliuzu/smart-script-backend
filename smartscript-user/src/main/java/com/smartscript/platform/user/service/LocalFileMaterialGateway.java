@@ -8,6 +8,7 @@ import java.nio.file.Paths;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import com.smartscript.platform.user.exception.AppAdminException;
 
@@ -24,6 +25,7 @@ import com.smartscript.platform.user.exception.AppAdminException;
  *   3. 只读：本实现不提供任何写入能力。
  */
 @Component
+@ConditionalOnProperty(prefix = "minio", name = "enabled", havingValue = "false", matchIfMissing = true)
 public class LocalFileMaterialGateway implements MaterialGateway
 {
     private static final Logger log = LoggerFactory.getLogger(LocalFileMaterialGateway.class);

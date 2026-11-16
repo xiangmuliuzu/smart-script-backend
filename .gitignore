@@ -40,6 +40,7 @@ nbdist/
 # Others
 # 本地凭据加载与启动脚本，含数据库/密钥注入逻辑，禁止入库
 /.local/
+/private-materials/
 *.log
 *.xml.versionsBackup
 *.swp
@@ -52,3 +53,15 @@ nbdist/
 !*/build/*.java
 !*/build/*.html
 !*/build/*.xml
+
+######################################################################
+# 解包/构建残留（仅本地，绝不入仓）
+# 用根级锚定，避免误伤 */src/main/java/com/ 源码包
+/BOOT-INF/
+/com/
+
+# Redis 本地产物
+dump.rdb
+
+# 下发缩略图缓存（ProfileFileController 按需生成，可从原图重建，不入仓）
+uploadPath/.thumbnails/

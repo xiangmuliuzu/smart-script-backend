@@ -9,10 +9,13 @@ import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
+import com.ruoyi.framework.realtime.RealtimePushService;
 import com.smartscript.platform.user.constant.AppAdminConstants;
 import com.smartscript.platform.user.constant.AppAdminErrorCodes;
 import com.smartscript.platform.user.domain.admin.AdminNotification;
@@ -37,6 +40,13 @@ import com.smartscript.platform.user.mapper.AdminNotificationMapper;
 public class UserNotificationAdminService
 {
     private final AdminNotificationMapper mapper;
+
+    /**
+     * 实时提醒出口（WebSocket）。可选注入：消息主链路只依赖数据库，
+     * 没有装配长连接模块（如纯单元测试上下文）时消息照常创建，只是不即时打扰。
+     */
+    @Autowired(required = false)
+    private RealtimePushService realtimePush;
 
     /** 单次创建收件人上限。 */
     private static final int MAX_RECEIVERS = 500;
@@ -118,6 +128,23 @@ public class UserNotificationAdminService
     public CreateResult create(String requestId, String type, String title, String content,
             String businessType, String businessId, List<Long> userIds, String operator)
     {
+        // 兼容旧调用方（A4 管理端/实名/创作者审核等）：不带受众，等价 audience=null 全端可见。
+        return create(requestId, type, title, content, businessType, businessId, userIds, operator, null);
+    }
+
+    /**
+     * 创建消息（契约 §5.4），带交易受众角色 audience。
+     *
+     * audience 取值 BUYER/SELLER/BOTH/null：供各门户按角色过滤收件箱
+     * （企业端=BUYER、创作者端=SELLER、APP端不过滤即全量）；
+     * null 表示通用/非交易通知（如公告/审核结果），全端可见。
+     * 幂等语义与旧方法一致：audience 不计入幂等签名，
+     * 保证存量行的等价重试判定不受本次扩展影响。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public CreateResult create(String requestId, String type, String title, String content,
+            String businessType, String businessId, List<Long> userIds, String operator, String audience)
+    {
         validateCreateInput(requestId, type, title, content, businessType, businessId, userIds);
 
         List<Long> distinct = new ArrayList<>(new LinkedHashSet<>(userIds));
@@ -137,6 +164,17 @@ public class UserNotificationAdminService
             throw AppAdminException.badRequest("存在不可作为收件人的用户");
         }
 
+        // 投递过滤（规格 §8.6）：剔除已关闭「站内信 × 本消息类型」的用户。
+        // 必须在幂等签名与合法性校验之后：签名按请求收件人集合计算，
+        // 若按过滤后的集合计算，用户在两次等价请求之间改偏好就会被误判为同键不同内容（409）。
+        String preferenceType = type;
+        if (AppAdminConstants.NOTIFICATION_TRANSACTION.equals(type)
+                && List.of("INQUIRY", "ORDER", "CONTRACT").contains(businessType == null ? "" : businessType))
+        {
+            preferenceType = requestId.startsWith("TRD-CTC-") ? "CONTRACT" : businessType;
+        }
+        List<Long> delivered = filterInboxDisabled(distinct, preferenceType);
+
         AdminNotification entity = new AdminNotification();
         entity.setRequestId(requestId);
         entity.setType(type);
@@ -144,6 +182,7 @@ public class UserNotificationAdminService
         entity.setContent(content);
         entity.setBusinessType(businessType);
         entity.setBusinessId(businessId);
+        entity.setAudience(audience);
         entity.setCreatedBy(operator);
         try
         {
@@ -158,8 +197,85 @@ public class UserNotificationAdminService
             return resolveConcurrentWinnerInNewTransaction(requestId, signature);
         }
 
-        mapper.insertReceivers(entity.getNotificationId(), distinct);
-        return new CreateResult(entity.getNotificationId(), distinct.size(), true);
+        // 全部收件人都已关闭该类型的站内信：消息主体按幂等键保留，
+        // 只是不落收件记录（不产生站内消息，也不推高角标）。
+        if (!delivered.isEmpty())
+        {
+            mapper.insertReceivers(entity.getNotificationId(), delivered);
+            pushRealtime(entity, preferenceType, delivered);
+        }
+        return new CreateResult(entity.getNotificationId(), delivered.size(), true);
+    }
+
+    /**
+     * 按「站内信 × type」偏好剔除已关闭该类型的收件人（规格 §8.6）。
+     *
+     * 只过滤 INBOX 渠道：偏好里的 PUSH 渠道开关约束的是推送提醒，
+     * 不拦截站内消息投递（规格 §8.6 末句）。
+     */
+    private List<Long> filterInboxDisabled(List<Long> distinct, String type)
+    {
+        List<Long> disabled = mapper.selectInboxDisabledUserIds(distinct, type);
+        if (disabled == null || disabled.isEmpty())
+        {
+            return distinct;
+        }
+        Set<Long> disabledSet = new LinkedHashSet<>(disabled);
+        List<Long> delivered = new ArrayList<>(distinct.size());
+        for (Long userId : distinct)
+        {
+            if (!disabledSet.contains(userId))
+            {
+                delivered.add(userId);
+            }
+        }
+        return delivered;
+    }
+
+    /**
+     * 按「实时提醒 × type」偏好剔除已关闭即时提醒的收件人。
+     *
+     * 与 INBOX 过滤相互独立：关掉站内信的人收不到消息，自然也不会被即时打扰；
+     * 只关 PUSH 的人站内信仍在收件箱里，但不会有长连接弹提醒。
+     */
+    private List<Long> filterPushDisabled(List<Long> userIds, String type)
+    {
+        List<Long> disabled = mapper.selectPushDisabledUserIds(userIds, type);
+        if (disabled == null || disabled.isEmpty())
+        {
+            return userIds;
+        }
+        Set<Long> disabledSet = new LinkedHashSet<>(disabled);
+        List<Long> targets = new ArrayList<>(userIds.size());
+        for (Long userId : userIds)
+        {
+            if (!disabledSet.contains(userId))
+            {
+                targets.add(userId);
+            }
+        }
+        return targets;
+    }
+
+    /**
+     * 消息落库后通过长连接即时提醒收件人。
+     *
+     * <p>偏好查询必须在当前事务内完成（回调发生在提交之后，届时连接可能已归还），
+     * 回调里只做序列化与投递。推送失败不影响已创建的消息。</p>
+     */
+    private void pushRealtime(AdminNotification entity, String preferenceType, List<Long> delivered)
+    {
+        if (realtimePush == null)
+        {
+            return;
+        }
+        List<Long> targets = filterPushDisabled(delivered, preferenceType);
+        if (targets.isEmpty())
+        {
+            return;
+        }
+        realtimePush.pushNotificationAfterCommit(entity.getNotificationId(), entity.getBusinessType(),
+                entity.getTitle(), targets);
     }
 
     /**

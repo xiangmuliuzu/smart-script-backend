@@ -65,7 +65,7 @@ public class UserFeedbackService
     {
         if (request == null)
         {
-            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "no payload");
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "请求内容不能为空，请刷新后重试");
         }
         String category = normalizeCategory(request.getCategory());
         String content = normalizeContent(request.getContent());
@@ -191,7 +191,7 @@ public class UserFeedbackService
         String value = raw.trim().toUpperCase();
         if (!CATEGORIES.contains(value))
         {
-            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "invalid category");
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "反馈类型不正确，请刷新后重试");
         }
         return value;
     }
@@ -201,7 +201,7 @@ public class UserFeedbackService
         String value = raw == null ? "" : raw.trim();
         if (value.length() < CONTENT_MIN || value.length() > CONTENT_MAX)
         {
-            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "content length invalid");
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "内容长度不正确，请检查后重试");
         }
         return value;
     }
@@ -215,7 +215,7 @@ public class UserFeedbackService
         String value = raw.trim();
         if (value.length() > ATTACHMENT_MAX)
         {
-            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "attachment ref too long");
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "附件信息过长，请重新上传");
         }
         return value;
     }
@@ -231,7 +231,7 @@ public class UserFeedbackService
         if (!List.of(AppAdminConstants.FEEDBACK_SUBMITTED, AppAdminConstants.FEEDBACK_PROCESSING,
                 AppAdminConstants.FEEDBACK_REPLIED, AppAdminConstants.FEEDBACK_CLOSED).contains(value))
         {
-            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "invalid status");
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "当前状态无法执行此操作，请刷新后重试");
         }
         return value;
     }

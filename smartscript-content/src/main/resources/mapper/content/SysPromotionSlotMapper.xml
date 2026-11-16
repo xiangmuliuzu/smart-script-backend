@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.content.mapper.SysPromotionSlotMapper">
+
+	<resultMap type="com.smartscript.platform.content.domain.SysPromotionSlot" id="PromotionSlotResult">
+		<id     property="slotId"       column="slot_id"       />
+		<result property="slotType"     column="slot_type"     />
+		<result property="slotNo"       column="slot_no"       />
+		<result property="pricePerDay"  column="price_per_day" />
+		<result property="enabled"      column="enabled"       />
+		<result property="remark"       column="remark"        />
+		<result property="createTime"   column="create_time"   />
+		<result property="updateTime"   column="update_time"   />
+	</resultMap>
+
+	<sql id="selectSlotVo">
+		select slot_id, slot_type, slot_no, price_per_day, enabled, remark, create_time, update_time
+		from sys_promotion_slot
+	</sql>
+
+	<select id="selectSlots" resultMap="PromotionSlotResult">
+		<include refid="selectSlotVo"/>
+		where slot_type = #{slotType}
+		order by slot_no
+	</select>
+
+	<select id="selectSlotById" resultMap="PromotionSlotResult">
+		<include refid="selectSlotVo"/>
+		where slot_id = #{slotId}
+	</select>
+
+	<select id="selectSlotByNo" resultMap="PromotionSlotResult">
+		<include refid="selectSlotVo"/>
+		where slot_type = #{slotType} and slot_no = #{slotNo}
+	</select>
+
+	<select id="selectSlotByNoForUpdate" resultMap="PromotionSlotResult">
+		<include refid="selectSlotVo"/>
+		where slot_type = #{slotType} and slot_no = #{slotNo}
+		for update
+	</select>
+
+	<update id="updatePrice" parameterType="com.smartscript.platform.content.domain.SysPromotionSlot">
+		update sys_promotion_slot
+		<set>
+			<if test="pricePerDay != null">price_per_day = #{pricePerDay},</if>
+			<if test="enabled != null and enabled != ''">enabled = #{enabled},</if>
+			<if test="remark != null">remark = #{remark},</if>
+			update_time = sysdate()
+		</set>
+		where slot_id = #{slotId}
+	</update>
+
+</mapper>

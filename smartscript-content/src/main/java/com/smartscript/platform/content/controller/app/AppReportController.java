@@ -60,30 +60,30 @@ public class AppReportController
         String targetType = trimToNull(asString(body, "target_type", "targetType"));
         if (targetType == null)
         {
-            return AppApiResponse.fail(CODE_BAD_REQUEST, "target_type 不能为空");
+            return AppApiResponse.fail(CODE_BAD_REQUEST, "举报类型不正确，请重新选择");
         }
         if (targetType.length() > TARGET_TYPE_MAX_LENGTH)
         {
-            return AppApiResponse.fail(CODE_BAD_REQUEST, "target_type 长度不能超过 " + TARGET_TYPE_MAX_LENGTH);
+            return AppApiResponse.fail(CODE_BAD_REQUEST, "举报类型不正确，请重新选择");
         }
         Long targetId = asLong(body, "target_id", "targetId");
         if (targetId == null || targetId <= 0)
         {
-            return AppApiResponse.fail(CODE_BAD_REQUEST, "target_id 不能为空且必须为正整数");
+            return AppApiResponse.fail(CODE_BAD_REQUEST, "举报对象不正确，请刷新后重试");
         }
         String reason = trimToNull(asString(body, "reason"));
         if (reason == null)
         {
-            return AppApiResponse.fail(CODE_BAD_REQUEST, "reason 不能为空");
+            return AppApiResponse.fail(CODE_BAD_REQUEST, "举报原因不能为空，请填写后重试");
         }
         if (reason.length() > REASON_MAX_LENGTH)
         {
-            return AppApiResponse.fail(CODE_BAD_REQUEST, "reason 长度不能超过 " + REASON_MAX_LENGTH);
+            return AppApiResponse.fail(CODE_BAD_REQUEST, "举报原因过长，请精简后重试");
         }
         String description = trimToNull(asString(body, "description"));
         if (description != null && description.length() > DESCRIPTION_MAX_LENGTH)
         {
-            return AppApiResponse.fail(CODE_BAD_REQUEST, "description 长度不能超过 " + DESCRIPTION_MAX_LENGTH);
+            return AppApiResponse.fail(CODE_BAD_REQUEST, "补充说明过长，请精简后重试");
         }
         AppReportRequest request = new AppReportRequest();
         request.setTargetType(targetType);

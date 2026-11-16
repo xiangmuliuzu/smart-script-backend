@@ -30,17 +30,19 @@
         <result property="updateTime"    column="update_time" />
         <result property="remark"        column="remark" />
         <result property="workTitle"     column="work_title" />
+        <result property="workCover"     column="work_cover" />
         <result property="buyerName"     column="buyer_name" />
         <result property="sellerName"    column="seller_name" />
     </resultMap>
 
     <select id="selectOrderList" parameterType="com.smartscript.platform.trade.domain.SysOrder" resultMap="SysOrderResult">
-        select o.order_id, o.order_no, o.inquiry_id, o.quote_id, o.work_id,
+        select o.order_id, o.order_no, o.contract_id, o.inquiry_id, o.quote_id, o.work_id,
                o.buyer_id, o.seller_id, o.order_type, o.license_type,
                o.total_amount, o.platform_fee, o.split_rate, o.seller_amount,
                o.status, o.pay_time, o.complete_time,
                o.created_at, o.updated_at, o.create_by, o.create_time, o.remark,
                w.title as work_title,
+               w.cover as work_cover,
                ub.nick_name as buyer_name,
                us.nick_name as seller_name
         from sys_order o
@@ -52,12 +54,20 @@
             <if test="status != null and status != ''">AND o.status = #{status}</if>
             <if test="licenseType != null and licenseType != ''">AND o.license_type = #{licenseType}</if>
             <if test="workTitle != null and workTitle != ''">AND w.title like concat('%', #{workTitle}, '%')</if>
+            <if test="buyerId != null">AND o.buyer_id = #{buyerId}</if>
+            <if test="sellerId != null">AND o.seller_id = #{sellerId}</if>
+            <if test="keyword != null and keyword != ''">
+                AND (o.order_no like concat('%', #{keyword}, '%')
+                     OR w.title like concat('%', #{keyword}, '%')
+                     OR ub.nick_name like concat('%', #{keyword}, '%')
+                     OR us.nick_name like concat('%', #{keyword}, '%'))
+            </if>
         </where>
         order by o.created_at desc
     </select>
 
     <select id="selectOrderById" parameterType="Long" resultMap="SysOrderResult">
-        select o.*, w.title as work_title,
+        select o.*, w.title as work_title, w.cover as work_cover,
                ub.nick_name as buyer_name,
                us.nick_name as seller_name
         from sys_order o
@@ -80,7 +90,7 @@
     </select>
 
     <sql id="selectOrderVo">
-        select o.order_id, o.order_no, o.inquiry_id, o.quote_id, o.work_id,
+        select o.order_id, o.order_no, o.contract_id, o.inquiry_id, o.quote_id, o.work_id,
                o.buyer_id, o.seller_id, o.order_type, o.license_type,
                o.total_amount, o.platform_fee, o.split_rate, o.seller_amount,
                o.status, o.pay_time, o.complete_time,

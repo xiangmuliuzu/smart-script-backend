@@ -16,6 +16,8 @@ import com.smartscript.platform.user.domain.admin.AuthorCapability;
  */
 public interface AuthorCapabilityAdminMapper
 {
+    String selectLatestCreatorApplicationStatus(@Param("userId") Long userId);
+
     /**
      * 作者能力分页查询（联合 sys_user 取昵称与掩码手机号）。
      *

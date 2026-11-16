@@ -74,8 +74,8 @@ public final class OperLogSanitizer
     /** 路径段切分（保留分隔符，便于原样拼接）。 */
     private static final Pattern SEGMENT = Pattern.compile("([A-Za-z0-9_-]+)");
 
-    /** A4 PC 管理接口路径前缀（H13-REV-04；与 {@code A4WriteQueryParamFilter} 共用同一口径）。 */
-    public static final List<String> A4_ADMIN_PREFIXES = List.of(
+    /** A4 PC 管理接口路径前缀（H13-REV-04；与 {@code AdminWriteQueryParamFilter} 共用同一口径）。 */
+    public static final List<String> ADMIN_PREFIXES = List.of(
             "/api/v1/admin/material-refs/",
             "/api/v1/admin/material/",
             "/api/v1/admin/app-users/",
@@ -88,16 +88,16 @@ public final class OperLogSanitizer
      * 是否属于 A4 PC 管理接口。
      *
      * <p>注意：C 模块 {@code TradeController} 同样挂在 {@code /api/v1/admin} 下，
-     * 但其路径为 {@code /api/v1/admin/trade/**}，不在 {@link #A4_ADMIN_PREFIXES} 内，
+     * 但其路径为 {@code /api/v1/admin/trade/**}，不在 {@link #ADMIN_PREFIXES} 内，
      * 故不参与 A4 的 oper_param 数字脱敏与查询参数隔离。</p>
      */
-    public static boolean isA4AdminPath(String uri)
+    public static boolean isAdminPath(String uri)
     {
         if (uri == null)
         {
             return false;
         }
-        for (String prefix : A4_ADMIN_PREFIXES)
+        for (String prefix : ADMIN_PREFIXES)
         {
             if (uri.startsWith(prefix))
             {
@@ -139,7 +139,7 @@ public final class OperLogSanitizer
         // H13-REV-04：A4 写接口的路径变量会作为方法实参进入 oper_param（如
         // `13900001234 {"status":"1"}`）。客户端可把 11 位手机号样式数字填进 {userId}，
         // 故对 A4 管理域的 oper_param 再做一次数字 PII 脱敏（其它模块不在本轮范围）。
-        if (isA4AdminPath(rawUrl))
+        if (isAdminPath(rawUrl))
         {
             try
             {

@@ -34,6 +34,9 @@ public interface RealNameAdminMapper
     /** 读取当前状态，用于 expectedStatus 预校验与幂等判定。 */
     String selectApplicationStatus(@Param("applicationId") Long applicationId);
 
+    /** 读取申请所属用户，用于审核通过后向申请人投递站内通知。不存在返回 null。 */
+    Long selectApplicationUserId(@Param("applicationId") Long applicationId);
+
     /**
      * 条件审核决定：仅当 status = expectedStatus 时生效，返回影响行数。
      * 返回 0 表示并发冲突或状态已变化，调用方转 409。
@@ -43,6 +46,9 @@ public interface RealNameAdminMapper
                         @Param("status") String status,
                         @Param("auditorId") Long auditorId,
                         @Param("rejectReason") String rejectReason);
+
+    int applyVerifiedName(@Param("applicationId") Long applicationId);
+    int clearPendingName(@Param("applicationId") Long applicationId);
 
     /** 同一用户是否存在 PENDING 申请，用于提交侧冲突判定。 */
     int countPendingByUser(@Param("userId") Long userId);

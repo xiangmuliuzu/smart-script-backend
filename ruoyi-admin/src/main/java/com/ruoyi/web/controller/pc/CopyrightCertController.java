@@ -22,7 +22,7 @@ import com.smartscript.platform.content.service.ISysCopyrightCertService;
 
 /** PC 电子证书管理 */
 @RestController
-@RequestMapping("/pc/copyright/cert")
+@RequestMapping("/api/v1/admin/copyright/cert")
 public class CopyrightCertController extends BaseController
 {
     @Autowired

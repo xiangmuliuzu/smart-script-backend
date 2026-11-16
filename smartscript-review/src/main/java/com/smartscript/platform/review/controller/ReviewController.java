@@ -53,6 +53,24 @@ public class ReviewController {
     }
 
     /**
+     * 查询审核作品完整内容（人工审核用）：简介/设定 + 章节正文
+     */
+    @GetMapping("/content/{reviewId}")
+    public Map<String, Object> content(@PathVariable("reviewId") Long reviewId) {
+        Map<String, Object> result = new HashMap<>();
+        Map<String, Object> data = reviewService.selectReviewContent(reviewId);
+        if (data == null) {
+            result.put("code", 404);
+            result.put("msg", "未找到该审核作品内容");
+        } else {
+            result.put("code", 200);
+            result.put("msg", "操作成功");
+            result.put("data", data);
+        }
+        return result;
+    }
+
+    /**
      * 新增审核记录
      */
     @PostMapping
@@ -99,24 +117,10 @@ public class ReviewController {
         String reviewOpinion = params.get("reviewOpinion") != null ? params.get("reviewOpinion").toString() : "";
         Long reviewerId = params.get("reviewerId") != null ? Long.valueOf(params.get("reviewerId").toString()) : 1L;
         String operatorName = params.get("reviewerName") != null ? params.get("reviewerName").toString() : "管理员";
-        reviewService.operateReview(reviewId, status, reviewOpinion, reviewerId, operatorName);
-        result.put("code", 200);
-        result.put("msg", "审核操作成功");
-        return result;
-    }
-
-    /**
-     * 批量分配审核任务
-     */
-    @PostMapping("/batch-assign")
-    public Map<String, Object> batchAssign(@RequestBody Map<String, Object> params) {
-        Map<String, Object> result = new HashMap<>();
-        List<Long> reviewIds = (List<Long>) params.get("reviewIds");
-        Long reviewerId = Long.valueOf(params.get("reviewerId").toString());
-        String operatorName = params.get("reviewerName") != null ? params.get("reviewerName").toString() : "管理员";
-        reviewService.batchAssign(reviewIds, reviewerId, operatorName);
-        result.put("code", 200);
-        result.put("msg", "批量分配成功");
+        java.util.Map<String, Object> op = reviewService.operateReview(reviewId, status, reviewOpinion, reviewerId, operatorName);
+        result.put("code", op.get("code"));
+        result.put("msg", op.get("msg"));
+        result.put("data", op);
         return result;
     }
 
@@ -173,12 +177,11 @@ public class ReviewController {
         try {
             List<ReviewRecord> list = reviewService.selectReviewRecordList(new ReviewRecord());
             StringBuilder sb = new StringBuilder();
-            sb.append("编号,作品名称,类型,题材,作者,提交时间,AI评分,状态\n");
+            sb.append("编号,作品名称,类型,作者,提交时间,AI评分,状态\n");
             for (ReviewRecord r : list) {
                 sb.append(r.getReviewId()).append(",")
                   .append(nullSafe(r.getWorkTitle())).append(",")
                   .append(nullSafe(r.getWorkType())).append(",")
-                  .append(nullSafe(r.getGenreName())).append(",")
                   .append(nullSafe(r.getAuthorName())).append(",")
                   .append(r.getCreateTime() == null ? "" : r.getCreateTime()).append(",")
                   .append(r.getAiScore() == null ? "" : r.getAiScore()).append(",")

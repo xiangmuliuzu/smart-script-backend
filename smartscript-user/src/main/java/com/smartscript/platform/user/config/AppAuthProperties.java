@@ -11,12 +11,9 @@ import org.springframework.stereotype.Component;
 public class AppAuthProperties
 {
     private String env = "local";
-    private String tokenSecret = "";
-    private String tokenIssuer = "";
-    private String tokenAudience = "";
-    private long accessTokenTtlSeconds = 1800L;
-    private long refreshTokenTtlSeconds = 1209600L;
     private String redisKeyPrefix = "";
+    /** 同一账号最多同时保留的 App 登录会话数；0 表示不限制。 */
+    private int maxDevices = 3;
     private Sms sms = new Sms();
     private Agreement agreement = new Agreement();
 
@@ -291,56 +288,6 @@ public class AppAuthProperties
         this.env = env;
     }
 
-    public String getTokenSecret()
-    {
-        return tokenSecret;
-    }
-
-    public void setTokenSecret(String tokenSecret)
-    {
-        this.tokenSecret = tokenSecret;
-    }
-
-    public String getTokenIssuer()
-    {
-        return tokenIssuer;
-    }
-
-    public void setTokenIssuer(String tokenIssuer)
-    {
-        this.tokenIssuer = tokenIssuer;
-    }
-
-    public String getTokenAudience()
-    {
-        return tokenAudience;
-    }
-
-    public void setTokenAudience(String tokenAudience)
-    {
-        this.tokenAudience = tokenAudience;
-    }
-
-    public long getAccessTokenTtlSeconds()
-    {
-        return accessTokenTtlSeconds;
-    }
-
-    public void setAccessTokenTtlSeconds(long accessTokenTtlSeconds)
-    {
-        this.accessTokenTtlSeconds = accessTokenTtlSeconds;
-    }
-
-    public long getRefreshTokenTtlSeconds()
-    {
-        return refreshTokenTtlSeconds;
-    }
-
-    public void setRefreshTokenTtlSeconds(long refreshTokenTtlSeconds)
-    {
-        this.refreshTokenTtlSeconds = refreshTokenTtlSeconds;
-    }
-
     public String getRedisKeyPrefix()
     {
         return redisKeyPrefix;
@@ -349,6 +296,16 @@ public class AppAuthProperties
     public void setRedisKeyPrefix(String redisKeyPrefix)
     {
         this.redisKeyPrefix = redisKeyPrefix;
+    }
+
+    public int getMaxDevices()
+    {
+        return maxDevices;
+    }
+
+    public void setMaxDevices(int maxDevices)
+    {
+        this.maxDevices = maxDevices;
     }
 
     public Sms getSms()

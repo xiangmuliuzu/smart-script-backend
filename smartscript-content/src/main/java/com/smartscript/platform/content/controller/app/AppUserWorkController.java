@@ -1,7 +1,12 @@
 package com.smartscript.platform.content.controller.app;
 
+import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -30,6 +35,7 @@ import com.smartscript.platform.identity.IdentityProvider;
  * @author smartscript
  */
 @RestController
+@PreAuthorize("@contentAuthorAccess.allowed()")
 @RequestMapping("/api/v1/users/me/works")
 public class AppUserWorkController
 {
@@ -52,23 +58,61 @@ public class AppUserWorkController
     }
 
     /**
-     * 我的作品列表（按审核派生状态过滤）
+     * 我的作品列表（A1 工作台「我的作品」页；同时服务 App 端「我的作品」）
      *
      * 路径固定为 /works（Spring 优先匹配字面路径，不会与 /{workId} 冲突）。
-     * status 取值：all / draft / reviewing / revision / rejected / published。
+     * status：all / draft / reviewing / revision / rejected / published，支持逗号多值
+     *         （PC「待修改」传 revision,rejected）。
+     * keyword：作品名称模糊；workType：作品类型精确。
+     * 分页：不传 pageNum 返回纯数组（App 端契约不变）；传 pageNum 返回
+     *       {total, pageNum, pageSize, list}（PC 分页）。
      */
     @GetMapping
-    public AppApiResponse<List<Map<String, Object>>> list(@RequestParam(required = false) String status)
+    public AppApiResponse<?> list(@RequestParam(required = false) String status,
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) String workType,
+            @RequestParam(required = false) Integer pageNum,
+            @RequestParam(required = false) Integer pageSize)
     {
         Long userId = requireLogin();
         try
         {
-            return AppApiResponse.ok(userWorkService.listWorks(userId, status));
+            List<Map<String, Object>> all = userWorkService.listWorks(userId, status, keyword, workType);
+            if (pageNum == null)
+            {
+                return AppApiResponse.ok(all);
+            }
+
+            int page = pageNum < 1 ? 1 : pageNum;
+            int size = pageSize == null || pageSize < 1 ? 10 : pageSize;
+            int total = all.size();
+            int from = Math.min((page - 1) * size, total);
+            int to = Math.min(from + size, total);
+
+            Map<String, Object> pageData = new LinkedHashMap<>();
+            pageData.put("total", total);
+            pageData.put("pageNum", page);
+            pageData.put("pageSize", size);
+            pageData.put("list", all.subList(from, to));
+            return AppApiResponse.ok(pageData);
         }
         catch (IllegalArgumentException e)
         {
             return AppApiResponse.fail(CODE_BAD_REQUEST, e.getMessage());
         }
+    }
+
+    /**
+     * 工作台作品统计（A1 工作台首页统计卡片）
+     *
+     * 返回 {workTotal, draftCount, reviewingCount, revisionCount, publishedCount}；
+     * 其中 revisionCount（待修改）= revision + rejected。
+     */
+    @GetMapping("/statistics")
+    public AppApiResponse<Map<String, Object>> statistics()
+    {
+        Long userId = requireLogin();
+        return AppApiResponse.ok(userWorkService.workStatistics(userId));
     }
 
     /**
@@ -93,7 +137,10 @@ public class AppUserWorkController
     }
 
     /**
-     * 修改作品基本信息（标题/简介/分类）
+     * 修改作品基本信息（标题/简介/封面/标签/价格/交易类型）
+     *
+     * 依据：接口文档 2.3.3 修改剧本信息，入参含 tagIds（Array&lt;Int&gt;，全量覆盖，最多 8 个）；
+     * 标签墙体系下作品不再设置分类。
      */
     @PutMapping("/{workId}")
     public AppApiResponse<Void> update(@PathVariable Long workId, @RequestBody Map<String, Object> body)
@@ -102,7 +149,9 @@ public class AppUserWorkController
         try
         {
             userWorkService.updateWorkBase(userId, workId,
-                    str(body.get("title")), str(body.get("summary")), integer(body.get("genreId")));
+                    str(body.get("title")), str(body.get("summary")),
+                    str(body.get("cover")), integerList(body.get("tagIds")), decimal(body.get("price")),
+                    str(body.get("tradeType")), integer(body.get("channelId")));
             return AppApiResponse.ok();
         }
         catch (IllegalArgumentException e)
@@ -172,7 +221,8 @@ public class AppUserWorkController
         try
         {
             return AppApiResponse.ok(userWorkService.addChapter(userId, workId,
-                    str(body.get("chapterTitle")), str(body.get("content"))));
+                    str(body.get("chapterTitle")), str(body.get("content")), str(body.get("summary")),
+                    str(body.get("isFree"))));
         }
         catch (IllegalArgumentException e)
         {
@@ -199,7 +249,8 @@ public class AppUserWorkController
         try
         {
             userWorkService.updateChapter(userId, workId, chapterId,
-                    str(body.get("chapterTitle")), str(body.get("content")));
+                    str(body.get("chapterTitle")), str(body.get("content")), str(body.get("summary")),
+                    str(body.get("isFree")));
             return AppApiResponse.ok();
         }
         catch (IllegalArgumentException e)
@@ -263,6 +314,31 @@ public class AppUserWorkController
         }
     }
 
+    /**
+     * 作者申请下架 / 重新上架作品
+     * 下架无前置条件；重新上架要求最新审核为 approved 且 reject_reason 为空
+     */
+    @PutMapping("/{workId}/shelf")
+    public AppApiResponse<Void> changeShelfStatus(
+            @PathVariable Long workId,
+            @RequestParam String status)
+    {
+        Long userId = requireLogin();
+        try
+        {
+            userWorkService.changeShelfStatus(userId, workId, status);
+            return AppApiResponse.ok();
+        }
+        catch (IllegalArgumentException e)
+        {
+            return AppApiResponse.fail(CODE_BAD_REQUEST, e.getMessage());
+        }
+        catch (SecurityException e)
+        {
+            return AppApiResponse.fail(CODE_NOT_FOUND, e.getMessage());
+        }
+    }
+
     // ------------------------------------------------------------------
     // 私有辅助
     // ------------------------------------------------------------------
@@ -280,6 +356,19 @@ public class AppUserWorkController
     private String str(Object value)
     {
         return value == null ? null : value.toString();
+    }
+
+    private BigDecimal decimal(Object value)
+    {
+        if (value == null) return null;
+        try
+        {
+            return new BigDecimal(value.toString());
+        }
+        catch (NumberFormatException e)
+        {
+            throw new IllegalArgumentException("定价格式不正确");
+        }
     }
 
     private Integer integer(Object value)
@@ -300,5 +389,29 @@ public class AppUserWorkController
         {
             return null;
         }
+    }
+
+    /**
+     * 解析标签ID数组（接口文档 2.3.3 tagIds）。
+     *
+     * 字段缺失（null / 非数组）返回 null，表示「不下发 = 不改标签」；
+     * 空数组返回空集合，表示「全量覆盖为空 = 清空标签」，二者语义不同不可合并。
+     */
+    private List<Integer> integerList(Object value)
+    {
+        if (!(value instanceof Collection<?> raw))
+        {
+            return null;
+        }
+        List<Integer> tagIds = new ArrayList<>();
+        for (Object item : raw)
+        {
+            Integer tagId = integer(item);
+            if (tagId != null)
+            {
+                tagIds.add(tagId);
+            }
+        }
+        return tagIds;
     }
 }

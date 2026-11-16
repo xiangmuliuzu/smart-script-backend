@@ -78,6 +78,15 @@
         LIMIT 1
     </select>
 
+    <!-- 按询盘ID查找 TRADE 类型会话（幂等） -->
+    <select id="selectByInquiryId" resultMap="ChatSessionResult">
+        SELECT <include refid="sessionColumns"/>, <include refid="userNames"/>
+        FROM sys_chat_session s
+        <include refid="joinUsers"/>
+        WHERE s.inquiry_id = #{inquiryId} AND s.session_type = 'TRADE'
+        LIMIT 1
+    </select>
+
     <!-- 按 ID 查询 -->
     <select id="selectById" resultMap="ChatSessionResult">
         SELECT <include refid="sessionColumns"/>, <include refid="userNames"/>
@@ -111,6 +120,16 @@
         WHERE (s.user1_id = #{userId} OR s.user2_id = #{userId})
         <if test="status != null">
             <choose><when test="status == 0">AND s.status IN (0, 1)</when><otherwise>AND s.status = #{status}</otherwise></choose>
+        </if>
+        <if test="sessionType != null and sessionType != ''">
+            <choose>
+                <when test="sessionType == 'ADMIN'">
+                    AND (s.session_type = 'ADMIN' OR s.session_type = 'CHAT')
+                </when>
+                <otherwise>
+                    AND s.session_type = #{sessionType}
+                </otherwise>
+            </choose>
         </if>
         ORDER BY s.last_message_time DESC, s.created_at DESC
     </select>

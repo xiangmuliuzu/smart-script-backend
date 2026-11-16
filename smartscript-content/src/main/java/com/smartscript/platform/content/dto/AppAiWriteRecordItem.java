@@ -37,6 +37,9 @@ public class AppAiWriteRecordItem
     /** 使用的模型 */
     private String aiModel;
 
+    /** 【去次数化】本次调用实际消耗 token 数（sys_ai_write_record.tokens_used） */
+    private Integer tokensUsed;
+
     /** 状态 */
     private String status;
 
@@ -122,6 +125,16 @@ public class AppAiWriteRecordItem
     public void setStatus(String status)
     {
         this.status = status;
+    }
+
+    public Integer getTokensUsed()
+    {
+        return tokensUsed;
+    }
+
+    public void setTokensUsed(Integer tokensUsed)
+    {
+        this.tokensUsed = tokensUsed;
     }
 
     public Date getCreatedAt()

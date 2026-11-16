@@ -21,4 +21,24 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 			 #{promptHash}, #{startedAt}, #{finishedAt}, now(), now(), now())
 	</insert>
 
+	<resultMap type="com.smartscript.platform.content.dto.AppAiOutlineRecordItem" id="AppAiOutlineRecordItemResult">
+		<id     property="requestId"  column="request_id"  />
+		<result property="requestNo"  column="request_no"  />
+		<result property="capability" column="capability"  />
+		<result property="quotaCost"  column="quota_cost"  />
+		<result property="status"     column="status"      />
+		<result property="provider"   column="provider"    />
+		<result property="startedAt"  column="started_at"  />
+		<result property="finishedAt" column="finished_at" />
+		<result property="createdAt"  column="created_at"  />
+	</resultMap>
+
+	<select id="selectOutlineRecordsByUser" resultMap="AppAiOutlineRecordItemResult">
+		select request_id, request_no, capability, quota_cost, status, provider,
+		       started_at, finished_at, created_at
+		from sys_ai_request
+		where user_id = #{userId}
+		order by created_at desc, request_id desc
+	</select>
+
 </mapper>

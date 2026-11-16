@@ -43,41 +43,49 @@ public class AppWorkController
     /**
      * 作品列表（分页 + 筛选 + 排序）
      *
-     * @param categoryId 分类ID（可选）
      * @param tagId      标签ID（可选）
      * @param keyword    关键词（可选，按标题模糊）
      * @param sort       排序（可选：latest/view/favorite/sale/rating/price_asc/price_desc，非法值回落 latest）
+     * @param recommendStatus 推荐状态（可选：home_hot/category_rec；传入时只回未过期的推荐作品，
+     *                        按推荐权重降序，权重同级回落浏览量）
+     * @param showScope  展示位（可选：bookstore/category_page/search；传入时只回该展示位下未过期的推荐作品，
+     *                        按推荐权重降序）
      * @param page       页码（可选，默认 1）
      * @param pageSize   每页条数（可选，默认 10，上限 50）
+     * @param authorId   作者用户ID（可选，个人主页「TA 的作品」按作者过滤）
      */
     @GetMapping
     public AppApiResponse<AppPageResult<AppWorkDto>> list(
-            @RequestParam(required = false) Integer categoryId,
             @RequestParam(required = false) Long tagId,
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) String sort,
+            @RequestParam(required = false) String recommendStatus,
+            @RequestParam(required = false) String showScope,
             @RequestParam(required = false) Integer page,
-            @RequestParam(required = false) Integer pageSize)
+            @RequestParam(required = false) Integer pageSize,
+            @RequestParam(required = false) Long authorId)
     {
         AppWorkQuery query = new AppWorkQuery();
-        query.setCategoryId(categoryId);
         query.setTagId(tagId);
         query.setKeyword(keyword);
         query.setSort(sort);
+        query.setRecommendStatus(recommendStatus);
+        query.setShowScope(showScope);
+        query.setAuthorId(authorId);
         int pageNum = page == null ? 1 : page;
         int size = pageSize == null ? 10 : pageSize;
         return AppApiResponse.ok(bookstoreService.pageWorks(query, pageNum, size));
     }
 
     /**
-     * 作品详情
+     * 作品详情（每次访问该作品浏览量 +1）
      *
      * @param workId 作品ID
      */
     @GetMapping("/{workId}")
     public AppApiResponse<AppWorkDto> detail(@PathVariable Long workId)
     {
-        AppWorkDto work = bookstoreService.getWork(workId);
+        AppWorkDto work = bookstoreService.getWorkDetail(workId);
         if (work == null)
         {
             return AppApiResponse.fail(CODE_NOT_FOUND, "作品不存在或已下架");

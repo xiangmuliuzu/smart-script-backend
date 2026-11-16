@@ -39,6 +39,15 @@
         WHERE black_id = #{id}
     </select>
 
+    <select id="selectActiveByTarget" resultMap="BlacklistResult">
+        <include refid="selectBlacklistVo"/>
+        WHERE target_type = #{targetType}
+          AND target_value = #{targetValue}
+          AND status = 'enabled'
+          AND (expire_at IS NULL OR expire_at > NOW())
+        LIMIT 1
+    </select>
+
     <insert id="insertBlacklist" parameterType="com.smartscript.platform.review.domain.Blacklist" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO sys_blacklist
         <trim prefix="(" suffix=")" suffixOverrides=",">

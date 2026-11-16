@@ -3,7 +3,7 @@ package com.smartscript.platform.content.dto;
 /**
  * 书城作品列表查询条件（App 侧只读，接口文档 2.7.1 表 2-81）。
  *
- * 依据：接口文档入参 category_id / tag_id / keyword / sort；
+ * 依据：接口文档入参 tag_id / keyword / sort；标签墙体系下不再按分类筛选；
  * 排序取值（sort）与分页（page/pageSize）由控制层收敛，不进入本对象。
  *
  * @author xiangsipeng
@@ -13,14 +13,50 @@ public class AppWorkQuery
     /** 关键词（按 title 模糊） */
     private String keyword;
 
-    /** 分类ID（sys_work.genre_id） */
-    private Integer categoryId;
-
     /** 标签ID（sys_work_tag.tag_id） */
     private Long tagId;
 
     /** 排序方式：latest/view/favorite/sale/rating/price_asc/price_desc */
     private String sort;
+
+    /** 推荐状态（从 ext_json 解析）：home_hot 首页热门 / category_rec 分类推荐 / none 无推荐 */
+    private String recommendStatus;
+
+    /** 展示位（从 ext_json 解析）：bookstore 书城首页 / category_page 分类页 / search 搜索 */
+    private String showScope;
+
+    /** 作者用户ID（个人主页「TA 的作品」按作者过滤上架作品） */
+    private Long authorId;
+
+    public Long getAuthorId()
+    {
+        return authorId;
+    }
+
+    public void setAuthorId(Long authorId)
+    {
+        this.authorId = authorId;
+    }
+
+    public String getRecommendStatus()
+    {
+        return recommendStatus;
+    }
+
+    public void setRecommendStatus(String recommendStatus)
+    {
+        this.recommendStatus = recommendStatus;
+    }
+
+    public String getShowScope()
+    {
+        return showScope;
+    }
+
+    public void setShowScope(String showScope)
+    {
+        this.showScope = showScope;
+    }
 
     public String getKeyword()
     {
@@ -30,16 +66,6 @@ public class AppWorkQuery
     public void setKeyword(String keyword)
     {
         this.keyword = keyword;
-    }
-
-    public Integer getCategoryId()
-    {
-        return categoryId;
-    }
-
-    public void setCategoryId(Integer categoryId)
-    {
-        this.categoryId = categoryId;
     }
 
     public Long getTagId()

@@ -4,6 +4,8 @@ import java.math.BigDecimal;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -15,6 +17,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 import com.smartscript.platform.api.AppApiResponse;
+import com.ruoyi.common.exception.ServiceException;
+import com.ruoyi.common.utils.ip.IpUtils;
 import com.smartscript.platform.content.dto.AppDraftWorkItem;
 import com.smartscript.platform.content.dto.AppPageResult;
 import com.smartscript.platform.content.dto.AppReviewStatusDto;
@@ -45,8 +49,8 @@ import com.smartscript.platform.content.service.IAppWorkManageService;
  *   2.9.8 POST   /api/v1/content/works/{workId}/versions
  *   2.9.9 GET    /api/v1/content/works/versions/{versionId}
  *
- * 字段口径：POST body 兼容文档的 snake_case（category_id / version_desc）与模块内既有 camelCase
- * （categoryId / versionDesc）两种写法；出参沿用 B 模块 App 契约的 camelCase（与 workId/accessScope 等一致）。
+ * 字段口径：POST body 兼容文档的 snake_case（version_desc）与模块内既有 camelCase（versionDesc）
+ * 两种写法；出参沿用 B 模块 App 契约的 camelCase（与 workId/accessScope 等一致）。
  *
  * 归属：一律由服务层取当前身份，不接收请求体 userId；非本人作品按「不存在」（404）处理，
  * 不区分「不存在」与「无权」，避免通过错误信息探测他人作品。
@@ -54,6 +58,7 @@ import com.smartscript.platform.content.service.IAppWorkManageService;
  * @author xiangsipeng
  */
 @RestController
+@PreAuthorize("@contentAuthorAccess.allowed()")
 @RequestMapping("/api/v1/content")
 public class AppWorkManageController
 {
@@ -109,10 +114,10 @@ public class AppWorkManageController
     /**
      * 创建作品（2.9.2）
      *
-     * 校验：title 非空且不超过 100；category_id 必填正整数（落库 genre_id，该列 NOT NULL）；
-     * price 非负（缺省 0.00）。
+     * 校验：title 非空且不超过 100；price 非负（缺省 0.00）。
+     * 标签墙体系下作品不再设置分类，标签在作品工作台「设置」中维护。
      *
-     * @param request body（兼容 category_id / categoryId 两种写法）
+     * @param request body
      * @return data = {workId, message}
      */
     @PostMapping("/works")
@@ -121,29 +126,26 @@ public class AppWorkManageController
         String title = trimToNull(asString(request, "title"));
         if (title == null)
         {
-            return AppApiResponse.fail(CODE_BAD_REQUEST, "title 不能为空");
+            return AppApiResponse.fail(CODE_BAD_REQUEST, "标题不能为空，请填写后重试");
         }
         if (title.length() > TITLE_MAX_LENGTH)
         {
-            return AppApiResponse.fail(CODE_BAD_REQUEST, "title 长度不能超过 " + TITLE_MAX_LENGTH);
+            return AppApiResponse.fail(CODE_BAD_REQUEST, "标题过长，请精简后重试");
         }
         BigDecimal price = asDecimal(request, "price");
         if (price != null && price.signum() < 0)
         {
-            return AppApiResponse.fail(CODE_BAD_REQUEST, "price 不能为负数");
-        }
-        // category_id（genre_id）NOT NULL：缺省则拒绝，不编造默认分类
-        Integer categoryId = asInteger(request, "category_id", "categoryId");
-        if (categoryId == null || categoryId <= 0)
-        {
-            return AppApiResponse.fail(CODE_BAD_REQUEST, "category_id 不能为空且必须为正整数");
+            return AppApiResponse.fail(CODE_BAD_REQUEST, "价格不能为负数，请检查后重试");
         }
         AppWorkCreateRequest createRequest = new AppWorkCreateRequest();
         createRequest.setTitle(title);
-        createRequest.setCategoryId(categoryId);
         createRequest.setDescription(trimToNull(asString(request, "description")));
         createRequest.setCover(trimToNull(asString(request, "cover")));
         createRequest.setPrice(price);
+        // 剧本文件随创建一并登记（2.9.1 上传返回的 url/name/size），落 sys_work_file
+        createRequest.setScriptUrl(asStringAny(request, "script_url", "scriptUrl"));
+        createRequest.setScriptName(asStringAny(request, "script_name", "scriptName"));
+        createRequest.setScriptSize(asLong(request, "script_size", "scriptSize"));
         Long workId = workManageService.createWork(createRequest);
         if (workId == null)
         {
@@ -159,7 +161,7 @@ public class AppWorkManageController
      * 更新作品（2.9.3，仅 title/description/price）
      *
      * @param workId  作品ID
-     * @param request body（兼容 category_id 之外的 description 等；title/description/price 均可选）
+     * @param request body（title/description/price 均可选，为 null 的字段不更新）
      * @return data = {message}；非本人或不存在 404，price 为负 400
      */
     @PutMapping("/works/{workId}")
@@ -170,12 +172,12 @@ public class AppWorkManageController
         BigDecimal price = asDecimal(request, "price");
         if (price != null && price.signum() < 0)
         {
-            return AppApiResponse.fail(CODE_BAD_REQUEST, "price 不能为负数");
+            return AppApiResponse.fail(CODE_BAD_REQUEST, "价格不能为负数，请检查后重试");
         }
         String title = trimToNull(asString(request, "title"));
         if (title != null && title.length() > TITLE_MAX_LENGTH)
         {
-            return AppApiResponse.fail(CODE_BAD_REQUEST, "title 长度不能超过 " + TITLE_MAX_LENGTH);
+            return AppApiResponse.fail(CODE_BAD_REQUEST, "标题过长，请精简后重试");
         }
         AppWorkUpdateRequest updateRequest = new AppWorkUpdateRequest();
         updateRequest.setTitle(title);
@@ -195,13 +197,39 @@ public class AppWorkManageController
      * @return data = {message}；非本人或不存在 404
      */
     @DeleteMapping("/works/{workId}")
-    public AppApiResponse<Map<String, Object>> delete(@PathVariable Long workId)
+    public AppApiResponse<Map<String, Object>> delete(@PathVariable Long workId,
+            @RequestBody(required = false) Map<String, Object> request)
     {
-        if (!workManageService.deleteWork(workId))
+        try
         {
-            return AppApiResponse.fail(CODE_NOT_FOUND, "作品不存在或无权操作");
+            if (!workManageService.deleteWork(workId, trimToNull(asString(request, "code"))))
+            {
+                return AppApiResponse.fail(CODE_NOT_FOUND, "作品不存在或无权操作");
+            }
+            return AppApiResponse.ok(Map.of("message", "删除成功"));
         }
-        return AppApiResponse.ok(Map.of("message", "删除成功"));
+        catch (ServiceException e)
+        {
+            return AppApiResponse.fail(e.getCode() == null ? CODE_BAD_REQUEST : e.getCode(), e.getMessage());
+        }
+    }
+
+    /** 删除验证码仅发送到服务端读取的账号绑定手机号。 */
+    @PostMapping("/works/{workId}/delete-code")
+    public AppApiResponse<Map<String, Object>> sendDeletionCode(@PathVariable Long workId,
+            HttpServletRequest request)
+    {
+        try
+        {
+            Map<String, Object> data = workManageService.sendDeletionCode(workId,
+                    IpUtils.getIpAddr(request), request.getHeader("X-Request-Id"));
+            return data == null ? AppApiResponse.fail(CODE_NOT_FOUND, "作品不存在或无权操作")
+                    : AppApiResponse.ok(data);
+        }
+        catch (ServiceException e)
+        {
+            return AppApiResponse.fail(e.getCode() == null ? CODE_BAD_REQUEST : e.getCode(), e.getMessage());
+        }
     }
 
     /**
@@ -318,6 +346,57 @@ public class AppWorkManageController
         }
         Object raw = body.get(key);
         return raw instanceof String text ? text : (raw == null ? null : String.valueOf(raw));
+    }
+
+    /**
+     * 从请求体取字符串，按 keys 顺序尝试首个非空值（兼容 snake_case 与 camelCase）。
+     */
+    private static String asStringAny(Map<String, Object> body, String... keys)
+    {
+        if (body == null)
+        {
+            return null;
+        }
+        for (String key : keys)
+        {
+            String value = trimToNull(asString(body, key));
+            if (value != null)
+            {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 从请求体取长整数，按 keys 顺序尝试（兼容 snake_case 与 camelCase）。
+     */
+    private static Long asLong(Map<String, Object> body, String... keys)
+    {
+        if (body == null)
+        {
+            return null;
+        }
+        for (String key : keys)
+        {
+            Object raw = body.get(key);
+            if (raw instanceof Number number)
+            {
+                return number.longValue();
+            }
+            if (raw instanceof String text && !text.isBlank())
+            {
+                try
+                {
+                    return Long.valueOf(text.trim());
+                }
+                catch (NumberFormatException ignored)
+                {
+                    return null;
+                }
+            }
+        }
+        return null;
     }
 
     /**

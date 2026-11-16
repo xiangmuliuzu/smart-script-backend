@@ -2,14 +2,14 @@ package com.smartscript.platform.content.service;
 
 import java.util.List;
 import com.smartscript.platform.content.domain.SysBanner;
-import com.smartscript.platform.content.domain.SysCategory;
 import com.smartscript.platform.content.domain.SysTag;
+import com.smartscript.platform.content.dto.AppCategoryNavDto;
 import com.smartscript.platform.content.dto.AppChapterDetailDto;
 import com.smartscript.platform.content.dto.AppChapterListDto;
 import com.smartscript.platform.content.dto.AppContactDto;
 import com.smartscript.platform.content.dto.AppPageResult;
 import com.smartscript.platform.content.dto.AppPreviewDto;
-import com.smartscript.platform.content.dto.AppRankingItem;
+import com.smartscript.platform.content.dto.AppRankingResult;
 import com.smartscript.platform.content.dto.AppWorkDto;
 import com.smartscript.platform.content.dto.AppWorkQuery;
 
@@ -19,9 +19,10 @@ import com.smartscript.platform.content.dto.AppWorkQuery;
  * 依据：接口文档 2.7 书城模块（表 2-81 作品列表 / 2-82 作品详情 / 2-87 作品榜单 /
  * 2-93 Banner 轮播）+ 云端 script_platform_dev 库真实表结构。
  *
- * 边界：本服务只做只读查询，不写库；书城可见性统一收敛为
+ * 边界：除「作品详情入口的浏览量自增」（见 {@link #getWorkDetail}）外只做只读查询，
+ * 不写其它任何库；书城可见性统一收敛为
  * 「未删除 + 已上架」/「status 正常」，避免调用方各自拼条件产生口径漂移。
- * 复用既有 Mapper（分类/标签复用管理端语句，作品/Banner 走 App 专用语句），不新建表访问路径。
+ * 复用既有 Mapper（标签复用管理端语句，作品/Banner 走 App 专用语句），不新建表访问路径。
  *
  * @author xiangsipeng
  */
@@ -36,27 +37,26 @@ public interface IAppBookstoreService
     public List<SysBanner> listBanners(String position);
 
     /**
-     * 分类列表（status 正常的分类）
-     *
-     * @param categoryType 分类类型（可选）
-     * @param parentId     父分类ID（可选，传 0 取顶级分类）
-     * @return 分类集合（按 sort 升序）
-     */
-    public List<SysCategory> listCategories(String categoryType, Long parentId);
-
-    /**
      * 标签列表（status 正常的标签）
      *
-     * @param tagType    标签类型（可选）
-     * @param categoryId 分类ID（可选，按分类收敛标签，接口文档表 2-126）
-     * @return 标签集合（按 use_count 降序）
+     * @param tagType    标签维度（可选，role/plot）
+     * @param channelId  频道ID（可选；命中本频道标签 + 男女通用标签）
+     * @return 标签集合（按 sort 升序）
      */
-    public List<SysTag> listTags(String tagType, Long categoryId);
+    public List<SysTag> listTags(String tagType, Long channelId);
+
+    /**
+     * 分类页导航（频道 + 热门标签 / 主题 / 角色 / 情节 四维度）
+     *
+     * @param channelId 频道ID（可选，为空时回落第一个频道）
+     * @return 导航数据；无频道时 channels/dimensions 为空集合
+     */
+    public AppCategoryNavDto getCategoryNav(Long channelId);
 
     /**
      * 书城作品列表（分页）
      *
-     * @param query    查询条件（keyword/categoryId/tagId/sort）
+     * @param query    查询条件（keyword/tagId/sort）
      * @param pageNum  页码（从 1 起）
      * @param pageSize 每页条数
      * @return 分页结果（total + list）
@@ -72,13 +72,26 @@ public interface IAppBookstoreService
     public AppWorkDto getWork(Long workId);
 
     /**
+     * 书城作品详情（浏览一次）
+     *
+     * 与 {@link #getWork} 的唯一区别：本方法服务于「作品详情」入口，每次访问把作品浏览量 +1
+     * （一次浏览记一次，「量」口径即接口文档 2.7.2 的阅读量）。
+     * 章节目录 / 免费试读 / 版权联系方式等内部调用一律走 {@link #getWork}，
+     * 不在此处自增，避免同一次浏览被重复计数。
+     *
+     * @param workId 作品ID
+     * @return 作品（未上架/已删除/不存在返回 null）
+     */
+    public AppWorkDto getWorkDetail(Long workId);
+
+    /**
      * 作品榜单
      *
-     * @param type  榜单类型：view（默认）/favorite/sale/rating
+     * @param type  榜单类型：view（默认）/favorite/sale/rating/new；非法值回落 view
      * @param limit 取前 N 条
-     * @return 榜单条目（rankNo 从 1 起）
+     * @return 榜单结果：{list（rankNo 从 1 起）, updatedAt（榜单更新时间）}
      */
-    public List<AppRankingItem> listRankings(String type, int limit);
+    public AppRankingResult listRankings(String type, int limit);
 
     /**
      * 作品章节目录（接口 2.7.8 免费试读）

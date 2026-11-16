@@ -49,6 +49,12 @@ public class RedisCache
         redisTemplate.opsForValue().set(key, value, timeout, timeUnit);
     }
 
+    /** Atomic SET XX: renewing a session must never recreate a revoked key. */
+    public <T> boolean setCacheObjectIfPresent(final String key, final T value, final Integer timeout, final TimeUnit timeUnit)
+    {
+        return Boolean.TRUE.equals(redisTemplate.opsForValue().setIfPresent(key, value, timeout, timeUnit));
+    }
+
     /**
      * 设置有效时间
      *

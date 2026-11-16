@@ -1,20 +1,36 @@
 package com.smartscript.platform.content.controller.app;
 
+import java.io.IOException;
+import java.io.OutputStream;
+import java.io.UncheckedIOException;
+import jakarta.servlet.http.HttpServletRequest;
+import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
+import java.util.function.Function;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 import com.smartscript.platform.api.AppApiResponse;
 import com.smartscript.platform.content.dto.AppAiOutlineRequest;
+import com.smartscript.platform.content.dto.AppAiOutlineRecordItem;
 import com.smartscript.platform.content.dto.AppAiOutlineResult;
 import com.smartscript.platform.content.dto.AppAiPolishRequest;
+import com.smartscript.platform.content.dto.AppAiStoryboardRequest;
+import com.smartscript.platform.content.dto.AppAiStoryboardResult;
 import com.smartscript.platform.content.dto.AppAiWriteRecordItem;
 import com.smartscript.platform.content.dto.AppAiWriteRequest;
 import com.smartscript.platform.content.dto.AppAiWriteResult;
 import com.smartscript.platform.content.dto.AppPageResult;
+import com.smartscript.platform.content.exception.AiQuotaInsufficientException;
 import com.smartscript.platform.content.exception.AiServiceUnavailableException;
 import com.smartscript.platform.content.service.IAiWriteService;
 
@@ -70,19 +86,138 @@ public class AppAiController
         String prompt = trimToNull(asString(body, "prompt"));
         if (prompt == null)
         {
-            return AppApiResponse.fail(CODE_BAD_REQUEST, "prompt 不能为空");
+            return AppApiResponse.fail(CODE_BAD_REQUEST, "提示词不能为空，请填写后重试");
         }
         AppAiWriteRequest request = new AppAiWriteRequest();
         request.setPrompt(prompt);
         request.setType(trimToNull(asString(body, "type")));
         request.setWorkId(asLong(body, "work_id", "workId"));
+        request.setSkillId(asLong(body, "skill_id", "skillId"));
+        request.setModel(trimToNull(asString(body, "model")));
         try
         {
             return AppApiResponse.ok(aiWriteService.write(request));
         }
+        catch (AiQuotaInsufficientException e)
+        {
+            return AppApiResponse.fail(CODE_BAD_REQUEST, e.getMessage());
+        }
         catch (AiServiceUnavailableException e)
         {
             return AppApiResponse.fail(CODE_SERVICE_UNAVAILABLE, e.getMessage());
+        }
+        catch (IllegalArgumentException e)
+        {
+            return AppApiResponse.fail(CODE_BAD_REQUEST, e.getMessage());
+        }
+    }
+
+    /**
+     * 本章摘要 + 台账回写（方案 2）
+     *
+     * 正文定稿后单独调用一次：读本集正文（前端刚插入、未保存时可传 content），
+     * AI 产出「本章摘要 + 七类台账更新」，后端写 sys_work_chapter.summary 并合并
+     * sys_work_ledger；正文不发生任何改动。成功才扣积分。
+     *
+     * @param body {workId 必填, chapterId 必填, content 可选, model 可选}
+     * @return data = {summary, ledgerUpdated, recordId, tokens}
+     */
+    @PostMapping("/chapter-summary")
+    public AppApiResponse<Map<String, Object>> chapterSummary(@RequestBody(required = false) Map<String, Object> body)
+    {
+        Long workId = asLong(body, "work_id", "workId");
+        Long chapterId = asLong(body, "chapter_id", "chapterId");
+        if (workId == null || chapterId == null)
+        {
+            return AppApiResponse.fail(CODE_BAD_REQUEST, "缺少作品或章节标识");
+        }
+        try
+        {
+            return AppApiResponse.ok(aiWriteService.summarizeChapter(workId, chapterId,
+                    asString(body, "content"), trimToNull(asString(body, "model"))));
+        }
+        catch (AiQuotaInsufficientException e)
+        {
+            return AppApiResponse.fail(CODE_BAD_REQUEST, e.getMessage());
+        }
+        catch (AiServiceUnavailableException e)
+        {
+            return AppApiResponse.fail(CODE_SERVICE_UNAVAILABLE, e.getMessage());
+        }
+        catch (IllegalArgumentException e)
+        {
+            return AppApiResponse.fail(CODE_BAD_REQUEST, e.getMessage());
+        }
+    }
+
+    /**
+     * 每集连贯性验收（50 集线性结构：生成后跑一次小调用）。
+     *
+     * 固定 5 项判定（人物/因果/连续性/伏笔/结构），≥4 项无 fail 视为通过；
+     * 只判定不改写，结果落 sys_chapter_review。
+     *
+     * @param body {workId 必填, chapterId 必填, content 可选, model 可选}
+     * @return data = {pass, score, issues, recordId, tokens}
+     */
+    @PostMapping("/chapter-review")
+    public AppApiResponse<Map<String, Object>> chapterReview(@RequestBody(required = false) Map<String, Object> body)
+    {
+        Long workId = asLong(body, "work_id", "workId");
+        Long chapterId = asLong(body, "chapter_id", "chapterId");
+        if (workId == null || chapterId == null)
+        {
+            return AppApiResponse.fail(CODE_BAD_REQUEST, "缺少作品或章节标识");
+        }
+        try
+        {
+            return AppApiResponse.ok(aiWriteService.reviewChapter(workId, chapterId,
+                    asString(body, "content"), trimToNull(asString(body, "model"))));
+        }
+        catch (AiQuotaInsufficientException e)
+        {
+            return AppApiResponse.fail(CODE_BAD_REQUEST, e.getMessage());
+        }
+        catch (AiServiceUnavailableException e)
+        {
+            return AppApiResponse.fail(CODE_SERVICE_UNAVAILABLE, e.getMessage());
+        }
+        catch (IllegalArgumentException e)
+        {
+            return AppApiResponse.fail(CODE_BAD_REQUEST, e.getMessage());
+        }
+    }
+
+    /**
+     * 生成卷级状态快照（每 10 集一卷，覆盖式当前值）。
+     *
+     * @param body {workId 必填, volumeNo 可选（默认 1）, model 可选}
+     * @return data = {volumeNo, episodeStart, episodeEnd, snapshot, recordId, tokens}
+     */
+    @PostMapping("/volume-snapshot")
+    public AppApiResponse<Map<String, Object>> volumeSnapshot(@RequestBody(required = false) Map<String, Object> body)
+    {
+        Long workId = asLong(body, "work_id", "workId");
+        if (workId == null)
+        {
+            return AppApiResponse.fail(CODE_BAD_REQUEST, "缺少作品标识");
+        }
+        Long volumeNo = asLong(body, "volume_no", "volumeNo");
+        try
+        {
+            return AppApiResponse.ok(aiWriteService.buildVolumeSnapshot(workId,
+                    volumeNo == null ? null : volumeNo.intValue(), trimToNull(asString(body, "model"))));
+        }
+        catch (AiQuotaInsufficientException e)
+        {
+            return AppApiResponse.fail(CODE_BAD_REQUEST, e.getMessage());
+        }
+        catch (AiServiceUnavailableException e)
+        {
+            return AppApiResponse.fail(CODE_SERVICE_UNAVAILABLE, e.getMessage());
+        }
+        catch (IllegalArgumentException e)
+        {
+            return AppApiResponse.fail(CODE_BAD_REQUEST, e.getMessage());
         }
     }
 
@@ -98,14 +233,20 @@ public class AppAiController
         String content = trimToNull(asString(body, "content"));
         if (content == null)
         {
-            return AppApiResponse.fail(CODE_BAD_REQUEST, "content 不能为空");
+            return AppApiResponse.fail(CODE_BAD_REQUEST, "内容不能为空，请填写后重试");
         }
         AppAiPolishRequest request = new AppAiPolishRequest();
         request.setContent(content);
         request.setStyle(trimToNull(asString(body, "style")));
+        request.setSkillId(asLong(body, "skill_id", "skillId"));
+        request.setModel(trimToNull(asString(body, "model")));
         try
         {
             return AppApiResponse.ok(aiWriteService.polish(request));
+        }
+        catch (AiQuotaInsufficientException e)
+        {
+            return AppApiResponse.fail(CODE_BAD_REQUEST, e.getMessage());
         }
         catch (AiServiceUnavailableException e)
         {
@@ -131,6 +272,247 @@ public class AppAiController
     }
 
     /**
+     * 删除本人的 AI 记录（批量）
+     *
+     * @param body {recordIds: [1,2,3]}，只删除当前登录用户自己的记录
+     * @return data = 实际删除条数
+     */
+    @DeleteMapping("/write-records")
+    public AppApiResponse<Integer> deleteWriteRecords(@RequestBody(required = false) Map<String, Object> body)
+    {
+        List<Long> ids = new java.util.ArrayList<>();
+        Object raw = body == null ? null : body.get("recordIds");
+        if (raw instanceof List<?> list)
+        {
+            for (Object item : list)
+            {
+                Long id = asPositiveLong(item);
+                if (id != null)
+                {
+                    ids.add(id);
+                }
+                // 非法ID直接忽略，不因单条脏数据拒绝整批删除。
+            }
+        }
+        return AppApiResponse.ok(aiWriteService.deleteWriteRecords(ids));
+    }
+
+    /** 请求体里的 ID 可能是数字、字符串或小数；只接受正整数，其余忽略。 */
+    private static Long asPositiveLong(Object item)
+    {
+        if (item instanceof Number number)
+        {
+            long value = number.longValue();
+            return value > 0 && value == number.doubleValue() ? value : null;
+        }
+        if (item instanceof String text)
+        {
+            try
+            {
+                long value = Long.parseLong(text.trim());
+                return value > 0 ? value : null;
+            }
+            catch (NumberFormatException ignored)
+            {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 导演(skill) 列表（E 模块）
+     *
+     * 返回全部正常状态的 skill 轻量信息（id / skillName / fileName），
+     * 供 PC 用户端 / App 端 AI 调用页的「导演(skill)选择」下拉使用。
+     *
+     * @return data = [{id, skillName, fileName}, ...]
+     */
+    @GetMapping("/skills")
+    public AppApiResponse<List<Map<String, Object>>> skills()
+    {
+        List<Map<String, Object>> list = aiWriteService.listEnabledSkills();
+        return AppApiResponse.ok(list);
+    }
+
+    /**
+     * 用户端可选模型列表（E 模块）
+     *
+     * 返回全部启用渠道的 {channelId, channelName, provider, models, defaultModel}
+     * （不含 apiKey），供 PC 用户端 / App 端 AI 调用页「模型选择」下拉使用。
+     *
+     * @return data = [{channelId, channelName, provider, models: [...], defaultModel}, ...]
+     */
+    @GetMapping("/models")
+    public AppApiResponse<List<Map<String, Object>>> models()
+    {
+        List<Map<String, Object>> list = aiWriteService.listEnabledModels();
+        return AppApiResponse.ok(list);
+    }
+
+    /**
+     * AI 大纲请求记录（分页）
+     *
+     * @param page     页码（可选，默认 1）
+     * @param pageSize 每页条数（可选，默认 20，上限 50）
+     * @return data = {total, list}；仅当前登录身份的大纲请求记录
+     */
+    @GetMapping("/outline-records")
+    public AppApiResponse<AppPageResult<AppAiOutlineRecordItem>> outlineRecords(
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer pageSize)
+    {
+        int pageNum = page == null ? 1 : page;
+        int size = pageSize == null ? 20 : pageSize;
+        return AppApiResponse.ok(aiWriteService.pageOutlineRecords(pageNum, size));
+    }
+
+    /**
+     * AI 写作（流式，SSE 打字机输出）。
+     *
+     * 协议：text/event-stream，逐块发送 {@code data: {"delta":"..."}}，
+     * 结束时发送 {@code data: {"done":true,"recordId":..}}；中途失败发送
+     * {@code event:error} 携带 code/message；次数不足同样以错误事件返回。
+     *
+     * @param body 请求体 {prompt 必填, type 可选, work_id 可选}
+     */
+    @PostMapping(value = "/write/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public ResponseEntity<StreamingResponseBody> writeStream(
+            @RequestBody(required = false) Map<String, Object> body, HttpServletRequest servletRequest)
+    {
+        String prompt = trimToNull(asString(body, "prompt"));
+        AppAiWriteRequest request = new AppAiWriteRequest();
+        request.setPrompt(prompt);
+        request.setType(trimToNull(asString(body, "type")));
+        request.setWorkId(asLong(body, "work_id", "workId"));
+        request.setSkillId(asLong(body, "skill_id", "skillId"));
+        request.setModel(trimToNull(asString(body, "model")));
+        return streamResponse(servletRequest, delta -> {
+            if (prompt == null) throw new IllegalArgumentException("提示词不能为空，请填写后重试");
+            AppAiWriteResult result = aiWriteService.writeStream(request, delta);
+            return "{\"done\":true,\"recordId\":" + result.getRecordId() + ",\"truncated\":"
+                    + result.isTruncated() + "}";
+        });
+    }
+
+    @PostMapping(value = "/polish/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public ResponseEntity<StreamingResponseBody> polishStream(
+            @RequestBody(required = false) Map<String, Object> body, HttpServletRequest servletRequest)
+    {
+        String content = trimToNull(asString(body, "content"));
+        AppAiPolishRequest request = new AppAiPolishRequest();
+        request.setContent(content);
+        request.setStyle(trimToNull(asString(body, "style")));
+        request.setSkillId(asLong(body, "skill_id", "skillId"));
+        request.setModel(trimToNull(asString(body, "model")));
+        return streamResponse(servletRequest, delta -> {
+            if (content == null) throw new IllegalArgumentException("内容不能为空，请填写后重试");
+            AppAiWriteResult result = aiWriteService.polishStream(request, delta);
+            return "{\"done\":true,\"recordId\":" + result.getRecordId() + ",\"truncated\":"
+                    + result.isTruncated() + "}";
+        });
+    }
+
+    @PostMapping(value = "/outline/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public ResponseEntity<StreamingResponseBody> outlineStream(
+            @RequestBody(required = false) Map<String, Object> body, HttpServletRequest servletRequest)
+    {
+        AppAiOutlineRequest request = new AppAiOutlineRequest();
+        request.setInspiration(trimToNull(asString(body, "inspiration")));
+        request.setGenre(trimToNull(asString(body, "genre")));
+        request.setStyle(trimToNull(asString(body, "style")));
+        request.setWorkId(asLong(body, "work_id", "workId"));
+        request.setSkillId(asLong(body, "skill_id", "skillId"));
+        request.setModel(trimToNull(asString(body, "model")));
+        return streamResponse(servletRequest, delta -> {
+            AppAiOutlineResult result = aiWriteService.outlineStream(request, delta);
+            return "{\"done\":true,\"quotaUsed\":" + result.getQuotaUsed() + ",\"requestNo\":"
+                    + jsonEscape(result.getRequestNo() == null ? "" : result.getRequestNo())
+                    + ",\"truncated\":" + result.isTruncated()
+                    + ",\"content\":" + jsonEscape(result.getContent() == null ? "" : result.getContent())
+                    + "}";
+        });
+    }
+
+    /** MVC 在异步任务中执行生成，并传递请求和安全上下文；每个事件立即 flush。 */
+    private ResponseEntity<StreamingResponseBody> streamResponse(HttpServletRequest request,
+            Function<Consumer<String>, String> generate)
+    {
+        return ResponseEntity.ok().contentType(MediaType.TEXT_EVENT_STREAM)
+                .header("Cache-Control", "no-cache, no-transform")
+                .header("X-Accel-Buffering", "no")
+                .body(output -> {
+                    request.getAsyncContext().setTimeout(600_000L);
+                    output.write(": connected\n\n".getBytes(StandardCharsets.UTF_8));
+                    output.flush();
+                    try
+                    {
+                        String done = generate.apply(delta -> sendEvent(output, "message",
+                                "{\"delta\":" + jsonEscape(delta) + "}"));
+                        sendEvent(output, "message", done);
+                    }
+                    catch (AiQuotaInsufficientException | IllegalArgumentException e)
+                    {
+                        sendError(output, CODE_BAD_REQUEST, e.getMessage());
+                    }
+                    catch (AiServiceUnavailableException e)
+                    {
+                        sendError(output, CODE_SERVICE_UNAVAILABLE, e.getMessage());
+                    }
+                    catch (UncheckedIOException e) { throw e.getCause(); }
+                    catch (Exception e)
+                    {
+                        sendError(output, CODE_SERVICE_UNAVAILABLE, "AI 服务不可用，请稍后重试");
+                    }
+                });
+    }
+
+    private static void sendError(OutputStream output, int code, String message)
+    {
+        sendEvent(output, "error", "{\"code\":" + code + ",\"message\":" + jsonEscape(message) + "}");
+    }
+
+    private static void sendEvent(OutputStream output, String event, String json)
+    {
+        try
+        {
+            output.write(("event:" + event + "\ndata:" + json + "\n\n").getBytes(StandardCharsets.UTF_8));
+            output.flush();
+        }
+        catch (IOException e) { throw new UncheckedIOException(e); }
+    }
+
+    /** JSON 字符串转义（用于把增量文本嵌入 data 块）。 */
+    private static String jsonEscape(String value)
+    {
+        StringBuilder sb = new StringBuilder();
+        sb.append('"');
+        for (int i = 0; i < value.length(); i++)
+        {
+            char c = value.charAt(i);
+            switch (c)
+            {
+                case '"': sb.append("\\\""); break;
+                case '\\': sb.append("\\\\"); break;
+                case '\n': sb.append("\\n"); break;
+                case '\r': sb.append("\\r"); break;
+                case '\t': sb.append("\\t"); break;
+                default:
+                    if (c < 0x20)
+                    {
+                        sb.append(String.format("\\u%04x", (int) c));
+                    }
+                    else
+                    {
+                        sb.append(c);
+                    }
+            }
+        }
+        sb.append('"');
+        return sb.toString();
+    }
+
+    /**
      * AI 大纲生成（2.9.13）
      *
      * @param body 请求体 {inspiration, genre, style, work_id} 均可选
@@ -144,14 +526,90 @@ public class AppAiController
         request.setGenre(trimToNull(asString(body, "genre")));
         request.setStyle(trimToNull(asString(body, "style")));
         request.setWorkId(asLong(body, "work_id", "workId"));
+        request.setSkillId(asLong(body, "skill_id", "skillId"));
+        request.setModel(trimToNull(asString(body, "model")));
         try
         {
             return AppApiResponse.ok(aiWriteService.outline(request));
+        }
+        catch (AiQuotaInsufficientException e)
+        {
+            return AppApiResponse.fail(CODE_BAD_REQUEST, e.getMessage());
         }
         catch (AiServiceUnavailableException e)
         {
             return AppApiResponse.fail(CODE_SERVICE_UNAVAILABLE, e.getMessage());
         }
+    }
+
+    /**
+     * AI 分镜（E 模块）：剧本 → 分镜 一条龙。
+     *
+     * 入参 {script 必填, style 可选, work_id 可选, skill_id 可选}；
+     * 产出可直接用于拍摄/出售的分镜脚本文本，支持导演(skill) 注入。
+     *
+     * @param body 请求体
+     * @return data = {content, requestNo, quotaUsed}；script 为空 400；AI 服务不可用 503
+     */
+    @PostMapping("/storyboard")
+    public AppApiResponse<AppAiStoryboardResult> storyboard(@RequestBody(required = false) Map<String, Object> body)
+    {
+        String script = trimToNull(asString(body, "script"));
+        if (script == null)
+        {
+            return AppApiResponse.fail(CODE_BAD_REQUEST, "剧本内容不能为空，请填写后重试");
+        }
+        AppAiStoryboardRequest request = new AppAiStoryboardRequest();
+        request.setScript(script);
+        request.setStyle(trimToNull(asString(body, "style")));
+        request.setWorkId(asLong(body, "work_id", "workId"));
+        request.setSkillId(asLong(body, "skill_id", "skillId"));
+        request.setModel(trimToNull(asString(body, "model")));
+        try
+        {
+            return AppApiResponse.ok(aiWriteService.storyboard(request));
+        }
+        catch (AiQuotaInsufficientException e)
+        {
+            return AppApiResponse.fail(CODE_BAD_REQUEST, e.getMessage());
+        }
+        catch (AiServiceUnavailableException e)
+        {
+            return AppApiResponse.fail(CODE_SERVICE_UNAVAILABLE, e.getMessage());
+        }
+        catch (IllegalArgumentException e)
+        {
+            return AppApiResponse.fail(CODE_BAD_REQUEST, e.getMessage());
+        }
+    }
+
+    /**
+     * AI 分镜（流式，SSE 打字机输出）。
+     *
+     * 协议与写作/大纲流式一致：逐块 {@code data:{"delta":"..."}}，
+     * 结束 {@code data:{"done":true,"requestNo":..,"quotaUsed":..,"truncated":..}}，
+     * 失败 {@code event:error}。
+     *
+     * @param body 请求体 {script 必填, style 可选, work_id 可选, skill_id 可选}
+     */
+    @PostMapping(value = "/storyboard/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public ResponseEntity<StreamingResponseBody> storyboardStream(
+            @RequestBody(required = false) Map<String, Object> body, HttpServletRequest servletRequest)
+    {
+        String script = trimToNull(asString(body, "script"));
+        AppAiStoryboardRequest request = new AppAiStoryboardRequest();
+        request.setScript(script);
+        request.setStyle(trimToNull(asString(body, "style")));
+        request.setWorkId(asLong(body, "work_id", "workId"));
+        request.setSkillId(asLong(body, "skill_id", "skillId"));
+        request.setModel(trimToNull(asString(body, "model")));
+        return streamResponse(servletRequest, delta -> {
+            if (script == null) throw new IllegalArgumentException("剧本内容不能为空，请填写后重试");
+            AppAiStoryboardResult result = aiWriteService.storyboardStream(request, delta);
+            return "{\"done\":true,\"quotaUsed\":" + result.getQuotaUsed() + ",\"requestNo\":"
+                    + jsonEscape(result.getRequestNo() == null ? "" : result.getRequestNo())
+                    + ",\"truncated\":" + result.isTruncated() + "}";
+        });
     }
 
     /** 从请求体取字符串值（请求体可为 null）。 */

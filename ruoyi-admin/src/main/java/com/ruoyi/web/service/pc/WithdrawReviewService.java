@@ -1,6 +1,7 @@
 package com.ruoyi.web.service.pc;
 
 import com.ruoyi.common.utils.SecurityUtils;
+import com.smartscript.platform.trade.service.TradeNotifyService;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -23,9 +24,11 @@ public class WithdrawReviewService {
     private static final List<String> STATUSES = List.of("pending", "approved", "rejected", "frozen", "paid");
 
     private final JdbcTemplate jdbc;
+    private final TradeNotifyService notifyService;
 
-    public WithdrawReviewService(JdbcTemplate jdbc) {
+    public WithdrawReviewService(JdbcTemplate jdbc, TradeNotifyService notifyService) {
         this.jdbc = jdbc;
+        this.notifyService = notifyService;
     }
 
     public long count(String status, String keyword) {
@@ -58,11 +61,24 @@ public class WithdrawReviewService {
 
     @Transactional
     public void approve(Long withdrawId) {
+        Map<String, Object> apply;
+        try {
+            apply = jdbc.queryForMap(
+                    "SELECT user_id AS userId, withdraw_no AS withdrawNo, amount AS amount FROM sys_withdraw_apply "
+                            + "WHERE withdraw_id = ? AND status = 'pending'",
+                    withdrawId);
+        } catch (EmptyResultDataAccessException e) {
+            throw new IllegalStateException("仅待审核申请可以通过");
+        }
         int changed = jdbc.update("UPDATE sys_withdraw_apply SET status = 'approved', reviewer_id = ?, "
                         + "review_time = NOW(), review_opinion = NULL, update_by = ?, update_time = NOW() "
                         + "WHERE withdraw_id = ? AND status = 'pending'",
                 SecurityUtils.getUserId(), SecurityUtils.getUsername(), withdrawId);
         requireChanged(changed, "仅待审核申请可以通过");
+        // 旧数据申请时可能写入 frozen_amount；新流程申请时已扣可用余额，此处仅冲减遗留冻结额。
+        releaseLegacyFrozen(apply);
+        notifyService.notifyWithdrawResult(withdrawId, String.valueOf(apply.get("withdrawNo")),
+                toAmount(apply.get("amount")), true, null, ((Number) apply.get("userId")).longValue());
     }
 
     @Transactional
@@ -71,27 +87,47 @@ public class WithdrawReviewService {
         if (reason.isEmpty() || reason.length() > 500) {
             throw new IllegalArgumentException("驳回原因须为 1 至 500 个字符");
         }
+        Map<String, Object> apply;
+        try {
+            apply = jdbc.queryForMap(
+                    "SELECT user_id AS userId, withdraw_no AS withdrawNo, amount AS amount FROM sys_withdraw_apply "
+                            + "WHERE withdraw_id = ? AND status = 'pending'",
+                    withdrawId);
+        } catch (EmptyResultDataAccessException e) {
+            throw new IllegalStateException("仅待审核申请可以驳回");
+        }
         int changed = jdbc.update("UPDATE sys_withdraw_apply SET status = 'rejected', reviewer_id = ?, "
                         + "review_time = NOW(), review_opinion = ?, update_by = ?, update_time = NOW() "
                         + "WHERE withdraw_id = ? AND status = 'pending'",
                 SecurityUtils.getUserId(), reason, SecurityUtils.getUsername(), withdrawId);
         requireChanged(changed, "仅待审核申请可以驳回");
+
+        Long userId = ((Number) apply.get("userId")).longValue();
+        java.math.BigDecimal amount = toAmount(apply.get("amount"));
+        int restored = jdbc.update(
+                "UPDATE sys_income_account SET available_amount = available_amount + ?, "
+                        + "frozen_amount = CASE WHEN frozen_amount >= ? THEN frozen_amount - ? ELSE frozen_amount END, "
+                        + "version = version + 1, updated_at = NOW() WHERE user_id = ?",
+                amount, amount, amount, userId);
+        if (restored != 1) {
+            throw new IllegalStateException("驳回后退回余额失败，请检查收益账户");
+        }
+        notifyService.notifyWithdrawResult(withdrawId, String.valueOf(apply.get("withdrawNo")),
+                amount, false, reason, userId);
     }
 
-    @Transactional
-    public void freeze(Long withdrawId) {
-        int changed = jdbc.update("UPDATE sys_withdraw_apply SET status = 'frozen', update_by = ?, update_time = NOW() "
-                        + "WHERE withdraw_id = ? AND status = 'approved'",
-                SecurityUtils.getUsername(), withdrawId);
-        requireChanged(changed, "仅已通过申请可以冻结");
+    private void releaseLegacyFrozen(Map<String, Object> apply) {
+        Long userId = ((Number) apply.get("userId")).longValue();
+        java.math.BigDecimal amount = toAmount(apply.get("amount"));
+        jdbc.update(
+                "UPDATE sys_income_account SET frozen_amount = frozen_amount - ?, version = version + 1, updated_at = NOW() "
+                        + "WHERE user_id = ? AND frozen_amount >= ?",
+                amount, userId, amount);
     }
 
-    @Transactional
-    public void unfreeze(Long withdrawId) {
-        int changed = jdbc.update("UPDATE sys_withdraw_apply SET status = 'approved', update_by = ?, update_time = NOW() "
-                        + "WHERE withdraw_id = ? AND status = 'frozen'",
-                SecurityUtils.getUsername(), withdrawId);
-        requireChanged(changed, "仅已冻结申请可以解冻");
+    private static java.math.BigDecimal toAmount(Object amountObj) {
+        return amountObj instanceof java.math.BigDecimal bd
+                ? bd : new java.math.BigDecimal(amountObj.toString());
     }
 
     private static void requireChanged(int rows, String message) {

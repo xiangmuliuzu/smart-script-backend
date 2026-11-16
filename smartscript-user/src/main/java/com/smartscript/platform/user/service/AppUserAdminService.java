@@ -248,6 +248,22 @@ public class AppUserAdminService
             }
             safe.put(e.getKey(), e.getValue());
         }
+        // HTTP 查询参数是字符串；MySQL 会把字符串 "true" 转为 0，必须绑定真实布尔值。
+        Object capability = safe.get("authorCapability");
+        if (capability == null || String.valueOf(capability).isBlank())
+        {
+            safe.remove("authorCapability");
+        }
+        else if (!(capability instanceof Boolean))
+        {
+            String value = String.valueOf(capability).trim();
+            if ("true".equalsIgnoreCase(value) || "1".equals(value))
+                safe.put("authorCapability", true);
+            else if ("false".equalsIgnoreCase(value) || "0".equals(value))
+                safe.put("authorCapability", false);
+            else
+                throw AppAdminException.badRequest(AppAdminErrorCodes.INVALID_PARAM);
+        }
         String requested = params.get("orderByColumn") == null ? null : String.valueOf(params.get("orderByColumn"));
         String column = ORDER_WHITELIST.get(requested);
         if (column != null)

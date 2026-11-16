@@ -76,7 +76,7 @@ public class AppSearchHistoryController
         }
         if (keyword.length() > KEYWORD_MAX_LENGTH)
         {
-            return AppApiResponse.fail(CODE_BAD_REQUEST, "搜索关键词长度不能超过" + KEYWORD_MAX_LENGTH);
+            return AppApiResponse.fail(CODE_BAD_REQUEST, "搜索关键词过长，请精简后重试");
         }
         searchHistoryService.recordHistory(keyword);
         return AppApiResponse.ok(Map.of("message", "记录成功"));

@@ -88,4 +88,11 @@
         where quote_id = #{quoteId}
     </update>
 
+    <!-- 报价状态 CAS 写回：仅当当前状态仍为 expectStatus 时生效；返回 0 表示已被并发处理 -->
+    <update id="updateQuoteStatusCas">
+        update sys_quote
+        set status = #{status}, update_by = #{updateBy}, update_time = NOW()
+        where quote_id = #{quoteId} and status = #{expectStatus}
+    </update>
+
 </mapper>

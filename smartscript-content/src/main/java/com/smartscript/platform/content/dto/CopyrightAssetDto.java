@@ -9,7 +9,6 @@ public class CopyrightAssetDto
     private Long workId;
     private String title;
     private String authorName;
-    private String genreName;
     private String workType;
     private String status;
     private String summary;
@@ -45,16 +44,6 @@ public class CopyrightAssetDto
     public void setAuthorName(String authorName)
     {
         this.authorName = authorName;
-    }
-
-    public String getGenreName()
-    {
-        return genreName;
-    }
-
-    public void setGenreName(String genreName)
-    {
-        this.genreName = genreName;
     }
 
     public String getWorkType()

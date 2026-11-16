@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.user.mapper.ChatTradeTemplateMapper">
+
+    <resultMap id="ChatTradeTemplateResult" type="com.smartscript.platform.user.domain.ChatTradeTemplate">
+        <id     property="templateId"  column="template_id"/>
+        <result property="category"    column="category"/>
+        <result property="content"     column="content"/>
+        <result property="role"        column="role"/>
+        <result property="hasAmount"   column="has_amount"/>
+        <result property="sortOrder"   column="sort_order"/>
+        <result property="isEnabled"   column="is_enabled"/>
+        <result property="createTime"  column="create_time"/>
+    </resultMap>
+
+    <!-- 查询所有已启用的定型文模板 -->
+    <select id="selectEnabledTemplates" resultMap="ChatTradeTemplateResult">
+        SELECT template_id, category, content, role, has_amount, sort_order, is_enabled, create_time
+        FROM sys_chat_trade_template
+        WHERE is_enabled = 1
+        ORDER BY sort_order ASC
+    </select>
+</mapper>

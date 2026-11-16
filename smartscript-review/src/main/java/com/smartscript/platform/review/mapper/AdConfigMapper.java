@@ -12,6 +12,8 @@ import java.util.List;
 @Mapper
 public interface AdConfigMapper {
 
+    AdConfig selectActiveSplash();
+
     List<AdConfig> selectAdConfigList(AdConfig adConfig);
 
     AdConfig selectAdConfigById(Long adId);

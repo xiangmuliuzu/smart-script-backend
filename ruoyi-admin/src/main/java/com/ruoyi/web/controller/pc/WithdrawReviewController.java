@@ -17,7 +17,7 @@ import java.util.List;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/pc/copyright/withdraw")
+@RequestMapping("/api/v1/admin/copyright/withdraw")
 public class WithdrawReviewController extends BaseController {
     private static final List<String> EXPORT_COLUMNS = List.of("提现编号", "用户编号", "用户名", "登录账号", "提现金额",
             "手续费", "实际到账", "提现方式", "账户名", "账号", "开户行", "状态", "审核时间", "审核意见", "申请时间", "打款时间");
@@ -76,30 +76,6 @@ public class WithdrawReviewController extends BaseController {
             withdrawService.reject(withdrawId, params == null ? null : params.get("opinion"));
             return success("驳回成功");
         } catch (IllegalArgumentException | IllegalStateException e) {
-            return error(e.getMessage());
-        }
-    }
-
-    @PreAuthorize("@ss.hasPermi('smartscript:copyright:withdraw:freeze')")
-    @Log(title = "提现冻结", businessType = BusinessType.UPDATE)
-    @PostMapping("/{withdrawId}/freeze")
-    public AjaxResult freeze(@PathVariable Long withdrawId) {
-        try {
-            withdrawService.freeze(withdrawId);
-            return success("冻结成功");
-        } catch (IllegalStateException e) {
-            return error(e.getMessage());
-        }
-    }
-
-    @PreAuthorize("@ss.hasPermi('smartscript:copyright:withdraw:unfreeze')")
-    @Log(title = "提现解冻", businessType = BusinessType.UPDATE)
-    @PostMapping("/{withdrawId}/unfreeze")
-    public AjaxResult unfreeze(@PathVariable Long withdrawId) {
-        try {
-            withdrawService.unfreeze(withdrawId);
-            return success("解冻成功");
-        } catch (IllegalStateException e) {
             return error(e.getMessage());
         }
     }

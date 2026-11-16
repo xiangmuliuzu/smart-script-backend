@@ -47,9 +47,11 @@ public class AppMessageController
         int pageNum = pageNum(params.get("pageNum"));
         int pageSize = pageSize(params.get("pageSize"));
         String type = str(params.get("type"));
+        String portalRole = str(params.get("portalRole"));
         if (Boolean.parseBoolean(str(params.get("includeAnnouncements"))))
-            return AppApiResponse.ok(inboxService.page(currentUserId(), currentIdentity().getUserType(), type, pageNum, pageSize));
-        return AppApiResponse.ok(messageService.page(currentUserId(), type, pageNum, pageSize));
+            return AppApiResponse.ok(inboxService.page(currentUserId(), currentIdentity().getUserType(), type,
+                    portalRole, pageNum, pageSize));
+        return AppApiResponse.ok(messageService.page(currentUserId(), type, portalRole, pageNum, pageSize));
     }
 
     @GetMapping("/unread-count")
@@ -87,7 +89,7 @@ public class AppMessageController
         {
             return identity;
         }
-        throw new AppAuthException(AppAuthErrorCodes.UNAUTHORIZED, 401, "unauthorized");
+        throw new AppAuthException(AppAuthErrorCodes.UNAUTHORIZED, 401, "登录状态已过期，请重新登录");
     }
 
     private Long currentUserId()

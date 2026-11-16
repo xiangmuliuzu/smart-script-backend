@@ -11,11 +11,19 @@ import java.util.Date;
 public class AdConfig {
 
     private Long adId;
+    /**
+     * 分类：WELFARE-广告福利任务（看广告得积分，福利页管理）
+     *       PLACEMENT-广告位（开屏/插屏，广告运营页管理）
+     */
+    private String category;
     private String adName;
     private String adPosition;
     private String adType;
     private String adSource;
     private String adUnitId;
+    private String imageUrl;
+    private String linkUrl;
+    private Integer durationSeconds;
     /** 是否启用 1-启用 0-停用 */
     private Integer isEnabled;
     /** 频次限制/天 */
@@ -43,6 +51,8 @@ public class AdConfig {
 
     public Long getAdId() { return adId; }
     public void setAdId(Long adId) { this.adId = adId; }
+    public String getCategory() { return category; }
+    public void setCategory(String category) { this.category = category; }
     public String getAdName() { return adName; }
     public void setAdName(String adName) { this.adName = adName; }
     public String getAdPosition() { return adPosition; }
@@ -53,6 +63,12 @@ public class AdConfig {
     public void setAdSource(String adSource) { this.adSource = adSource; }
     public String getAdUnitId() { return adUnitId; }
     public void setAdUnitId(String adUnitId) { this.adUnitId = adUnitId; }
+    public String getImageUrl() { return imageUrl; }
+    public void setImageUrl(String imageUrl) { this.imageUrl = imageUrl; }
+    public String getLinkUrl() { return linkUrl; }
+    public void setLinkUrl(String linkUrl) { this.linkUrl = linkUrl; }
+    public Integer getDurationSeconds() { return durationSeconds; }
+    public void setDurationSeconds(Integer durationSeconds) { this.durationSeconds = durationSeconds; }
     public Integer getIsEnabled() { return isEnabled; }
     public void setIsEnabled(Integer isEnabled) { this.isEnabled = isEnabled; }
     public Integer getFrequencyLimit() { return frequencyLimit; }
