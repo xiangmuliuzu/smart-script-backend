@@ -48,12 +48,13 @@ public class DashboardService {
         stats.add(stat("本月交易额", "¥" + fmtWan(monthTrade) + "万", trend(monthTrade, num(row, "prevMonthTrade"))));
         stats.add(stat("活跃用户数", activeUsers, trend(activeUsers, num(row, "prevActiveUsers"))));
 
-        // 快捷入口
+        // 快捷入口：仅展示审核类待办
         List<Map<String, Object>> quick = new ArrayList<>();
         quick.add(quickItem("作品审核", num(row, "pendingWorks"), "待审核", "/copyright/ai-review/review"));
-        quick.add(quickItem("订单管理", num(row, "pendingOrders"), "待处理", "/trade/orders"));
-        quick.add(quickItem("用户管理", num(row, "pendingUsers"), "待审核", "/appuser/users"));
-        quick.add(quickItem("风控管理", num(row, "pendingRisk"), "待处理", "/risk"));
+        quick.add(quickItem("印章审核", num(row, "pendingSeals"), "待审核", "/copyright/seals"));
+        quick.add(quickItem("提现审核", num(row, "pendingWithdraws"), "待审核", "/copyright/withdraw-review"));
+        quick.add(quickItem("实名审核", num(row, "pendingUsers"), "待审核", "/appuser/realname"));
+        quick.add(quickItem("创作者审核", num(row, "pendingCreators"), "待审核", "/appuser/creator-apply"));
 
         // 作品状态分布
         List<Map<String, Object>> statusList = new ArrayList<>();
