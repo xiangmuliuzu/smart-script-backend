@@ -28,9 +28,10 @@
           (SELECT COUNT(DISTINCT user_name) FROM sys_logininfor
              WHERE login_time &gt;= DATE_SUB(NOW(), INTERVAL 14 DAY)
                AND login_time &lt; DATE_SUB(NOW(), INTERVAL 7 DAY)) AS prevActiveUsers,
-          (SELECT COUNT(*) FROM sys_order WHERE status NOT IN ('completed','cancelled')) AS pendingOrders,
+          (SELECT COUNT(*) FROM sys_copyright_seal WHERE is_deleted = 0 AND review_status = 'pending') AS pendingSeals,
+          (SELECT COUNT(*) FROM sys_withdraw_apply WHERE status = 'pending') AS pendingWithdraws,
           (SELECT COUNT(*) FROM user_real_name_auth WHERE status = 'PENDING') AS pendingUsers,
-          (SELECT COUNT(*) FROM sys_report WHERE status = 'pending') AS pendingRisk
+          (SELECT COUNT(*) FROM user_creator_application WHERE status = 'PENDING') AS pendingCreators
     </select>
 
     <!-- 作品状态分布 -->
