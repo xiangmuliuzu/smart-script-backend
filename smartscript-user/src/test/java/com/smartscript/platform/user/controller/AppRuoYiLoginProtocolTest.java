@@ -17,7 +17,8 @@ class AppRuoYiLoginProtocolTest
     void errorUsesFriendlyMsgAndPreservesCooldownData()
     {
         var controller = new AppAuthController(mock(AppAuthenticationService.class), mock(SmsCodeService.class), new AppAuthProperties(),
-                mock(com.smartscript.platform.review.service.RiskCheckService.class));
+                mock(com.smartscript.platform.review.service.RiskCheckService.class),
+                mock(com.smartscript.platform.user.service.QrLoginService.class));
         var error = new com.smartscript.platform.user.exception.AppAuthException(AppAuthErrorCodes.SMS_COOLDOWN, 429, "操作过于频繁，请稍后再试",
                 java.util.Map.of("retryAfterSeconds", 60));
         var result = controller.authError(error);
@@ -35,7 +36,8 @@ class AppRuoYiLoginProtocolTest
         when(service.ruoyiPasswordLogin("user", "password", "1234", "captcha", "127.0.0.1"))
                 .thenReturn(session);
         AppAuthController controller = new AppAuthController(service, mock(SmsCodeService.class), new AppAuthProperties(),
-                mock(com.smartscript.platform.review.service.RiskCheckService.class));
+                mock(com.smartscript.platform.review.service.RiskCheckService.class),
+                mock(com.smartscript.platform.user.service.QrLoginService.class));
         LoginBody request = new LoginBody(); request.setUsername(" user "); request.setPassword("password");
         request.setCode("1234"); request.setUuid("captcha");
         var result = controller.login(request, new MockHttpServletRequest());

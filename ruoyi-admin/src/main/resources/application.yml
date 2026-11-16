@@ -122,6 +122,11 @@ app:
     redis-key-prefix: ${APP_REDIS_KEY_PREFIX:}
     # 同一账号最多同时保留的 App 登录会话数；0 = 不限制。
     max-devices: ${APP_AUTH_MAX_DEVICES:3}
+    # 扫码登录：PC 出码，App 扫码确认后由 PC 轮询取回同一套 App 域令牌。
+    qr-login:
+      ticket-ttl-seconds: ${APP_QR_TICKET_TTL_SECONDS:120}
+      poll-interval-seconds: ${APP_QR_POLL_INTERVAL_SECONDS:2}
+      consume-ttl-seconds: ${APP_QR_CONSUME_TTL_SECONDS:60}
     sms:
       provider: ${SMS_PROVIDER:mock}
       access-key-id: ${SMS_ACCESS_KEY_ID:}

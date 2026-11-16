@@ -74,6 +74,14 @@ public class AppAuthSecurityConfig
                                 "/api/v1/auth/password/reset",
                                 "/api/v1/auth/register",
                                 "/api/v1/pc-auth/login").permitAll()
+                        // 扫码登录：登录页尚无身份，出码与轮询必须匿名可达；
+                        // 扫码 / 确认 / 取消仍要求 App 身份（下面 authenticated() 覆盖）。
+                        // 两条路径必须与 AppAuthAuthenticationFilter.PUBLIC_PATHS 同步登记，
+                        // 否则过滤器会先按「需要身份」返回 401。
+                        .requestMatchers(HttpMethod.POST,
+                                "/api/v1/auth/qr/create",
+                                "/api/v1/auth/qr/poll",
+                                "/api/v1/auth/qr/abort").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/trade/alipay/sandbox/notify").permitAll()
                         // 版权第三方代理回调（国版补正/结果消息）
                         .requestMatchers(HttpMethod.POST, "/api/v1/open/copyright/third-party/messages").permitAll()

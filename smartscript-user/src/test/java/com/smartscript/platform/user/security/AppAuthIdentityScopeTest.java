@@ -49,6 +49,11 @@ class AppAuthIdentityScopeTest
                 "/api/v1/auth/me",
                 "/api/v1/auth/password/set",
                 "/api/v1/auth/password/change",
+                // 扫码登录：只有出码与轮询匿名可达；扫码 / 确认 / 取消必须带 App 身份，
+                // 否则任何人都能替别人确认一张票据。
+                "/api/v1/auth/qr/scan",
+                "/api/v1/auth/qr/confirm",
+                "/api/v1/auth/qr/cancel",
         };
         for (String path : protectedPaths)
         {
@@ -71,6 +76,10 @@ class AppAuthIdentityScopeTest
                 "/api/v1/auth/login",
                 "/api/v1/auth/captchaImage",
                 "/api/v1/auth/agreements",
+                // 扫码登录：PC 登录页在拿到任何身份之前出码与轮询。
+                "/api/v1/auth/qr/create",
+                "/api/v1/auth/qr/poll",
+                "/api/v1/auth/qr/abort",
         };
         for (String path : publicPaths)
         {

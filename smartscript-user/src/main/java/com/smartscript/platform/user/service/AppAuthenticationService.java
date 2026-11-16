@@ -225,6 +225,20 @@ public class AppAuthenticationService
         return issueSession(user, "pc-web", "PC Web", ip);
     }
 
+    /**
+     * 扫码登录（PC 轮询取票）签发会话：账号身份已由一次性票据确认，此处不再校验口令。
+     *
+     * <p>仍然重新读一次账号：从 App 确认到 PC 取票之间存在时间窗，
+     * 期间账号若被停用或删除，必须按停用口径拒绝，而不是照旧发牌。</p>
+     */
+    @Transactional
+    public AuthSessionDto issueQrLoginSession(Long userId, String ip)
+    {
+        AppUserRecord user = requireUser(userId);
+        auditLoginSuccessAfterCommit(maskPhone(user.getPhonenumber()), ip, "scene=QR_LOGIN userId=" + user.getUserId());
+        return issueSession(user, "pc-web", "PC Web", ip);
+    }
+
     @Transactional
     public AuthSessionDto register(RegisterRequest request, String ip)
     {
