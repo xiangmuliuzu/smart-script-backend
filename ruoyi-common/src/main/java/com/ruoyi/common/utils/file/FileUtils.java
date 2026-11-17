@@ -164,9 +164,36 @@ public class FileUtils
             return true;
         }
 
+        // 应用内更新的安装包：只放行 app/ 目录下的 apk。
+        // 其余位置一律继续拒绝——管理端「文件管理」与通用下载接口同样走这里。
+        if (isAppPackage(resource))
+        {
+            return true;
+        }
+
         // 不在允许下载的文件规则
         return false;
     }
+
+    /** 是否为应用内更新分发的安装包路径（仅 {@code app/} 目录下的 apk，服务端落盘用）。 */
+    private static boolean isAppPackage(String resource)
+    {
+        String path = resource.replace('\\', '/');
+        String lower = path.toLowerCase();
+        if (!lower.endsWith(".apk"))
+        {
+            return false;
+        }
+        if (lower.startsWith("/"))
+        {
+            path = path.substring(1);
+            lower = lower.substring(1);
+        }
+        return lower.startsWith(APP_PACKAGE_DIR_PREFIX);
+    }
+
+    /** 应用内更新安装包目录（profile 根下的相对路径前缀）。 */
+    public static final String APP_PACKAGE_DIR_PREFIX = "app/";
 
     /**
      * 下载文件名重新编码
