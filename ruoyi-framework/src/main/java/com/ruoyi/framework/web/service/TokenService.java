@@ -42,15 +42,22 @@ public class TokenService
     @Value("${token.secret}")
     private String secret;
 
-    // 令牌有效期（默认30分钟）
+    // 令牌有效期（分钟，默认 30）：管理端与 PC 端沿用
     @Value("${token.expireTime}")
     private int expireTime;
+
+    // App 端令牌有效期（分钟，默认 10080 = 7 天，按「最后活跃时间」滑动续期）
+    @Value("${token.appExpireTime:10080}")
+    private int appExpireTime;
 
     protected static final long MILLIS_SECOND = 1000;
 
     protected static final long MILLIS_MINUTE = 60 * MILLIS_SECOND;
 
     private static final Long MILLIS_MINUTE_TWENTY = 20 * 60 * 1000L;
+
+    /** App 端滑动续期的最小间隔：距上次续期不足该时长就跳过写 Redis，避免每个请求都落库。 */
+    private static final long APP_RENEW_INTERVAL_MILLIS = 60 * MILLIS_MINUTE;
 
     @Autowired
     private RedisCache redisCache;
@@ -188,21 +195,30 @@ public class TokenService
     }
 
     /**
-     * 验证令牌有效期，相差不足20分钟，自动刷新缓存
-     * 
+     * 验证令牌有效期并续期。
+     *
+     * <p>管理端保持若依原口径：剩余不足 20 分钟才续期，有效期 {token.expireTime} 分钟。
+     * App 端按「最后活跃时间」滑动过期：过期时间推到 now + {token.appExpireTime}，
+     * 只要连续 7 天内使用过就不会掉登录，停用满 7 天才失效。为省 Redis 写入，
+     * 距上次续期不足 1 小时则跳过，因此实际失效点最多比「最后一个请求 + 7 天」晚 1 小时。
+     * 以前沿用 30 分钟 + 「剩 20 分钟才续」的规则，用户稍一停顿就会被踢回登录页。</p>
+     *
      * @param loginUser 登录信息
-     * @return 令牌
      */
     public void verifyToken(LoginUser loginUser)
     {
         long expireTime = loginUser.getExpireTime();
         long currentTime = System.currentTimeMillis();
-        if (expireTime - currentTime <= MILLIS_MINUTE_TWENTY)
+        boolean app = isAppSession(loginUser);
+        int ttlMinutes = app ? appExpireTime : this.expireTime;
+        if (app
+                ? expireTime - currentTime <= ttlMinutes * MILLIS_MINUTE - APP_RENEW_INTERVAL_MILLIS
+                : expireTime - currentTime <= MILLIS_MINUTE_TWENTY)
         {
             loginUser.setLoginTime(currentTime);
-            loginUser.setExpireTime(currentTime + this.expireTime * MILLIS_MINUTE);
+            loginUser.setExpireTime(currentTime + ttlMinutes * MILLIS_MINUTE);
             boolean renewed = redisCache.setCacheObjectIfPresent(getTokenKey(loginUser.getToken()), loginUser,
-                    this.expireTime, TimeUnit.MINUTES);
+                    ttlMinutes, TimeUnit.MINUTES);
             if (renewed)
             {
                 // 只有续期成功才更新索引，避免把已退出/已踢除的会话重新写回。
@@ -212,18 +228,25 @@ public class TokenService
     }
 
     /**
-     * 刷新令牌有效期
-     * 
+     * 刷新令牌有效期（新建会话时调用）。
+     *
      * @param loginUser 登录信息
      */
     public void refreshToken(LoginUser loginUser)
     {
+        int ttlMinutes = isAppSession(loginUser) ? appExpireTime : expireTime;
         loginUser.setLoginTime(System.currentTimeMillis());
-        loginUser.setExpireTime(loginUser.getLoginTime() + expireTime * MILLIS_MINUTE);
+        loginUser.setExpireTime(loginUser.getLoginTime() + ttlMinutes * MILLIS_MINUTE);
         // 根据uuid将loginUser缓存
         String userKey = getTokenKey(loginUser.getToken());
-        redisCache.setCacheObject(userKey, loginUser, expireTime, TimeUnit.MINUTES);
+        redisCache.setCacheObject(userKey, loginUser, ttlMinutes, TimeUnit.MINUTES);
         loginSessionRegistry.add(loginUser);
+    }
+
+    /** App 凭证域会话（见 LoginUser#credentialDomain）。 */
+    private static boolean isAppSession(LoginUser loginUser)
+    {
+        return loginUser != null && "app".equals(loginUser.getCredentialDomain());
     }
 
     /**

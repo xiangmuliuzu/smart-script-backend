@@ -76,7 +76,7 @@
 | `APP_AUTH_ENV` | `local` / `test` 才允许 `SMS_PROVIDER=mock` |
 | `APP_SMS_MOCK_CODE` | mock 短信固定验证码。本地联调时可设为 `123456`，App 端即用该码通过短信验证；也可临时修改 `application.yml` 中 `app.sms.mock-fixed-code` 的默认值（勿提交） |
 
-可选：`SERVER_PORT`（默认 8080）、`TOKEN_EXPIRE_MINUTES`（默认 30）、
+可选：`SERVER_PORT`（默认 8080）、`TOKEN_EXPIRE_MINUTES`（管理端会话有效期，默认 30）、`APP_TOKEN_EXPIRE_MINUTES`（App 端会话有效期，默认 10080 即 7 天，按最后活跃时间滑动续期）、
 `DRUID_LOGIN_USERNAME` / `DRUID_LOGIN_PASSWORD`、`APP_ACCESS_TOKEN_TTL` /
 `APP_REFRESH_TOKEN_TTL`、`APP_AGREEMENT_*` 等，详见 `.env.example` 与 `application.yml`。
 
