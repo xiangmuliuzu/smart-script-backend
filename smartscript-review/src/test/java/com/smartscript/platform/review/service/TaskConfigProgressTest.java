@@ -219,8 +219,33 @@ class TaskConfigProgressTest {
     }
 
     @Test
-    void report_非每日任务跨天_继续累计() {
+    void report_阅读任务跨天_重新计数() {
         dailyTask.setTaskType("READING");
+        when(taskConfigMapper.selectTaskConfigByCode("READ_CHAPTER")).thenReturn(dailyTask);
+        UserTask ut = new UserTask();
+        ut.setId(5L);
+        ut.setUserId(106L);
+        ut.setTaskId(1L);
+        ut.setProgress(2);
+        ut.setIsCompleted(0);
+        ut.setIsClaimed(0);
+        try {
+            ut.setPeriodDate(new SimpleDateFormat("yyyy-MM-dd").parse("2020-01-01"));
+        } catch (Exception ignored) {
+        }
+        when(userTaskMapper.selectByUserAndTask(106L, 1L)).thenReturn(ut);
+        when(userTaskMapper.insertUserTask(any())).thenReturn(1);
+
+        Map<String, Object> r = taskConfigService.reportProgress("READ_CHAPTER", 106L, 1);
+        assertEquals(200, r.get("code"));
+        assertEquals(1, r.get("progress"));
+        verify(userTaskMapper, times(1)).insertUserTask(any());
+        verify(userTaskMapper, never()).updateUserTaskProgress(any());
+    }
+
+    @Test
+    void report_终身任务跨天_继续累计() {
+        dailyTask.setTaskType("ONCE");
         when(taskConfigMapper.selectTaskConfigByCode("READ_CHAPTER")).thenReturn(dailyTask);
         UserTask ut = new UserTask();
         ut.setId(5L);

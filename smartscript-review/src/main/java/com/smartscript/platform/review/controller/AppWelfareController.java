@@ -3,6 +3,7 @@ package com.smartscript.platform.review.controller;
 import com.ruoyi.common.annotation.Anonymous;
 import com.smartscript.platform.review.domain.*;
 import com.smartscript.platform.review.mapper.*;
+import com.smartscript.platform.review.service.TaskConfigService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
@@ -75,6 +76,7 @@ public class AppWelfareController {
     @GetMapping("/tasks")
     public Map<String, Object> tasks(@RequestParam("userId") Long userId) {
         if (userId == null) return fail(400, "userId 必填");
+        String today = new SimpleDateFormat("yyyy-MM-dd").format(new Date());
         List<TaskConfig> all = taskConfigMapper.selectTaskConfigList(new TaskConfig());
         List<Map<String, Object>> list = new ArrayList<>();
         for (TaskConfig t : all) {
@@ -89,11 +91,22 @@ public class AppWelfareController {
             m.put("rewardPoints", t.getRewardPoints());
             m.put("icon", t.getIcon());
             UserTask ut = userTaskMapper.selectByUserAndTask(userId, t.getTaskId());
-            m.put("progress", ut == null || ut.getProgress() == null ? 0 : ut.getProgress());
-            m.put("isCompleted", ut == null || ut.getIsCompleted() == null ? 0 : ut.getIsCompleted());
-            m.put("isClaimed", ut == null || ut.getIsClaimed() == null ? 0 : ut.getIsClaimed());
-            m.put("periodDate", ut == null || ut.getPeriodDate() == null ? null
-                    : new SimpleDateFormat("yyyy-MM-dd").format(ut.getPeriodDate()));
+            String periodDate = ut == null || ut.getPeriodDate() == null ? null
+                    : new SimpleDateFormat("yyyy-MM-dd").format(ut.getPeriodDate());
+            // 每日刷新任务：跨天后展示今日空进度，避免昨天「已领取」残留
+            boolean staleDaily = TaskConfigService.isDailyRefresh(t)
+                    && periodDate != null && !today.equals(periodDate);
+            if (staleDaily) {
+                m.put("progress", 0);
+                m.put("isCompleted", 0);
+                m.put("isClaimed", 0);
+                m.put("periodDate", null);
+            } else {
+                m.put("progress", ut == null || ut.getProgress() == null ? 0 : ut.getProgress());
+                m.put("isCompleted", ut == null || ut.getIsCompleted() == null ? 0 : ut.getIsCompleted());
+                m.put("isClaimed", ut == null || ut.getIsClaimed() == null ? 0 : ut.getIsClaimed());
+                m.put("periodDate", periodDate);
+            }
             list.add(m);
         }
         Map<String, Object> data = new HashMap<>();
@@ -162,10 +175,15 @@ public class AppWelfareController {
             m.put("adType", ad.getAdType());
             m.put("adPosition", ad.getAdPosition());
             m.put("rewardPoints", ad.getRewardPoints());
-            m.put("watchLimit", ad.getWatchLimit());
+            // 单广告每日上限：优先 watchLimit，否则用 frequencyLimit
+            int perAdLimit = ad.getWatchLimit() != null && ad.getWatchLimit() > 0
+                    ? ad.getWatchLimit()
+                    : (ad.getFrequencyLimit() == null ? 0 : ad.getFrequencyLimit());
+            m.put("watchLimit", perAdLimit);
             m.put("dailyCap", ad.getDailyCap());
             m.put("frequencyLimit", ad.getFrequencyLimit());
-            m.put("watchedToday", pointsRecordMapper.countAdDaily(userId, today));
+            // 按广告维度统计今日已看，跨天自然归零
+            m.put("watchedToday", pointsRecordMapper.countAdClaims(userId, ad.getAdId(), today));
             list.add(m);
         }
         Map<String, Object> data = new HashMap<>();
