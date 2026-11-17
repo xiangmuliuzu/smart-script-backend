@@ -207,8 +207,10 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
 
         // 页面先保存过分集骨架时，库里已有同序号的空章；队列按「第N集：标题」回填，直接复用该章，
         // 否则同一集会变成"空章 + 新建正文"两章，作品集数翻倍、首页停在空白第 1 集。
+        // 同一集被重新生成（队列重跑）时也要复用已有正文的章，否则每跑一次就多出一章，
+        // 集号错位后验收记录、状态板都会记到不存在的集上。
         int targetNo = chapterNoFromTitle(chapterTitle);
-        SysWorkChapter blank = targetNo > 0 ? findBlankChapter(workId, targetNo) : null;
+        SysWorkChapter blank = targetNo > 0 ? findChapterByNo(workId, targetNo) : null;
         if (blank != null)
         {
             SysWorkChapter fill = new SysWorkChapter();
@@ -253,8 +255,11 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
         return matcher.find() ? Integer.parseInt(matcher.group(1)) : 0;
     }
 
-    /** 找同序号的空章（尚无正文），用于把生成结果填回页面已保存的分集骨架。 */
-    private SysWorkChapter findBlankChapter(Long workId, int chapterNo)
+    /**
+     * 找同序号的章节：队列重生成同一集时覆盖原章，页面上已存的空骨架同样命中。
+     * 同一集只保留一章，避免集号漂移（验收记录与状态板都按集号归属）。
+     */
+    private SysWorkChapter findChapterByNo(Long workId, int chapterNo)
     {
         SysWorkChapter query = new SysWorkChapter();
         query.setWorkId(workId);
@@ -267,13 +272,7 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
         {
             if (item.getChapterNo() != null && item.getChapterNo() == chapterNo)
             {
-                SysWorkChapter detail = chapterMapper.selectChapterDetail(item.getChapterId());
-                if (detail == null)
-                {
-                    return null;
-                }
-                String existing = detail.getStorageContent();
-                return (existing == null || existing.trim().isEmpty()) ? detail : null;
+                return chapterMapper.selectChapterDetail(item.getChapterId());
             }
         }
         return null;
