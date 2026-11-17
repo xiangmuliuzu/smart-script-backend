@@ -562,7 +562,7 @@ public class TradeContractService
             Long counterpartId = "buyer".equals(party) ? sellerId : buyerId;
             String signerName = displayName("buyer".equals(party) ? buyerId : sellerId,
                     "buyer".equals(party) ? (String) contract.get("buyerName") : (String) contract.get("sellerName"));
-            notifyService.notifyContractSignedByParty(contractId, orderNo, workTitle, orderAmount,
+            notifyService.notifyContractSignedByParty(contractId, orderId, orderNo, workTitle, orderAmount,
                     (String) contract.get("licenseType"), signerName, counterpartId);
         }
 

@@ -232,6 +232,32 @@
         ORDER BY s.stage_id ASC
     </select>
 
+    <!-- 定时提醒扫描：未到截止但已进入 horizonMinutes 窗口的活动轮（跨全库）。
+         过滤条件与 selectOverdueActiveStages 逐条对应，只把「已过截止」换成「窗口内」；
+         已接单是硬条件——提醒只发给接单人，没接单的轮次发出去也没人收。 -->
+    <select id="selectDueSoonActiveStages" resultMap="StageResult">
+        SELECT s.*, w.title AS work_title
+        FROM sys_demand_stage s
+        JOIN sys_demand d ON d.demand_id = s.demand_id
+        LEFT JOIN sys_work w ON w.work_id = s.work_id
+        WHERE d.status = 'in_progress'
+          AND d.accepted_creator_id IS NOT NULL
+          AND s.started_at IS NOT NULL
+          AND s.status IN ('pending', 'rejected')
+          AND (s.extend_status IS NULL OR s.extend_status &lt;&gt; 'pending')
+          AND s.due_at IS NOT NULL
+          AND s.due_at &gt; NOW()
+          AND s.due_at &lt;= DATE_ADD(NOW(), INTERVAL #{horizonMinutes} MINUTE)
+          AND s.stage_order = (
+              SELECT MIN(s2.stage_order)
+              FROM sys_demand_stage s2
+              WHERE s2.demand_id = s.demand_id
+                AND s2.started_at IS NOT NULL
+                AND s2.status IN ('pending', 'ai_reviewing', 'submitted', 'rejected')
+          )
+        ORDER BY s.stage_id ASC
+    </select>
+
     <!-- 顺延截止（驳回恢复计时/延期批准/自主延期共用），并清零逾期 -->
     <update id="pushDue">
         UPDATE sys_demand_stage
