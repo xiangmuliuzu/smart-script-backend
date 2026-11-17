@@ -1222,11 +1222,12 @@ public class TradeContractService
     }
 
     /**
-     * 校验并归一化上传件签章定位 JSON：数组，每项 {kind,page,x,y,w[,h]}。
-     * kind∈{signature,seal}；page∈[0,pageCount)；x/y/w∈[0,1] 比例坐标（左上角，y 自顶向下）。
+     * 校验并归一化上传件签章定位 JSON：数组，每项 {kind,page,x,y,w,rot}。
+     * kind∈{signature,seal}；page∈[0,pageCount)；x/y/w∈[0,1] 比例坐标（左上角，y 自顶向下）；
+     * rot∈[-180,180] 绕浮块中心的顺时针角度（度），缺省 0。
      * 返回紧凑 JSON 字符串落库；非法抛 IllegalArgumentException。
      */
-    private String normalizePlacements(String placementsJson, Object pageCountObj)
+    static String normalizePlacements(String placementsJson, Object pageCountObj)
     {
         if (placementsJson == null || placementsJson.trim().isEmpty())
         {
@@ -1278,12 +1279,19 @@ public class TradeContractService
             {
                 throw new IllegalArgumentException("签章超出页面右边界（x + w 须 ≤ 1）");
             }
+            // rot：绕浮块中心的顺时针角度，缺省 0；老数据没有该字段，按不旋转处理
+            double rot = node.path("rot").asDouble(0);
+            if (Double.isNaN(rot) || rot < -180 || rot > 180)
+            {
+                throw new IllegalArgumentException("签章旋转角须为 -180~180 度之间的数字");
+            }
             Map<String, Object> item = new LinkedHashMap<>();
             item.put("kind", kind);
             item.put("page", page);
             item.put("x", x);
             item.put("y", y);
             item.put("w", w);
+            item.put("rot", rot);
             normalized.add(item);
         }
         try
@@ -1381,7 +1389,7 @@ public class TradeContractService
             out.add(new ContractPdfRenderer.Stamp(
                     image, node.path("page").asInt(0),
                     node.path("x").asDouble(0), node.path("y").asDouble(0),
-                    node.path("w").asDouble(0.1), kind));
+                    node.path("w").asDouble(0.1), node.path("rot").asDouble(0), kind));
         }
     }
 
