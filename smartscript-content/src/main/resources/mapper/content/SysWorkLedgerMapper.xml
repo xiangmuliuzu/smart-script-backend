@@ -23,11 +23,12 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		<result property="styleGuide"    column="style_guide"    />
 		<result property="outline"       column="outline"        />
 		<result property="threads"       column="threads"        />
+		<result property="stateBoard"    column="state_board"    />
 		<result property="updateTime"    column="update_time"    />
 	</resultMap>
 
 	<select id="selectByWorkId" parameterType="Long" resultMap="SysWorkLedgerResult">
-		select work_id, story_summary, characters, relations, foreshadow, timeline, items, props, style_guide, outline, threads,
+		select work_id, story_summary, characters, relations, foreshadow, timeline, items, props, style_guide, outline, threads, state_board,
 		       date_format(update_time, '%Y-%m-%d %H:%i:%s') as update_time
 		from sys_work_ledger
 		where work_id = #{workId}
@@ -36,7 +37,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 	<!-- 整条覆盖写入；并发下由主键 work_id 保证只有一条 -->
 	<insert id="upsertLedger" parameterType="SysWorkLedger">
 		insert into sys_work_ledger
-			(work_id, story_summary, characters, relations, foreshadow, timeline, items, props, style_guide, outline, threads, create_time, update_time)
+			(work_id, story_summary, characters, relations, foreshadow, timeline, items, props, style_guide, outline, threads, state_board, create_time, update_time)
 		values
 			(#{workId},
 			 ifnull(#{storySummary}, ''),
@@ -49,6 +50,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 			 ifnull(#{styleGuide}, ''),
 			 ifnull(#{outline}, ''),
 			 ifnull(#{threads}, ''),
+			 ifnull(#{stateBoard}, ''),
 			 now(), now())
 		on duplicate key update
 			story_summary = values(story_summary),
@@ -61,6 +63,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 			style_guide   = coalesce(nullif(values(style_guide), ''), style_guide),
 			outline       = coalesce(nullif(values(outline), ''), outline),
 			threads       = values(threads),
+			state_board   = coalesce(nullif(values(state_board), ''), state_board),
 			update_time   = now()
 	</insert>
 

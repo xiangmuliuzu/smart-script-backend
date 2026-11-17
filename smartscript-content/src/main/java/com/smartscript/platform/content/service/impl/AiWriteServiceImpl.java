@@ -39,6 +39,7 @@ import com.smartscript.platform.content.service.AiCallResult;
 import com.smartscript.platform.content.service.AiServiceClient;
 import com.smartscript.platform.content.service.ChapterSummarySupport;
 import com.smartscript.platform.content.service.ChapterReviewSupport;
+import com.smartscript.platform.content.service.WorkStateBoardSupport;
 import com.smartscript.platform.content.service.IAiChannelService;
 import com.smartscript.platform.content.service.IAiWriteService;
 import com.smartscript.platform.identity.IdentityProvider;
@@ -406,7 +407,7 @@ public class AiWriteServiceImpl implements IAiWriteService
                 resolveModel(r), r.getTotalTokens());
         consumePoints(identityProvider.currentUserId(), "outline", recordId, r.getTotalTokens());
         AppAiOutlineResult result = new AppAiOutlineResult(outline, requestNo,
-                Math.max(1, r.getTotalTokens()), false);
+                Math.max(1, r.getTotalTokens()), r.isTruncated());
         result.setContent(r.getContent());
         return result;
     }
@@ -491,7 +492,8 @@ public class AiWriteServiceImpl implements IAiWriteService
                 CAPABILITY_OUTLINE, buildOutlineInputText(request), outlineToText(outline),
                 resolveModel(r), r.getTotalTokens());
         consumePoints(identityProvider.currentUserId(), "outline", recordId, r.getTotalTokens());
-        return new AppAiOutlineResult(outline, requestNo, Math.max(1, r.getTotalTokens()), false);
+        return new AppAiOutlineResult(outline, requestNo, Math.max(1, r.getTotalTokens()),
+                r.isTruncated());
     }
 
     private static void requireContinuationContext(String prompt)
@@ -1032,10 +1034,24 @@ public class AiWriteServiceImpl implements IAiWriteService
         }
         String ledgerText = buildLedgerContext(userId, workId);
         String settingText = buildSettingContext(userId, workId);
+        // 状态板是连续性的第一判据：只带「上一集结束时已经成立」的所在/持有/认知/约定。
+        String stateBoard = BLANK;
+        try
+        {
+            SysWorkLedger board = workLedgerService.getLedger(workId);
+            if (board != null && board.getStateBoard() != null)
+            {
+                stateBoard = board.getStateBoard();
+            }
+        }
+        catch (Exception e)
+        {
+            log.debug("读取状态板失败 workId={}：{}", workId, e.getMessage());
+        }
         AiChannel channel = resolveChannel(model);
         String system = ChapterReviewSupport.reviewSystemPrompt();
         String user = ChapterReviewSupport.reviewUserPrompt(displayTitle, prevSummary, settingText, ledgerText,
-                ChapterSummarySupport.clipBody(body, ChapterSummarySupport.BODY_CLIP));
+                stateBoard, ChapterSummarySupport.clipBody(body, ChapterSummarySupport.BODY_CLIP));
         AiCallResult r = (channel == null)
                 ? aiServiceClient.chatText(system, user)
                 : aiServiceClient.chatText(system, user, channel.getBaseUrl(), channel.getApiKey(), channelModel(channel, model));
@@ -1065,6 +1081,8 @@ public class AiWriteServiceImpl implements IAiWriteService
         result.put("issues", issues);
         result.put("recordId", recordId);
         result.put("tokens", Math.max(1, r.getTotalTokens()));
+        // 本集结束时的状态增量：调用方（队列）据此增量更新状态板，供下一集注入。
+        result.put("stateDelta", WorkStateBoardSupport.deltaText(root));
         return result;
     }
 

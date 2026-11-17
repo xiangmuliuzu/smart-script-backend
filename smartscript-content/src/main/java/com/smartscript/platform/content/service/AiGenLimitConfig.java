@@ -40,6 +40,9 @@ public class AiGenLimitConfig
     /** 分集事件卡单批默认 token 上限 */
     public static final int DEFAULT_EPISODE_TOKENS = 8192;
 
+    /** 大纲（一次性输出整部分集 JSON）默认单次 token 上限 */
+    public static final int DEFAULT_OUTLINE_TOKENS = 8192;
+
     /** 正文单次默认 token 上限 */
     public static final int DEFAULT_WRITE_TOKENS = 8192;
 
@@ -92,7 +95,7 @@ public class AiGenLimitConfig
     /**
      * 读取单次生成 token 上限（设定 / 事件卡 / 正文三者各自独立，互不占用）。
      *
-     * 存储于 sys_config，key = {@code ai.gen.max_tokens.{setting|episode|write}}；
+     * 存储于 sys_config，key = {@code ai.gen.max_tokens.{setting|episode|outline|write}}；
      * 0 表示不限（请求不传 max_tokens，交给模型默认）；配置缺失/非法回退默认值。
      */
     public int maxTokens(String capability)
@@ -129,6 +132,10 @@ public class AiGenLimitConfig
         if ("episode".equals(capability))
         {
             return DEFAULT_EPISODE_TOKENS;
+        }
+        if ("outline".equals(capability))
+        {
+            return DEFAULT_OUTLINE_TOKENS;
         }
         return DEFAULT_WRITE_TOKENS;
     }

@@ -187,7 +187,7 @@ public class AiServiceClient
                 + "写法要求：开头一句自然交代本集发生的地点和时间（如“顾家老宅的院子里，午后的日头正毒”），"
                 + "不要写“场景1”“内景/外景”这类场景头，也不要写镜号、景别、运镜、转场，这些交给分镜环节；"
                 + "正文以人物动作和对白推进，对白用“角色：台词”格式，句子短、有来有回；"
-                + "篇幅 700-900 字，只写这一集，本集要有完整结果，结尾留一个具体钩子（一个动作、一句关键台词或一个未解的画面）；"
+                + "篇幅不超过 1500 字（不设下限，本集事重要可略超），只写这一集，本集要有完整结果，结尾留一个具体钩子（一个动作、一句关键台词或一个未解的画面）；"
                 + "不要解释、不要章节标题、不要任何前后缀。";
         return streamChat(appendSkill(system, skillContent), prompt + typeHint, onDelta);
     }
@@ -284,7 +284,7 @@ public class AiServiceClient
                 + "（大纲没写清就写「待定」，绝不自行编出第二套件数，例如不要同时出现十二面与十三面）；"
                 + "禁止在一行里用分号再列第二件。"
                 + "『写法基线』：写成可直接执行的写作规则——叙述人称、句子长短、对白与叙述比例、禁用写法"
-                + "（不写场景头、镜号、景别、运镜，不用全角括号补叙）；并写明每集正文严格控制在 700-900 字。"
+                + "（不写场景头、镜号、景别、运镜，不用全角括号补叙）；并写明每集正文不超过 1500 字（不设下限，事重要可略超）。"
                 + "直接输出中文可读文本，不要解释，不要 JSON，不要 Markdown 代码块。";
         String episodeSystem = base + "本次只输出分集事件卡，不要重复故事简介、主要人物、人物关系、道具档案与写法基线，直接从第1集开始编号。";
         String contSystem = base + "本次只输出指定集号区间的事件卡，不要重复故事简介、主要人物、人物关系、道具档案与写法基线，不要重写前情，"
@@ -1097,6 +1097,13 @@ public class AiServiceClient
      */
     private AiCallResult chat(String system, String user, String baseUrl, String apiKey, String model)
     {
+        return chat(system, user, baseUrl, apiKey, model, tokenLimit("write", 8192));
+    }
+
+    /** 调用 Chat Completions（可指定本次输出额度：大纲与正文各用各的 token 预算）。 */
+    private AiCallResult chat(String system, String user, String baseUrl, String apiKey, String model,
+                              int maxTokens)
+    {
         String url = resolveBaseUrl(baseUrl);
         String key = resolveApiKey(apiKey);
         String m = resolveModel(model);
@@ -1110,7 +1117,6 @@ public class AiServiceClient
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("model", m);
         body.put("messages", messages);
-        int maxTokens = tokenLimit("write", 8192);
         if (maxTokens > 0)
         {
             body.put("max_tokens", maxTokens);
@@ -1288,7 +1294,9 @@ public class AiServiceClient
                     + "\"episodes\":[{\"no\":1,\"title\":\"本集事件名（不超过12字）\","
                     + "\"card\":\"开场承接 / 本集事件 / 冲突与推进 / 结果或反转 / 结尾钩子，100-180字；开场承接须写清上集停在哪、本集从哪接、隔了多久，第1集写开篇无前情\"}]}";
             String user = "故事灵感：" + insp + "\n题材：" + genreHint + "\n集数：" + count + " 集";
-            return chat(appendSkill(system, skillContent), user, baseUrl, apiKey, model);
+            // 大纲一次性输出整部分集 JSON，单独用 ai.gen.max_tokens.outline，不占用正文额度
+            return chat(appendSkill(system, skillContent), user, baseUrl, apiKey, model,
+                    tokenLimit("outline", 8192));
         }
         String system = "你是一名资深网文策划编辑，擅长帮完全不懂创作的普通人快速产出专业级剧本大纲。"
                 + "请根据用户给出的灵感、题材与风格，生成一份结构完整、可直接展开成剧本的小说大纲；"
@@ -1322,7 +1330,7 @@ public class AiServiceClient
                 + "写法要求：开头一句自然交代本集发生的地点和时间（如“顾家老宅的院子里，午后的日头正毒”），"
                 + "不要写“场景1”“内景/外景”这类场景头，也不要写镜号、景别、运镜、转场，这些交给分镜环节；"
                 + "正文以人物动作和对白推进，对白用“角色：台词”格式，句子短、有来有回；"
-                + "篇幅 700-900 字，只写这一集，本集要有完整结果，结尾留一个具体钩子（一个动作、一句关键台词或一个未解的画面）；"
+                + "篇幅不超过 1500 字（不设下限，本集事重要可略超），只写这一集，本集要有完整结果，结尾留一个具体钩子（一个动作、一句关键台词或一个未解的画面）；"
                 + "不要解释、不要章节标题、不要任何前后缀。";
         return streamChat(appendSkill(system, skillContent), prompt + typeHint, onDelta, baseUrl, apiKey, model);
     }
