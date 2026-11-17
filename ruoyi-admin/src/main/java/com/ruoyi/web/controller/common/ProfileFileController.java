@@ -437,6 +437,9 @@ public class ProfileFileController
             // 文档文件
             case "pdf":
                 return "application/pdf";
+            // 应用内更新的安装包：按二进制下发，系统下载/安装器据此识别
+            case "apk":
+                return "application/vnd.android.package-archive";
             case "doc":
                 return "application/msword";
             case "docx":

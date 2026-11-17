@@ -47,7 +47,7 @@ public class AppAuthSecurityConfig
             "/api/v1/auth/**", "/api/v1/users/**", "/api/v1/messages/**", "/api/v1/feedback/**",
             "/api/v1/content/**", "/api/v1/pc-auth/**", "/api/v1/announcements/**",
             "/api/v1/trade/**", "/api/v1/welfare/**", "/api/v1/ad/**", "/api/v1/ai/**",
-            "/api/v1/open/**"
+            "/api/v1/open/**", "/api/v1/app/**"
     };
 
     @Bean
@@ -95,6 +95,8 @@ public class AppAuthSecurityConfig
                                 "/api/v1/auth/agreements").permitAll()
                         // 开屏素材在登录及会话恢复之前获取，仅公开此只读接口。
                         .requestMatchers(HttpMethod.GET, "/api/v1/ad/splash").permitAll()
+                        // App 版本检查：冷启动时先于登录发生，必须匿名可达（只读，无敏感数据）。
+                        .requestMatchers(HttpMethod.GET, "/api/v1/app/version").permitAll()
                         // B 模块上传与创作私有 GET（2.9.5~2.9.9）：必须声明在 /works/** 白名单之前，
                         // 否则会被下面的游客 GET 规则误放为可匿名访问（Spring Security 首匹配优先）
                         .requestMatchers(HttpMethod.GET,
@@ -138,7 +140,7 @@ public class AppAuthSecurityConfig
                                 "/api/v1/messages/**", "/api/v1/feedback/**",
                                 "/api/v1/content/**", "/api/v1/announcements/**",
                                 "/api/v1/trade/**", "/api/v1/welfare/**",
-                                "/api/v1/ad/**", "/api/v1/ai/**").authenticated()
+                                "/api/v1/ad/**", "/api/v1/ai/**", "/api/v1/app/**").authenticated()
                         .anyRequest().denyAll())
                 .addFilterBefore(appFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();
