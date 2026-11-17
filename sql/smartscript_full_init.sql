@@ -1166,7 +1166,6 @@ INSERT INTO sys_menu (menu_id, menu_name, parent_id, order_num, path, component,
 (5124, '印章审核',           5003, 6, 'seals',  'copyright/SealReview',                '', 1, 0, 'C', '0', '0', 'smartscript:copyright:seals',   'Stamp',  'A1', 'A1SEED'),
 (5130, '交易作品管理',       5004, 1, 'works',      'trade/TradeWorks',   '', 1, 0, 'C', '0', '0', 'trade:works:list',     'Sell',   'A1', 'A1SEED'),
 (5133, '询盘管理',           5004, 2, 'inquiry',    'trade/Inquiry',      '', 1, 0, 'C', '0', '0', 'trade:inquiry:list',   'Chat',   'A1', 'A1SEED'),
-(5135, '报价管理',           5004, 3, 'quote',      'trade/Quote',        '', 1, 0, 'C', '0', '0', 'trade:quote:list',     'Money',  'c-migration', 'C模块交易菜单补全'),
 (5131, '授权订单管理',       5004, 4, 'orders',     'trade/AuthOrders',   '', 1, 0, 'C', '0', '0', 'trade:orders:list',    'Sell',   'A1', 'A1SEED'),
 (5132, '合作方管理',         5004, 5, 'partners',   'trade/Partners',     '', 1, 0, 'C', '0', '0', 'trade:partners:list',  'User',   'A1', 'A1SEED'),
 (5136, '需求标签',           5004, 6, 'demand-tags','trade/DemandTags',   '', 1, 0, 'C', '0', '0', 'trade:tags:list',      'Tag',    'c-migration', 'C模块交易菜单补全'),
@@ -1245,7 +1244,7 @@ INSERT INTO sys_menu (menu_id, menu_name, parent_id, order_num, path, component,
 (5185, '询盘查询',       5133, 1, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'trade:inquiry:query',   '#', 'c-perm-migration', 'C 模块交易按钮权限'),
 (5186, '询盘跟进',       5133, 2, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'trade:inquiry:edit',    '#', 'c-perm-migration', 'C 模块交易按钮权限'),
 (5187, '询盘转订单',     5133, 3, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'trade:inquiry:convert', '#', 'c-perm-migration', 'C 模块交易按钮权限'),
-(5188, '报价接受/拒绝',  5135, 1, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'trade:quote:edit',      '#', 'c-perm-migration', 'C 模块交易按钮权限'),
+(5188, '报价接受/拒绝',  5133, 6, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'trade:quote:edit',      '#', 'c-perm-migration', 'C 模块交易按钮权限（报价已并入询盘）'),
 (5189, '需求标签新增',   5136, 1, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'trade:tags:add',        '#', 'c-perm-migration', 'C 模块交易按钮权限'),
 (5190, '需求标签编辑',   5136, 2, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'trade:tags:edit',       '#', 'c-perm-migration', 'C 模块交易按钮权限'),
 (5191, '需求标签删除',   5136, 3, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'trade:tags:remove',     '#', 'c-perm-migration', 'C 模块交易按钮权限'),
@@ -1253,9 +1252,10 @@ INSERT INTO sys_menu (menu_id, menu_name, parent_id, order_num, path, component,
 (5193, '征集投稿查询',   5138, 1, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'trade:demand:query',    '#', 'c-perm-migration', 'C 模块交易按钮权限'),
 (5194, '任务发布',       5138, 2, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'trade:demand:add',      '#', 'c-perm-migration', '平台代需求方发布任务（发布权已收归运营）'),
 (5195, '询盘发起',       5133, 4, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'trade:inquiry:add',     '#', 'c-perm-ops-migration', 'C 模块交易操作按钮权限'),
-(5196, '报价提交/议价',  5135, 2, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'trade:quote:add',       '#', 'c-perm-ops-migration', 'C 模块交易操作按钮权限'),
+(5196, '报价提交/议价',  5133, 7, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'trade:quote:add',       '#', 'c-perm-ops-migration', 'C 模块交易操作按钮权限（报价已并入询盘）'),
 (5197, '任务运营编辑',   5138, 3, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'trade:demand:edit',     '#', 'c-perm-migration', '编辑/关闭任务与延时审批'),
-(5198, '任务逐轮验收',   5138, 4, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'trade:demand:review',   '#', 'c-perm-migration', '逐轮交付验收与放款触发')
+(5198, '任务逐轮验收',   5138, 4, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'trade:demand:review',   '#', 'c-perm-migration', '逐轮交付验收与放款触发'),
+(5424, '报价记录',       5133, 5, '#', NULL, NULL, '', 1, 0, 'F', '0', '0', 'trade:quote:list',      '#', 'c-migration', '报价管理并入询盘管理：行内查看该询盘全部报价')
 ON DUPLICATE KEY UPDATE
   menu_name=VALUES(menu_name), parent_id=VALUES(parent_id), order_num=VALUES(order_num), perms=VALUES(perms);
 
@@ -1294,7 +1294,7 @@ CROSS JOIN (
   UNION ALL SELECT 2045 UNION ALL SELECT 2047 UNION ALL SELECT 2049
   UNION ALL SELECT 2050 UNION ALL SELECT 2051 UNION ALL SELECT 2052
   UNION ALL SELECT 5130 UNION ALL SELECT 5131 UNION ALL SELECT 5132 UNION ALL SELECT 5133
-  UNION ALL SELECT 5135 UNION ALL SELECT 5136 UNION ALL SELECT 5137 UNION ALL SELECT 5138
+  UNION ALL SELECT 5424 UNION ALL SELECT 5136 UNION ALL SELECT 5137 UNION ALL SELECT 5138
   UNION ALL SELECT 5180 UNION ALL SELECT 5181 UNION ALL SELECT 5182 UNION ALL SELECT 5183
   UNION ALL SELECT 5184 UNION ALL SELECT 5185 UNION ALL SELECT 5186 UNION ALL SELECT 5187
   UNION ALL SELECT 5188 UNION ALL SELECT 5189 UNION ALL SELECT 5190 UNION ALL SELECT 5191
