@@ -4,12 +4,14 @@ import com.smartscript.platform.review.domain.ReviewLog;
 import com.smartscript.platform.review.domain.ReviewRecord;
 import com.smartscript.platform.review.domain.vo.WorkChapterVO;
 import com.smartscript.platform.review.domain.vo.WorkContentVO;
+import com.smartscript.platform.review.event.WorkPublishedEvent;
 import com.smartscript.platform.review.mapper.ReviewLogMapper;
 import com.smartscript.platform.review.mapper.ReviewRecordMapper;
 import com.smartscript.platform.review.mapper.ReviewWorkContentMapper;
 import com.smartscript.platform.review.mapper.OperationLogMapper;
 import com.smartscript.platform.review.util.ReviewContentText;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
@@ -33,6 +35,10 @@ public class ReviewService {
 
     @Autowired
     private ReviewWorkContentMapper reviewWorkContentMapper;
+
+    /** 审核通过后作品自动上架，据此发布「作品发布」事件，由用户模块投递关注者通知。 */
+    @Autowired
+    private ApplicationEventPublisher eventPublisher;
 
     /**
      * 查询审核记录列表
@@ -326,8 +332,14 @@ public class ReviewService {
         // 审核通过 → 内容侧作品自动上架（两个业务模块无编译期依赖，故在共享库的 Mapper 层落地）
         if (cnt > 0 && "approved".equals(status) && "work".equals(before.getTargetType()) && before.getTargetId() != null)
         {
-            reviewRecordMapper.markWorkOnShelf(before.getTargetId(),
+            int shelved = reviewRecordMapper.markWorkOnShelf(before.getTargetId(),
                     reviewerId == null ? null : String.valueOf(reviewerId));
+            // 真正上架成功才算发布：作品已删除时影响 0 行，不通知关注者
+            if (shelved > 0)
+            {
+                eventPublisher.publishEvent(new WorkPublishedEvent(before.getTargetId(), before.getUserId(),
+                        before.getWorkTitle(), before.getAuthorName()));
+            }
         }
         // 写审核操作日志（真实落库）
         ReviewLog log = new ReviewLog();

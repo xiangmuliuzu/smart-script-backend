@@ -3,10 +3,12 @@ package com.smartscript.platform.review.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smartscript.platform.review.domain.AiReviewRule;
 import com.smartscript.platform.review.domain.ReviewRecord;
+import com.smartscript.platform.review.event.WorkPublishedEvent;
 import com.smartscript.platform.review.mapper.AiReviewRuleMapper;
 import com.smartscript.platform.review.mapper.ReviewRecordMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -37,6 +39,10 @@ public class AiReviewService {
 
     @Autowired
     private ReviewRecordMapper reviewRecordMapper;
+
+    /** AI 高分直通审核后作品自动上架，据此发布「作品发布」事件。 */
+    @Autowired
+    private ApplicationEventPublisher eventPublisher;
 
     /** 复用内容创作同一套 DeepSeek 配置；未配置 api-key 时走 Mock 兜底 */
     @Value("${AI_BASE_URL:https://api.deepseek.com}")
@@ -142,7 +148,11 @@ public class AiReviewService {
         reviewRecordMapper.updateReviewRecord(upd);
         // AI 高分直接通过 -> 与人工通过一致，作品自动上架
         if ("approved".equals(nextStatus) && "work".equals(record.getTargetType()) && record.getTargetId() != null) {
-            reviewRecordMapper.markWorkOnShelf(record.getTargetId(), null);
+            int shelved = reviewRecordMapper.markWorkOnShelf(record.getTargetId(), null);
+            if (shelved > 0) {
+                eventPublisher.publishEvent(new WorkPublishedEvent(record.getTargetId(), record.getUserId(),
+                        record.getWorkTitle(), record.getAuthorName()));
+            }
             log.info("AI高分直通: 作品自动上架 workId={}", record.getTargetId());
         }
 

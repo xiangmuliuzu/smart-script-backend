@@ -41,4 +41,10 @@ public interface UserFollowMapper
 
     /** 粉丝列表（关注我的人）。 */
     List<UserSummaryDto> selectFollowers(@Param("userId") Long userId, @Param("viewerId") Long viewerId);
+
+    /**
+     * 作品发布通知收件人：作者的粉丝中，仍为正常状态的 App 账号，
+     * 且与作者不存在任一方向拉黑关系。只返回用户 id。
+     */
+    List<Long> selectWorkPublishFollowerIds(@Param("authorId") Long authorId);
 }

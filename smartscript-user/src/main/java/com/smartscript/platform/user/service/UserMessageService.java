@@ -44,15 +44,15 @@ public class UserMessageService
     /** 支持的渠道集合（契约 §1.5）。 */
     private static final List<String> CHANNELS = List.of(CHANNEL_INBOX, CHANNEL_PUSH);
 
-    /** 支持的消息类型集合，与 A4 消息创建端 AppAdminConstants 同集合。 */
+    /** 支持的消息类型集合（与 AppAdminConstants 同源；FOLLOW 只由系统事件产生，后台群发不开放）。 */
     private static final List<String> TYPES = List.of(
             AppAdminConstants.NOTIFICATION_SYSTEM,
-            AppAdminConstants.NOTIFICATION_REVIEW,
+            AppAdminConstants.NOTIFICATION_FOLLOW,
             AppAdminConstants.NOTIFICATION_TRANSACTION,
             AppAdminConstants.NOTIFICATION_BENEFIT);
 
     private static final List<String> PREFERENCE_TYPES = List.of(
-            "INQUIRY", "ORDER", "CONTRACT", "SYSTEM", "REVIEW", "BENEFIT", "TRANSACTION");
+            "INQUIRY", "ORDER", "CONTRACT", "SYSTEM", "FOLLOW", "BENEFIT", "TRANSACTION");
     private static final Set<String> TRADE_PREFERENCE_TYPES = Set.of("INQUIRY", "ORDER", "CONTRACT");
 
     /** 列表摘要长度：列表只展示摘要，正文在详情返回。 */

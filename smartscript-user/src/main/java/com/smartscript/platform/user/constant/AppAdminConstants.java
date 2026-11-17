@@ -56,9 +56,9 @@ public final class AppAdminConstants
     public static final String FEEDBACK_ACTION_REPLY = "REPLY";
     public static final String FEEDBACK_ACTION_CLOSE = "CLOSE";
 
-    // ---- 消息类型（契约 §3.4）----
+    // ---- 消息类型（契约 §3.4；审核结果并入 SYSTEM，FOLLOW 为关注动态）----
     public static final String NOTIFICATION_SYSTEM = "SYSTEM";
-    public static final String NOTIFICATION_REVIEW = "REVIEW";
+    public static final String NOTIFICATION_FOLLOW = "FOLLOW";
     public static final String NOTIFICATION_TRANSACTION = "TRANSACTION";
     public static final String NOTIFICATION_BENEFIT = "BENEFIT";
 

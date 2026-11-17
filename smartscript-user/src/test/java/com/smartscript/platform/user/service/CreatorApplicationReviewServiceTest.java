@@ -45,7 +45,7 @@ class CreatorApplicationReviewServiceTest
         verify(authorCapabilityService).setEnabled(eq(9100L), eq(true), contains("创作者申请审核通过"), eq(1L), eq("运维员"));
         // 投递 REVIEW 站内通知
         verify(notifications).create(
-                eq("creatorapply-review-200"), eq("REVIEW"), eq("创作者申请已通过"),
+                eq("creatorapply-review-200"), eq("SYSTEM"), eq("创作者申请已通过"),
                 anyString(), eq("CREATOR_APPLY"), eq("200"), eq(List.of(9100L)), eq("system"));
     }
 
@@ -61,7 +61,7 @@ class CreatorApplicationReviewServiceTest
         verify(authorCapabilityService, never()).setEnabled(Mockito.anyLong(), Mockito.anyBoolean(),
                 anyString(), Mockito.anyLong(), anyString());
         verify(notifications).create(
-                eq("creatorapply-review-201"), eq("REVIEW"), eq("创作者申请未通过"),
+                eq("creatorapply-review-201"), eq("SYSTEM"), eq("创作者申请未通过"),
                 contains("材料不足"), eq("CREATOR_APPLY"), eq("201"), eq(List.of(9101L)), eq("system"));
     }
 

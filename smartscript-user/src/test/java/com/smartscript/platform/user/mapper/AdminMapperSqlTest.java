@@ -34,6 +34,7 @@ class AdminMapperSqlTest
         "mapper/user/RealNameAdminMapper.xml",
         "mapper/user/AuthorCapabilityAdminMapper.xml",
         "mapper/user/AdminNotificationMapper.xml",
+        "mapper/user/UserFollowMapper.xml",
         "mapper/user/AdminFeedbackMapper.xml"
     };
 
@@ -264,7 +265,7 @@ class AdminMapperSqlTest
                 "com.smartscript.platform.user.mapper.AdminNotificationMapper.selectInboxDisabledUserIds");
         Map<String, Object> params = new HashMap<>();
         params.put("userIds", java.util.List.of(1L, 2L));
-        params.put("type", "REVIEW");
+        params.put("type", "FOLLOW");
         String sql = normalize(ms.getBoundSql(params).getSql());
         assertTrue(sql.contains("channel = 'inbox'"), "must scope to INBOX channel: " + sql);
         assertTrue(sql.contains("coalesce(p.enabled, legacy.enabled, 1) = 0"), "must respect specific and legacy preferences: " + sql);
@@ -276,6 +277,36 @@ class AdminMapperSqlTest
     private String normalize(String sql)
     {
         return sql.replaceAll("\\s+", " ").trim().toLowerCase();
+    }
+
+    /**
+     * 作品发布通知的收件人查询：必须同时锁定粉丝关系、有效账号与双向拉黑。
+     *
+     * 拉黑不解除关注关系，若只按 follow 表取人，被拉黑用户仍会收到对方动态。
+     */
+    @Test
+    void workPublishFollowerQueryExcludesInactiveAndBlockedUsers() throws Exception
+    {
+        Configuration configuration = parseAllMappers();
+        MappedStatement ms = configuration.getMappedStatement(
+                "com.smartscript.platform.user.mapper.UserFollowMapper.selectWorkPublishFollowerIds");
+        Map<String, Object> params = new HashMap<>();
+        params.put("authorId", 88L);
+        BoundSql boundSql = ms.getBoundSql(params);
+        String sql = normalize(boundSql.getSql());
+        assertTrue(sql.contains("from sys_user_follow f"), "must start from follow relation: " + sql);
+        assertTrue(sql.contains("u.del_flag = '0'"), "deleted accounts must be excluded: " + sql);
+        assertTrue(sql.contains("u.status = '0'"), "disabled accounts must be excluded: " + sql);
+        assertTrue(sql.contains("u.user_type in ('01', '02', '03')"),
+                "only App accounts may receive follow notices: " + sql);
+        assertTrue(sql.contains("not exists"), "blocked relationships must be excluded: " + sql);
+        assertTrue(sql.contains("sys_user_block"), "block table must be consulted: " + sql);
+        assertTrue(sql.contains("b.user_id = f.follower_id and b.blocked_user_id = ?"),
+                "follower blocked author direction missing: " + sql);
+        assertTrue(sql.contains("b.user_id = ? and b.blocked_user_id = f.follower_id"),
+                "author blocked follower direction missing: " + sql);
+        assertTrue(boundSql.getParameterMappings().size() >= 2,
+                "authorId must be bound, not inlined");
     }
 
     private String readResource(String resource) throws Exception

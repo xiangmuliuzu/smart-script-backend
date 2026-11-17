@@ -42,7 +42,7 @@ class RealNameReviewNotificationTest
         assertEquals("APPROVED", updated.getStatus());
         verify(notifications).create(
                 eq("realname-review-200"),
-                eq("REVIEW"),
+                eq("SYSTEM"),
                 eq("实名认证已通过"),
                 anyString(),
                 eq("REAL_NAME"),
@@ -62,7 +62,7 @@ class RealNameReviewNotificationTest
 
         verify(notifications).create(
                 eq("realname-review-201"),
-                eq("REVIEW"),
+                eq("SYSTEM"),
                 eq("实名认证未通过"),
                 org.mockito.ArgumentMatchers.contains("照片不清晰"),
                 eq("REAL_NAME"),

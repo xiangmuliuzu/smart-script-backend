@@ -2,6 +2,7 @@ package com.smartscript.platform.review.service;
 
 import com.smartscript.platform.review.domain.AiReviewRule;
 import com.smartscript.platform.review.domain.ReviewRecord;
+import com.smartscript.platform.review.event.WorkPublishedEvent;
 import com.smartscript.platform.review.mapper.AiReviewRuleMapper;
 import com.smartscript.platform.review.mapper.ReviewRecordMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -10,6 +11,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -36,6 +38,9 @@ class AiReviewServiceTest {
 
     @Mock
     private ReviewRecordMapper reviewRecordMapper;
+
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
 
     @InjectMocks
     private AiReviewService aiReviewService;
@@ -298,8 +303,12 @@ class AiReviewServiceTest {
         record.setStatus("ai_reviewing");
         record.setTargetType("work");
         record.setTargetId(301L);
+        record.setUserId(88L);
+        record.setWorkTitle("悬疑故事");
+        record.setAuthorName("作者甲");
         when(reviewRecordMapper.selectReviewRecordById(30L)).thenReturn(record);
         when(aiReviewRuleMapper.selectActiveAiReviewRules()).thenReturn(Collections.emptyList());
+        when(reviewRecordMapper.markWorkOnShelf(301L, null)).thenReturn(1);
 
         Map<String, Object> r = aiReviewService.score(30L, "这是一篇优秀的悬疑小说，情节紧凑");
         assertEquals("approved", r.get("nextStatus"));
@@ -307,6 +316,14 @@ class AiReviewServiceTest {
         verify(reviewRecordMapper).updateReviewRecord(captor.capture());
         assertEquals("approved", captor.getValue().getStatus());
         verify(reviewRecordMapper).markWorkOnShelf(301L, null);
+
+        org.mockito.ArgumentCaptor<Object> eventCaptor = org.mockito.ArgumentCaptor.forClass(Object.class);
+        verify(eventPublisher).publishEvent(eventCaptor.capture());
+        WorkPublishedEvent event = (WorkPublishedEvent) eventCaptor.getValue();
+        assertEquals(301L, event.workId());
+        assertEquals(88L, event.authorId());
+        assertEquals("悬疑故事", event.workTitle());
+        assertEquals("作者甲", event.authorName());
     }
 
     @Test

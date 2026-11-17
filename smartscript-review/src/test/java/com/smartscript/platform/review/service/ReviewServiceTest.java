@@ -2,14 +2,17 @@ package com.smartscript.platform.review.service;
 
 import com.smartscript.platform.review.domain.ReviewLog;
 import com.smartscript.platform.review.domain.ReviewRecord;
+import com.smartscript.platform.review.event.WorkPublishedEvent;
 import com.smartscript.platform.review.mapper.ReviewLogMapper;
 import com.smartscript.platform.review.mapper.ReviewRecordMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 
 import java.util.Map;
 
@@ -30,6 +33,9 @@ class ReviewServiceTest {
 
     @Mock
     private ReviewLogMapper reviewLogMapper;
+
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
 
     @InjectMocks
     private ReviewService reviewService;
@@ -52,6 +58,43 @@ class ReviewServiceTest {
         assertEquals("pending", r.get("from"));
         assertEquals("approved", r.get("to"));
         verify(reviewLogMapper, times(1)).insertReviewLog(any(ReviewLog.class));
+    }
+
+    @Test
+    void operate_work_approved_publishesWorkPublishedEvent() {
+        ReviewRecord pending = record("pending");
+        pending.setTargetType("work");
+        pending.setTargetId(301L);
+        pending.setUserId(88L);
+        pending.setWorkTitle("悬疑故事");
+        pending.setAuthorName("作者甲");
+        when(reviewRecordMapper.selectReviewRecordById(1L)).thenReturn(pending);
+        when(reviewRecordMapper.updateReviewRecord(any())).thenReturn(1);
+        when(reviewRecordMapper.markWorkOnShelf(301L, "1")).thenReturn(1);
+
+        reviewService.operateReview(1L, "approved", "内容合格", 1L, "管理员");
+
+        ArgumentCaptor<Object> captor = ArgumentCaptor.forClass(Object.class);
+        verify(eventPublisher).publishEvent(captor.capture());
+        WorkPublishedEvent event = (WorkPublishedEvent) captor.getValue();
+        assertEquals(301L, event.workId());
+        assertEquals(88L, event.authorId());
+        assertEquals("悬疑故事", event.workTitle());
+        assertEquals("作者甲", event.authorName());
+    }
+
+    @Test
+    void operate_work_approved_butShelfUpdateMissed_doesNotPublish() {
+        ReviewRecord pending = record("pending");
+        pending.setTargetType("work");
+        pending.setTargetId(301L);
+        when(reviewRecordMapper.selectReviewRecordById(1L)).thenReturn(pending);
+        when(reviewRecordMapper.updateReviewRecord(any())).thenReturn(1);
+        when(reviewRecordMapper.markWorkOnShelf(301L, "1")).thenReturn(0);
+
+        reviewService.operateReview(1L, "approved", null, 1L, "管理员");
+
+        verify(eventPublisher, never()).publishEvent(any());
     }
 
     @Test
