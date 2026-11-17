@@ -90,50 +90,11 @@ public class SettlementManageService {
     }
 
     /**
-     * 处理作者异议：必须填写说明，状态回到 pending，由作者再次确认入账。
-     * 处理说明追加写入 dispute_reason，作者可在 App 看到。
+     * 处理作者异议（已下线）：与 App 异议入口一并关闭。
      */
     @Transactional(rollbackFor = Exception.class)
     public void handleAbnormal(Long settleId, String remark, Boolean markAsAbnormal) {
-        if (markAsAbnormal != null && markAsAbnormal) {
-            throw new IllegalStateException("已停用标记异常。异常由作者在 App 提出异议产生。");
-        }
-        if (settleId == null || settleId <= 0) {
-            throw new IllegalArgumentException("结算ID无效");
-        }
-        if (remark == null || remark.trim().isEmpty()) {
-            throw new IllegalArgumentException("处理说明不能为空");
-        }
-        String text = remark.trim();
-        if (text.length() > 500) {
-            throw new IllegalArgumentException("处理说明不能超过500字");
-        }
-
-        List<Map<String, Object>> current = jdbc.queryForList(
-                "SELECT status, dispute_reason AS disputeReason FROM sys_income_settle WHERE settle_id = ? LIMIT 1",
-                settleId);
-        if (current.isEmpty()) {
-            throw new IllegalArgumentException("结算单不存在");
-        }
-        if (!"disputed".equals(String.valueOf(current.get(0).get("status")))) {
-            throw new IllegalArgumentException("结算单不存在或当前不是「有异议」状态");
-        }
-
-        Object oldReason = current.get(0).get("disputeReason");
-        String merged = (oldReason == null || String.valueOf(oldReason).isBlank())
-                ? ("【平台处理】" + text)
-                : (String.valueOf(oldReason).trim() + "\n【平台处理】" + text);
-        if (merged.length() > 500) {
-            merged = merged.substring(0, 500);
-        }
-
-        int rows = jdbc.update(
-                "UPDATE sys_income_settle SET status = 'pending', dispute_reason = ?, updated_at = NOW() "
-                        + "WHERE settle_id = ? AND status = 'disputed'",
-                merged, settleId);
-        if (rows == 0) {
-            throw new IllegalArgumentException("结算单状态已变化，请刷新后重试");
-        }
+        throw new IllegalStateException("异议处理已下线，作者请直接确认入账");
     }
 
     private void appendFilters(StringBuilder sql, List<Object> args, String status, String startDate, String endDate, String keyword) {
