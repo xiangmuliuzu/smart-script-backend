@@ -27,7 +27,7 @@ import com.smartscript.platform.content.domain.WorkGenJob;
 public final class WorkGenPromptSupport
 {
     /** 单集正文失控阈值：提示词只给上限 1500 字（重要的集允许略超），超过 1800 视为续写拼接失控 */
-    public static final int EPISODE_TEXT_MAX = 1800;
+    public static final int EPISODE_TEXT_MAX = 1500;
 
     /** 上一集末尾注入字数 */
     private static final int PREV_TAIL = 500;
@@ -40,6 +40,12 @@ public final class WorkGenPromptSupport
 
     /** 本集出场名单 */
     private static final Pattern CAST_LINE = Pattern.compile("本集出场[：:]\\s*(.+)");
+
+    /** 剧本行（「角色：台词」形态，用来判定已落库正文是不是剧本体） */
+    private static final Pattern SCRIPT_LINE = Pattern.compile("^[\\u4e00-\\u9fa5]{2,4}[：:]");
+
+    /** 中文引号对白 */
+    private static final Pattern QUOTED = Pattern.compile("“([^”]*)”");
 
     /** 人物卡里的姓名（姓名（身份）： 或 姓名：） */
     private static final Pattern NAME_LINE = Pattern.compile("(?:^|\\n)\\s*([\\u4e00-\\u9fa5]{2,4})\\s*[（(：:]");
@@ -109,9 +115,135 @@ public final class WorkGenPromptSupport
         return text.replaceAll("；\\s*(?=[^；\\n｜]{1,20}\\s*｜)", "\n");
     }
 
+    /**
+     * 取「上一集」：本集之前、集号最大且有正文的那一章。
+     *
+     * 队列会先把 6-30 集的空骨架全部建出来，若直接取列表最后一章，
+     * 拿到的是最后一集空章，上一章结尾永远为空，续写就接不上前面 AI 创作的内容。
+     */
+    public static SysWorkChapter previousChapter(List<SysWorkChapter> chapters, int currentNo)
+    {
+        if (chapters == null || chapters.isEmpty())
+        {
+            return null;
+        }
+        SysWorkChapter best = null;
+        for (SysWorkChapter chapter : chapters)
+        {
+            if (chapter == null || chapter.getChapterNo() == null || chapter.getChapterNo() >= currentNo)
+            {
+                continue;
+            }
+            if (safe(chapter.getContent()).trim().isEmpty())
+            {
+                continue;
+            }
+            if (best == null || chapter.getChapterNo() > best.getChapterNo())
+            {
+                best = chapter;
+            }
+        }
+        return best;
+    }
+
+    /**
+     * 从已落库正文判定文体（小说体 / 剧本体），返回一句话描述，可直接写进台账与提示词。
+     *
+     * 依据最近 3 集正文实测：剧本体看「角色：台词」行占比，小说体看中文引号内的对白字数占比。
+     * 没有可依据的正文时返回空串，调用方不得强行指定文体。
+     */
+    public static String detectStyle(List<SysWorkChapter> chapters, int beforeNo)
+    {
+        if (chapters == null || chapters.isEmpty())
+        {
+            return "";
+        }
+        List<SysWorkChapter> prior = new ArrayList<>();
+        for (SysWorkChapter chapter : chapters)
+        {
+            if (chapter == null || chapter.getChapterNo() == null || chapter.getChapterNo() >= beforeNo)
+            {
+                continue;
+            }
+            if (!safe(chapter.getContent()).trim().isEmpty())
+            {
+                prior.add(chapter);
+            }
+        }
+        if (prior.isEmpty())
+        {
+            return "";
+        }
+        prior.sort((a, b) -> Integer.compare(a.getChapterNo(), b.getChapterNo()));
+        StringBuilder sample = new StringBuilder();
+        for (int i = Math.max(0, prior.size() - 3); i < prior.size(); i++)
+        {
+            sample.append(prior.get(i).getContent()).append('\n');
+        }
+        String text = sample.toString();
+        int chars = text.replaceAll("\\s", "").length();
+        if (chars == 0)
+        {
+            return "";
+        }
+        int scriptLines = 0;
+        int totalLines = 0;
+        for (String line : text.split("\\n"))
+        {
+            String trimmed = line.trim();
+            if (trimmed.isEmpty())
+            {
+                continue;
+            }
+            totalLines++;
+            if (SCRIPT_LINE.matcher(trimmed).find())
+            {
+                scriptLines++;
+            }
+        }
+        int dialogueChars = 0;
+        Matcher quotes = QUOTED.matcher(text);
+        while (quotes.find())
+        {
+            dialogueChars += quotes.group(1).length();
+        }
+        int dialoguePct = (int) Math.round(dialogueChars * 100.0 / chars);
+        boolean script = totalLines > 0 && scriptLines * 100.0 / totalLines >= 20;
+        String shape = script
+                ? "剧本体：逐行「角色：台词」，几乎没有叙述段"
+                : "小说体：散文叙述＋中文引号对白，对白另起段，不出现「角色：」前缀";
+        return shape + "；对白约占 " + dialoguePct + "%";
+    }
+
+    /** 把文体判定作为硬性约束注入本集提示词。 */
+    public static String styleLockBlock(String profile)
+    {
+        String text = safe(profile).trim();
+        if (text.isEmpty())
+        {
+            return "";
+        }
+        return "【文体锁定（依据上一集正文实测，硬性要求）】\n" + text
+                + "\n本集必须与上一章文体完全一致：人称、句式、对白与叙述比例沿用上一章；"
+                + "判定为小说体时，禁止改成剧本体，禁止出现「角色：」前缀，禁止把对白排成逐行列表；"
+                + "判定为剧本体时，保持逐行对白体，不得改写成大段叙述。\n";
+    }
+
     /** 组装一集的完整提示词。 */
     public static String buildEpisodePrompt(WorkGenJob job, WorkGenEpisode episode,
             SysWorkLedger ledger, List<SysWorkChapter> chapters, List<Map<String, Object>> volumes)
+    {
+        return buildEpisodePrompt(job, episode, ledger, chapters, volumes, "");
+    }
+
+    /**
+     * 组装一集的完整提示词（带时间线上下文）。
+     *
+     * @param timelineBlock 时间线注入块（最近事件 + 未兑现约定/伏笔），可为空
+     */
+    public static String buildEpisodePrompt(WorkGenJob job, WorkGenEpisode episode,
+            SysWorkLedger ledger, List<SysWorkChapter> chapters, List<Map<String, Object>> volumes,
+            String timelineBlock)
     {
         String outline = safe(job.getOutline());
         String title = safe(episode.getTitle());
@@ -132,15 +264,16 @@ public final class WorkGenPromptSupport
                 ? ""
                 : "【人物设定（姓名与身份固定，不得改名，不得新增未设定的人物）】\n" + tail(safe(job.getCharacters()), 900);
         String volumeText = volumeSnapshotBlock(volumes, episode.getNo());
-        String prevText = chapters == null || chapters.isEmpty()
-                ? ""
-                : chapterTail(chapters.get(chapters.size() - 1).getContent(), PREV_TAIL);
+        SysWorkChapter prevChapter = previousChapter(chapters, episode.getNo());
+        String prevText = prevChapter == null ? "" : chapterTail(prevChapter.getContent(), PREV_TAIL);
         String summaryBlock = chapterSummaryBlock(chapters, episode.getNo());
+        String styleProfile = detectStyle(chapters, episode.getNo());
 
         StringBuilder prompt = new StringBuilder();
-        prompt.append("请把下面这集写成一集完整剧本。只写本集，不复述上一集已经发生的情节。\n")
-                .append("写法：以动作和对白推进，对白用“角色：台词”；沿用台账里的写法基线（人称、句式、对白与叙述比例、标点一致）；")
+        prompt.append("请把下面这集写成一集正文（小说体，不是剧本格式；对白用中文引号，不写“角色：”前缀）。只写本集，不复述上一集已经发生的情节。\n")
+                .append("写法：以动作和对白推进，沿用台账里的写法基线（人称、句式、对白与叙述比例、标点一致）；")
                 .append("开头一句自然交代地点和时间，不要写场景头、镜号、景别、运镜，不要写整段心理独白。\n")
+                .append(styleLockBlock(styleProfile))
                 .append("集名：").append(title).append('\n')
                 .append("本集事件卡：\n").append(card).append('\n')
                 .append("必须把本集事件卡的五个节点（开场承接、本集事件、冲突与推进、结果或反转、结尾钩子）全部写进正文，不能只写开头就停；")
@@ -153,7 +286,7 @@ public final class WorkGenPromptSupport
                 .append("更不许上一集还在对话、本集一开头人就到了别处办别的事，这种写法判为不合格，会被退回重写。")
                 .append("不许同一人物不提任何时间与起因就直接出现在新场景做新的事，这种写法判为不合格，会被退回重写。")
                 .append("结尾钩子必须是本集新发生的事。\n")
-                .append("篇幅：正文不超过 1500 字（含标点），不设下限，写到把事件卡五个节点写透即可；本集要讲的事确实重要时可以超到 1800 字，但不得为凑字铺陈。\n")
+                .append("篇幅：正文不超过 1500 字（含标点），不设下限，写到把事件卡五个节点写透即可；不得为凑字铺陈，也不得超出 1500 字。\n")
                 .append("一致性：数字、日期、人物生死、道具件数与下面的硬事实清单一律不得冲突；若要改变某项状态，必须写出触发它的过渡事件，不能无因突变。\n");
         appendBlock(prompt, guard);
         appendBlock(prompt, WorkGenConsistencySupport.hardFactsBlock(ledger, episode.getNo()));
@@ -163,6 +296,10 @@ public final class WorkGenPromptSupport
         appendBlock(prompt, volumeText);
         appendBlock(prompt, ledgerText);
         prompt.append(threadScheduleBlock(ledger == null ? "" : ledger.getThreads(), episode.getNo()));
+        if (timelineBlock != null && !timelineBlock.isBlank())
+        {
+            prompt.append("\n\n").append(timelineBlock);
+        }
         if (!prevText.isEmpty())
         {
             prompt.append("\n\n【上一章结尾（只说清承接关系，不要重写这一段）】\n").append(prevText)

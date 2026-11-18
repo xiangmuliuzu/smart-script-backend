@@ -158,6 +158,9 @@ public class AiWriteServiceImpl implements IAiWriteService
     @Autowired
     private com.smartscript.platform.content.service.IAppWorkLedgerService workLedgerService;
 
+    @Autowired
+    private com.smartscript.platform.content.service.IWorkTimelineService workTimelineService;
+
     @Autowired(required = false)
     private com.smartscript.platform.review.service.RiskCheckService riskCheckService;
 
@@ -952,12 +955,32 @@ public class AiWriteServiceImpl implements IAiWriteService
         {
             workLedgerService.saveLedger(workId, ledger);
         }
+        // 时间线：同一次摘要调用产出的事件，按集追加；整集重写时重建该集事件
+        Integer chapterNoValue = null;
+        try
+        {
+            chapterNoValue = Integer.valueOf(chapterNo);
+        }
+        catch (NumberFormatException ignored)
+        {
+            // chapter_no 非数字时跳过事件落库，摘要与台账照常
+        }
+        java.util.List<com.smartscript.platform.content.domain.SysWorkTimelineEvent> events =
+                com.smartscript.platform.content.service.WorkTimelineSupport.parseEvents(root);
+        java.util.List<String> closes =
+                com.smartscript.platform.content.service.WorkTimelineSupport.parseCloses(root);
+        if (chapterNoValue != null)
+        {
+            workTimelineService.saveEpisodeEvents(workId, chapterNoValue, events, closes);
+        }
         Long recordId = saveRecord(userId, workId, CAPABILITY_CHAPTER_SUMMARY,
                 displayTitle, summary, resolveModel(r), r.getTotalTokens());
         consumePoints(userId, CAPABILITY_CHAPTER_SUMMARY, recordId, r.getTotalTokens());
         Map<String, Object> result = new java.util.LinkedHashMap<>();
         result.put("summary", summary);
         result.put("ledgerUpdated", ledgerUpdated);
+        result.put("events", events.size());
+        result.put("closes", closes.size());
         result.put("recordId", recordId);
         result.put("tokens", Math.max(1, r.getTotalTokens()));
         return result;
@@ -1275,7 +1298,8 @@ public class AiWriteServiceImpl implements IAiWriteService
                 + "    threads 未解线索：尚未解释的悬念、约定与期限，一行一条，格式「悬念或约定｜涉及人｜计划兑现点（写“第N集”，实在未定写“未定”）｜状态（未结/已结）」；"
                 + "本集出现但还没兑现的承诺、约期、期限必须写进来并标好兑现点，已经兑现的标「已结」；"
                 + "兑现点不是本集、也不用在本集解决的长线悬念必须保留，不得为了收线提前解决。\n"
-                + "4. summary 必须放在 JSON 最前面、写完整；严格输出一个 JSON 对象，结构如下（值替换为实际内容）：\n"
+                + com.smartscript.platform.content.service.WorkTimelineSupport.schemaHint()
+                + "6. summary 必须放在 JSON 最前面、写完整；严格输出一个 JSON 对象，结构如下（值替换为实际内容）：\n"
                 + ChapterSummarySupport.emptyLedgerJson() + "\n"
                 + "不要 Markdown 代码块，不要任何解释文字。";
     }

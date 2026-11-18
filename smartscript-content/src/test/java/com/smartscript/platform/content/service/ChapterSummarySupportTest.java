@@ -108,6 +108,19 @@ class ChapterSummarySupportTest
     }
 
     @Test
+    void parseJsonSalvagesEventsAndClosesBeforeTruncatedLedger()
+    {
+        String truncated = "{\"summary\":\"苏清鸢亮出旧条子\","
+                + "\"events\":[{\"type\":\"伏笔\",\"fact\":\"条子背面写着魔渊玉匣\",\"actors\":\"江野\",\"status\":\"未兑现\"}],"
+                + "\"closes\":[\"苏清鸢带江野\"],\"ledger\":{\"props\":\"吞灵塔｜一件｜";
+        JsonNode root = ChapterSummarySupport.parseJson(truncated);
+        assertEquals("苏清鸢亮出旧条子", ChapterSummarySupport.summaryOf(root));
+        assertEquals(1, WorkTimelineSupport.parseEvents(root).size());
+        assertEquals("条子背面写着魔渊玉匣", WorkTimelineSupport.parseEvents(root).get(0).getFact());
+        assertEquals(1, WorkTimelineSupport.parseCloses(root).size());
+    }
+
+    @Test
     void mergeReportsNoChangeWhenValuesIdenticalOrBlank()
     {
         SysWorkLedger ledger = new SysWorkLedger();
