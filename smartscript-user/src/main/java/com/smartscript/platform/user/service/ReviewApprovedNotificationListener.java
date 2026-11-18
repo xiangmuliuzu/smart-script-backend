@@ -4,6 +4,7 @@ import java.util.List;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 import com.smartscript.platform.review.service.ReviewApprovedEvent;
+import com.smartscript.platform.user.constant.AppAdminConstants;
 
 /**
  * 将审核模块发布的“作品审核通过”事件投递为创作者站内通知。
@@ -11,6 +12,9 @@ import com.smartscript.platform.review.service.ReviewApprovedEvent;
  * 这里复用 A4 已有的 UserNotificationAdminService，因此 App、PC 创作者端
  * 使用同一套消息查询、已读和未读角标接口。通知只说明“可以上架”，不会代替
  * 作者执行上架动作。
+ *
+ * 消息类型用 SYSTEM：审核分类已并入系统（App 消息中心不再有独立「审核」分类），
+ * 用 REVIEW 会被类型校验拒绝，通知直接投递失败。
  */
 @Component
 public class ReviewApprovedNotificationListener
@@ -41,7 +45,7 @@ public class ReviewApprovedNotificationListener
         {
             notificationService.create(
                     "REV-APPROVED-" + event.getReviewId(),
-                    "REVIEW",
+                    AppAdminConstants.NOTIFICATION_SYSTEM,
                     "作品审核通过",
                     content,
                     "WORK",
