@@ -6,17 +6,18 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import com.smartscript.platform.api.AppApiResponse;
 import com.smartscript.platform.content.domain.SysWorkStoryboard;
+import com.smartscript.platform.content.dto.AppStoryboardDto;
 import com.smartscript.platform.content.service.IAppWorkStoryboardService;
 import com.smartscript.platform.identity.IdentityProvider;
 
-/** App/PC 创作者端作品分镜目录接口。 */
+/** App/PC 作品分镜目录接口；GET 为公开阅读，写操作仍只允许作者。 */
 @RestController
-@PreAuthorize("@contentAuthorAccess.allowed()")
 @RequestMapping("/api/v1/content/works/{workId}/storyboards")
 public class AppWorkStoryboardController
 {
@@ -31,12 +32,20 @@ public class AppWorkStoryboardController
     }
 
     @GetMapping
-    public AppApiResponse<List<SysWorkStoryboard>> list(@PathVariable Long workId)
+    public AppApiResponse<List<AppStoryboardDto>> list(@PathVariable Long workId)
     {
-        return AppApiResponse.ok(storyboardService.list(requireLogin(), workId));
+        return AppApiResponse.ok(storyboardService.list(identityProvider.currentUserId(), workId));
+    }
+
+    /** 作品详情页公开展示审核通过的分镜数量。 */
+    @GetMapping("/summary")
+    public AppApiResponse<Map<String, Object>> summary(@PathVariable Long workId)
+    {
+        return AppApiResponse.ok(Map.of("workId", workId, "count", storyboardService.countPublic(workId)));
     }
 
     @PostMapping
+    @PreAuthorize("@contentAuthorAccess.allowed()")
     public AppApiResponse<SysWorkStoryboard> save(@PathVariable Long workId,
             @RequestBody Map<String, Object> body)
     {
@@ -50,6 +59,26 @@ public class AppWorkStoryboardController
         catch (IllegalArgumentException e)
         {
             return AppApiResponse.fail(400, e.getMessage());
+        }
+        catch (IllegalStateException e)
+        {
+            return AppApiResponse.fail(400, e.getMessage());
+        }
+        catch (SecurityException e)
+        {
+            return AppApiResponse.fail(404, e.getMessage());
+        }
+    }
+
+    @DeleteMapping("/{storyboardId}")
+    @PreAuthorize("@contentAuthorAccess.allowed()")
+    public AppApiResponse<Void> delete(@PathVariable Long workId,
+            @PathVariable Long storyboardId)
+    {
+        try
+        {
+            storyboardService.delete(requireLogin(), workId, storyboardId);
+            return AppApiResponse.ok(null);
         }
         catch (IllegalStateException e)
         {
