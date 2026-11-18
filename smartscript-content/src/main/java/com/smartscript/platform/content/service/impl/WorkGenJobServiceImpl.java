@@ -22,6 +22,7 @@ import com.smartscript.platform.content.service.IAppUserWorkService;
 import com.smartscript.platform.content.service.IAppWorkLedgerService;
 import com.smartscript.platform.content.service.IAiWriteService;
 import com.smartscript.platform.content.service.IWorkGenJobService;
+import com.smartscript.platform.content.service.IWorkTimelineService;
 import com.smartscript.platform.content.service.WorkGenPromptSupport;
 import com.smartscript.platform.content.service.WorkGenConsistencySupport;
 import com.smartscript.platform.content.service.WorkStateBoardSupport;
@@ -70,6 +71,9 @@ public class WorkGenJobServiceImpl implements IWorkGenJobService
     private IAppWorkLedgerService ledgerService;
 
     @Autowired
+    private IWorkTimelineService timelineService;
+
+    @Autowired
     @Qualifier("threadPoolTaskExecutor")
     private ThreadPoolTaskExecutor executor;
 
@@ -90,6 +94,7 @@ public class WorkGenJobServiceImpl implements IWorkGenJobService
         {
             throw new IllegalArgumentException("待生成集列表不能为空");
         }
+        recordStyleLock(userId, workId, episodes);
         WorkGenJob job = new WorkGenJob();
         job.setWorkId(workId);
         job.setUserId(userId);
@@ -106,6 +111,66 @@ public class WorkGenJobServiceImpl implements IWorkGenJobService
         jobMapper.insertJob(job);
         start(workId, job.getJobId());
         return job;
+    }
+
+    /**
+     * 续写开始前先「定文体」：从已落库正文（AI 创作写的那几集）判定文体，写进台账 styleGuide，
+     * 后续每集提示词再按它强制注入，避免同一部作品前半散文、后半剧本。
+     */
+    private void recordStyleLock(Long userId, Long workId, List<WorkGenEpisode> episodes)
+    {
+        int firstNo = Integer.MAX_VALUE;
+        for (WorkGenEpisode episode : episodes)
+        {
+            if (episode != null && episode.getNo() > 0)
+            {
+                firstNo = Math.min(firstNo, episode.getNo());
+            }
+        }
+        if (firstNo == Integer.MAX_VALUE)
+        {
+            return;
+        }
+        try
+        {
+            List<SysWorkChapter> chapters = workService.listChapters(userId, workId);
+            String profile = WorkGenPromptSupport.detectStyle(chapters, firstNo);
+            if (profile.isEmpty())
+            {
+                return;
+            }
+            SysWorkLedger ledger = ledgerService.getLedger(workId);
+            if (ledger == null)
+            {
+                return;
+            }
+            StringBuilder base = new StringBuilder();
+            String style = ledger.getStyleGuide() == null ? "" : ledger.getStyleGuide();
+            for (String line : style.split("\\n"))
+            {
+                if (line.trim().isEmpty() || line.startsWith("【文体锁定】"))
+                {
+                    continue;
+                }
+                if (base.length() > 0)
+                {
+                    base.append('\n');
+                }
+                base.append(line);
+            }
+            if (base.length() > 0)
+            {
+                base.append('\n');
+            }
+            base.append("【文体锁定】").append(profile);
+            ledger.setStyleGuide(base.toString());
+            ledgerService.saveLedger(workId, ledger);
+            log.info("文体锁定已记录 workId={}：{}", workId, profile);
+        }
+        catch (Exception e)
+        {
+            log.warn("文体锁定记录失败 workId={}：{}", workId, e.getMessage());
+        }
     }
 
     @Override
@@ -318,11 +383,11 @@ public class WorkGenJobServiceImpl implements IWorkGenJobService
         List<SysWorkChapter> chapters = workService.listChapters(userId, workId);
         SysWorkLedger ledger = ledgerService.getLedger(workId);
         List<Map<String, Object>> volumes = aiWriteService.listVolumes(workId);
-        String prevTail = chapters == null || chapters.isEmpty()
-                ? ""
-                : WorkGenPromptSupport.chapterTail(chapters.get(chapters.size() - 1).getContent(), 500);
+        SysWorkChapter prevChapter = WorkGenPromptSupport.previousChapter(chapters, episode.getNo());
+        String prevTail = prevChapter == null ? "" : WorkGenPromptSupport.chapterTail(prevChapter.getContent(), 500);
 
-        String prompt = WorkGenPromptSupport.buildEpisodePrompt(job, episode, ledger, chapters, volumes);
+        String prompt = WorkGenPromptSupport.buildEpisodePrompt(job, episode, ledger, chapters, volumes,
+                timelineService.promptBlock(workId, episode.getNo()));
         AppAiWriteResult result = callWrite(job, prompt);
         String text = result == null ? "" : result.getContent();
 
