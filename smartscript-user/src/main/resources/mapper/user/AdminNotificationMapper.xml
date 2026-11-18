@@ -170,6 +170,16 @@
         </foreach>
     </insert>
 
+    <!-- 领域事件批量投递：调用方已按批拆分 userIds，create_by 记录事件来源 -->
+    <insert id="insertEventReceivers">
+        INSERT INTO user_notification_receiver
+            (notification_id, user_id, deleted_flag, create_by, create_time)
+        VALUES
+        <foreach collection="userIds" item="userId" separator=",">
+            (#{notificationId}, #{userId}, 0, #{createBy}, NOW())
+        </foreach>
+    </insert>
+
     <!--
       收件人合法性：不存在、已删除或不属于 App 账号域的数量。
       非 0 时服务层整体回滚，不产生半成品消息。

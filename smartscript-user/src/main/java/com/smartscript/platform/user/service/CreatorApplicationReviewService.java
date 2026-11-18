@@ -223,7 +223,7 @@ public class CreatorApplicationReviewService
                     : "恭喜，您的创作者申请已通过审核，现已开通创作者能力，可使用创作相关功能。";
             notifications.create(
                     CREATOR_NOTICE_ID_PREFIX + applicationId,
-                    AppAdminConstants.NOTIFICATION_REVIEW,
+                    AppAdminConstants.NOTIFICATION_SYSTEM,
                     title,
                     content,
                     "CREATOR_APPLY",

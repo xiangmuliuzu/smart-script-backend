@@ -10,6 +10,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -36,6 +37,9 @@ class AiReviewServiceTest {
 
     @Mock
     private ReviewRecordMapper reviewRecordMapper;
+
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
 
     @InjectMocks
     private AiReviewService aiReviewService;
@@ -298,6 +302,9 @@ class AiReviewServiceTest {
         record.setStatus("ai_reviewing");
         record.setTargetType("work");
         record.setTargetId(301L);
+        record.setUserId(88L);
+        record.setWorkTitle("悬疑故事");
+        record.setAuthorName("作者甲");
         when(reviewRecordMapper.selectReviewRecordById(30L)).thenReturn(record);
         when(aiReviewRuleMapper.selectActiveAiReviewRules()).thenReturn(Collections.emptyList());
 

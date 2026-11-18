@@ -39,7 +39,7 @@ public class AiReviewService {
     @Autowired
     private ReviewRecordMapper reviewRecordMapper;
 
-    /** 审核通过通知由用户模块监听事件后写入站内消息。 */
+    /** 审核通过通知由用户模块监听事件后写入站内消息；作者主动上架时才发布「作品发布」事件。 */
     @Autowired(required = false)
     private ApplicationEventPublisher eventPublisher;
 

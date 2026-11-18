@@ -100,6 +100,30 @@ class ProfileFileControllerTest
     }
 
     @Test
+    void servesAppPackageUnderAppDirectory() throws Exception
+    {
+        // 应用内更新：APK 放在 profile/app/ 下，匿名可下载（App 下载时可能尚未登录）
+        File apk = new File(root, "app/script-app-1.0.1-2.apk");
+        Files.createDirectories(apk.getParentFile().toPath());
+        Files.write(apk.toPath(), new byte[] { 0x50, 0x4B, 0x03, 0x04 });
+
+        MockHttpServletResponse response = get("/profile/app/script-app-1.0.1-2.apk", null);
+        assertEquals(200, response.getStatus());
+        assertEquals("application/vnd.android.package-archive", response.getContentType());
+        assertEquals(4, response.getContentLength());
+    }
+
+    @Test
+    void deniesAppPackagesOutsideAppDirectory() throws Exception
+    {
+        // 只放行 app/ 目录：别处的 apk 仍不可下载，避免 /profile 变成任意文件分发点
+        File apk = new File(root, "upload/2026/11/17/sneaky.apk");
+        Files.createDirectories(apk.getParentFile().toPath());
+        Files.write(apk.toPath(), new byte[] { 0x50, 0x4B, 0x03, 0x04 });
+        assertEquals(403, get("/profile/upload/2026/11/17/sneaky.apk", null).getStatus());
+    }
+
+    @Test
     void deniesContractArtifactsAnonymously() throws Exception
     {
         // 合同 PDF 里是双方真名与金额，目录可枚举时匿名 GET 就等于公开

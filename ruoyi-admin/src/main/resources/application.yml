@@ -97,6 +97,9 @@ token:
   header: Authorization
   secret: ${TOKEN_SECRET:}
   expireTime: ${TOKEN_EXPIRE_MINUTES:30}
+  # App 端会话有效期（分钟）：按最后活跃时间滑动续期，默认 7 天未使用才失效。
+  # 管理端（PC 后台）仍使用上面的 expireTime，不受此项影响。
+  appExpireTime: ${APP_TOKEN_EXPIRE_MINUTES:10080}
 
 # A4 材料网关：材料文件根目录
 # 必须配置，且**不得**位于 ruoyi.profile 之下——该目录由 ResourcesConfig

@@ -48,6 +48,16 @@ public interface AdminNotificationMapper
                         @Param("userIds") List<Long> userIds);
 
     /**
+     * 领域事件批量投递收件记录（如关注动态）。
+     *
+     * 与 {@link #insertReceivers} 的差别：收件人由领域服务按业务规则圈定，
+     * create_by 记录真实来源（系统事件名），且调用方负责按批拆分，避免单条 SQL 过大。
+     */
+    int insertEventReceivers(@Param("notificationId") Long notificationId,
+                             @Param("userIds") List<Long> userIds,
+                             @Param("createBy") String createBy);
+
+    /**
      * 校验收件人合法性：返回 userIds 中**不存在、已删除或不属于 App 域**的个数。
      * 非 0 时整体失败，不留下半成品（MSG-03）。
      */

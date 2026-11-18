@@ -60,13 +60,27 @@ public class TaskConfigService {
     }
 
     /**
+     * 是否按自然日刷新：福利任务默认每日重置；仅 ONCE / LIFETIME / 新手任务 终身一次。
+     * READING / UPLOAD / DAILY / AD 等类型均按日累计与领取。
+     */
+    public static boolean isDailyRefresh(TaskConfig task) {
+        if (task == null || task.getTaskType() == null) {
+            return true;
+        }
+        String type = task.getTaskType().trim();
+        return !"ONCE".equalsIgnoreCase(type)
+                && !"LIFETIME".equalsIgnoreCase(type)
+                && !"新手任务".equals(type);
+    }
+
+    /**
      * 用户上报任务行为进度（App 端真实完成行为后调用，如阅读/上传/登录）
      *
      * 规则：
      *  - 任务不存在 / 未启用 / 未到生效期 → 400；
      *  - 当日周期内已有已领取记录 → 幂等返回（不重复累加）；
-     *  - 每日任务（DAILY）按当天周期独立累计，跨天重新计数；
-     *  - 其余类型全周期累计；
+     *  - 每日刷新任务按当天周期独立累计，跨天重新计数；
+     *  - 终身任务（ONCE/LIFETIME/新手任务）全周期累计；
      *  - 进度达到 targetCount → 置 is_completed=1，之后才允许领取。
      *
      * @param taskCode  任务编码（sys_task.task_code 唯一）
@@ -112,13 +126,13 @@ public class TaskConfigService {
         String today = new SimpleDateFormat("yyyy-MM-dd").format(now);
         long taskIdVal = task.getTaskId().longValue();
         int target = task.getTargetCount() == null ? 1 : task.getTargetCount();
-        boolean isDaily = "DAILY".equalsIgnoreCase(task.getTaskType());
+        boolean isDaily = isDailyRefresh(task);
 
         // 查该用户该任务的最新进度记录
         UserTask latest = userTaskMapper.selectByUserAndTask(userId, taskIdVal);
         boolean samePeriod = latest != null && latest.getPeriodDate() != null
                 && today.equals(new SimpleDateFormat("yyyy-MM-dd").format(latest.getPeriodDate()));
-        // 是否复用最新记录：每日任务仅当天周期内复用；非每日任务全周期累计、可跨天复用
+        // 是否复用最新记录：每日刷新任务仅当天周期内复用；终身任务全周期累计、可跨天复用
         boolean reuse = latest != null && (isDaily ? samePeriod : true);
         // 当前周期内已领取过 → 幂等返回（不重复累加）
         if (latest != null && latest.getIsClaimed() != null && latest.getIsClaimed() == 1
@@ -207,8 +221,9 @@ public class TaskConfigService {
         String today = new SimpleDateFormat("yyyy-MM-dd").format(now);
         long taskIdVal = task.getTaskId().longValue();
 
-        // 真实行为完成校验：未完成的任务不允许领取（DAILY 还要求当天周期已完成）
+        // 真实行为完成校验：未完成的任务不允许领取（每日刷新任务还要求当天周期已完成）
         int target = task.getTargetCount() == null ? 1 : task.getTargetCount();
+        boolean isDaily = isDailyRefresh(task);
         UserTask progressRec = userTaskMapper.selectByUserAndTask(userId, taskIdVal);
         boolean finished = progressRec != null && progressRec.getProgress() != null
                 && progressRec.getProgress() >= target
@@ -218,8 +233,8 @@ public class TaskConfigService {
             result.put("msg", "任务未完成，请先完成对应行为");
             return result;
         }
-        if ("DAILY".equalsIgnoreCase(task.getTaskType())) {
-            // 每日任务：必须当天周期已完成（防止领昨天的完成记录）
+        if (isDaily) {
+            // 每日刷新：必须当天周期已完成（防止领昨天的完成记录）
             boolean todayFinished = progressRec.getPeriodDate() != null
                     && today.equals(new SimpleDateFormat("yyyy-MM-dd").format(progressRec.getPeriodDate()));
             if (!todayFinished) {
@@ -237,15 +252,15 @@ public class TaskConfigService {
                 result.put("msg", "今日领取次数已达上限");
                 return result;
             }
-        } else if ("DAILY".equalsIgnoreCase(task.getTaskType())) {
-            // 每日任务未设上限时默认每日 1 次
+        } else if (isDaily) {
+            // 每日刷新任务未设上限时默认每日 1 次
             if (userTaskMapper.countClaimed(userId, taskIdVal, today) > 0) {
                 result.put("code", 400);
                 result.put("msg", "今日已领取该任务奖励");
                 return result;
             }
         } else {
-            // 其他任务全周期限领 1 次
+            // 终身任务全周期限领 1 次
             if (userTaskMapper.countClaimedAll(userId, taskIdVal) > 0) {
                 result.put("code", 400);
                 result.put("msg", "该任务奖励已领取");

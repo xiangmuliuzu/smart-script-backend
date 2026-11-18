@@ -225,7 +225,7 @@ public class TradeDeliveryService
         deliveryMapper.updateDelivery(update);
 
         SysDelivery fresh = selectDeliveryById(deliveryId);
-        notifyService.notifyDeliveryUploaded(deliveryId, fresh.getDeliveryNo(), fresh.getOrderNo(),
+        notifyService.notifyDeliveryUploaded(fresh.getOrderId(), deliveryId, fresh.getDeliveryNo(), fresh.getOrderNo(),
                 fresh.getWorkTitle(), fresh.getAmount(), safeOperatorName(), fresh.getBuyerId());
         return fresh;
     }

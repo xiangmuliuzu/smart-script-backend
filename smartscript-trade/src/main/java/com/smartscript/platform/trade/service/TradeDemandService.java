@@ -58,6 +58,11 @@ public class TradeDemandService
     private static final String OPERATOR_SYSTEM = "system";
     /** 接单制：未传时限时的默认完成时限（168 小时 = 7 天），仅用于无轮次的历史兼容单 */
     private static final int DEFAULT_DURATION_HOURS = 168;
+    /**
+     * 本轮截止前的提醒档位（小时，由宽到窄）：活动轮进入某一档位时提醒接单创作者一次。
+     * 取「最窄的已跨越档位」而非全部命中档位，保证一次扫描最多发一条。
+     */
+    private static final int[] DUE_SOON_HORIZONS_HOURS = { 24, 2 };
 
     /**
      * 征集截止判定：deadline 为空表示不设时限。
@@ -301,6 +306,59 @@ public class TradeDemandService
         int failed = terminateOverdueRounds();
         int closed = closeExpiredRecruits();
         return rejected + failed + closed;
+    }
+
+    /**
+     * 跨全库扫描临近截止的活动轮，按档位提醒接单创作者。
+     * <p>与超时终止同一个入口：同一轮同一档位只发一条（幂等键见 TradeNotifyService），
+     * 所以本方法可以被高频调用而不刷屏；延时批准后截止时刻变化，档位会重新计数一次。
+     *
+     * @return 命中并投递提醒的轮次数（含幂等去重后的实际落库由通知层保证）
+     */
+    public int remindDueSoonRounds()
+    {
+        int maxHorizonMinutes = DUE_SOON_HORIZONS_HOURS[0] * 60;
+        int count = 0;
+        for (SysDemandStage stage : stageMapper.selectDueSoonActiveStages(maxHorizonMinutes))
+        {
+            try
+            {
+                SysDemand demand = demandMapper.selectDemandById(stage.getDemandId());
+                if (demand == null || !DEMAND_STATUS_IN_PROGRESS.equals(demand.getStatus())
+                        || demand.getAcceptedCreatorId() == null)
+                {
+                    continue;
+                }
+                long remainingMinutes = (stage.getDueAt().getTime() - System.currentTimeMillis() + 59_999) / 60_000;
+                int horizonHours = tightestCrossedHorizon(remainingMinutes);
+                if (horizonHours <= 0)
+                {
+                    continue;
+                }
+                notifyService.notifyStageDueSoon(demand, stage, horizonHours, remainingMinutes);
+                count++;
+            }
+            catch (Exception e)
+            {
+                log.warn("定时临近截止提醒失败 demandId={} stageId={}: {}",
+                        stage.getDemandId(), stage.getStageId(), e.getMessage());
+            }
+        }
+        return count;
+    }
+
+    /** 取剩余时长已落入的最窄档位：进入 2 小时窗口后只发 2H，不再重复发 24H。 */
+    private int tightestCrossedHorizon(long remainingMinutes)
+    {
+        int matched = 0;
+        for (int hours : DUE_SOON_HORIZONS_HOURS)
+        {
+            if (remainingMinutes <= hours * 60L)
+            {
+                matched = hours;
+            }
+        }
+        return matched;
     }
 
     /** 跨全库扫描已到期的活动轮，逐条复用读路径同一个终止方法。 */
@@ -1466,8 +1524,9 @@ public class TradeDemandService
         submissionMapper.insertSubmission(sub);
         demandMapper.incrementSubmissionCount(demandId);
 
-        // 通知发布者
-        notifyService.notifyDemandSubmitted(sub.getSubmissionId(), demandId, demand.getTitle(), demand.getClientId());
+        // 通知平台评审：投稿行回读一次，取联表的作品标题与投稿人昵称，正文才带得全
+        SysDemandSubmission saved = submissionMapper.selectSubmissionById(sub.getSubmissionId());
+        notifyService.notifyDemandSubmitted(demand, saved != null ? saved : sub);
         return sub;
     }
 
@@ -1484,8 +1543,8 @@ public class TradeDemandService
         int changed = submissionMapper.updateStatus(submissionId, SUBMISSION_STATUS_SHORTLISTED, null, String.valueOf(operatorId));
         if (changed == 1)
         {
-            notifyService.notifySubmissionShortlisted(submissionId, sub.getDemandId(), demand.getTitle(),
-                    sub.getSubmitterId(), sub.getWorkTitle());
+            notifyService.notifySubmissionShortlisted(submissionId, sub.getDemandId(), demand.getDemandNo(),
+                    demand.getTitle(), sub.getSubmitterId(), sub.getWorkTitle());
         }
         return changed;
     }
@@ -1516,7 +1575,8 @@ public class TradeDemandService
                     && SUBMISSION_STATUS_REJECTED.equals(other.getStatus()))
             {
                 notifyService.notifySubmissionRejected(other.getSubmissionId(), demand.getDemandId(),
-                        demand.getTitle(), other.getSubmitterId(), other.getWorkTitle(), "本征集已选定其他投稿");
+                        demand.getDemandNo(), demand.getTitle(), other.getSubmitterId(),
+                        other.getWorkTitle(), "本征集已选定其他投稿");
             }
         }
 
@@ -1532,8 +1592,9 @@ public class TradeDemandService
         inquiry.setCreateBy(String.valueOf(demand.getClientId()));
         SysInquiry created = inquiryService.createInquiry(inquiry);
 
-        // 通知投稿者
-        notifyService.notifySubmissionAccepted(submissionId, sub.getSubmitterId(), demand.getTitle());
+        // 通知投稿者：中标后的下一步在自动创建的询盘里报价，故带询盘定位
+        notifyService.notifySubmissionAccepted(submissionId, sub.getDemandId(), demand.getTitle(),
+                sub.getWorkTitle(), created.getInquiryId(), created.getInquiryNo(), sub.getSubmitterId());
         return created;
     }
 
@@ -1550,8 +1611,8 @@ public class TradeDemandService
         int changed = submissionMapper.updateStatus(submissionId, SUBMISSION_STATUS_REJECTED, remark, String.valueOf(operatorId));
         if (changed == 1)
         {
-            notifyService.notifySubmissionRejected(submissionId, sub.getDemandId(), demand.getTitle(),
-                    sub.getSubmitterId(), sub.getWorkTitle(), remark);
+            notifyService.notifySubmissionRejected(submissionId, sub.getDemandId(), demand.getDemandNo(),
+                    demand.getTitle(), sub.getSubmitterId(), sub.getWorkTitle(), remark);
         }
         return changed;
     }

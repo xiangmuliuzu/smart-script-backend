@@ -7,11 +7,13 @@ import org.apache.pdfbox.pdmodel.PDPageContentStream;
 import org.apache.pdfbox.pdmodel.common.PDRectangle;
 import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
 import org.apache.pdfbox.rendering.PDFRenderer;
+import org.apache.pdfbox.util.Matrix;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import javax.imageio.ImageIO;
+import java.awt.geom.AffineTransform;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -67,6 +69,7 @@ public class ContractPdfRenderer
      * 上传件签章落位描述：一枚签名或印章图片在某一页的摆放。
      * 坐标以页面比例(0..1)给出，x/y 为浮块左上角（y 自页面顶部向下），w 为宽度比例，
      * 高度按图片自身宽高比推算，落章时换算为页面 points。
+     * rotation 为绕浮块中心的旋转角度（度，顺时针为正，与前端 CSS rotate 同向）。
      */
     public static final class Stamp
     {
@@ -75,15 +78,17 @@ public class ContractPdfRenderer
         public final double xFrac;
         public final double yFrac;
         public final double wFrac;
+        public final double rotation;
         public final String kind;
 
-        public Stamp(byte[] image, int page, double xFrac, double yFrac, double wFrac, String kind)
+        public Stamp(byte[] image, int page, double xFrac, double yFrac, double wFrac, double rotation, String kind)
         {
             this.image = image;
             this.page = page;
             this.xFrac = xFrac;
             this.yFrac = yFrac;
             this.wFrac = wFrac;
+            this.rotation = rotation;
             this.kind = kind;
         }
     }
@@ -177,7 +182,19 @@ public class ContractPdfRenderer
                 try (PDPageContentStream cs = new PDPageContentStream(doc, page,
                         PDPageContentStream.AppendMode.APPEND, true, true))
                 {
-                    cs.drawImage(xobj, drawX, drawY, drawW, drawH);
+                    if (stamp.rotation == 0)
+                    {
+                        cs.drawImage(xobj, drawX, drawY, drawW, drawH);
+                        continue;
+                    }
+                    // 单位方块先缩放、再绕自身中心旋转、最后平移到浮块中心；
+                    // PDF 用户空间 y 轴向上，顺时针角度取负才与前端预览同向。
+                    AffineTransform at = new AffineTransform();
+                    at.translate(drawX + drawW / 2f, drawY + drawH / 2f);
+                    at.rotate(Math.toRadians(-stamp.rotation));
+                    at.scale(drawW, drawH);
+                    at.translate(-0.5, -0.5);
+                    cs.drawImage(xobj, new Matrix(at));
                 }
             }
             ByteArrayOutputStream out = new ByteArrayOutputStream();

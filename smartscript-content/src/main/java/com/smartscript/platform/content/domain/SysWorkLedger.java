@@ -57,6 +57,14 @@ public class SysWorkLedger
     /** 未解线索 */
     private String threads;
 
+    /**
+     * 状态板：所在 / 持有 / 认知 / 约定，一行一条，变更必须带触发。
+     *
+     * 与 items / props 的区别：那两份记"某物的归属"，这里记"某个状态的最后一次变化与因由"，
+     * 用于在下一集生成前判断"能不能自洽地接上"，而不是规定必须兑现某个承诺。
+     */
+    private String stateBoard;
+
     /** 最后更新时间（只读下发） */
     private String updateTime;
 
@@ -168,6 +176,16 @@ public class SysWorkLedger
     public void setThreads(String threads)
     {
         this.threads = threads;
+    }
+
+    public String getStateBoard()
+    {
+        return stateBoard;
+    }
+
+    public void setStateBoard(String stateBoard)
+    {
+        this.stateBoard = stateBoard;
     }
 
     public String getUpdateTime()

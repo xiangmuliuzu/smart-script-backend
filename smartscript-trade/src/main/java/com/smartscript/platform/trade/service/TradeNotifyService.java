@@ -15,6 +15,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import com.ruoyi.framework.realtime.RealtimePushService;
 import com.smartscript.platform.trade.domain.SysDemand;
 import com.smartscript.platform.trade.domain.SysDemandStage;
+import com.smartscript.platform.trade.domain.SysDemandSubmission;
 import com.smartscript.platform.trade.domain.SysInquiry;
 import com.smartscript.platform.trade.domain.SysOrder;
 import com.smartscript.platform.trade.domain.SysQuote;
@@ -119,8 +120,12 @@ public class TradeNotifyService
                 "ORDER", str(orderId), one(counterpartUserId), "BOTH");
     }
 
-    /** 一方签署合同 → 通知另一方及时完成签署。 */
-    public void notifyContractSignedByParty(Long contractId, String orderNo, String workTitle,
+    /**
+     * 一方签署合同 → 通知另一方及时完成签署。
+     * <p>跳转键用订单主键而非合同主键：各端「去签署」入口都以订单定位合同，
+     * 合同主键在 App 侧没有可直达的详情页。
+     */
+    public void notifyContractSignedByParty(Long contractId, Long orderId, String orderNo, String workTitle,
             BigDecimal amount, String licenseType, String signerName, Long counterpartUserId)
     {
         StringBuilder content = new StringBuilder("对方已完成合同签署，等待您的签署。\n");
@@ -129,9 +134,9 @@ public class TradeNotifyService
         line(content, "授权类型", licenseLabel(licenseType));
         line(content, "合同金额", amountText(amount));
         line(content, "签署方", nameOf(signerName));
-        content.append("请尽快前往「合同」完成签署，双方签署完成后订单将进入付款环节。");
+        content.append("请尽快完成本合同签署，双方签署完成后订单将进入付款环节。");
         push("TRD-CTC-SGN-" + contractId, "对方已签署合同", content.toString(),
-                "CONTRACT", str(contractId), one(counterpartUserId), "BOTH");
+                "CONTRACT", str(orderId), one(counterpartUserId), "BOTH");
     }
 
     /** 双方签署完成 → 通知买方付款至托管。 */
@@ -285,7 +290,7 @@ public class TradeNotifyService
                 : "可修正收款账户信息后重新申请提现。");
         push("TRD-WDR-" + withdrawId + "-" + (approved ? "OK" : "NO"),
                 approved ? "提现申请已通过" : "提现申请被驳回", content.toString(),
-                "ORDER", str(withdrawId), one(userId), "SELLER");
+                "WITHDRAW", str(withdrawId), one(userId), "SELLER");
     }
 
     /** 询盘关闭：主动关闭通知对方，系统过期关闭通知双方。 */
@@ -503,8 +508,7 @@ public class TradeNotifyService
     }
 
     /** 时长展示“X天Y小时”，为 0 的分量省略，均为 0 返回 null（整行省略）。 */
-    private String durationText(Integer days, Integer hours)
-    {
+    private String durationText(Integer days, Integer hours)    {
         int d = days == null ? 0 : days;
         int h = hours == null ? 0 : hours;
         if (d > 0 && h > 0)
@@ -524,62 +528,86 @@ public class TradeNotifyService
         return date == null ? null : new SimpleDateFormat("MM月dd日 HH:mm").format(date);
     }
 
+    /** 剩余时长展示：不足 1 小时按分钟，避免提醒里出现「剩余 0 小时」。 */
+    private String remainingText(long minutes)
+    {
+        if (minutes < 60)
+        {
+            return minutes <= 0 ? null : minutes + "分钟";
+        }
+        return durationText((int) (minutes / 1440), (int) (minutes % 1440 / 60));
+    }
+
+    /** 临近截止提醒幂等键里的截止刻度：到分钟即可，重复扫描同一次截止只落一条。 */
+    private String dueStamp(Date date)
+    {
+        return date == null ? "NA" : new SimpleDateFormat("yyMMddHHmm").format(date);
+    }
+
     /** 只到天的日期（sys_demand.deadline 是 DATE 列）：渲染成「10月31日」，不带 00:00 这种伪时刻。 */
     private String dateText(Date date)
     {
         return date == null ? null : new SimpleDateFormat("yyyy年MM月dd日").format(date);
     }
 
-    /** 任务广场：有新投稿时通知发布者。 */
-    public void notifyDemandSubmitted(Long submissionId, Long demandId, String demandTitle, Long clientId)
+    /** 任务广场：有新投稿时通知平台评审（发布权在平台，运营无 App 收件箱，走管理端公告）。 */
+    public void notifyDemandSubmitted(SysDemand demand, SysDemandSubmission sub)
     {
-        StringBuilder content = new StringBuilder("您发布的征集任务收到新的投稿，请查看。\n");
-        line(content, "任务", titleOf(demandTitle));
-        content.append("可前往「任务广场」查看投稿并进行评审。");
+        StringBuilder content = new StringBuilder("征集任务收到新的投稿，请及时评审。\n");
+        line(content, "任务", titleOf(demand.getTitle()));
+        line(content, "需求编号", demand.getDemandNo());
+        line(content, "投稿作品", titleOf(sub.getWorkTitle()));
+        line(content, "投稿人", nameOf(sub.getSubmitterName()));
+        line(content, "投稿说明", sub.getSubmitMessage());
+        content.append("请前往管理端「任务管理 - 投稿评审」查看作品并决定入围或选标。");
         // requestId 用投稿ID做幂等键：同一投稿重试不重复通知，不同投稿各自独立
-        push("TRD-DM-SUB-" + submissionId,
-                "征集任务新投稿", content.toString(),
-                "DEMAND", str(demandId), one(clientId), "BOTH");
+        pushAdminNotice("TRD-DM-SUB-" + sub.getSubmissionId(),
+                "征集任务新投稿", content.toString());
     }
 
-    /** 任务广场：中标通知。 */
-    public void notifySubmissionAccepted(Long submissionId, Long submitterId, String demandTitle)
+    /** 任务广场：中标通知 → 收件人下一步是在自动创建的询盘里报价，故跳转键用询盘主键。 */
+    public void notifySubmissionAccepted(Long submissionId, Long demandId, String demandTitle,
+            String workTitle, Long inquiryId, String inquiryNo, Long submitterId)
     {
-        StringBuilder content = new StringBuilder("恭喜！您的投稿已被选中。\n");
+        StringBuilder content = new StringBuilder("恭喜！您的投稿已被选中，系统已自动创建询盘，请进入报价流程。\n");
         line(content, "任务", titleOf(demandTitle));
-        content.append("系统已自动创建询盘，请前往「我的合作-询盘」查看并进入报价流程。");
+        line(content, "投稿作品", titleOf(workTitle));
+        line(content, "询盘编号", inquiryNo);
+        content.append("请前往「询盘」查看该单并与对方洽谈报价，报价被接受后自动生成订单。");
         push("TRD-DM-ACC-" + submissionId,
                 "投稿中标", content.toString(),
-                "DEMAND", str(submissionId), one(submitterId), "SELLER");
+                "INQUIRY", str(inquiryId), one(submitterId), "SELLER");
     }
 
     /** 任务广场：投稿入围 → 通知创作者。 */
-    public void notifySubmissionShortlisted(Long submissionId, Long demandId, String demandTitle,
-            Long submitterId, String workTitle)
+    public void notifySubmissionShortlisted(Long submissionId, Long demandId, String demandNo,
+            String demandTitle, Long submitterId, String workTitle)
     {
-        StringBuilder content = new StringBuilder("您的投稿已入围发布者候选名单，请保持联系并等待选标结果。\n");
+        StringBuilder content = new StringBuilder("您的投稿已入围平台候选名单，请保持联系并等待选标结果。\n");
         line(content, "任务", titleOf(demandTitle));
+        line(content, "需求编号", demandNo);
         line(content, "投稿作品", titleOf(workTitle));
-        content.append("发布者可继续评审或直接选标，可在「我的合作-征集投稿」查看进展。");
+        content.append("平台会继续评审或直接选标，选标结果将在此消息通知您；可在「任务广场」查看该任务进展。");
         push("TRD-DM-SHORT-" + submissionId, "投稿已入围", content.toString(),
                 "DEMAND", str(demandId), one(submitterId), "SELLER");
     }
 
     /** 任务广场：投稿被拒绝（单条拒绝或选标时批量落选）→ 通知创作者。 */
-    public void notifySubmissionRejected(Long submissionId, Long demandId, String demandTitle,
-            Long submitterId, String workTitle, String reason)
+    public void notifySubmissionRejected(Long submissionId, Long demandId, String demandNo,
+            String demandTitle, Long submitterId, String workTitle, String reason)
     {
         StringBuilder content = new StringBuilder("很遗憾，您的投稿未被本次征集任务选中。\n");
         line(content, "任务", titleOf(demandTitle));
+        line(content, "需求编号", demandNo);
         line(content, "投稿作品", titleOf(workTitle));
         line(content, "落选说明", reason);
-        content.append("可关注广场其他任务继续投稿，如有疑问可与发布方沟通。");
+        content.append("可关注广场其他任务继续投稿，如有疑问可与对方沟通。");
         push("TRD-DM-REJ-" + submissionId, "投稿未选中", content.toString(),
                 "DEMAND", str(demandId), one(submitterId), "SELLER");
     }
 
-    /** 交割单：卖方上传交割材料 → 通知买方确认收货。 */
-    public void notifyDeliveryUploaded(Long deliveryId, String deliveryNo, String orderNo,
+    /** 交割单：卖方上传交割材料 → 通知买方确认收货（跳转键用订单主键，买方动作在订单里完成）。 */
+    public void notifyDeliveryUploaded(Long orderId, Long deliveryId, String deliveryNo, String orderNo,
             String workTitle, BigDecimal amount, String sellerName, Long buyerId)
     {
         StringBuilder content = new StringBuilder("卖方已提交交割材料，等待您确认收货。\n");
@@ -590,7 +618,7 @@ public class TradeNotifyService
         line(content, "卖方", nameOf(sellerName));
         content.append("请前往「订单-交割」核验材料：确认收货后货款将释放给卖方。");
         push("TRD-DLV-UP-" + deliveryId, "卖方已交割，待确认收货", content.toString(),
-                "ORDER", str(deliveryId), one(buyerId), "BUYER");
+                "ORDER", str(orderId), one(buyerId), "BUYER");
     }
 
     /** 任务广场：创作者抢单成功 → 管理端公告告知运营该单已离场、首轮计时开始。 */
@@ -821,6 +849,32 @@ public class TradeNotifyService
         content.append("请前往「任务详情-交付」查看本轮要求并开始创作，截止前完成交付即可通过 AI 审核进入验收。");
         push("TRD-DM-NEXT-" + demand.getDemandId() + "-" + nextStage.getStageOrder(),
                 "新一轮任务已开启", content.toString(),
+                "DEMAND", str(demand.getDemandId()), one(demand.getAcceptedCreatorId()), "SELLER");
+    }
+
+    /**
+     * 本轮交付临近截止 → 提醒接单创作者尽快提交。
+     * <p>由定时扫描在剩余 24 小时与 2 小时两个档位各触发一次：requestId 带档位，
+     * 同一轮同一档位重复扫描只落一条，跨过两个档位则各得一条。
+     * <p>requestId 还带本轮截止时刻：延时批准后 due_at 变化即重新计数，
+     * 否则顺延后的新截止点永远不会再提醒（旧键已被占用）。
+     *
+     * @param horizonHours 触发本次提醒的档位（24 或 2），同时作为幂等键的一部分
+     * @param remaining    距截止的剩余时长（分钟），用于正文展示
+     */
+    public void notifyStageDueSoon(SysDemand demand, SysDemandStage stage, int horizonHours, long remaining)
+    {
+        StringBuilder content = new StringBuilder("您本轮交付即将到期，请尽快提交。\n");
+        line(content, "任务", titleOf(demand.getTitle()));
+        line(content, "需求编号", demand.getDemandNo());
+        line(content, "轮次", roundText(stage.getStageOrder()));
+        line(content, "本轮金额", amountText(stage.getAmount()));
+        line(content, "本轮截止", dueText(stage.getDueAt()));
+        line(content, "剩余时间", remainingText(remaining));
+        content.append("请前往「任务详情-交付」提交本轮成果；逾期未通过验收，本轮任务将超时终止。");
+        push("TRD-DM-DUE-" + demand.getDemandId() + "-" + stage.getStageOrder() + "-" + horizonHours + "H"
+                        + "-" + dueStamp(stage.getDueAt()),
+                "本轮交付即将截止", content.toString(),
                 "DEMAND", str(demand.getDemandId()), one(demand.getAcceptedCreatorId()), "SELLER");
     }
 

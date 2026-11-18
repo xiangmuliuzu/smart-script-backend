@@ -8,6 +8,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import com.smartscript.platform.content.domain.SysWork;
@@ -20,6 +22,7 @@ import com.smartscript.platform.content.mapper.SysWorkChapterMapper;
 import com.smartscript.platform.content.mapper.SysWorkReviewRecordMapper;
 import com.smartscript.platform.content.service.IAppUserWorkService;
 import com.smartscript.platform.content.util.WorkStatusDeriver;
+import com.smartscript.platform.review.event.WorkPublishedEvent;
 import com.smartscript.platform.review.service.AiReviewService;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -64,6 +67,16 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
     private final com.smartscript.platform.review.service.RiskCheckService riskCheckService;
 
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(AppUserWorkServiceImpl.class);
+
+    /**
+     * 作者手动上架成功后发布「作品发布」事件，供关注动态广播。
+     *
+     * 审核通过只代表审核结果，不再自动上架（见 ReviewService/AiReviewService）；
+     * 所以「作品发布」的发点从审核环节移到作者真正点上架这一步。
+     * 可选注入：测试或未装事件容器时不影响上下架主流程。
+     */
+    @Autowired(required = false)
+    private ApplicationEventPublisher eventPublisher;
 
     public AppUserWorkServiceImpl(SysContentWorkMapper workMapper,
             SysWorkChapterMapper chapterMapper,
@@ -211,8 +224,10 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
 
         // 页面先保存过分集骨架时，库里已有同序号的空章；队列按「第N集：标题」回填，直接复用该章，
         // 否则同一集会变成"空章 + 新建正文"两章，作品集数翻倍、首页停在空白第 1 集。
+        // 同一集被重新生成（队列重跑）时也要复用已有正文的章，否则每跑一次就多出一章，
+        // 集号错位后验收记录、状态板都会记到不存在的集上。
         int targetNo = chapterNoFromTitle(chapterTitle);
-        SysWorkChapter blank = targetNo > 0 ? findBlankChapter(workId, targetNo) : null;
+        SysWorkChapter blank = targetNo > 0 ? findChapterByNo(workId, targetNo) : null;
         if (blank != null)
         {
             SysWorkChapter fill = new SysWorkChapter();
@@ -264,8 +279,11 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
         return matcher.find() ? Integer.parseInt(matcher.group(1)) : 0;
     }
 
-    /** 找同序号的空章（尚无正文），用于把生成结果填回页面已保存的分集骨架。 */
-    private SysWorkChapter findBlankChapter(Long workId, int chapterNo)
+    /**
+     * 找同序号的章节：队列重生成同一集时覆盖原章，页面上已存的空骨架同样命中。
+     * 同一集只保留一章，避免集号漂移（验收记录与状态板都按集号归属）。
+     */
+    private SysWorkChapter findChapterByNo(Long workId, int chapterNo)
     {
         SysWorkChapter query = new SysWorkChapter();
         query.setWorkId(workId);
@@ -278,13 +296,7 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
         {
             if (item.getChapterNo() != null && item.getChapterNo() == chapterNo)
             {
-                SysWorkChapter detail = chapterMapper.selectChapterDetail(item.getChapterId());
-                if (detail == null)
-                {
-                    return null;
-                }
-                String existing = detail.getStorageContent();
-                return (existing == null || existing.trim().isEmpty()) ? detail : null;
+                return chapterMapper.selectChapterDetail(item.getChapterId());
             }
         }
         return null;
@@ -716,5 +728,14 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
         update.setUpdateBy(String.valueOf(userId));
         update.setUpdateTime(new Date());
         workMapper.updateWorkStatus(update);
+
+        // 只有「下架 → 上架」这一次转换才广播，重复点已上架的作品不再打扰关注者
+        boolean firstPublish = WorkStatusDeriver.ON_SHELF.equals(status)
+                && !WorkStatusDeriver.ON_SHELF.equals(work.getStatus());
+        if (firstPublish && eventPublisher != null)
+        {
+            eventPublisher.publishEvent(new WorkPublishedEvent(workId, work.getAuthorId(),
+                    work.getTitle(), work.getAuthorName()));
+        }
     }
 }

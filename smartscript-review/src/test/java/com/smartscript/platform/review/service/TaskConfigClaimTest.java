@@ -217,12 +217,28 @@ class TaskConfigClaimTest {
     }
 
     @Test
-    void claim_非每日任务完成_可领取() {
+    void claim_阅读任务跨天未完成今日_不可领() {
         dailyTask.setTaskType("READING");
         dailyTask.setTaskCode("READ_CHAPTER");
         when(taskConfigMapper.selectTaskConfigByCode("READ_CHAPTER")).thenReturn(dailyTask);
-        // 终身任务：周期日期非当天也可领取，只要已完成
         UserTask ut = finishedToday("READING");
+        try {
+            ut.setPeriodDate(new SimpleDateFormat("yyyy-MM-dd").parse("2020-01-01"));
+        } catch (Exception ignored) {
+        }
+        when(userTaskMapper.selectByUserAndTask(106L, 1L)).thenReturn(ut);
+        Map<String, Object> r = taskConfigService.claimTask("READ_CHAPTER", 106L);
+        assertEquals(400, r.get("code"));
+        assertEquals("请先完成今日任务", r.get("msg"));
+        verify(pointsService, never()).grantPoints(anyLong(), anyInt(), anyString(), anyLong(), anyString());
+    }
+
+    @Test
+    void claim_终身任务完成_可领取() {
+        dailyTask.setTaskType("ONCE");
+        dailyTask.setTaskCode("ONCE_TASK");
+        when(taskConfigMapper.selectTaskConfigByCode("ONCE_TASK")).thenReturn(dailyTask);
+        UserTask ut = finishedToday("ONCE");
         try {
             ut.setPeriodDate(new SimpleDateFormat("yyyy-MM-dd").parse("2020-01-01"));
         } catch (Exception ignored) {
@@ -231,7 +247,7 @@ class TaskConfigClaimTest {
         when(userTaskMapper.countClaimedAll(106L, 1L)).thenReturn(0);
         when(pointsService.grantPoints(106L, 5, "TASK", 1L, "每日登录任务")).thenReturn(30);
         when(userTaskMapper.updateUserTaskClaimed(any())).thenReturn(1);
-        Map<String, Object> r = taskConfigService.claimTask("READ_CHAPTER", 106L);
+        Map<String, Object> r = taskConfigService.claimTask("ONCE_TASK", 106L);
         assertEquals(200, r.get("code"));
         assertEquals(30, r.get("balance"));
     }

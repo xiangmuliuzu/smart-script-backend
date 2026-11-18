@@ -59,6 +59,13 @@ public interface SysDemandStageMapper
      */
     List<SysDemandStage> selectOverdueActiveStages();
 
+    /**
+     * 定时提醒扫描用：全部「距截止不超过 horizonMinutes 且仍在计时」的活动轮（跨全库）。
+     * 口径与 selectOverdueActiveStages 一致，只把「已过截止」换成「未到截止但已进入窗口」；
+     * 额外要求已有人接单，因为提醒的收件人就是接单人。
+     */
+    List<SysDemandStage> selectDueSoonActiveStages(@Param("horizonMinutes") long horizonMinutes);
+
     /** AI 审核取文：交付作品在本轮验收集数内的章节正文列表（原始富文本，服务层转纯文本） */
     List<String> selectChapterContents(@Param("workId") Long workId,
                                        @Param("episodeTo") Integer episodeTo);

@@ -65,3 +65,5 @@ dump.rdb
 
 # 下发缩略图缓存（ProfileFileController 按需生成，可从原图重建，不入仓）
 uploadPath/.thumbnails/
+# 应用内更新的 APK 安装包：几十 MB，不进版本库（部署时单独上传到服务器）
+uploadPath/app/

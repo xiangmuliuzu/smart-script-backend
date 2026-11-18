@@ -257,7 +257,7 @@ class AdminAuditParamProjectionTest
     @Test
     void sanitizeNotificationLogKeepsOnlyContractEnums()
     {
-        for (String knownType : List.of("SYSTEM", "REVIEW", "TRANSACTION", "BENEFIT"))
+        for (String knownType : List.of("SYSTEM", "TRANSACTION", "BENEFIT"))
         {
             Map<String, Object> body = new LinkedHashMap<>();
             body.put(AppAdminAuditParams.TYPE, knownType);

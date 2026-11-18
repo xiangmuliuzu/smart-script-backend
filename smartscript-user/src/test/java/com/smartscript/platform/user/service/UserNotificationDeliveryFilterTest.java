@@ -71,10 +71,10 @@ class UserNotificationDeliveryFilterTest
     void excludesReceiversWhoClosedInboxForThisType()
     {
         stubValidCreation();
-        when(mapper.selectInboxDisabledUserIds(anyList(), eq("REVIEW"))).thenReturn(List.of(11L));
+        when(mapper.selectInboxDisabledUserIds(anyList(), eq("BENEFIT"))).thenReturn(List.of(11L));
 
         UserNotificationAdminService.CreateResult result = service.create(
-                "req-2", "REVIEW", "标题", "正文", null, null,
+                "req-2", "BENEFIT", "标题", "正文", null, null,
                 List.of(10L, 11L, 12L), "admin");
 
         assertEquals(2, result.getReceiverCount());
