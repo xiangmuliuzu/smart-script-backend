@@ -741,7 +741,8 @@ public class TradeDemandService
 
     /**
      * 创作者提交本轮交付物。
-     * script/script_storyboard：必须携带本人作品（work_id），已上架售卖（on_shelf）作品不得用于交付；
+     * script/script_storyboard：必须携带本人处于 off_shelf 的作品（work_id）；
+     * 任务交付审核是独立的验收流程，不会创建作品审核记录，也不会修改 sys_work.status；
      * 提交后本轮先进入 AI 审核（ai_reviewing）：计时暂停，后台 AI 打分 >=60 自动转人工验收(submitted)，
      * <60 自动打回(rejected)，AI 审核本身不需要人工介入。
      * storyboard（提供剧本做分镜）：分镜无剧本正文可审，作品可选（未选作品时须给文件链接或交付说明），
@@ -805,9 +806,9 @@ public class TradeDemandService
             {
                 throw new RuntimeException("只能交付自己创作的作品");
             }
-            if ("on_shelf".equals(String.valueOf(work.get("status"))))
+            if (!"off_shelf".equals(String.valueOf(work.get("status"))))
             {
-                throw new RuntimeException("作品已上架售卖，不能用于任务交付；请先下架后再提交");
+                throw new RuntimeException("只能提交未上架作品；请先将作品下架后再提交任务");
             }
         }
 

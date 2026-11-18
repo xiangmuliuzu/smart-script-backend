@@ -87,9 +87,9 @@ public class TradeWorkService
     /**
      * 上架作品到交易大厅（分工条目：2.26 POST /trade/works）。
      *
-     * 审核前置口径（2026-10-20 修正）：内容侧审核通过即自动上架，作品状态统一为
-     * on_shelf（已上架）/ off_shelf（已下架），因此 status 只需判 on_shelf，
-     * 不再兼容历史 approved——内容侧已无该取值。
+     * 审核前置口径：内容侧审核通过后仍需作者主动上架，作品状态统一为
+     * on_shelf（已上架）/ off_shelf（已下架），因此交易发布只允许 status=on_shelf。
+     * 审核通过本身不会自动改变 status。
      * off_shelf 提示先回内容侧上架，其余状态提示仅已上架作品可发布交易。
      */
     public int enableTrade(SysWork work)

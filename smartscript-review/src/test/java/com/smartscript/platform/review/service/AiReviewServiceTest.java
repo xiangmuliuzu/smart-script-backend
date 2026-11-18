@@ -292,7 +292,7 @@ class AiReviewServiceTest {
 
     @Test
     void score_低风险高分_直接通过审核_不再人工复审() {
-        // AI打分 >=90：直接 approved（不再进人工复审 pending），并触发作品自动上架
+        // AI打分 >=90：直接 approved（不再进人工复审 pending），但不能自动上架
         ReviewRecord record = new ReviewRecord();
         record.setReviewId(30L);
         record.setStatus("ai_reviewing");
@@ -306,7 +306,6 @@ class AiReviewServiceTest {
         org.mockito.ArgumentCaptor<ReviewRecord> captor = org.mockito.ArgumentCaptor.forClass(ReviewRecord.class);
         verify(reviewRecordMapper).updateReviewRecord(captor.capture());
         assertEquals("approved", captor.getValue().getStatus());
-        verify(reviewRecordMapper).markWorkOnShelf(301L, null);
     }
 
     @Test

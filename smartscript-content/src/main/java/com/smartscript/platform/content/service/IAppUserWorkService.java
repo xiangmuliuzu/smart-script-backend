@@ -30,7 +30,7 @@ public interface IAppUserWorkService
     /**
      * 修改作品基本信息（标题/简介/封面/标签）
      *
-     * 仅「审核中」锁定，其余状态（含已发布）均可修改。
+ * 仅「审核中」锁定，其余状态（含审核通过）均可修改。
      *
      * @param userId  当前用户ID
      * @param workId  作品ID

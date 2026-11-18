@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.content.mapper.SysWorkStoryboardMapper">
+
+    <resultMap id="SysWorkStoryboardResult" type="com.smartscript.platform.content.domain.SysWorkStoryboard">
+        <id property="storyboardId" column="storyboard_id"/>
+        <result property="workId" column="work_id"/>
+        <result property="chapterId" column="chapter_id"/>
+        <result property="chapterTitle" column="chapter_title"/>
+        <result property="content" column="content"/>
+        <result property="wordCount" column="word_count"/>
+        <result property="source" column="source"/>
+        <result property="status" column="status"/>
+        <result property="reviewerId" column="reviewer_id"/>
+        <result property="reviewTime" column="review_time"/>
+        <result property="rejectReason" column="reject_reason"/>
+        <result property="createBy" column="create_by"/>
+        <result property="createTime" column="create_time"/>
+        <result property="updateBy" column="update_by"/>
+        <result property="updateTime" column="update_time"/>
+        <result property="remark" column="remark"/>
+    </resultMap>
+
+    <select id="selectByWorkId" parameterType="java.lang.Long" resultMap="SysWorkStoryboardResult">
+        select storyboard_id, work_id, chapter_id, chapter_title, content, word_count,
+               source, status, reviewer_id, review_time, reject_reason,
+               create_by, create_time, update_by, update_time, remark
+        from sys_work_storyboard
+        where work_id = #{workId}
+        order by chapter_id asc, storyboard_id asc
+    </select>
+
+    <select id="selectById" parameterType="java.lang.Long" resultMap="SysWorkStoryboardResult">
+        select storyboard_id, work_id, chapter_id, chapter_title, content, word_count,
+               source, status, reviewer_id, review_time, reject_reason,
+               create_by, create_time, update_by, update_time, remark
+        from sys_work_storyboard
+        where storyboard_id = #{storyboardId}
+    </select>
+
+    <select id="selectByWorkIdAndChapterId" resultMap="SysWorkStoryboardResult">
+        select storyboard_id, work_id, chapter_id, chapter_title, content, word_count,
+               source, status, reviewer_id, review_time, reject_reason,
+               create_by, create_time, update_by, update_time, remark
+        from sys_work_storyboard
+        where work_id = #{workId} and chapter_id = #{chapterId}
+        limit 1
+    </select>
+
+    <insert id="insert" parameterType="com.smartscript.platform.content.domain.SysWorkStoryboard"
+            useGeneratedKeys="true" keyProperty="storyboardId">
+        insert into sys_work_storyboard
+        (work_id, chapter_id, chapter_title, content, word_count, source, status,
+         create_by, create_time, update_by, update_time, remark)
+        values
+        (#{workId}, #{chapterId}, #{chapterTitle}, #{content}, #{wordCount}, #{source}, #{status},
+         #{createBy}, #{createTime}, #{updateBy}, #{updateTime}, #{remark})
+    </insert>
+
+    <update id="update" parameterType="com.smartscript.platform.content.domain.SysWorkStoryboard">
+        update sys_work_storyboard
+        set chapter_title = #{chapterTitle},
+            content = #{content},
+            word_count = #{wordCount},
+            source = #{source},
+            status = #{status},
+            reviewer_id = null,
+            review_time = null,
+            reject_reason = null,
+            update_by = #{updateBy},
+            update_time = #{updateTime}
+        where storyboard_id = #{storyboardId}
+    </update>
+</mapper>

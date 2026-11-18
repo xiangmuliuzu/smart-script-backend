@@ -150,7 +150,8 @@ public class AppChapterWriteController
     }
 
     /**
-     * 更新章节（chapterTitle/content/isFree/status 均可选，为 null 不更新）
+     * 更新章节（chapterTitle/content/isFree/status 均可选，为 null 不更新）。
+     * status 参数仅为兼容旧客户端保留，当前不提供手动发布；isFree="1" 时直接使章节生效。
      *
      * @param chapterId 章节ID
      * @param request   body 至少含一个待更新字段

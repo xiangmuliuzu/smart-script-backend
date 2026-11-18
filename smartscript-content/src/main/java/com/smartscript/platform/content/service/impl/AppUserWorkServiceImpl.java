@@ -36,10 +36,11 @@ import java.util.concurrent.CompletableFuture;
  *      无记录 -> draft；pending/ai_reviewing -> reviewing；approved -> published；
  *      revision / rejected 原样返回。
  * 编辑闸门：仅 reviewing（审核中）锁定，其余状态均允许编辑。
- * 提交审核只写 sys_review_record，不修改 sys_work.status；审核通过时由审核侧自动置 on_shelf。
+ * 提交审核只写 sys_review_record，不修改 sys_work.status；审核通过后由作者主动上架。
  * 上下架语义：作者「下架」只降低可见性、无前置；「重新上架」要求最新审核为 approved
  * 且 reject_reason 为空（平台强制下架的作品禁止作者自助上架）。
- * 章节两态：新增章节默认 status='1'（草稿，仅作者可见），发布由 PUT /chapters/{id} 传 status='0' 触发。
+ * 章节两态：普通章节默认 status='1'（草稿，仅作者可见）；设置 is_free='1' 的试读章节
+ * 直接写入 status='0'，保存后立即可读，不经过单独章节审核，也不提供手动发布。
  *
  * 鉴权：userId 由控制器从 IdentityProvider 取得后传入，本服务不做请求体信任。
  *
@@ -89,9 +90,12 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
         SysWorkReviewRecord latest = records.isEmpty() ? null : records.get(0);
 
         Map<String, Object> result = new LinkedHashMap<>();
+        // 详情同时返回审核派生状态和独立的上架状态，供 App/PC 区分“审核通过”和“已上架”。
+        String shelfStatus = work.getStatus();
         // 以审核派生状态覆盖 sys_work 原始上架状态，供前端直接渲染
         work.setStatus(deriveStatus(latest));
         result.put("work", work);
+        result.put("shelfStatus", shelfStatus);
         // 作品标签（接口文档 2.3.2 输出参数 tags）：仅启用标签，供设置页回填已选标签
         result.put("tags", tagMapper.selectWorkTagRows(List.of(workId)));
         result.put("chapters", chapters);
@@ -217,7 +221,12 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
             fill.setContent(content == null ? "" : content);
             fill.setSummary(clipChapterSummary(summary));
             fill.setWordCount(countWords(fill.getContent()));
-            fill.setIsFree(isFree == null ? "0" : isFree);
+            String effectiveIsFree = isFree == null ? "0" : isFree;
+            fill.setIsFree(effectiveIsFree);
+            if ("1".equals(effectiveIsFree))
+            {
+                fill.setStatus(WorkStatusDeriver.CHAPTER_PUBLISHED);
+            }
             fill.setUpdateBy(String.valueOf(userId));
             chapterMapper.updateChapter(fill);
             workMapper.refreshWorkAggregates(workId);
@@ -232,8 +241,10 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
         chapter.setSummary(clipChapterSummary(summary));
         chapter.setWordCount(countWords(chapter.getContent()));
         chapter.setIsFree(isFree == null ? "0" : isFree);
-        // 章节两态：新增即草稿（仅作者可见），作者写完再发布（PUT 传 status='0'）
-        chapter.setStatus(WorkStatusDeriver.CHAPTER_DRAFT);
+        // 试读章节保存后直接可读；普通章节仍为草稿。
+        chapter.setStatus("1".equals(chapter.getIsFree())
+                ? WorkStatusDeriver.CHAPTER_PUBLISHED
+                : WorkStatusDeriver.CHAPTER_DRAFT);
         chapter.setCreateBy(String.valueOf(userId));
         chapter.setCreateTime(new Date());
         chapterMapper.insertChapter(chapter);
@@ -303,6 +314,11 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
             update.setSummary(clipChapterSummaryForUpdate(summary));
         }
         update.setIsFree(isFree);
+        // 试读设置立即应用。未传 isFree 时保持原章节状态；关闭试读不强制回退已可读章节。
+        if ("1".equals(isFree))
+        {
+            update.setStatus(WorkStatusDeriver.CHAPTER_PUBLISHED);
+        }
         update.setUpdateBy(String.valueOf(userId));
         update.setUpdateTime(new Date());
         chapterMapper.updateChapter(update);
@@ -601,7 +617,7 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
         return chapter;
     }
 
-    /** 校验作品可编辑：仅「审核中」锁定，其余状态（含已发布）均允许编辑 */
+    /** 校验作品可编辑：仅「审核中」锁定，其余状态（含审核通过）均允许编辑 */
     private void requireEditable(Long workId, Long userId)
     {
         List<SysWorkReviewRecord> records = reviewRecordMapper.selectByWorkId(workId);

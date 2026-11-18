@@ -7,6 +7,7 @@ import com.smartscript.platform.review.mapper.AiReviewRuleMapper;
 import com.smartscript.platform.review.mapper.ReviewRecordMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -37,6 +38,10 @@ public class AiReviewService {
 
     @Autowired
     private ReviewRecordMapper reviewRecordMapper;
+
+    /** 审核通过通知由用户模块监听事件后写入站内消息。 */
+    @Autowired(required = false)
+    private ApplicationEventPublisher eventPublisher;
 
     /** 复用内容创作同一套 DeepSeek 配置；未配置 api-key 时走 Mock 兜底 */
     @Value("${AI_BASE_URL:https://api.deepseek.com}")
@@ -140,10 +145,11 @@ public class AiReviewService {
             log.info("AI初审完成但状态已非ai_reviewing({})，不自动流转 reviewId={}", record.getStatus(), reviewId);
         }
         reviewRecordMapper.updateReviewRecord(upd);
-        // AI 高分直接通过 -> 与人工通过一致，作品自动上架
+        // AI 高分直接通过只代表审核结果通过，不能自动改变作品上架状态。
+        // 作者仍需在 App/PC 作品详情中主动点击“上架到书城”。
         if ("approved".equals(nextStatus) && "work".equals(record.getTargetType()) && record.getTargetId() != null) {
-            reviewRecordMapper.markWorkOnShelf(record.getTargetId(), null);
-            log.info("AI高分直通: 作品自动上架 workId={}", record.getTargetId());
+            publishApprovedEvent(record, reviewId);
+            log.info("AI高分直通: 审核通过，等待作者主动上架 workId={}", record.getTargetId());
         }
 
         result.put("code", 200);
@@ -155,6 +161,17 @@ public class AiReviewService {
         result.put("nextStatus", nextStatus);
         result.put("prompt", prompt);
         return result;
+    }
+
+    private void publishApprovedEvent(ReviewRecord record, Long reviewId) {
+        if (eventPublisher == null || record.getUserId() == null) {
+            return;
+        }
+        eventPublisher.publishEvent(new ReviewApprovedEvent(
+                reviewId,
+                record.getTargetId(),
+                record.getUserId(),
+                record.getWorkTitle()));
     }
 
     /**
