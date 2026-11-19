@@ -4,10 +4,11 @@ spring:
         type: com.alibaba.druid.pool.DruidDataSource
         driverClassName: com.mysql.cj.jdbc.Driver
         druid:
-            # 主库数据源（默认共享云端开发库，可用 DB_URL/DB_USERNAME/DB_PASSWORD 环境变量覆盖）
+            # 主库数据源（默认团队共享库：公司内网 192.168.100.3:1102 / p06_platform；
+            # 可用 DB_URL/DB_USERNAME/DB_PASSWORD 环境变量覆盖，容器部署内网地址用 mysql:3306）
             master:
-                url: ${DB_URL:jdbc:mysql://124.221.131.38:3306/script_platform_dev?useUnicode=true&characterEncoding=utf8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai&connectTimeout=10000&socketTimeout=30000}
-                username: ${DB_USERNAME:dev_qu_tianhao}
+                url: ${DB_URL:jdbc:mysql://192.168.100.3:1102/p06_platform?useUnicode=true&characterEncoding=utf8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai&connectTimeout=10000&socketTimeout=30000}
+                username: ${DB_USERNAME:p06_app}
                 password: ${DB_PASSWORD}
             # 从库数据源
             slave:

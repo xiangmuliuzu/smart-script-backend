@@ -57,7 +57,7 @@ class AppVersionSecurityTest
         when(configs.selectConfigByKey("app.version.android.versionName")).thenReturn("1.0.1");
         when(configs.selectConfigByKey("app.version.android.minVersionCode")).thenReturn("1");
         when(configs.selectConfigByKey("app.version.android.url"))
-                .thenReturn("https://www.eyhereal.site/profile/apk/script-app-1.0.1.apk");
+                .thenReturn("http://192.168.100.3:1100/profile/apk/script-app-1.0.1.apk");
         when(configs.selectConfigByKey("app.version.android.size")).thenReturn("31457280");
         when(configs.selectConfigByKey("app.version.android.notes")).thenReturn("修复若干问题");
 
@@ -70,7 +70,7 @@ class AppVersionSecurityTest
                 .andExpect(jsonPath("$.data.size").value(31457280))
                 .andExpect(jsonPath("$.data.notes").value("修复若干问题"))
                 .andExpect(jsonPath("$.data.url")
-                        .value("https://www.eyhereal.site/profile/apk/script-app-1.0.1.apk"));
+                        .value("http://192.168.100.3:1100/profile/apk/script-app-1.0.1.apk"));
         verifyNoInteractions(context.getBean(AppRuoYiSessionService.class));
     }
 
