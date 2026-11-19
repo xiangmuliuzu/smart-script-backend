@@ -5,6 +5,8 @@ import com.smartscript.platform.review.domain.AiReviewRule;
 import com.smartscript.platform.review.domain.ReviewRecord;
 import com.smartscript.platform.review.mapper.AiReviewRuleMapper;
 import com.smartscript.platform.review.mapper.ReviewRecordMapper;
+import com.smartscript.platform.review.mapper.ReviewWorkContentMapper;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
@@ -39,6 +41,9 @@ public class AiReviewService {
     @Autowired
     private ReviewRecordMapper reviewRecordMapper;
 
+    @Autowired
+    private ReviewWorkContentMapper reviewWorkContentMapper;
+
     /** 审核通过通知由用户模块监听事件后写入站内消息；作者主动上架时才发布「作品发布」事件。 */
     @Autowired(required = false)
     private ApplicationEventPublisher eventPublisher;
@@ -71,6 +76,7 @@ public class AiReviewService {
      * @param reviewId 审核记录ID
      * @param content  待审核内容（作品简介/章节正文等）
      */
+    @Transactional
     public Map<String, Object> score(Long reviewId, String content) {
         Map<String, Object> result = new HashMap<>();
         if (reviewId == null) {
@@ -138,16 +144,24 @@ public class AiReviewService {
                 nextStatus = "pending";
             }
             upd.setStatus(nextStatus);
+            upd.setExpectedStatus(record.getStatus());
             log.info("AI初审自动流转: reviewId={}, {} -> {}, score={}, level={}, ruleAction={}",
                     reviewId, record.getStatus(), nextStatus, score, riskLevel, ruleAction);
         } else {
             nextStatus = record.getStatus();
             log.info("AI初审完成但状态已非ai_reviewing({})，不自动流转 reviewId={}", record.getStatus(), reviewId);
         }
-        reviewRecordMapper.updateReviewRecord(upd);
+        int changed = reviewRecordMapper.updateReviewRecord(upd);
+        boolean updatedWork = changed > 0 && upd.getStatus() != null
+                && "work".equals(record.getTargetType()) && record.getTargetId() != null;
+        if (updatedWork && "approved".equals(nextStatus)) {
+            reviewWorkContentMapper.applyChapterReviewResult(record.getTargetId(), reviewId, "0");
+        } else if (updatedWork && "rejected".equals(nextStatus)) {
+            reviewWorkContentMapper.applyChapterReviewResult(record.getTargetId(), reviewId, "2");
+        }
         // AI 高分直接通过只代表审核结果通过，不能自动改变作品上架状态。
         // 作者仍需在 App/PC 作品详情中主动点击“上架到书城”。
-        if ("approved".equals(nextStatus) && "work".equals(record.getTargetType()) && record.getTargetId() != null) {
+        if (updatedWork && "approved".equals(nextStatus)) {
             publishApprovedEvent(record, reviewId);
             log.info("AI高分直通: 审核通过，等待作者主动上架 workId={}", record.getTargetId());
         }

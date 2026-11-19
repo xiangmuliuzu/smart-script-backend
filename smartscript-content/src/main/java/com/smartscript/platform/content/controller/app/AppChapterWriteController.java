@@ -138,7 +138,15 @@ public class AppChapterWriteController
         createRequest.setContent(request.getContent());
         // 缺省（null/空）交由服务层补默认值 "0"
         createRequest.setIsFree(trimToNull(request.getIsFree()));
-        Long chapterId = chapterService.createChapter(workId, createRequest);
+        Long chapterId;
+        try
+        {
+            chapterId = chapterService.createChapter(workId, createRequest);
+        }
+        catch (IllegalStateException e)
+        {
+            return AppApiResponse.fail(CODE_BAD_REQUEST, e.getMessage());
+        }
         if (chapterId == null)
         {
             return AppApiResponse.fail(CODE_SYSTEM_ERROR, "新增章节失败，请稍后重试");
@@ -151,7 +159,7 @@ public class AppChapterWriteController
 
     /**
      * 更新章节（chapterTitle/content/isFree/status 均可选，为 null 不更新）。
-     * status 参数仅为兼容旧客户端保留，当前不提供手动发布；isFree="1" 时直接使章节生效。
+     * status 参数仅为兼容旧客户端保留；章节审核通过后才可修改 isFree。
      *
      * @param chapterId 章节ID
      * @param request   body 至少含一个待更新字段
@@ -195,9 +203,16 @@ public class AppChapterWriteController
         updateRequest.setContent(content);
         updateRequest.setIsFree(isFree);
         updateRequest.setStatus(status);
-        if (!chapterService.updateChapter(chapterId, updateRequest))
+        try
         {
-            return AppApiResponse.fail(CODE_SYSTEM_ERROR, "更新章节失败，请稍后重试");
+            if (!chapterService.updateChapter(chapterId, updateRequest))
+            {
+                return AppApiResponse.fail(CODE_SYSTEM_ERROR, "更新章节失败，请稍后重试");
+            }
+        }
+        catch (IllegalStateException e)
+        {
+            return AppApiResponse.fail(CODE_BAD_REQUEST, e.getMessage());
         }
         return AppApiResponse.ok(Map.of("message", "更新成功"));
     }
@@ -220,9 +235,16 @@ public class AppChapterWriteController
         {
             return AppApiResponse.fail(CODE_FORBIDDEN, "无权操作该章节");
         }
-        if (!chapterService.deleteChapter(chapterId))
+        try
         {
-            return AppApiResponse.fail(CODE_SYSTEM_ERROR, "删除章节失败，请稍后重试");
+            if (!chapterService.deleteChapter(chapterId))
+            {
+                return AppApiResponse.fail(CODE_SYSTEM_ERROR, "删除章节失败，请稍后重试");
+            }
+        }
+        catch (IllegalStateException e)
+        {
+            return AppApiResponse.fail(CODE_BAD_REQUEST, e.getMessage());
         }
         return AppApiResponse.ok(Map.of("message", "删除成功"));
     }

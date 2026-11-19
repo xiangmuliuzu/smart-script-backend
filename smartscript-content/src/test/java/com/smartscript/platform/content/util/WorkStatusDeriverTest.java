@@ -69,11 +69,12 @@ class WorkStatusDeriverTest
     }
 
     @Test
-    @DisplayName("isChapterReaderVisible：非草稿（非 \"1\"）章节可见")
+    @DisplayName("isChapterReaderVisible：只有审核通过的章节可见")
     void isChapterReaderVisibleOnlyDraftHidden()
     {
         assertTrue(WorkStatusDeriver.isChapterReaderVisible("0"));
         assertFalse(WorkStatusDeriver.isChapterReaderVisible("1"));
-        assertTrue(WorkStatusDeriver.isChapterReaderVisible(null));
+        assertFalse(WorkStatusDeriver.isChapterReaderVisible(null));
+        assertFalse(WorkStatusDeriver.isChapterReaderVisible("2"));
     }
 }

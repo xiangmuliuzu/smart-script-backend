@@ -6,6 +6,7 @@ import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,6 +22,7 @@ import com.smartscript.platform.content.mapper.SysTagMapper;
 import com.smartscript.platform.content.mapper.SysWorkChapterMapper;
 import com.smartscript.platform.content.mapper.SysWorkReviewRecordMapper;
 import com.smartscript.platform.content.service.IAppUserWorkService;
+import com.smartscript.platform.content.util.ChapterTrialAccess;
 import com.smartscript.platform.content.util.WorkStatusDeriver;
 import com.smartscript.platform.review.event.WorkPublishedEvent;
 import com.smartscript.platform.review.service.AiReviewService;
@@ -43,7 +45,8 @@ import java.util.concurrent.CompletableFuture;
  * 上下架语义：作者「下架」只降低可见性、无前置；「重新上架」要求最新审核为 approved
  * 且 reject_reason 为空（平台强制下架的作品禁止作者自助上架）。
  * 章节两态：普通章节默认 status='1'（草稿，仅作者可见）；设置 is_free='1' 的试读章节
- * 直接写入 status='0'，保存后立即可读，不经过单独章节审核，也不提供手动发布。
+ * 章节审核结果继承整部作品审核：通过写 status='0'，驳回/发回写 status='2'，
+ * 新增或修改正文写 status='1'；试读设置只能单独修改审核通过章节。
  *
  * 鉴权：userId 由控制器从 IdentityProvider 取得后传入，本服务不做请求体信任。
  *
@@ -111,6 +114,12 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
         result.put("shelfStatus", shelfStatus);
         // 作品标签（接口文档 2.3.2 输出参数 tags）：仅启用标签，供设置页回填已选标签
         result.put("tags", tagMapper.selectWorkTagRows(List.of(workId)));
+        for (SysWorkChapter chapter : chapters)
+        {
+            // 仅转换返回给客户端的值，保留数据库里的兼容试读配置。
+            chapter.setIsFree(ChapterTrialAccess.isOpen(chapter, work.getPreviewEnabled(), work.getPreviewEpisodes())
+                    && WorkStatusDeriver.PUBLISHED.equals(work.getStatus()) ? "1" : "0");
+        }
         result.put("chapters", chapters);
         result.put("latestReview", latest);
         return result;
@@ -236,11 +245,11 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
             fill.setContent(content == null ? "" : content);
             fill.setSummary(clipChapterSummary(summary));
             fill.setWordCount(countWords(fill.getContent()));
-            String effectiveIsFree = isFree == null ? "0" : isFree;
-            fill.setIsFree(effectiveIsFree);
-            if ("1".equals(effectiveIsFree))
+            if (!Objects.equals(blank.getChapterTitle(), fill.getChapterTitle())
+                    || !Objects.equals(blank.getStorageContent(), fill.getStorageContent()))
             {
-                fill.setStatus(WorkStatusDeriver.CHAPTER_PUBLISHED);
+                fill.setStatus(WorkStatusDeriver.CHAPTER_DRAFT);
+                fill.setIsFree(resetTrialFlag(blank));
             }
             fill.setUpdateBy(String.valueOf(userId));
             chapterMapper.updateChapter(fill);
@@ -255,17 +264,20 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
         chapter.setContent(content == null ? "" : content);
         chapter.setSummary(clipChapterSummary(summary));
         chapter.setWordCount(countWords(chapter.getContent()));
-        chapter.setIsFree(isFree == null ? "0" : isFree);
-        // 试读章节保存后直接可读；普通章节仍为草稿。
-        chapter.setStatus("1".equals(chapter.getIsFree())
-                ? WorkStatusDeriver.CHAPTER_PUBLISHED
-                : WorkStatusDeriver.CHAPTER_DRAFT);
+        chapter.setIsFree("0");
+        chapter.setStatus(WorkStatusDeriver.CHAPTER_DRAFT);
         chapter.setCreateBy(String.valueOf(userId));
         chapter.setCreateTime(new Date());
         chapterMapper.insertChapter(chapter);
         // 章节增删改后回写作品聚合列（word_count/episode_count），否则作品恒显示 0 字
         workMapper.refreshWorkAggregates(workId);
         return chapter;
+    }
+
+    private static String resetTrialFlag(SysWorkChapter chapter)
+    {
+        return ChapterTrialAccess.EXPLICITLY_CLOSED.equals(chapter.getIsFree())
+                ? ChapterTrialAccess.EXPLICITLY_CLOSED : "0";
     }
 
     /** 从「第N集：标题」取集号，取不到返回 0（普通新增章节不参与复用）。 */
@@ -310,26 +322,42 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
         requireEditable(workId, userId);
 
         SysWorkChapter chapter = requireOwnChapter(workId, chapterId);
-        // 风控：章节标题/正文敏感词检查
         String mergedTitle = chapterTitle == null ? chapter.getChapterTitle() : chapterTitle;
         String mergedContent = content == null ? chapter.getStorageContent() : content;
-        riskCheckService.checkContentOrThrow(userId, mergedTitle + mergedContent);
         validateTrialFlag(isFree);
+        boolean contentChanged = !Objects.equals(mergedTitle, chapter.getChapterTitle())
+                || !Objects.equals(mergedContent, chapter.getStorageContent());
         SysWorkChapter update = new SysWorkChapter();
         update.setChapterId(chapterId);
-        update.setChapterTitle(mergedTitle);
-        update.setContent(mergedContent);
-        update.setWordCount(countWords(update.getContent()));
+        if (contentChanged)
+        {
+            riskCheckService.checkContentOrThrow(userId, mergedTitle + mergedContent);
+            update.setChapterTitle(mergedTitle);
+            update.setContent(mergedContent);
+            update.setWordCount(countWords(update.getContent()));
+            update.setStatus(WorkStatusDeriver.CHAPTER_DRAFT);
+            update.setIsFree(resetTrialFlag(chapter));
+        }
+        else if (isFree != null && (chapterTitle == null && content == null && summary == null
+                || !Objects.equals(isFree, chapter.getIsFree())))
+        {
+            if (chapterMapper.setApprovedChapterTrial(chapterId, workId, isFree, String.valueOf(userId)) == 0)
+            {
+                throw new IllegalStateException("章节审核通过后才能设置试读，请刷新后重试");
+            }
+            if (summary == null)
+            {
+                return;
+            }
+        }
+        if (!contentChanged && summary == null)
+        {
+            return;
+        }
         // 摘要：null 表示本次不修改；空串按清空（落库 null），超过 500 字符截断
         if (summary != null)
         {
             update.setSummary(clipChapterSummaryForUpdate(summary));
-        }
-        update.setIsFree(isFree);
-        // 试读设置立即应用。未传 isFree 时保持原章节状态；关闭试读不强制回退已可读章节。
-        if ("1".equals(isFree))
-        {
-            update.setStatus(WorkStatusDeriver.CHAPTER_PUBLISHED);
         }
         update.setUpdateBy(String.valueOf(userId));
         update.setUpdateTime(new Date());

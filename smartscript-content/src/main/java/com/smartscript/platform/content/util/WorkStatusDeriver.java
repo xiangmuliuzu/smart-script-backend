@@ -47,10 +47,10 @@ public final class WorkStatusDeriver
     /** 审核记录：已通过（审核流转终态） */
     public static final String APPROVED = "approved";
 
-    /** 章节状态：已生效（读者可见） */
+    /** 章节状态：审核通过（读者还需满足作品可见性和试读/授权条件） */
     public static final String CHAPTER_PUBLISHED = "0";
 
-    /** 章节状态：草稿（仅作者可见；开启试读时由服务端直接切换为 CHAPTER_PUBLISHED） */
+    /** 章节状态：草稿（仅作者可见） */
     public static final String CHAPTER_DRAFT = "1";
 
     /** 审核记录中属于「审核中」的状态值 */
@@ -115,6 +115,6 @@ public final class WorkStatusDeriver
      */
     public static boolean isChapterReaderVisible(String chapterStatus)
     {
-        return !CHAPTER_DRAFT.equals(chapterStatus);
+        return CHAPTER_PUBLISHED.equals(chapterStatus);
     }
 }

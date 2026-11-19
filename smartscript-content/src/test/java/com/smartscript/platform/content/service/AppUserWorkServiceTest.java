@@ -587,33 +587,33 @@ class AppUserWorkServiceTest
     }
 
     @Test
-    void trialChapterCanBeCreated()
+    void creatingChapterCannotMakeItTrial()
     {
         when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
         when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of());
         SysWorkChapter created = service.addChapter(OWNER, WORK_ID, "试读章节", "正文", null, "1");
-        assertEquals("1", created.getIsFree());
+        assertEquals("0", created.getIsFree());
         assertEquals("1", created.getStatus());
     }
 
     @Test
-    void trialFlagCanBeEnabledDisabledOrOmittedWithoutChangingPublicationStatus()
+    void trialToggleChangesOnlyTheFlagAndRejectsUnapprovedChapter()
     {
         when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
-        when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of());
+        when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of(recordOf("approved")));
         SysWorkChapter chapter = new SysWorkChapter();
         chapter.setChapterId(55L);
         chapter.setWorkId(WORK_ID);
-        chapter.setIsFree("1");
         chapter.setContent("原正文");
         when(chapterMapper.selectChapterDetail(55L)).thenReturn(chapter);
-
-        for (String flag : new String[] { "1", "0", null })
-        {
-            service.updateChapter(OWNER, WORK_ID, 55L, null, null, null, flag);
-            verify(chapterMapper).updateChapter(argThat(c -> java.util.Objects.equals(flag, c.getIsFree())
-                    && c.getStatus() == null && "原正文".equals(c.getContent())));
-        }
+        assertThrows(IllegalStateException.class, () -> service.updateChapter(OWNER, WORK_ID, 55L, null, null, null, "1"));
+        when(chapterMapper.setApprovedChapterTrial(55L, WORK_ID, "1", String.valueOf(OWNER))).thenReturn(1);
+        service.updateChapter(OWNER, WORK_ID, 55L, null, null, null, "1");
+        verify(chapterMapper, never()).updateChapter(any());
+        verify(workMapper, never()).refreshWorkAggregates(any());
+        service.updateChapter(OWNER, WORK_ID, 55L, null, "已修改的正文", null, "1");
+        verify(chapterMapper).updateChapter(argThat(c -> "1".equals(c.getStatus())
+                && "0".equals(c.getIsFree()) && "已修改的正文".equals(c.getContent())));
     }
 
     @Test

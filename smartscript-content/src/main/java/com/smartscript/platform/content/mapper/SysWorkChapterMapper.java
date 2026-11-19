@@ -103,6 +103,11 @@ public interface SysWorkChapterMapper
      */
     public int updateChapter(SysWorkChapter chapter);
 
+    int setApprovedChapterTrial(@org.apache.ibatis.annotations.Param("chapterId") Long chapterId,
+                                @org.apache.ibatis.annotations.Param("workId") Long workId,
+                                @org.apache.ibatis.annotations.Param("isFree") String isFree,
+                                @org.apache.ibatis.annotations.Param("operator") String operator);
+
     /**
      * 删除章节（物理删除：sys_work_chapter 无逻辑删除列）
      *

@@ -46,6 +46,12 @@ public class ReviewRecord {
     /** AI结束时间 */
     private Date aiEndTime;
 
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    private String expectedStatus;
+
+    public String getExpectedStatus() { return expectedStatus; }
+    public void setExpectedStatus(String expectedStatus) { this.expectedStatus = expectedStatus; }
+
     // getter and setter
     public Long getReviewId() { return reviewId; }
     public void setReviewId(Long reviewId) { this.reviewId = reviewId; }

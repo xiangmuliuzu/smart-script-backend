@@ -29,4 +29,16 @@
         ORDER BY chapter_no ASC, chapter_id ASC
     </select>
 
+    <!-- 以最新整部作品审核为准；未填写正文的章节骨架保留草稿。 -->
+    <update id="applyChapterReviewResult">
+        UPDATE sys_work_chapter c
+        SET c.status = #{status}
+        WHERE c.work_id = #{workId}
+          AND c.word_count &gt; 0
+          AND #{reviewId} = (
+              SELECT r.review_id FROM sys_review_record r
+              WHERE r.target_type = 'work' AND r.target_id = #{workId}
+              ORDER BY r.created_at DESC, r.review_id DESC LIMIT 1
+          )
+    </update>
 </mapper>

@@ -4,6 +4,7 @@ import com.smartscript.platform.review.domain.AiReviewRule;
 import com.smartscript.platform.review.domain.ReviewRecord;
 import com.smartscript.platform.review.mapper.AiReviewRuleMapper;
 import com.smartscript.platform.review.mapper.ReviewRecordMapper;
+import com.smartscript.platform.review.mapper.ReviewWorkContentMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -37,6 +38,9 @@ class AiReviewServiceTest {
 
     @Mock
     private ReviewRecordMapper reviewRecordMapper;
+
+    @Mock
+    private ReviewWorkContentMapper reviewWorkContentMapper;
 
     @Mock
     private ApplicationEventPublisher eventPublisher;
@@ -306,9 +310,11 @@ class AiReviewServiceTest {
         record.setWorkTitle("悬疑故事");
         record.setAuthorName("作者甲");
         when(reviewRecordMapper.selectReviewRecordById(30L)).thenReturn(record);
+        when(reviewRecordMapper.updateReviewRecord(any())).thenReturn(1);
         when(aiReviewRuleMapper.selectActiveAiReviewRules()).thenReturn(Collections.emptyList());
 
         Map<String, Object> r = aiReviewService.score(30L, "这是一篇优秀的悬疑小说，情节紧凑");
+        verify(reviewWorkContentMapper).applyChapterReviewResult(301L, 30L, "0");
         assertEquals("approved", r.get("nextStatus"));
         org.mockito.ArgumentCaptor<ReviewRecord> captor = org.mockito.ArgumentCaptor.forClass(ReviewRecord.class);
         verify(reviewRecordMapper).updateReviewRecord(captor.capture());

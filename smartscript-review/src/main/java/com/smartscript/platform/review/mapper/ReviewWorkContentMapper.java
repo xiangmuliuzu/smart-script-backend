@@ -16,4 +16,6 @@ public interface ReviewWorkContentMapper {
 
     /** 章节列表（正文为原始存储，service 层转纯文本） */
     List<WorkChapterVO> selectWorkChapters(@Param("workId") Long workId);
+    int applyChapterReviewResult(@Param("workId") Long workId, @Param("reviewId") Long reviewId,
+                                 @Param("status") String status);
 }

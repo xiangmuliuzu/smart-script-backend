@@ -15,6 +15,7 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import com.smartscript.platform.content.domain.SysWork;
 import com.smartscript.platform.content.domain.SysWorkChapter;
+import com.smartscript.platform.content.util.ChapterTrialAccess;
 import com.smartscript.platform.content.domain.SysWorkReviewRecord;
 import com.smartscript.platform.content.domain.SysWorkStoryboard;
 import com.smartscript.platform.content.dto.AppStoryboardDto;
@@ -66,31 +67,31 @@ public class AppWorkStoryboardServiceImpl implements IAppWorkStoryboardService
         boolean owner = userId != null && userId.equals(work.getAuthorId());
         if (owner)
         {
-            return toDtos(storyboardMapper.selectByWorkId(workId), true, work);
+            return toDtos(storyboardMapper.selectByWorkId(workId), true, true, work);
         }
 
         // 作品详情本身只对已上架作品公开；分镜目录沿用同一可见性口径。
-        if (!"on_shelf".equals(work.getStatus()))
+        if (workMapper.selectAppWorkById(workId) == null)
         {
             return List.of();
         }
 
         boolean authorized = isWorkAuthorized(workId, userId);
-        return toDtos(storyboardMapper.selectApprovedByWorkId(workId), authorized, work);
+        return toDtos(storyboardMapper.selectApprovedByWorkId(workId), authorized, false, work);
     }
 
     @Override
     public int countPublic(Long workId)
     {
         SysWork work = workMapper.selectWorkById(workId);
-        if (work == null || !"on_shelf".equals(work.getStatus()))
+        if (work == null || workMapper.selectAppWorkById(workId) == null)
         {
             return 0;
         }
         return storyboardMapper.countApprovedByWorkId(workId);
     }
 
-    private List<AppStoryboardDto> toDtos(List<SysWorkStoryboard> rows, boolean fullAccess,
+    private List<AppStoryboardDto> toDtos(List<SysWorkStoryboard> rows, boolean fullAccess, boolean owner,
             SysWork work)
     {
         if (rows == null || rows.isEmpty())
@@ -99,7 +100,7 @@ public class AppWorkStoryboardServiceImpl implements IAppWorkStoryboardService
         }
         SysWorkChapter query = new SysWorkChapter();
         query.setWorkId(work.getWorkId());
-        query.setStatus("0");
+        if (!owner) query.setStatus("0");
         Map<Long, SysWorkChapter> chapters = new HashMap<>();
         for (SysWorkChapter chapter : chapterMapper.selectChapterListByWorkId(query))
         {
@@ -113,9 +114,8 @@ public class AppWorkStoryboardServiceImpl implements IAppWorkStoryboardService
             {
                 continue;
             }
-            boolean readable = fullAccess || isChapterReadable(work, chapter);
-            boolean trialEnabled = isChapterReadable(work, chapter);
-            result.add(toDto(row, chapter, readable, trialEnabled, fullAccess));
+            boolean trialEnabled = ChapterTrialAccess.isOpen(chapter, work.getPreviewEnabled(), work.getPreviewEpisodes());
+            result.add(toDto(row, chapter, fullAccess || trialEnabled, trialEnabled, owner));
         }
         return result;
     }
@@ -149,16 +149,6 @@ public class AppWorkStoryboardServiceImpl implements IAppWorkStoryboardService
         dto.setUpdateTime(row.getUpdateTime());
         dto.setRemark(owner ? row.getRemark() : null);
         return dto;
-    }
-
-    private boolean isChapterReadable(SysWork work, SysWorkChapter chapter)
-    {
-        boolean inPreview = "1".equals(work.getPreviewEnabled())
-                && work.getPreviewEpisodes() != null
-                && work.getPreviewEpisodes() > 0
-                && chapter.getChapterNo() != null
-                && chapter.getChapterNo() <= work.getPreviewEpisodes();
-        return inPreview || "1".equals(chapter.getIsFree());
     }
 
     private boolean isWorkAuthorized(Long workId, Long userId)

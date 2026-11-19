@@ -14,7 +14,9 @@ import com.smartscript.platform.content.dto.AppChapterCreateRequest;
 import com.smartscript.platform.content.dto.AppChapterUpdateRequest;
 import com.smartscript.platform.content.mapper.SysContentWorkMapper;
 import com.smartscript.platform.content.mapper.SysWorkChapterMapper;
+import com.smartscript.platform.content.mapper.SysWorkReviewRecordMapper;
 import com.smartscript.platform.content.service.IAppChapterAuthorService;
+import com.smartscript.platform.content.util.ChapterTrialAccess;
 import com.smartscript.platform.content.util.WorkStatusDeriver;
 import com.smartscript.platform.identity.IdentityProvider;
 
@@ -28,9 +30,7 @@ import com.smartscript.platform.identity.IdentityProvider;
  *    作品不存在/已删除按 404，他人作品按 403（本批章节编辑的既定约定）。
  * 2. word_count 由后端按 content 字符长度计算，不接收入参；content 为空时记 0。
  * 3. chapter_no 作品内唯一：前置 countChapterNo 校验（重复 400），并发竞态由唯一键兜底。
- * 4. is_free/status 为 tinyint，按模块约定以字符串 "0"/"1" 落库；新增默认 is_free="0"、
- *    status=WorkStatusDeriver.CHAPTER_DRAFT("1"，草稿，仅作者可见)。开启试读时直接写入
- *    CHAPTER_PUBLISHED("0")，试读设置立即生效，不再依赖单独的章节审核或手动发布。
+ * 4. 新章为草稿，审核通过后才允许设置试读。章节标题或正文修改后回到草稿。
  * 5. 新增/更新均落若依审计列 create_by/update_by = 当前用户ID 字符串。
  * 6. 章节增删改后回写作品聚合列 word_count/episode_count（冗余统计列，
  *    全项目无其它写入方，不回写则作品恒显示 0 字 / 0 章）。
@@ -51,6 +51,9 @@ public class AppChapterAuthorServiceImpl implements IAppChapterAuthorService
 
     @Autowired
     private SysContentWorkMapper workMapper;
+
+    @Autowired
+    private SysWorkReviewRecordMapper reviewRecordMapper;
 
     @Autowired
     private IdentityProvider identityProvider;
@@ -116,7 +119,7 @@ public class AppChapterAuthorServiceImpl implements IAppChapterAuthorService
             item.setChapterTitle(row.getChapterTitle());
             item.setWordCount(row.getWordCount());
             item.setSummary(row.getSummary());
-            item.setIsFree(row.getIsFree());
+            item.setIsFree("1".equals(row.getIsFree()) ? "1" : "0");
             item.setStatus(row.getStatus());
             items.add(item);
         }
@@ -128,6 +131,7 @@ public class AppChapterAuthorServiceImpl implements IAppChapterAuthorService
     public Long createChapter(Long workId, AppChapterCreateRequest request)
     {
         Long userId = identityProvider.currentUserId();
+        requireEditable(workId);
         SysWorkChapter chapter = new SysWorkChapter();
         chapter.setWorkId(workId);
         chapter.setChapterNo(request.getChapterNo());
@@ -135,11 +139,8 @@ public class AppChapterAuthorServiceImpl implements IAppChapterAuthorService
         chapter.setContent(request.getContent());
         chapter.setWordCount(countWords(request.getContent()));
         chapter.setSummary(clipSummary(request.getSummary()));
-        chapter.setIsFree(request.getIsFree() == null ? DEFAULT_IS_FREE : request.getIsFree());
-        // 试读章节保存后立即可读；普通章节仍保留为草稿。
-        chapter.setStatus(isFreeChapter(request.getIsFree())
-                ? WorkStatusDeriver.CHAPTER_PUBLISHED
-                : DEFAULT_STATUS);
+        chapter.setIsFree(DEFAULT_IS_FREE);
+        chapter.setStatus(DEFAULT_STATUS);
         chapter.setCreateBy(userId == null ? null : String.valueOf(userId));
         if (chapterMapper.insertChapter(chapter) <= 0)
         {
@@ -157,6 +158,37 @@ public class AppChapterAuthorServiceImpl implements IAppChapterAuthorService
         Long userId = identityProvider.currentUserId();
         // 章节表无 author_id，作品ID 需由章节元信息反查，供回写作品聚合列使用
         SysWorkChapter meta = chapterMapper.selectChapterMeta(chapterId);
+        if (meta == null)
+        {
+            return false;
+        }
+        requireEditable(meta.getWorkId());
+        SysWorkChapter previous = request.getContent() == null ? meta : chapterMapper.selectChapterDetail(chapterId);
+        if (previous == null)
+        {
+            return false;
+        }
+        boolean contentChanged = (request.getChapterTitle() != null
+                && !Objects.equals(request.getChapterTitle(), previous.getChapterTitle()))
+                || (request.getContent() != null
+                && !Objects.equals(request.getContent(), previous.getStorageContent()));
+        if (!contentChanged && request.getIsFree() != null
+                && (request.getChapterTitle() == null && request.getContent() == null
+                    || !Objects.equals(request.getIsFree(), meta.getIsFree())))
+        {
+            if (chapterMapper.setApprovedChapterTrial(chapterId, meta.getWorkId(), request.getIsFree(), String.valueOf(userId)) == 0)
+            {
+                throw new IllegalStateException("章节审核通过后才能设置试读，请刷新后重试");
+            }
+            if (request.getSummary() == null)
+            {
+                return true;
+            }
+        }
+        if (!contentChanged && request.getSummary() == null)
+        {
+            return true;
+        }
         SysWorkChapter update = new SysWorkChapter();
         update.setChapterId(chapterId);
         update.setChapterTitle(request.getChapterTitle());
@@ -167,12 +199,11 @@ public class AppChapterAuthorServiceImpl implements IAppChapterAuthorService
         {
             update.setWordCount(countWords(request.getContent()));
         }
-        update.setIsFree(request.getIsFree());
-        // 试读设置是唯一的章节立即生效入口。保留已有 status，避免关闭试读时
-        // 把已经可读的章节意外变回草稿；不再根据请求体的 status 提供手动发布。
-        if (isFreeChapter(request.getIsFree()))
+        if (contentChanged)
         {
-            update.setStatus(WorkStatusDeriver.CHAPTER_PUBLISHED);
+            update.setStatus(WorkStatusDeriver.CHAPTER_DRAFT);
+            update.setIsFree(ChapterTrialAccess.EXPLICITLY_CLOSED.equals(meta.getIsFree())
+                    ? ChapterTrialAccess.EXPLICITLY_CLOSED : DEFAULT_IS_FREE);
         }
         update.setUpdateBy(userId == null ? null : String.valueOf(userId));
         if (chapterMapper.updateChapter(update) <= 0)
@@ -183,9 +214,12 @@ public class AppChapterAuthorServiceImpl implements IAppChapterAuthorService
         return true;
     }
 
-    private static boolean isFreeChapter(String isFree)
+    private void requireEditable(Long workId)
     {
-        return "1".equals(isFree);
+        if (reviewRecordMapper.countPendingByWorkId(workId) > 0)
+        {
+            throw new IllegalStateException("作品正在审核中，不允许编辑");
+        }
     }
 
     @Override
@@ -193,6 +227,11 @@ public class AppChapterAuthorServiceImpl implements IAppChapterAuthorService
     public boolean deleteChapter(Long chapterId)
     {
         SysWorkChapter meta = chapterMapper.selectChapterMeta(chapterId);
+        if (meta == null)
+        {
+            return false;
+        }
+        requireEditable(meta.getWorkId());
         if (chapterMapper.deleteChapter(chapterId) <= 0)
         {
             return false;

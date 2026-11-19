@@ -114,6 +114,7 @@
             <if test="remark != null">remark = #{remark},</if>
         </trim>
         WHERE review_id = #{reviewId}
+        <if test="expectedStatus != null">AND status = #{expectedStatus}</if>
     </update>
 
     <delete id="deleteReviewRecordById" parameterType="Long">

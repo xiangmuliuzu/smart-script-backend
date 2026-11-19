@@ -14,7 +14,8 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
  * 说明（无文档依据，反推处理点）：
  * 1. created_at/updated_at 由数据库默认值维护，代码不读不写；Entity 只映射若依5通用字段
  *    （继承 BaseEntity）。
- * 2. is_free/status 为 tinyint，Entity 用 String（若依字典风格 "0"/"1"）。
+ * 2. is_free/status 为 tinyint，Entity 用 String；status "0"=审核通过，
+ *    "1"=草稿，"2"=未通过审核。is_free "1"=试读，"0"/"2"=未开启试读。
  * 3. 主键 chapter_id 为 bigint，Entity 用 Long。
  *
  * @author xiangsipeng
