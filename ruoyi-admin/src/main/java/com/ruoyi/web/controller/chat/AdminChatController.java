@@ -167,6 +167,7 @@ public class AdminChatController extends BaseController
     public AjaxResult assignAdmin(@PathVariable Long sessionId,
                                   @RequestParam Long adminId)
     {
+        requireAdministrator();
         return success(chatService.assignAdmin(sessionId, adminId));
     }
 
