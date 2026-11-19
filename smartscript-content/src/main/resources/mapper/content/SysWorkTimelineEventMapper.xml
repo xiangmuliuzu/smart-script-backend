@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.content.mapper.SysWorkTimelineEventMapper">
+
+    <resultMap id="SysWorkTimelineEventResult" type="com.smartscript.platform.content.domain.SysWorkTimelineEvent">
+        <id property="eventId" column="event_id"/>
+        <result property="workId" column="work_id"/>
+        <result property="chapterNo" column="chapter_no"/>
+        <result property="seq" column="seq"/>
+        <result property="eventType" column="event_type"/>
+        <result property="fact" column="fact"/>
+        <result property="actors" column="actors"/>
+        <result property="props" column="props"/>
+        <result property="status" column="status"/>
+        <result property="deadlineNo" column="deadline_no"/>
+        <result property="storyTime" column="story_time"/>
+        <result property="createTime" column="create_time"/>
+        <result property="updateTime" column="update_time"/>
+    </resultMap>
+
+    <delete id="deleteByChapter">
+        delete from sys_work_timeline_event
+        where work_id = #{workId} and chapter_no = #{chapterNo}
+    </delete>
+
+    <insert id="insertEvent" parameterType="com.smartscript.platform.content.domain.SysWorkTimelineEvent">
+        insert into sys_work_timeline_event
+        (work_id, chapter_no, seq, event_type, fact, actors, props, status,
+         deadline_no, story_time, create_time, update_time)
+        values
+        (#{workId}, #{chapterNo}, #{seq}, #{eventType}, #{fact}, #{actors}, #{props}, #{status},
+         #{deadlineNo}, #{storyTime}, now(), now())
+    </insert>
+
+    <select id="selectByWork" resultMap="SysWorkTimelineEventResult">
+        select event_id, work_id, chapter_no, seq, event_type, fact, actors, props, status,
+               deadline_no, story_time, create_time, update_time
+        from sys_work_timeline_event
+        where work_id = #{workId}
+        <if test="status != null and status != ''">
+            and status = #{status}
+        </if>
+        <if test="beforeNo != null">
+            and chapter_no &lt; #{beforeNo}
+        </if>
+        order by chapter_no desc, seq desc
+        <if test="limit != null and limit > 0">
+            limit #{limit}
+        </if>
+    </select>
+
+    <update id="resolveByKeyword">
+        update sys_work_timeline_event
+        set status = '已兑现', update_time = now()
+        where work_id = #{workId}
+          and chapter_no &lt; #{beforeNo}
+          and status = '未兑现'
+          and #{keyword} is not null
+          and fact like concat('%', #{keyword}, '%')
+    </update>
+
+    <select id="countOpen" resultType="int">
+        select count(1) from sys_work_timeline_event
+        where work_id = #{workId} and status = '未兑现'
+        <if test="beforeNo != null">
+            and chapter_no &lt; #{beforeNo}
+        </if>
+    </select>
+</mapper>

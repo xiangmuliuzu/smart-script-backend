@@ -70,21 +70,65 @@ public final class ChapterSummarySupport
             }
             s = s.trim();
         }
+        String original = s;
         int start = s.indexOf('{');
         int end = s.lastIndexOf('}');
-        if (start >= 0 && end > start)
+        String trimmed = (start >= 0 && end > start) ? s.substring(start, end + 1) : s;
+        // 先按原文解析；再试去掉前后说明文字；都失败才走残文兜底。
+        // 注意不能直接只试 trimmed：截断输出的最后一个 } 可能在 events 对象里，
+        // 会把完整的事件数组切掉一半，导致时间线整批丢失。
+        for (String candidate : new String[] {s, trimmed})
         {
-            s = s.substring(start, end + 1);
+            try
+            {
+                JsonNode node = MAPPER.readTree(candidate);
+                if (node instanceof ObjectNode objectNode)
+                {
+                    attachSalvagedArrays(objectNode, original);
+                }
+                return node;
+            }
+            catch (Exception ignored)
+            {
+                // 换下一个候选
+            }
         }
-        try
+        // 输出被 max_tokens 截断时整体解析失败，但 summary 与 events 通常已完整出现在前部。
+        return salvageSummary(original);
+    }
+
+    /** 完整解析成功但缺 events/closes 时，从原文里补抠数组。 */
+    private static void attachSalvagedArrays(ObjectNode node, String text)
+    {
+        if (!node.has("events"))
         {
-            return MAPPER.readTree(s);
+            String events = extractArray(text, "events");
+            if (events != null)
+            {
+                try
+                {
+                    node.set("events", MAPPER.readTree(events));
+                }
+                catch (Exception ignored)
+                {
+                    // 片段不完整就放弃
+                }
+            }
         }
-        catch (Exception e)
+        if (!node.has("closes"))
         {
-            // 输出被 max_tokens 截断时整体解析必然失败，但 summary 通常已完整出现在开头，
-            // 用正则抠出来让摘要仍能落库（台账这次放弃，下次再补）。
-            return salvageSummary(s);
+            String closes = extractArray(text, "closes");
+            if (closes != null)
+            {
+                try
+                {
+                    node.set("closes", MAPPER.readTree(closes));
+                }
+                catch (Exception ignored)
+                {
+                    // 同上
+                }
+            }
         }
     }
 
@@ -97,7 +141,95 @@ public final class ChapterSummarySupport
         {
             node.put("summary", unescape(matcher.group(1)));
         }
+        // 输出被截断时 events/closes 通常已完整出现在 ledger 之前，单独抠出来，别整批丢时间线。
+        String events = extractArray(text, "events");
+        if (events != null)
+        {
+            try
+            {
+                node.set("events", MAPPER.readTree(events));
+            }
+            catch (Exception ignored)
+            {
+                // 片段本身不完整就放弃事件，不影响摘要
+            }
+        }
+        String closes = extractArray(text, "closes");
+        if (closes != null)
+        {
+            try
+            {
+                node.set("closes", MAPPER.readTree(closes));
+            }
+            catch (Exception ignored)
+            {
+                // 同上
+            }
+        }
         return node;
+    }
+
+    /**
+     * 从文本中截取 "key":[...] 的完整数组片段；按括号配平并跳过字符串内的括号。
+     *
+     * @return 合法 JSON 数组文本；找不到或不完整返回 null
+     */
+    private static String extractArray(String text, String key)
+    {
+        if (text == null || text.isEmpty())
+        {
+            return null;
+        }
+        int keyIndex = text.indexOf("\"" + key + "\"");
+        if (keyIndex < 0)
+        {
+            return null;
+        }
+        int open = text.indexOf('[', keyIndex);
+        if (open < 0)
+        {
+            return null;
+        }
+        int depth = 0;
+        boolean inString = false;
+        boolean escaped = false;
+        for (int i = open; i < text.length(); i++)
+        {
+            char c = text.charAt(i);
+            if (inString)
+            {
+                if (escaped)
+                {
+                    escaped = false;
+                }
+                else if (c == '\\')
+                {
+                    escaped = true;
+                }
+                else if (c == '"')
+                {
+                    inString = false;
+                }
+                continue;
+            }
+            if (c == '"')
+            {
+                inString = true;
+            }
+            else if (c == '[')
+            {
+                depth++;
+            }
+            else if (c == ']')
+            {
+                depth--;
+                if (depth == 0)
+                {
+                    return text.substring(open, i + 1);
+                }
+            }
+        }
+        return null;
     }
 
     private static String unescape(String value)
@@ -370,6 +502,16 @@ public final class ChapterSummarySupport
     {
         ObjectNode node = MAPPER.createObjectNode();
         node.put("summary", "");
+        // 时间线事件放在 ledger 之前：ledger 道具档案较长，放后面容易被输出长度截断而丢事件。
+        ObjectNode sample = node.putArray("events").addObject();
+        sample.put("type", "约定");
+        sample.put("fact", "本集真实发生的关键事件，一句话写清谁做了什么、条件或代价");
+        sample.put("actors", "");
+        sample.put("props", "");
+        sample.put("status", "未兑现");
+        sample.put("deadlineNo", 0);
+        sample.put("storyTime", "");
+        node.putArray("closes");
         ObjectNode ledger = node.putObject("ledger");
         for (String key : LEDGER_KEYS)
         {

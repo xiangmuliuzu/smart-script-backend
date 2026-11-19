@@ -26,6 +26,19 @@ public class SysWorkStoryboard extends BaseEntity
     private Long reviewerId;
     private Date reviewTime;
     private String rejectReason;
+    /** AI 审核结果 JSON；规则、敏感词和问题定位沿用作品审核格式。 */
+    private String aiResult;
+    private String aiRiskLevel;
+    private String aiSensitiveWords;
+    private Date aiStartTime;
+    private Date aiEndTime;
+    /** 是否删除（0=否，1=是）；分镜采用逻辑删除，避免误删后无法追溯。 */
+    private String isDeleted;
+    /** 管理端查询扩展字段。 */
+    private String workTitle;
+    private String authorName;
+    /** 管理端兼容查询字段；分镜展示标题实际使用关联章节标题。 */
+    private String title;
 
     public Long getStoryboardId()
     {
@@ -135,6 +148,96 @@ public class SysWorkStoryboard extends BaseEntity
     public void setRejectReason(String rejectReason)
     {
         this.rejectReason = rejectReason;
+    }
+
+    public String getAiResult()
+    {
+        return aiResult;
+    }
+
+    public void setAiResult(String aiResult)
+    {
+        this.aiResult = aiResult;
+    }
+
+    public String getAiRiskLevel()
+    {
+        return aiRiskLevel;
+    }
+
+    public void setAiRiskLevel(String aiRiskLevel)
+    {
+        this.aiRiskLevel = aiRiskLevel;
+    }
+
+    public String getAiSensitiveWords()
+    {
+        return aiSensitiveWords;
+    }
+
+    public void setAiSensitiveWords(String aiSensitiveWords)
+    {
+        this.aiSensitiveWords = aiSensitiveWords;
+    }
+
+    public Date getAiStartTime()
+    {
+        return aiStartTime;
+    }
+
+    public void setAiStartTime(Date aiStartTime)
+    {
+        this.aiStartTime = aiStartTime;
+    }
+
+    public Date getAiEndTime()
+    {
+        return aiEndTime;
+    }
+
+    public void setAiEndTime(Date aiEndTime)
+    {
+        this.aiEndTime = aiEndTime;
+    }
+
+    public String getIsDeleted()
+    {
+        return isDeleted;
+    }
+
+    public void setIsDeleted(String isDeleted)
+    {
+        this.isDeleted = isDeleted;
+    }
+
+    public String getWorkTitle()
+    {
+        return workTitle;
+    }
+
+    public void setWorkTitle(String workTitle)
+    {
+        this.workTitle = workTitle;
+    }
+
+    public String getAuthorName()
+    {
+        return authorName;
+    }
+
+    public void setAuthorName(String authorName)
+    {
+        this.authorName = authorName;
+    }
+
+    public String getTitle()
+    {
+        return title;
+    }
+
+    public void setTitle(String title)
+    {
+        this.title = title;
     }
 
     @Override
