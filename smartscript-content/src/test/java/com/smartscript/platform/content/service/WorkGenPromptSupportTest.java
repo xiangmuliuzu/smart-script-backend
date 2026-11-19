@@ -88,4 +88,29 @@ class WorkGenPromptSupportTest
         assertTrue(prompt.contains("【硬事实清单（本集必须自洽；由台账自动抽取，非固定字段）】"));
         assertTrue(prompt.contains("锁灵钉 1 件"));
     }
+
+    @Test
+    void scriptStyleOutlineIsRewrittenToNarration()
+    {
+        String outline = "第13集：断魂涧\n开场承接：崖上相遇\n本集事件：周长老报信\n"
+                + "周长老：少废话，快走！\n"
+                + "江野：他问的是“炭”字牌。\n"
+                + "秦三郎（崖下）：上头谁？滚下来！";
+        String fixed = WorkGenPromptSupport.normalizeOutlineScript(outline);
+        assertTrue(fixed.contains("周长老说：“少废话，快走！”"));
+        assertTrue(fixed.contains("江野说：“他问的是“炭”字牌。”") || fixed.contains("江野说：“他问的是“炭”字牌。"));
+        assertTrue(fixed.contains("秦三郎（崖下）说：“上头谁？滚下来！”"));
+        assertFalse(fixed.contains("周长老：少废话"));
+        // 字段行不能被当成台词改写
+        assertTrue(fixed.contains("开场承接：崖上相遇"));
+        assertTrue(fixed.contains("本集事件：周长老报信"));
+    }
+
+    @Test
+    void singleNameLineIsNotTreatedAsScript()
+    {
+        String outline = "第5集：灶房摊牌\n人物：陈铁柱是外门杂役";
+        assertEquals(outline, WorkGenPromptSupport.normalizeOutlineScript(outline));
+        assertEquals("", WorkGenPromptSupport.normalizeOutlineScript(null));
+    }
 }
