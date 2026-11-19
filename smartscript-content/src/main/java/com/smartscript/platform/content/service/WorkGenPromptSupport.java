@@ -47,6 +47,15 @@ public final class WorkGenPromptSupport
     /** 中文引号对白 */
     private static final Pattern QUOTED = Pattern.compile("“([^”]*)”");
 
+    /** 大纲事件卡的固定字段行（不是角色台词行，清洗时跳过） */
+    private static final Pattern OUTLINE_FIELD = Pattern.compile(
+            "^\\s*(第\\s*\\d+\\s*集|开场承接|本集事件|冲突与推进|结果或反转|结尾钩子|本集出场|"
+            + "故事简介|人物增补|分集事件卡|主要人物|人物关系|关键道具|重要道具档案|写法基线)[：:]");
+
+    /** 大纲里的角色台词行：角色名（可带括号注解）：台词 */
+    private static final Pattern OUTLINE_ROLE_LINE = Pattern.compile(
+            "^\\s*([\\u4e00-\\u9fa5·]{2,5}(?:（[^）]{1,12}）)?)[：:]\\s*(.+)$");
+
     /** 人物卡里的姓名（姓名（身份）： 或 姓名：） */
     private static final Pattern NAME_LINE = Pattern.compile("(?:^|\\n)\\s*([\\u4e00-\\u9fa5]{2,4})\\s*[（(：:]");
 
@@ -1007,6 +1016,62 @@ public final class WorkGenPromptSupport
     private static boolean isCjk(char c)
     {
         return (c >= '\u4E00' && c <= '\u9FFF') || (c >= '\u3000' && c <= '\u303F') || Character.isLetterOrDigit(c) && c > 127;
+    }
+
+    /**
+     * 大纲清洗：把「角色名：台词」的剧本体改成叙事句。
+     *
+     * 续写大纲偶尔会把事件卡写成一段剧本稿（周长老：……／江野：……），
+     * 后台再按这份大纲写正文时会把整段对白照抄，同一场景于是出现散文版和剧本版两套。
+     * 只有整份大纲里命中 3 行以上角色台词才判定为剧本稿并改写，避免误伤普通字段行。
+     * 改写保留信息，只换形式：{@code 周长老：快走！} → {@code 周长老说：“快走！”}。
+     */
+    public static String normalizeOutlineScript(String outline)
+    {
+        String text = safe(outline);
+        if (text.isEmpty())
+        {
+            return text;
+        }
+        String[] lines = text.split("\\r?\\n", -1);
+        int roleLines = 0;
+        for (String line : lines)
+        {
+            if (isOutlineRoleLine(line))
+            {
+                roleLines++;
+            }
+        }
+        if (roleLines < 3)
+        {
+            return text;
+        }
+        StringBuilder out = new StringBuilder(text.length());
+        for (int i = 0; i < lines.length; i++)
+        {
+            String line = lines[i];
+            Matcher m = OUTLINE_ROLE_LINE.matcher(line);
+            if (m.matches() && !OUTLINE_FIELD.matcher(line).find())
+            {
+                String speech = m.group(2).trim();
+                if (speech.startsWith("“") && speech.endsWith("”") && speech.length() >= 2)
+                {
+                    speech = speech.substring(1, speech.length() - 1);
+                }
+                line = m.group(1) + "说：“" + speech + "”";
+            }
+            out.append(line);
+            if (i < lines.length - 1)
+            {
+                out.append('\n');
+            }
+        }
+        return out.toString();
+    }
+
+    private static boolean isOutlineRoleLine(String line)
+    {
+        return OUTLINE_ROLE_LINE.matcher(line).matches() && !OUTLINE_FIELD.matcher(line).find();
     }
 
     /** 超长正文按句末收到上限，不留半句。 */

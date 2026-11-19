@@ -101,7 +101,7 @@ public class WorkGenJobServiceImpl implements IWorkGenJobService
         job.setStatus(WorkGenJob.STATUS_QUEUED);
         job.setTotal(episodes.size());
         job.setDoneCount(0);
-        job.setOutline(request.getOutline());
+        job.setOutline(WorkGenPromptSupport.normalizeOutlineScript(request.getOutline()));
         job.setCharacters(request.getCharacters());
         job.setRoster(request.getRoster());
         job.setGenre(request.getGenre());

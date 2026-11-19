@@ -238,17 +238,23 @@ public class ChatService
     /** 用户端：单个会话详情。 */
     public Map<String, Object> sessionDetail(Long sessionId, Long userId)
     {
+        ChatSession s = assertParticipant(sessionId, userId);
+        return toSessionVo(s, userId);
+    }
+
+    /** 会话存在且当前用户是双方之一，否则 404 / 403；返回会话供调用方继续用。 */
+    private ChatSession assertParticipant(Long sessionId, Long userId)
+    {
         ChatSession s = sessionMapper.selectById(sessionId);
         if (s == null)
         {
             throw new AppAuthException(AppUserErrorCodes.RESOURCE_NOT_FOUND, 404, "会话不存在");
         }
-        // 校验当前用户是会话双方之一
-        if (!userId.equals(s.getUser1Id()) && !userId.equals(s.getUser2Id()))
+        if (userId == null || (!userId.equals(s.getUser1Id()) && !userId.equals(s.getUser2Id())))
         {
             throw new AppAuthException(AppUserErrorCodes.DOMAIN_OR_PERMISSION, 403, "无权查看该会话");
         }
-        return toSessionVo(s, userId);
+        return s;
     }
 
     /** 管理端：全部会话列表（PageHelper 驱动，Controller 用 getDataTable 取分页）。 */
@@ -326,7 +332,7 @@ public class ChatService
 
     /* ========== 任务 4：历史消息 ========== */
 
-    /** 会话内消息列表（时间正序）。 */
+    /** 会话内消息列表（时间正序）。管理端全量查看走这里，App 侧请用 [userMessages]。 */
     public PageResult<Map<String, Object>> messages(Long sessionId)
     {
         List<ChatMessage> rows = messageMapper.selectBySession(sessionId);
@@ -336,6 +342,13 @@ public class ChatService
             list.add(toMessageVo(m));
         }
         return PageResult.of(list.size(), list);
+    }
+
+    /** 会话历史（App 用户侧）：sessionId 可枚举，必须先确认请求者是会话双方之一。 */
+    public PageResult<Map<String, Object>> userMessages(Long sessionId, Long userId)
+    {
+        assertParticipant(sessionId, userId);
+        return messages(sessionId);
     }
 
     /* ========== 定型文模板列表 ========== */
@@ -519,11 +532,8 @@ public class ChatService
     @Transactional
     public Map<String, Object> markSessionRead(Long sessionId, Long userId)
     {
-        ChatSession session = sessionMapper.selectById(sessionId);
-        if (session == null)
-        {
-            throw new AppAuthException(AppUserErrorCodes.RESOURCE_NOT_FOUND, 404, "会话不存在");
-        }
+        // 非参与方落到 isUser1=false 分支会清掉别人的未读计数，先挡住
+        ChatSession session = assertParticipant(sessionId, userId);
         Date now = new Date();
         int msgUpdated = messageMapper.markReadBySession(sessionId, userId, now);
         boolean isUser1 = userId.equals(session.getUser1Id());

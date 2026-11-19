@@ -29,7 +29,9 @@ class SmartscriptUserModuleAssemblyTest
     {
         Path root = moduleMainJava();
         String[] allowedPrefixes = {
-                "/api/v1/auth", "/api/v1/users", "/api/v1/messages", "/api/v1/feedback", "/api/v1/announcements"
+                "/api/v1/auth", "/api/v1/users", "/api/v1/messages", "/api/v1/feedback", "/api/v1/announcements",
+                // App 版本检查：冷启动无登录态也必须可读，但仍是 App 端接口域
+                "/api/v1/app"
         };
         try (Stream<Path> files = Files.walk(root))
         {

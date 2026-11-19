@@ -5,6 +5,8 @@ import java.util.List;
 import java.util.Map;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -67,7 +69,7 @@ public class AppChatController
     public AppApiResponse<PageResult<Map<String, Object>>> listMessages(
             @PathVariable Long sessionId)
     {
-        return AppApiResponse.ok(chatService.messages(sessionId));
+        return AppApiResponse.ok(chatService.userMessages(sessionId, currentUserId()));
     }
 
     /** 发送文字消息 */
@@ -138,5 +140,17 @@ public class AppChatController
             return identity.getUserId();
         }
         throw new AppAuthException(AppAuthErrorCodes.UNAUTHORIZED, 401, "登录状态已过期，请重新登录");
+    }
+
+    /**
+     * AppChatController 不在 {@link AppAuthExceptionHandler} 的作用域里，
+     * 服务层抛出的领域异常会落到若依信封（{msg, code:500}），App 读不到 message。
+     */
+    @ExceptionHandler(AppAuthException.class)
+    public ResponseEntity<AppApiResponse<Object>> handleAppAuth(AppAuthException e)
+    {
+        return ResponseEntity.status(e.getHttpStatus())
+                .body(AppApiResponse.fail(e.getCode(),
+                        AppAuthExceptionHandler.safeMessage(e.getCode(), e.getMessage()), e.getData()));
     }
 }

@@ -12,6 +12,7 @@ import com.smartscript.platform.content.domain.SysWorkLedger;
 import com.smartscript.platform.content.service.IAppChapterAuthorService;
 import com.smartscript.platform.content.service.IAppWorkLedgerService;
 import com.smartscript.platform.content.service.IAiWriteService;
+import com.smartscript.platform.content.service.WorkGenPromptSupport;
 import java.util.List;
 import java.util.Map;
 
@@ -111,6 +112,8 @@ public class AppWorkLedgerController
         {
             return AppApiResponse.fail(CODE_BAD_REQUEST, "台账内容不能为空");
         }
+        // 大纲入库前统一文体：剧本体对白稿改成叙事句，避免后续正文照抄出两套写法。
+        ledger.setOutline(WorkGenPromptSupport.normalizeOutlineScript(ledger.getOutline()));
         if (overLength(ledger.getStorySummary(), SUMMARY_MAX_LENGTH)
                 || overLength(ledger.getCharacters(), FIELD_MAX_LENGTH)
                 || overLength(ledger.getRelations(), FIELD_MAX_LENGTH)
