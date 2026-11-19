@@ -43,6 +43,12 @@ public class ChatService
     public static final int STATUS_PENDING    = 0;
     public static final int STATUS_CLOSED     = 2;
 
+    /** 消息可撤回时间窗口（秒） */
+    public static final int RECALL_WINDOW_SECONDS = 120;
+
+    /** 撤回后消息内容的占位文案 */
+    private static final String RECALL_PLACEHOLDER = "[消息已撤回]";
+
     /** 默认管理员（暂无分配逻辑时兜底） */
     private static final long DEFAULT_ADMIN_ID = 1L;
 
@@ -393,6 +399,27 @@ public class ChatService
         msg.setReceiverId(receiverId);
         msg.setMsgType(msgType);
         msg.setContent(req.getContent());
+        if (req.getQuoteMessageId() != null)
+        {
+            ChatMessage quoted = messageMapper.selectMessageById(req.getQuoteMessageId());
+            if (quoted == null || !sessionId.equals(quoted.getSessionId()))
+            {
+                throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "被引用的消息不存在");
+            }
+            if (!MSG_TYPE_TEXT.equals(quoted.getMsgType()) || Boolean.TRUE.equals(quoted.getRecalled()))
+            {
+                throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "该消息不支持引用");
+            }
+            String quotedText = quoted.getContent() == null ? "" : quoted.getContent();
+            if (quotedText.length() > 200)
+            {
+                quotedText = quotedText.substring(0, 200) + "…";
+            }
+            String quotedSender = sessionMapper.selectUserNameById(quoted.getSenderId());
+            msg.setQuoteMessageId(quoted.getMessageId());
+            msg.setQuoteSender(quotedSender != null ? quotedSender : "用户" + quoted.getSenderId());
+            msg.setQuoteText(quotedText);
+        }
         messageMapper.insertMessage(msg);
 
         // 更新会话最后消息
@@ -417,6 +444,67 @@ public class ChatService
     }
 
     /* ========== 任务 6：未读统计 ========== */
+
+    /**
+     * 撤回自己刚发送的文字消息（2 分钟窗口，服务端时间裁决）。
+     *
+     * 条件更新保证并发下只有一次生效；撤回后：
+     *   - 内容替换为占位文案，recalled=1，双方看到居中提示；
+     *   - 若对方尚未读，未读计数回退 1；
+     *   - 若撤回的是会话最后一条，列表预览同步为占位文案。
+     */
+    @Transactional
+    public Map<String, Object> recallMessage(Long sessionId, Long messageId, Long operatorId)
+    {
+        ChatMessage msg = messageMapper.selectMessageById(messageId);
+        if (msg == null || !sessionId.equals(msg.getSessionId()))
+        {
+            throw new AppAuthException(AppUserErrorCodes.RESOURCE_NOT_FOUND, 404, "消息不存在");
+        }
+        if (!operatorId.equals(msg.getSenderId()))
+        {
+            throw new AppAuthException(AppUserErrorCodes.DOMAIN_OR_PERMISSION, 403, "只能撤回自己发送的消息");
+        }
+        if (!MSG_TYPE_TEXT.equals(msg.getMsgType()))
+        {
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "该类型消息不支持撤回");
+        }
+        if (Boolean.TRUE.equals(msg.getRecalled()))
+        {
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "消息已撤回");
+        }
+        if (msg.getCreatedAt() == null
+                || System.currentTimeMillis() - msg.getCreatedAt().getTime() > RECALL_WINDOW_SECONDS * 1000L)
+        {
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "超过可撤回时间");
+        }
+        ChatSession session = lockedSession(sessionId);
+        Date windowStart = new Date(System.currentTimeMillis() - RECALL_WINDOW_SECONDS * 1000L);
+        int changed = messageMapper.recallMessage(messageId, sessionId, operatorId, windowStart, RECALL_PLACEHOLDER);
+        if (changed == 0)
+        {
+            throw new AppAuthException(AppUserErrorCodes.PARAM, 400, "撤回未生效，消息状态已变化");
+        }
+        boolean receiverUnread = Boolean.FALSE.equals(msg.getIsRead())
+                && msg.getReceiverId() != null && msg.getReceiverId() > 0;
+        if (receiverUnread)
+        {
+            sessionMapper.decrementUnread(sessionId, msg.getReceiverId().equals(session.getUser1Id()));
+        }
+        List<ChatMessage> all = messageMapper.selectBySession(sessionId);
+        if (!all.isEmpty() && messageId.equals(all.get(all.size() - 1).getMessageId()))
+        {
+            sessionMapper.updateLastMessage(sessionId, RECALL_PLACEHOLDER, new Date());
+        }
+        if (realtimePush != null)
+        {
+            realtimePush.pushChatMessageAfterCommit(sessionId, messageId, msg.getSenderId(), msg.getReceiverId());
+        }
+        Map<String, Object> vo = new LinkedHashMap<>();
+        vo.put("messageId", messageId);
+        vo.put("recalled", Boolean.TRUE);
+        return vo;
+    }
 
     /** 当前用户所有会话的未读总数。 */
     public Map<String, Object> chatUnreadCount(Long userId)
@@ -689,6 +777,15 @@ public class ChatService
         vo.put("msgType", m.getMsgType());
         vo.put("content", m.getContent());
         vo.put("isRead", m.getIsRead());
+        vo.put("recalled", Boolean.TRUE.equals(m.getRecalled()));
+        if (m.getQuoteMessageId() != null)
+        {
+            // 原文快照随消息落库；被引消息后续撤回时联表返回 quoteRecalled 供前端展示占位。
+            vo.put("quoteMessageId", m.getQuoteMessageId());
+            vo.put("quoteSender", m.getQuoteSender());
+            vo.put("quoteText", Boolean.TRUE.equals(m.getQuoteRecalled()) ? null : m.getQuoteText());
+            vo.put("quoteRecalled", Boolean.TRUE.equals(m.getQuoteRecalled()));
+        }
         vo.put("createdAt", m.getCreatedAt());
         return vo;
     }

@@ -131,7 +131,7 @@
                 </otherwise>
             </choose>
         </if>
-        ORDER BY s.last_message_time DESC, s.created_at DESC
+        ORDER BY COALESCE(s.last_message_time, s.created_at) DESC, s.session_id DESC
     </select>
 
     <!-- 管理端：全部会话列表 -->
@@ -152,7 +152,7 @@
                      OR s.business_name LIKE CONCAT('%', #{keyword}, '%'))
             </if>
         </where>
-        ORDER BY s.last_message_time DESC, s.created_at DESC
+        ORDER BY COALESCE(s.last_message_time, s.created_at) DESC, s.session_id DESC
     </select>
 
     <!-- 更新最后消息 -->
@@ -171,6 +171,20 @@
             </when>
             <otherwise>
                 SET user2_unread = user2_unread + 1
+            </otherwise>
+        </choose>
+        WHERE session_id = #{sessionId}
+    </update>
+
+    <!-- 撤回未读消息时对方未读 -1，GREATEST 防负 -->
+    <update id="decrementUnread">
+        UPDATE sys_chat_session
+        <choose>
+            <when test="isUser1Receiver">
+                SET user1_unread = GREATEST(user1_unread - 1, 0)
+            </when>
+            <otherwise>
+                SET user2_unread = GREATEST(user2_unread - 1, 0)
             </otherwise>
         </choose>
         WHERE session_id = #{sessionId}

@@ -14,29 +14,62 @@
         <result property="isRead"      column="is_read"/>
         <result property="readTime"    column="read_time"/>
         <result property="createdAt"   column="created_at"/>
+        <result property="recalled"    column="recalled"/>
+        <result property="recalledTime" column="recalled_time"/>
+        <result property="quoteMessageId" column="quote_message_id"/>
+        <result property="quoteSender" column="quote_sender"/>
+        <result property="quoteText"   column="quote_text"/>
         <result property="senderName"  column="sender_name"/>
         <result property="senderAvatar" column="sender_avatar"/>
+        <result property="quoteRecalled" column="quote_recalled"/>
     </resultMap>
 
     <!-- 插入消息 -->
     <insert id="insertMessage" parameterType="com.smartscript.platform.user.domain.ChatMessage"
             useGeneratedKeys="true" keyProperty="messageId">
         INSERT INTO sys_chat_message
-            (session_id, sender_id, receiver_id, msg_type, content, is_read, created_at)
+            (session_id, sender_id, receiver_id, msg_type, content, is_read, created_at,
+             quote_message_id, quote_sender, quote_text)
         VALUES
-            (#{sessionId}, #{senderId}, #{receiverId}, #{msgType}, #{content}, IFNULL(#{isRead}, 0), NOW())
+            (#{sessionId}, #{senderId}, #{receiverId}, #{msgType}, #{content}, IFNULL(#{isRead}, 0), NOW(),
+             #{quoteMessageId}, #{quoteSender}, #{quoteText})
     </insert>
 
     <!-- 会话内消息列表（时间正序） -->
     <select id="selectBySession" resultMap="ChatMessageResult">
         SELECT m.message_id, m.session_id, m.sender_id, m.receiver_id,
                m.msg_type, m.content, m.file_url, m.is_read, m.read_time, m.created_at,
+               m.recalled, m.recalled_time,
+               m.quote_message_id, m.quote_sender, m.quote_text,
+               q.recalled AS quote_recalled,
                u.nick_name AS sender_name, u.avatar AS sender_avatar
         FROM sys_chat_message m
         LEFT JOIN sys_user u ON m.sender_id = u.user_id
+        LEFT JOIN sys_chat_message q ON m.quote_message_id = q.message_id
         WHERE m.session_id = #{sessionId}
         ORDER BY m.created_at ASC
     </select>
+
+    <select id="selectMessageById" resultMap="ChatMessageResult">
+        SELECT message_id, session_id, sender_id, receiver_id,
+               msg_type, content, file_url, is_read, read_time, created_at,
+               recalled, recalled_time
+        FROM sys_chat_message
+        WHERE message_id = #{messageId}
+    </select>
+
+    <!-- 撤回：仅发送者本人的 TEXT 未撤回消息且在时间窗口内，条件更新保证并发只有一次成功 -->
+    <update id="recallMessage">
+        UPDATE sys_chat_message
+        SET recalled = 1, recalled_time = NOW(), content = #{placeholder},
+            is_read = 1, read_time = IFNULL(read_time, NOW())
+        WHERE message_id = #{messageId}
+          AND session_id = #{sessionId}
+          AND sender_id = #{senderId}
+          AND msg_type = 'TEXT'
+          AND recalled = 0
+          AND created_at &gt;= #{windowStart}
+    </update>
 
     <!-- 批量标记已读 -->
     <update id="markReadBySession">

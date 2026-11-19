@@ -19,10 +19,16 @@ public class ChatMessage
     private Boolean isRead;
     private Date    readTime;
     private Date    createdAt;
+    private Boolean recalled;
+    private Date    recalledTime;
+    private Long    quoteMessageId;
+    private String  quoteSender;
+    private String  quoteText;
 
     /* ---- 联表派生字段 ---- */
     private String  senderName;
     private String  senderAvatar;
+    private Boolean quoteRecalled;
 
     public Long getMessageId()                  { return messageId; }
     public void setMessageId(Long id)           { this.messageId = id; }
@@ -54,9 +60,27 @@ public class ChatMessage
     public Date getCreatedAt()                  { return createdAt; }
     public void setCreatedAt(Date t)            { this.createdAt = t; }
 
+    public Boolean getRecalled()                { return recalled; }
+    public void setRecalled(Boolean r)          { this.recalled = r; }
+
+    public Date getRecalledTime()               { return recalledTime; }
+    public void setRecalledTime(Date t)         { this.recalledTime = t; }
+
     public String getSenderName()               { return senderName; }
     public void setSenderName(String n)         { this.senderName = n; }
 
     public String getSenderAvatar()             { return senderAvatar; }
     public void setSenderAvatar(String a)       { this.senderAvatar = a; }
+
+    public Long getQuoteMessageId()             { return quoteMessageId; }
+    public void setQuoteMessageId(Long id)      { this.quoteMessageId = id; }
+
+    public String getQuoteSender()              { return quoteSender; }
+    public void setQuoteSender(String n)        { this.quoteSender = n; }
+
+    public String getQuoteText()                { return quoteText; }
+    public void setQuoteText(String t)          { this.quoteText = t; }
+
+    public Boolean getQuoteRecalled()           { return quoteRecalled; }
+    public void setQuoteRecalled(Boolean r)     { this.quoteRecalled = r; }
 }

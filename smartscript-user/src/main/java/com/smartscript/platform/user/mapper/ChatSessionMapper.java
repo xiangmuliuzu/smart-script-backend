@@ -52,6 +52,10 @@ public interface ChatSessionMapper
     int incrementUnread(@Param("sessionId") Long sessionId,
                         @Param("isUser1Receiver") boolean isUser1Receiver);
 
+    /** 对方未读 -1（撤回未读消息时回退，下限 0） */
+    int decrementUnread(@Param("sessionId") Long sessionId,
+                        @Param("isUser1Receiver") boolean isUser1Receiver);
+
     /** 标记当前用户在该会话的未读为 0 */
     int clearUnread(@Param("sessionId") Long sessionId,
                     @Param("isUser1") boolean isUser1);

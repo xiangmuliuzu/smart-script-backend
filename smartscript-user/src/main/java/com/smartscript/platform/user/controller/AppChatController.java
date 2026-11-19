@@ -79,6 +79,15 @@ public class AppChatController
         return AppApiResponse.ok(chatService.sendMessage(sessionId, currentUserId(), req));
     }
 
+    /** 撤回自己 2 分钟内发送的文字消息 */
+    @PutMapping("/sessions/{sessionId}/messages/{messageId}/recall")
+    public AppApiResponse<Map<String, Object>> recallMessage(
+            @PathVariable Long sessionId,
+            @PathVariable Long messageId)
+    {
+        return AppApiResponse.ok(chatService.recallMessage(sessionId, messageId, currentUserId()));
+    }
+
     /** 标记会话已读 */
     @PutMapping("/sessions/{sessionId}/read")
     public AppApiResponse<Map<String, Object>> markRead(@PathVariable Long sessionId)

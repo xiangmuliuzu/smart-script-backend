@@ -130,6 +130,18 @@ public class AdminChatController extends BaseController
         return success(chatService.sendMessage(sessionId, adminId, req));
     }
 
+    /** 管理员撤回自己 2 分钟内发送的文字消息 */
+    @PreAuthorize("@ss.hasPermi('chat:message:send')")
+    @Log(title = "用户沟通", businessType = BusinessType.OTHER)
+    @PutMapping("/sessions/{sessionId}/messages/{messageId}/recall")
+    public AjaxResult recallMessage(@PathVariable Long sessionId,
+                                    @PathVariable Long messageId)
+    {
+        Long adminId = SecurityUtils.getUserId();
+        chatService.assertAdminCanOperate(sessionId, adminId);
+        return success(chatService.recallMessage(sessionId, messageId, adminId));
+    }
+
     /** 详情前台自动已读，仅更新已展示的消息；旧调用未传编号时沿用全部已读。 */
     @PreAuthorize("@ss.hasPermi('chat:session:query') and @ss.hasPermi('chat:message:list')")
     @PutMapping("/sessions/{sessionId}/read")
