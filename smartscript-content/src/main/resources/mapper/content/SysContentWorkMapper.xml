@@ -38,6 +38,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		<result property="previewEpisodes"  column="preview_episodes"  />
 		<result property="status"           column="status"            />
 		<result property="isCopyrighted"    column="is_copyrighted"    />
+		<result property="copyrightRegistrationStatus" column="copyright_registration_status"/>
 		<result property="viewCount"        column="view_count"        />
 		<result property="favoriteCount"    column="favorite_count"    />
 		<result property="saleCount"        column="sale_count"        />
@@ -61,6 +62,15 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		<result property="recommendExpireAt"  column="recommend_expire_at" />
 	</resultMap>
 
+	<!-- 以已签发证书或版权中心终态为准；内部初审 approved 不代表登记完成。 -->
+	<sql id="copyrightRegistrationStatus">
+		case when exists (
+			select 1 from sys_copyright_cert cert where cert.work_id = w.work_id and cert.status = 'issued'
+		) or exists (
+			select 1 from sys_copyright_application app where app.work_id = w.work_id and app.status = 'certificated'
+		) then 'registered' else 'unregistered' end
+	</sql>
+
 	<!-- 作品管理列表：含 authorName，全字段；标签由 Service 层批量回填 -->
 	<sql id="selectWorkVo">
 		select w.work_id, w.title, w.cover, w.author_id, w.channel_id, w.work_type, w.upload_type,
@@ -69,6 +79,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		       w.quote_valid_days, w.word_count, w.episode_count, w.duration,
 		       w.is_free, w.preview_enabled, w.preview_episodes,
 		       w.status, w.is_copyrighted, w.view_count, w.favorite_count, w.sale_count,
+		       <include refid="copyrightRegistrationStatus"/> as copyright_registration_status,
 		       w.rating, w.quality_level, w.reviewer_id, w.review_time, w.reject_reason,
 		       w.ext_json, w.is_deleted,
 		       w.create_by, w.create_time, w.update_by, w.update_time, w.remark,
@@ -249,6 +260,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		<result property="previewEpisodes"  column="preview_episodes"  />
 		<result property="status"           column="status"            />
 		<result property="isCopyrighted"    column="is_copyrighted"    />
+		<result property="copyrightRegistrationStatus" column="copyright_registration_status"/>
 		<result property="qualityLevel"     column="quality_level"     />
 		<result property="viewCount"        column="view_count"        />
 		<result property="favoriteCount"    column="favorite_count"    />
@@ -353,6 +365,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		       w.price, w.trade_type, w.trade_enabled,
 		       w.word_count, w.episode_count, w.duration, w.is_free, w.preview_enabled,
 		       w.preview_episodes, w.status, w.is_copyrighted, w.quality_level,
+		       <include refid="copyrightRegistrationStatus"/> as copyright_registration_status,
 		       w.view_count, w.favorite_count, w.sale_count, w.rating, w.create_time,
 		       u.nick_name as author_name, u.avatar as author_avatar
 		from sys_work w

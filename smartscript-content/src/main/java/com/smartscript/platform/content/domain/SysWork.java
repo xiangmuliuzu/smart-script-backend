@@ -111,6 +111,19 @@ public class SysWork extends BaseEntity
     /** 是否有版权（0=否 1=是） */
     private String isCopyrighted;
 
+    /** 按证书和申请记录计算的登记状态；仅查询返回。 */
+    private String copyrightRegistrationStatus;
+
+    public String getCopyrightRegistrationStatus()
+    {
+        return copyrightRegistrationStatus;
+    }
+
+    public void setCopyrightRegistrationStatus(String copyrightRegistrationStatus)
+    {
+        this.copyrightRegistrationStatus = copyrightRegistrationStatus;
+    }
+
     /** 浏览量 */
     private Integer viewCount;
 

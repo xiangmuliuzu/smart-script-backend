@@ -93,6 +93,19 @@ public class AppWorkDto
     /** 是否有版权（0=否 1=是） */
     private String isCopyrighted;
 
+    /** 作品详情派生字段：registered / unregistered。 */
+    private String copyrightRegistrationStatus;
+
+    public String getCopyrightRegistrationStatus()
+    {
+        return copyrightRegistrationStatus;
+    }
+
+    public void setCopyrightRegistrationStatus(String copyrightRegistrationStatus)
+    {
+        this.copyrightRegistrationStatus = copyrightRegistrationStatus;
+    }
+
     /** 质量等级 */
     private String qualityLevel;
 
