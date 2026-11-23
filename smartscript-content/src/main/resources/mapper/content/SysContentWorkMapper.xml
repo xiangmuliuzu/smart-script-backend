@@ -261,6 +261,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		<result property="status"           column="status"            />
 		<result property="isCopyrighted"    column="is_copyrighted"    />
 		<result property="copyrightRegistrationStatus" column="copyright_registration_status"/>
+		<result property="copyrightCertNo"  column="copyright_cert_no" />
 		<result property="qualityLevel"     column="quality_level"     />
 		<result property="viewCount"        column="view_count"        />
 		<result property="favoriteCount"    column="favorite_count"    />
@@ -367,7 +368,10 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		       w.preview_episodes, w.status, w.is_copyrighted, w.quality_level,
 		       <include refid="copyrightRegistrationStatus"/> as copyright_registration_status,
 		       w.view_count, w.favorite_count, w.sale_count, w.rating, w.create_time,
-		       u.nick_name as author_name, u.avatar as author_avatar
+		       u.nick_name as author_name, u.avatar as author_avatar,
+		       (select c.cert_no from sys_copyright_cert c
+		         where c.work_id = w.work_id and c.status = 'issued'
+		         order by c.cert_time desc, c.cert_id desc limit 1) as copyright_cert_no
 		from sys_work w
 		left join sys_user u on u.user_id = w.author_id
 		<where>

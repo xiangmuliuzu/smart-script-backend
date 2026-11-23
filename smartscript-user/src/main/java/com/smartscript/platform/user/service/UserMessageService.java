@@ -98,13 +98,14 @@ public class UserMessageService
         return PageResult.of(total, list);
     }
 
-    /** 未读数：总数 + 按类型分布，供角标与筛选标签使用。 */
-    public Map<String, Object> unreadCount(Long userId)
+    /** 未读数：总数 + 按类型分布，供角标与筛选标签使用。portalRole 与列表页同口径按 audience 过滤，空则全量（APP 端）。 */
+    public Map<String, Object> unreadCount(Long userId, String portalRole)
     {
+        String role = "BUYER".equals(portalRole) || "SELLER".equals(portalRole) ? portalRole : null;
         Map<String, Object> result = new LinkedHashMap<>();
-        result.put("total", centerMapper.countUnread(userId));
+        result.put("total", centerMapper.countUnread(userId, role));
         Map<String, Integer> byType = new TreeMap<>();
-        List<Map<String, Object>> rows = centerMapper.countUnreadGroupByType(userId);
+        List<Map<String, Object>> rows = centerMapper.countUnreadGroupByType(userId, role);
         if (rows != null)
         {
             for (Map<String, Object> row : rows)

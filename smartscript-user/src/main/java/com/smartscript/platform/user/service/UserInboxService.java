@@ -68,7 +68,7 @@ public class UserInboxService
     public Map<String, Object> unreadCount(Long userId, String userType)
     {
         requireUser(userType);
-        var original = messages.unreadCount(userId);
+        var original = messages.unreadCount(userId, null);
         int noticeCount = mapper.countUnreadAnnouncements(userId);
         Map<String, Integer> byType = new LinkedHashMap<>();
         if (original.get("byType") instanceof Map<?, ?> values)

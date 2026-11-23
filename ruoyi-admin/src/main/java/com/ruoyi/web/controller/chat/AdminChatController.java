@@ -57,7 +57,7 @@ public class AdminChatController extends BaseController
     @GetMapping("/unread-count")
     public AjaxResult unreadCount()
     {
-        return success(chatService.chatUnreadCount(SecurityUtils.getUserId()));
+        return success(chatService.chatUnreadCount(SecurityUtils.getUserId(), null));
     }
 
     /** 会话详情（含用户信息） */

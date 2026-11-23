@@ -44,7 +44,7 @@ class UserInboxServiceTest
     void announcementsIncreaseOnlySystemCountWithoutMutatingOriginalCounts()
     {
         var original = Map.of("SYSTEM", 2, "FOLLOW", 1);
-        when(messages.unreadCount(12L)).thenReturn(Map.of("total", 3, "byType", original));
+        when(messages.unreadCount(12L, null)).thenReturn(Map.of("total", 3, "byType", original));
         when(mapper.countUnreadAnnouncements(12L)).thenReturn(4);
         var combined = service.unreadCount(12L, "03");
         assertEquals(7, combined.get("total"));

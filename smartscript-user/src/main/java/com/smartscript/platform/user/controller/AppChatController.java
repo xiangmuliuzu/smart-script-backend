@@ -106,11 +106,12 @@ public class AppChatController
         return AppApiResponse.ok(chatService.reopenByUser(sessionId, currentUserId(), action));
     }
 
-    /** 会话未读总数 */
+    /** 会话未读总数；可选 sessionType 过滤（客服角标传 ADMIN，缺省全类型，与 App 端旧行为兼容）。 */
     @GetMapping("/unread-count")
-    public AppApiResponse<Map<String, Object>> unreadCount()
+    public AppApiResponse<Map<String, Object>> unreadCount(
+            @RequestParam(value = "sessionType", required = false) String sessionType)
     {
-        return AppApiResponse.ok(chatService.chatUnreadCount(currentUserId()));
+        return AppApiResponse.ok(chatService.chatUnreadCount(currentUserId(), sessionType));
     }
 
     /** 交易会话定型文模板列表 */

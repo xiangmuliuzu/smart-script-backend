@@ -61,7 +61,7 @@ public interface ChatSessionMapper
                     @Param("isUser1") boolean isUser1);
 
     /** 当前用户所有会话的未读总数 */
-    int sumMyUnread(@Param("userId") Long userId);
+    int sumMyUnread(@Param("userId") Long userId, @Param("sessionType") String sessionType);
 
     /** 更新会话状态 */
     int updateStatus(@Param("sessionId") Long sessionId,

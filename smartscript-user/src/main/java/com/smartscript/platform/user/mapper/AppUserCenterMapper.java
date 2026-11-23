@@ -107,11 +107,11 @@ public interface AppUserCenterMapper
     /** 我的消息详情（含正文），归属不符返回 null。 */
     UserMessage selectMyMessage(@Param("userId") Long userId, @Param("messageId") Long messageId);
 
-    /** 消息总未读数。 */
-    int countUnread(@Param("userId") Long userId);
+    /** 消息总未读数；portalRole 非空时与列表页同口径按 audience 过滤。 */
+    int countUnread(@Param("userId") Long userId, @Param("portalRole") String portalRole);
 
     /** 按类型未读数，用于首页角标与分类筛选。 */
-    List<Map<String, Object>> countUnreadGroupByType(@Param("userId") Long userId);
+    List<Map<String, Object>> countUnreadGroupByType(@Param("userId") Long userId, @Param("portalRole") String portalRole);
 
     /** 单条已读；已读时返回 0 行，服务层按存在性判定幂等成功。 */
     int markRead(@Param("userId") Long userId, @Param("messageId") Long messageId, @Param("now") Date now);

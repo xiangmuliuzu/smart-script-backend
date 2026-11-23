@@ -211,7 +211,10 @@
             0
         )
         FROM sys_chat_session
-        WHERE user1_id = #{userId} OR COALESCE(assigned_admin_id, user2_id) = #{userId}
+        WHERE (user1_id = #{userId} OR COALESCE(assigned_admin_id, user2_id) = #{userId})
+        <if test="sessionType != null and sessionType != ''">
+            AND session_type = #{sessionType}
+        </if>
     </select>
 
     <!-- 更新状态 -->

@@ -519,10 +519,10 @@ public class ChatService
         return vo;
     }
 
-    /** 当前用户所有会话的未读总数。 */
-    public Map<String, Object> chatUnreadCount(Long userId)
+    /** 当前用户会话未读总数；sessionType 非空时只统计该类型（客服角标用 ADMIN，交易未读不掺和）。 */
+    public Map<String, Object> chatUnreadCount(Long userId, String sessionType)
     {
-        int total = sessionMapper.sumMyUnread(userId);
+        int total = sessionMapper.sumMyUnread(userId, sessionType);
         return Map.of("chatUnread", total);
     }
 
