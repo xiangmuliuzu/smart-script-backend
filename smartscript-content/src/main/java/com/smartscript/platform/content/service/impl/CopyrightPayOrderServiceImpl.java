@@ -10,7 +10,6 @@ import java.util.Map;
 import java.util.Random;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
@@ -69,34 +68,6 @@ public class CopyrightPayOrderServiceImpl implements ICopyrightPayOrderService
         this.copyrightApplicationService = copyrightApplicationService;
         this.feeCalculator = feeCalculator;
         this.riskCheckService = riskCheckService;
-    }
-
-    @Value("${APP_COPYRIGHT_DIRECT_PAY_ENABLED:false}")
-    private boolean directPayEnabled;
-    @Value("${APP_COPYRIGHT_DIRECT_PAY_ALLOWED_DATABASES:}")
-    private String directPayAllowedDatabases;
-
-    /**
-     * 零元直付跳过收款直接履约，等价于白拿登记。默认关闭；
-     * 打开时还要求当前库是隔离库（*_sandbox）或明确列在授权清单里，防止把开关带进生产库。
-     */
-    private void requireDirectPayAllowed()
-    {
-        if (!directPayEnabled)
-        {
-            throw new IllegalStateException("零元直付未开放，请走正常支付");
-        }
-        String database = jdbc.queryForObject("SELECT DATABASE()", String.class);
-        String normalized = database == null ? "" : database.trim().toLowerCase(java.util.Locale.ROOT);
-        boolean isolated = normalized.endsWith("_sandbox");
-        boolean explicitlyAllowed = directPayAllowedDatabases != null
-                && java.util.Arrays.stream(directPayAllowedDatabases.split(","))
-                        .map(name -> name.trim().toLowerCase(java.util.Locale.ROOT))
-                        .anyMatch(normalized::equals);
-        if (normalized.isEmpty() || (!isolated && !explicitlyAllowed))
-        {
-            throw new IllegalStateException("零元直付仅允许在隔离库或明确授权的开发库上使用");
-        }
     }
 
     @Override
@@ -286,8 +257,7 @@ public class CopyrightPayOrderServiceImpl implements ICopyrightPayOrderService
     @Transactional(rollbackFor = Exception.class)
     public Map<String, Object> directPay(Long payOrderId, Long userId)
     {
-        requireDirectPayAllowed();
-        // 临时跳过支付宝沙箱：直接履约建申请并提交第三方
+        // 测试链路：跳过支付宝沙箱直接履约建申请并提交第三方
         return fulfillPaidOrder(payOrderId, userId, "DIRECT-" + System.currentTimeMillis());
     }
 

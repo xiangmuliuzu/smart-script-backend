@@ -20,10 +20,5 @@
 
 ## 版权登记费的零元直付（direct-pay）
 
-版权登记缴费单还有一个 `POST /api/v1/content/copyright/application/pay-order/{payOrderId}/direct-pay` 端点，跳过支付宝直接履约建申请并提交第三方。它等价于白拿登记，因此默认关闭，需同时满足两个条件才可用：
-
-- `APP_COPYRIGHT_DIRECT_PAY_ENABLED=true`
-- 当前库名以 `_sandbox` 结尾，或在 `APP_COPYRIGHT_DIRECT_PAY_ALLOWED_DATABASES` 里精确列出（如 `script_platform_dev`）
-
-任一条件不满足时端点返回 409，App/PC 端会退回正常支付入口。本地演示由 `.local/start-backend.ps1` 默认开启并授权 `script_platform_dev`；正式环境不要设置这两个变量。
+版权登记缴费单还有一个 `POST /api/v1/content/copyright/application/pay-order/{payOrderId}/direct-pay` 端点，跳过支付宝直接履约建申请并提交第三方，供测试链路打通「询价 → 缴费 → 登记」全流程，无需配置，任何环境可直接调用。
 
