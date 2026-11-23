@@ -55,11 +55,12 @@ public class AppMessageController
     }
 
     @GetMapping("/unread-count")
-    public AppApiResponse<Map<String, Object>> unreadCount(@RequestParam(defaultValue = "false") boolean includeAnnouncements)
+    public AppApiResponse<Map<String, Object>> unreadCount(@RequestParam(defaultValue = "false") boolean includeAnnouncements,
+                                                           @RequestParam(required = false) String portalRole)
     {
         return AppApiResponse.ok(includeAnnouncements
                 ? inboxService.unreadCount(currentUserId(), currentIdentity().getUserType())
-                : messageService.unreadCount(currentUserId()));
+                : messageService.unreadCount(currentUserId(), str(portalRole)));
     }
 
     @PutMapping("/read-all")
