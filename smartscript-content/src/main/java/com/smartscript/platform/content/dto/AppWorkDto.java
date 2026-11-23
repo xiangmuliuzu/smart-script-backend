@@ -93,6 +93,13 @@ public class AppWorkDto
     /** 是否有版权（0=否 1=是） */
     private String isCopyrighted;
 
+    /**
+     * 已签发的版权证书编号（sys_copyright_cert.status='issued'，取最近一次）。
+     * 仅作品详情下发，列表为空；非空即代表该作品已登记版权。
+     * 不使用 sys_work.is_copyrighted：该列无业务写入方，存量与证书不一致。
+     */
+    private String copyrightCertNo;
+
     /** 质量等级 */
     private String qualityLevel;
 
@@ -344,6 +351,16 @@ public class AppWorkDto
     public void setIsCopyrighted(String isCopyrighted)
     {
         this.isCopyrighted = isCopyrighted;
+    }
+
+    public String getCopyrightCertNo()
+    {
+        return copyrightCertNo;
+    }
+
+    public void setCopyrightCertNo(String copyrightCertNo)
+    {
+        this.copyrightCertNo = copyrightCertNo;
     }
 
     public String getQualityLevel()
