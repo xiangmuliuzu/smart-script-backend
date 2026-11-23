@@ -7,7 +7,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -23,7 +22,7 @@ import com.smartscript.platform.content.domain.SysCopyrightSeal;
 import com.smartscript.platform.content.domain.SysCopyrightSealLog;
 import com.smartscript.platform.content.service.ISysCopyrightSealService;
 
-/** PC 版权印章审核及启停管理。 */
+/** PC 版权印章审核（仅审核/查看；启停由创作者端自行操作）。 */
 @RestController
 @RequestMapping("/api/v1/admin/copyright/seals")
 public class CopyrightSealReviewController extends BaseController
@@ -105,18 +104,4 @@ public class CopyrightSealReviewController extends BaseController
         return updated ? AjaxResult.success() : AjaxResult.error("仅审核通过且处于异常状态的印章可处理");
     }
 
-    @PreAuthorize("@ss.hasPermi('smartscript:copyright:seals:status')")
-    @Log(title = "版权印章状态变更", businessType = BusinessType.UPDATE)
-    @PutMapping("/{sealId}/status")
-    public AjaxResult updateStatus(@PathVariable Long sealId, @RequestBody Map<String, String> body)
-    {
-        String targetStatus = body == null ? null : body.get("status");
-        if (!"enabled".equals(targetStatus) && !"disabled".equals(targetStatus))
-        {
-            return AjaxResult.error("印章状态无效");
-        }
-        boolean updated = sealService.updateSealStatus(sealId, targetStatus, SecurityUtils.getUserId(),
-                SecurityUtils.getUsername());
-        return updated ? AjaxResult.success() : AjaxResult.error("仅审核通过的印章可变更状态，请刷新后重试");
-    }
 }

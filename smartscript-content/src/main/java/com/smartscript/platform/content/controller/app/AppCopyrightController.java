@@ -174,7 +174,7 @@ public class AppCopyrightController
     }
 
     /**
-     * 临时直付：跳过支付宝沙箱，直接履约建申请并提交第三方。
+     * 临时直付：跳过支付宝沙箱，点击即履约建申请并提交第三方（开发默认开启）。
      */
     @PostMapping("/application/pay-order/{payOrderId}/direct-pay")
     public AppApiResponse<java.util.Map<String, Object>> directPay(@PathVariable Long payOrderId)

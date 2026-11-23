@@ -6,7 +6,7 @@ import org.springframework.web.multipart.MultipartFile;
 import com.smartscript.platform.content.domain.SysCopyrightSeal;
 
 /**
- * App 端用户印章服务（用户侧：上传、查看、停用、重新提交）。
+ * App 端用户印章服务（用户侧：上传、查看、启用/停用、重新提交）。
  */
 public interface IAppCopyrightSealService
 {
@@ -60,13 +60,22 @@ public interface IAppCopyrightSealService
     boolean resubmitSeal(Long userId, Long sealId, String sealImageUrl, String materialUrls);
 
     /**
-     * 停用印章（用户主动停用，仅限已审核通过的印章）。
+     * 停用印章（用户主动停用，仅限当前启用中的印章）。
      * 
      * @param userId 当前登录用户 ID
      * @param sealId 印章 ID
      * @return 是否成功
      */
     boolean disableSeal(Long userId, Long sealId);
+
+    /**
+     * 启用印章（用户主动启用，仅限审核通过且停用中的印章）。
+     *
+     * @param userId 当前登录用户 ID
+     * @param sealId 印章 ID
+     * @return 是否成功
+     */
+    boolean enableSeal(Long userId, Long sealId);
 
     /**
      * 更新印章信息（编辑印章名称、图片、材料，修改后重置审核状态为 pending）。

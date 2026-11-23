@@ -37,8 +37,9 @@ public interface SysCopyrightSealMapper
 
     int updateResubmit(SysCopyrightSeal seal);
 
-    int updateSealStatusByUser(@Param("sealId") Long sealId, @Param("sealStatus") String sealStatus,
-            @Param("updateBy") String updateBy);
+    /** 用户启停：仅当当前 seal_status = expectedStatus 时更新。 */
+    int updateSealStatusByUser(@Param("sealId") Long sealId, @Param("expectedStatus") String expectedStatus,
+            @Param("sealStatus") String sealStatus, @Param("updateBy") String updateBy);
 
     int deleteSealById(@Param("sealId") Long sealId);
 }

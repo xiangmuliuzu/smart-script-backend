@@ -171,7 +171,52 @@ public class AppCopyrightSealServiceImpl implements IAppCopyrightSealService
             return false;
         }
 
-        return sealMapper.updateSealStatusByUser(sealId, "disabled", userId.toString()) > 0;
+        int updated = sealMapper.updateSealStatusByUser(sealId, "enabled", "disabled", userId.toString());
+        if (updated == 0)
+        {
+            return false;
+        }
+        insertUserStatusLog(sealId, "disable", "enabled", "disabled", userId);
+        return true;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public boolean enableSeal(Long userId, Long sealId)
+    {
+        SysCopyrightSeal seal = sealMapper.selectSealById(sealId);
+        if (seal == null || !userId.equals(seal.getUserId()))
+        {
+            return false;
+        }
+
+        // 仅审核通过且停用中的印章可由用户自行启用
+        if (!"approved".equals(seal.getReviewStatus()) || !"disabled".equals(seal.getSealStatus()))
+        {
+            return false;
+        }
+
+        int updated = sealMapper.updateSealStatusByUser(sealId, "disabled", "enabled", userId.toString());
+        if (updated == 0)
+        {
+            return false;
+        }
+        insertUserStatusLog(sealId, "enable", "disabled", "enabled", userId);
+        return true;
+    }
+
+    private void insertUserStatusLog(Long sealId, String operationType, String fromStatus, String toStatus,
+            Long userId)
+    {
+        SysCopyrightSealLog log = new SysCopyrightSealLog();
+        log.setSealId(sealId);
+        log.setOperationType(operationType);
+        log.setFromStatus(fromStatus);
+        log.setToStatus(toStatus);
+        log.setOperatorId(userId);
+        log.setOperatorName("用户");
+        log.setCreateTime(new Date());
+        sealMapper.insertSealLog(log);
     }
 
     @Override

@@ -10,6 +10,7 @@ import com.smartscript.platform.content.domain.SysCopyrightSeal;
 import com.smartscript.platform.content.domain.SysCopyrightSealLog;
 import com.smartscript.platform.content.mapper.SysCopyrightSealMapper;
 import com.smartscript.platform.content.service.ISysCopyrightSealService;
+import com.smartscript.platform.content.service.RightsStatusNotifyService;
 
 /** 印章审核与状态变更，使用条件更新避免并发越过状态机。 */
 @Service
@@ -19,6 +20,9 @@ public class SysCopyrightSealServiceImpl implements ISysCopyrightSealService
 
     @Autowired
     private SysCopyrightSealMapper sealMapper;
+
+    @Autowired
+    private RightsStatusNotifyService rightsStatusNotifyService;
 
     @Override
     public List<SysCopyrightSeal> selectSealList(String reviewStatus, String sealStatus, String keyword)
@@ -63,6 +67,12 @@ public class SysCopyrightSealServiceImpl implements ISysCopyrightSealService
         }
         insertLog(sealId, approve ? "review_approve" : "review_reject", "pending", targetStatus,
                 approve ? null : trimmedReason, operatorId, operatorName);
+        // 仅审核结果通知用户；启停不发
+        SysCopyrightSeal seal = sealMapper.selectSealById(sealId);
+        if (seal != null)
+        {
+            rightsStatusNotifyService.notifySealReviewed(seal, approve);
+        }
         return true;
     }
 

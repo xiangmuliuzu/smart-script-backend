@@ -16,7 +16,7 @@ import com.smartscript.platform.content.service.IAppCopyrightSealService;
 import com.smartscript.platform.identity.IdentityProvider;
 
 /**
- * App 端用户印章接口（用户侧：上传、查看、停用、重新提交）。
+ * App 端用户印章接口（用户侧：上传、查看、启用/停用、重新提交）。
  *
  * 路由前缀：/api/v1/content/copyright-seals
  * 鉴权：App 凭证域私有接口，需登录；用户 ID 只取自 {@link IdentityProvider}。
@@ -232,9 +232,9 @@ public class AppCopyrightSealController
     }
 
     /**
-     * 停用印章（用户主动停用，仅限已审核通过的印章）。
+     * 停用印章（用户主动停用，仅限当前启用中的印章）。
      *
-     * PUT /api/v1/copyright/seals/{sealId}/disable
+     * PUT /api/v1/content/copyright-seals/{sealId}/disable
      *
      * 返回：
      * {
@@ -250,7 +250,31 @@ public class AppCopyrightSealController
         boolean success = sealService.disableSeal(userId, sealId);
         if (!success)
         {
-            return AppApiResponse.fail(CODE_BAD_REQUEST, "停用失败，只有已审核通过且启用状态的印章才能停用");
+            return AppApiResponse.fail(CODE_BAD_REQUEST, "停用失败，只有启用状态的印章才能停用");
+        }
+        return AppApiResponse.ok(null);
+    }
+
+    /**
+     * 启用印章（用户主动启用，仅限审核通过且停用中的印章）。
+     *
+     * PUT /api/v1/content/copyright-seals/{sealId}/enable
+     *
+     * 返回：
+     * {
+     *   "code": 200,
+     *   "message": "success",
+     *   "data": null
+     * }
+     */
+    @PutMapping("/{sealId}/enable")
+    public AppApiResponse<?> enableSeal(@PathVariable Long sealId)
+    {
+        Long userId = requireLogin();
+        boolean success = sealService.enableSeal(userId, sealId);
+        if (!success)
+        {
+            return AppApiResponse.fail(CODE_BAD_REQUEST, "启用失败，只有审核通过且停用状态的印章才能启用");
         }
         return AppApiResponse.ok(null);
     }

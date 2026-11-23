@@ -13,12 +13,13 @@ public interface ISysCopyrightCertService
     SysCopyrightCert selectCertById(Long certId);
     
     byte[] downloadCert(Long certId);
-    
-    /**
-     * 从版权申请自动创建电子证书
-     * 
-     * @param application 版权申请对象
-     * @return 创建的记录数
-     */
+
+    /** 从版权申请自动创建电子证书；已存在时返回 0/1 语义兼容旧调用。 */
     int createCertFromApplication(SysCopyrightApplication application);
+
+    /**
+     * 从版权申请创建/取回电子证书。
+     * 已存在同作品证书时返回既有行；新建时返回带 certId 的行。
+     */
+    SysCopyrightCert ensureCertFromApplication(SysCopyrightApplication application);
 }
