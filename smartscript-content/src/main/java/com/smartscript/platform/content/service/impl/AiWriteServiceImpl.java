@@ -1430,12 +1430,12 @@ public class AiWriteServiceImpl implements IAiWriteService
         AiChannel channel = resolveChannel(request.getModel());
         String model = resolveStoryboardModel(request.getModel(), channel);
         AiCallResult r = aiServiceClient.storyboard(request.getScript(), request.getStyle(),
-                resolveSkillContent(request.getSkillId()),
+                resolveSkillContent(request.getSkillId()), request.getChapterTitle(),
                 channel == null ? null : channel.getBaseUrl(),
                 channel == null ? null : channel.getApiKey(),
                 model);
         Date finishedAt = new Date();
-        String content = r.getContent();
+        String content = normalizeStoryboardHeading(r.getContent(), request.getChapterTitle());
         String requestNo = generateRequestNo();
         aiRequestMapper.insertAiRequest(requestNo, identityProvider.currentUserId(), request.getWorkId(),
                 CAPABILITY_STORYBOARD, Math.max(1, r.getTotalTokens()), STATUS_SUCCESS, resolveProvider(),
@@ -1458,12 +1458,12 @@ public class AiWriteServiceImpl implements IAiWriteService
         AiChannel channel = resolveChannel(request.getModel());
         String model = resolveStoryboardModel(request.getModel(), channel);
         AiCallResult r = aiServiceClient.storyboardStream(request.getScript(), request.getStyle(),
-                resolveSkillContent(request.getSkillId()), onDelta,
+                resolveSkillContent(request.getSkillId()), request.getChapterTitle(), onDelta,
                 channel == null ? null : channel.getBaseUrl(),
                 channel == null ? null : channel.getApiKey(),
                 model);
         Date finishedAt = new Date();
-        String content = r.getContent();
+        String content = normalizeStoryboardHeading(r.getContent(), request.getChapterTitle());
         String requestNo = generateRequestNo();
         aiRequestMapper.insertAiRequest(requestNo, identityProvider.currentUserId(), request.getWorkId(),
                 CAPABILITY_STORYBOARD, Math.max(1, r.getTotalTokens()), STATUS_SUCCESS, resolveProvider(),
@@ -1480,13 +1480,69 @@ public class AiWriteServiceImpl implements IAiWriteService
     {
         return "scriptLen=" + (request.getScript() == null ? 0 : request.getScript().length())
                 + ";style=" + safe(request.getStyle())
-                + ";skillId=" + (request.getSkillId() == null ? "" : request.getSkillId());
+                + ";skillId=" + (request.getSkillId() == null ? "" : request.getSkillId())
+                + ";chapter=" + safe(request.getChapterTitle());
     }
 
     /** 分镜输入的展示文本（落 sys_ai_write_record.input_prompt，用户可见） */
     private static String buildStoryboardInputText(AppAiStoryboardRequest request)
     {
         String styleLine = safe(request.getStyle()).isEmpty() ? "" : "\n风格：" + request.getStyle();
-        return "剧本文本：" + safe(request.getScript()) + styleLine;
+        String chapterLine = safe(request.getChapterTitle()).isEmpty() ? "" : "\n关联章节：" + request.getChapterTitle();
+        return "剧本文本：" + safe(request.getScript()) + styleLine + chapterLine;
+    }
+
+    /**
+     * 分镜标题归一化：模型没有集号上下文时会自拟「第一集《偷账》」，这里以用户所选章节标题为准，
+     * 把开头标题行、二级集标题与「集数：本集为第N集」统一改成本集的集号与集名，保证目录与内容一一对应。
+     * 未传 chapterTitle 时原样返回（App 端老版本不传，行为不变）。
+     */
+    static String normalizeStoryboardHeading(String content, String chapterTitle)
+    {
+        if (content == null || content.isBlank() || chapterTitle == null || chapterTitle.isBlank())
+        {
+            return content;
+        }
+        String title = chapterTitle.trim();
+        String[] lines = content.split("\r?\n", -1);
+        // 1) 第一处非空行若是标题样式（# 开头 / 含「分镜脚本」/「第N集」短标题），统一成本集标题；
+        //    若不是标题样式（模型直接从「场次一」写起），在开头补一行本集标题，保证分镜与所选章节一一对应。
+        boolean headingFound = false;
+        for (int i = 0; i < lines.length && i < 8; i++)
+        {
+            String t = lines[i].trim();
+            if (t.isEmpty())
+            {
+                continue;
+            }
+            boolean headingLike = t.startsWith("#") || t.contains("分镜脚本")
+                    || (t.contains("第") && t.contains("集") && t.length() <= 40);
+            if (headingLike)
+            {
+                lines[i] = "# 分镜脚本 · " + title;
+                headingFound = true;
+            }
+            break;
+        }
+        // 2) 其余「## 第N集 · xxx」二级集标题也改成本集
+        boolean subFixed = false;
+        for (int i = 0; i < lines.length; i++)
+        {
+            String t = lines[i];
+            if (!subFixed && t.matches("^\\s*#{2,6}\\s*第\\s*[0-9一二三四五六七八九十百]+\\s*集[\\s\\S]*$"))
+            {
+                lines[i] = "## " + title;
+                subFixed = true;
+            }
+        }
+        String joined = String.join("\n", lines);
+        // 3) 元信息里的集数声明（部分 skill 会写「集数：本集为第1集」）
+        joined = joined.replaceAll("集数：本集为第\\s*[0-9一二三四五六七八九十百]+\\s*集", "集数：本集为" + title);
+        // 4) 全篇既无归一化标题、也没有本集标题字样时，在最前面补标题行（模型漏写标题的兜底）
+        if (!headingFound && !joined.contains(title))
+        {
+            joined = "# 分镜脚本 · " + title + "\n\n" + joined;
+        }
+        return joined;
     }
 }

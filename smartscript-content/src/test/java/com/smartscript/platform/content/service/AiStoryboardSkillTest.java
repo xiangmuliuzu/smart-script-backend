@@ -1,6 +1,7 @@
 package com.smartscript.platform.content.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -91,7 +92,7 @@ class AiStoryboardSkillTest
         String script = "第一幕：雨夜，女主在便利店躲雨，遇见男主。";
         String skillContent = "你是悬疑烧脑导演，要求每镜埋一个线索。";
         when(aiSkillService.resolveSkillContent(1L)).thenReturn(skillContent);
-        when(aiServiceClient.storyboard(eq(script), eq("电影感"), eq(skillContent),
+        when(aiServiceClient.storyboard(eq(script), eq("电影感"), eq(skillContent), nullable(String.class),
                 nullable(String.class), nullable(String.class), nullable(String.class)))
                 .thenReturn(new AiCallResult("【第一场】便利店 夜\n镜1 全景...", 800, "deepseek-flash"));
 
@@ -131,7 +132,7 @@ class AiStoryboardSkillTest
     {
         String script = "第二幕：两人在桥上重逢。";
         when(aiServiceClient.storyboard(eq(script), nullable(String.class), nullable(String.class),
-                nullable(String.class), nullable(String.class), nullable(String.class)))
+                nullable(String.class), nullable(String.class), nullable(String.class), nullable(String.class)))
                 .thenReturn(new AiCallResult("【第二场】桥上 日\n镜1 中景...", 300, "deepseek-flash"));
 
         AppAiStoryboardRequest request = new AppAiStoryboardRequest();
@@ -140,7 +141,7 @@ class AiStoryboardSkillTest
         AppAiStoryboardResult result = service.storyboard(request);
         assertNotNull(result.getContent());
         verify(aiServiceClient).storyboard(eq(script), nullable(String.class), nullable(String.class),
-                nullable(String.class), nullable(String.class), nullable(String.class));
+                nullable(String.class), nullable(String.class), nullable(String.class), nullable(String.class));
         // 无 skillId 时不做 skill 解析
         verify(aiSkillService, never()).resolveSkillContent(any(Long.class));
     }
@@ -157,7 +158,7 @@ class AiStoryboardSkillTest
         channel.setModels("deepseek-chat,deepseek-reasoner,deepseek-flash");
         when(aiChannelService.resolveChannelByModel("deepseek-reasoner")).thenReturn(channel);
         when(aiServiceClient.storyboard(eq(script), nullable(String.class), nullable(String.class),
-                eq("https://api.deepseek.com"), eq("sk-test"), eq("deepseek-chat")))
+                nullable(String.class), eq("https://api.deepseek.com"), eq("sk-test"), eq("deepseek-chat")))
                 .thenReturn(new AiCallResult("【第一场】车站 夜\n镜1 全景...", 900, "deepseek-chat"));
 
         AppAiStoryboardRequest request = new AppAiStoryboardRequest();
@@ -168,7 +169,7 @@ class AiStoryboardSkillTest
 
         assertTrue(result.getContent().contains("镜1"));
         verify(aiServiceClient).storyboard(eq(script), nullable(String.class), nullable(String.class),
-                eq("https://api.deepseek.com"), eq("sk-test"), eq("deepseek-chat"));
+                nullable(String.class), eq("https://api.deepseek.com"), eq("sk-test"), eq("deepseek-chat"));
     }
 
     @Test
@@ -183,7 +184,7 @@ class AiStoryboardSkillTest
         channel.setModels("deepseek-chat,deepseek-flash");
         when(aiChannelService.resolveDefaultChannel()).thenReturn(channel);
         when(aiServiceClient.storyboard(eq(script), nullable(String.class), nullable(String.class),
-                eq("https://api.deepseek.com"), eq("sk-test"), eq("deepseek-chat")))
+                nullable(String.class), eq("https://api.deepseek.com"), eq("sk-test"), eq("deepseek-chat")))
                 .thenReturn(new AiCallResult("【第二场】雨中 夜\n镜1 特写...", 700, "deepseek-chat"));
 
         AppAiStoryboardRequest request = new AppAiStoryboardRequest();
@@ -193,7 +194,7 @@ class AiStoryboardSkillTest
 
         assertTrue(result.getContent().contains("镜1"));
         verify(aiServiceClient).storyboard(eq(script), nullable(String.class), nullable(String.class),
-                eq("https://api.deepseek.com"), eq("sk-test"), eq("deepseek-chat"));
+                nullable(String.class), eq("https://api.deepseek.com"), eq("sk-test"), eq("deepseek-chat"));
     }
 
     @Test
@@ -207,7 +208,7 @@ class AiStoryboardSkillTest
         AiQuotaInsufficientException ex = assertThrows(AiQuotaInsufficientException.class,
                 () -> service.storyboard(request));
         assertTrue(ex.getMessage().contains("积分不足"));
-        verify(aiServiceClient, never()).storyboard(any(), any(), any(), any(), any(), any());
+        verify(aiServiceClient, never()).storyboard(any(), any(), any(), any(), any(), any(), any());
         verify(aiRequestMapper, never()).insertAiRequest(any(), any(), any(), any(),
                 org.mockito.ArgumentMatchers.anyInt(), any(), any(), any(), any(), any());
         verify(writeRecordMapper, never()).insertWriteRecord(any());
@@ -220,7 +221,8 @@ class AiStoryboardSkillTest
         String script = "第四幕：女主决定离开。";
         String skillContent = "你是甜宠爆款导演，要求每镜突出心动细节。";
         when(aiSkillService.resolveSkillContent(2L)).thenReturn(skillContent);
-        when(aiServiceClient.storyboardStream(eq(script), nullable(String.class), eq(skillContent), any(),
+        when(aiServiceClient.storyboardStream(eq(script), nullable(String.class), eq(skillContent),
+                nullable(String.class), any(),
                 nullable(String.class), nullable(String.class), nullable(String.class)))
                 .thenReturn(new AiCallResult("【第四场】车站 黄昏\n镜1 特写...", 500, "deepseek-flash"));
 
@@ -233,7 +235,8 @@ class AiStoryboardSkillTest
 
         assertTrue(result.getContent().contains("镜1"));
         assertEquals(500, result.getQuotaUsed());
-        verify(aiServiceClient).storyboardStream(eq(script), nullable(String.class), eq(skillContent), any(),
+        verify(aiServiceClient).storyboardStream(eq(script), nullable(String.class), eq(skillContent),
+                nullable(String.class), any(),
                 nullable(String.class), nullable(String.class), nullable(String.class));
         verify(aiRequestMapper, times(1)).insertAiRequest(
                 any(String.class), eq(USER_ID), nullable(Long.class),
@@ -243,6 +246,50 @@ class AiStoryboardSkillTest
                 ArgumentCaptor.forClass(AppAiWriteRecordInsert.class);
         verify(writeRecordMapper, times(1)).insertWriteRecord(captor.capture());
         assertEquals("storyboard", captor.getValue().getWriteType());
+    }
+
+    @Test
+    @DisplayName("分镜：传 chapterTitle → 集号锁定到该集，模型自拟的标题被归一化")
+    void storyboardNormalizesHeadingToChapterTitle() throws Exception
+    {
+        String script = "夜，赵管事值房。薄册塞进怀里。";
+        when(aiServiceClient.storyboard(eq(script), nullable(String.class), nullable(String.class),
+                eq("第3集：夜探账房"), nullable(String.class), nullable(String.class), nullable(String.class)))
+                .thenReturn(new AiCallResult(
+                        "# 分镜脚本 · 第一集《偷账》\n\n**画幅：16:9 横屏**｜集数：本集为第1集\n\n## 第1集 · 柴场\n\n镜1…",
+                        600, "deepseek-chat"));
+
+        AppAiStoryboardRequest request = new AppAiStoryboardRequest();
+        request.setScript(script);
+        request.setChapterTitle("第3集：夜探账房");
+
+        AppAiStoryboardResult result = service.storyboard(request);
+
+        // 首行标题、二级集标题、元信息集数都改成本集
+        assertTrue(result.getContent().startsWith("# 分镜脚本 · 第3集：夜探账房"), result.getContent());
+        assertFalse(result.getContent().contains("## 第1集"));
+        assertTrue(result.getContent().contains("集数：本集为第3集：夜探账房"), result.getContent());
+    }
+
+    @Test
+    @DisplayName("分镜：模型直接从场次写起（没有标题行）→ 开头补本集集号标题")
+    void storyboardPrependsHeadingWhenMissing() throws Exception
+    {
+        String script = "夜，赵管事值房。薄册塞进怀里。";
+        when(aiServiceClient.storyboard(eq(script), nullable(String.class), nullable(String.class),
+                eq("第3集：夜探账房"), nullable(String.class), nullable(String.class), nullable(String.class)))
+                .thenReturn(new AiCallResult(
+                        "场次一：内景·赵管事值房·夜\n镜号：1\n景别：特写\n画面内容：指尖抠着砖缝。",
+                        300, "deepseek-chat"));
+
+        AppAiStoryboardRequest request = new AppAiStoryboardRequest();
+        request.setScript(script);
+        request.setChapterTitle("第3集：夜探账房");
+
+        AppAiStoryboardResult result = service.storyboard(request);
+
+        assertTrue(result.getContent().startsWith("# 分镜脚本 · 第3集：夜探账房"), result.getContent());
+        assertTrue(result.getContent().contains("场次一：内景·赵管事值房·夜"), result.getContent());
     }
 
     @Test

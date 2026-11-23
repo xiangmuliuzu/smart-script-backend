@@ -46,6 +46,9 @@ public class AiGenLimitConfig
     /** 正文单次默认 token 上限 */
     public static final int DEFAULT_WRITE_TOKENS = 8192;
 
+    /** 分镜单次默认 token 上限：0=不限（分镜篇幅由正文长度决定，不再设上限） */
+    public static final int DEFAULT_STORYBOARD_TOKENS = UNLIMITED;
+
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
@@ -136,6 +139,10 @@ public class AiGenLimitConfig
         if ("outline".equals(capability))
         {
             return DEFAULT_OUTLINE_TOKENS;
+        }
+        if ("storyboard".equals(capability))
+        {
+            return DEFAULT_STORYBOARD_TOKENS;
         }
         return DEFAULT_WRITE_TOKENS;
     }

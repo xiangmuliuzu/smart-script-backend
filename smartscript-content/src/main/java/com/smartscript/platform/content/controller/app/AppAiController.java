@@ -565,6 +565,8 @@ public class AppAiController
         request.setWorkId(asLong(body, "work_id", "workId"));
         request.setSkillId(asLong(body, "skill_id", "skillId"));
         request.setModel(trimToNull(asString(body, "model")));
+        // 关联章节：前端回车标题（chapterTitle），后端据此锁定集号并归一化输出首行标题
+        request.setChapterTitle(trimToNull(asString(body, "chapterTitle", "chapter_title")));
         try
         {
             return AppApiResponse.ok(aiWriteService.storyboard(request));
@@ -603,24 +605,40 @@ public class AppAiController
         request.setWorkId(asLong(body, "work_id", "workId"));
         request.setSkillId(asLong(body, "skill_id", "skillId"));
         request.setModel(trimToNull(asString(body, "model")));
+        // 关联章节：前端回车标题（chapterTitle），后端据此锁定集号并归一化输出首行标题
+        request.setChapterTitle(trimToNull(asString(body, "chapterTitle", "chapter_title")));
         return streamResponse(servletRequest, delta -> {
             if (script == null) throw new IllegalArgumentException("剧本内容不能为空，请填写后重试");
             AppAiStoryboardResult result = aiWriteService.storyboardStream(request, delta);
             return "{\"done\":true,\"quotaUsed\":" + result.getQuotaUsed() + ",\"requestNo\":"
                     + jsonEscape(result.getRequestNo() == null ? "" : result.getRequestNo())
-                    + ",\"truncated\":" + result.isTruncated() + "}";
+                    + ",\"truncated\":" + result.isTruncated()
+                    + ",\"content\":" + jsonEscape(result.getContent() == null ? "" : result.getContent()) + "}";
         });
     }
 
     /** 从请求体取字符串值（请求体可为 null）。 */
     private static String asString(Map<String, Object> body, String key)
     {
+        return asString(body, new String[] { key });
+    }
+
+    /** 从请求体取字符串值，按 keys 顺序尝试（兼容 snake_case 与 camelCase）。 */
+    private static String asString(Map<String, Object> body, String... keys)
+    {
         if (body == null)
         {
             return null;
         }
-        Object raw = body.get(key);
-        return raw instanceof String text ? text : (raw == null ? null : String.valueOf(raw));
+        for (String key : keys)
+        {
+            Object raw = body.get(key);
+            if (raw != null)
+            {
+                return raw instanceof String text ? text : String.valueOf(raw);
+            }
+        }
+        return null;
     }
 
     /** 从请求体取整数型ID，按 keys 顺序尝试（兼容 snake_case 与 camelCase）。 */

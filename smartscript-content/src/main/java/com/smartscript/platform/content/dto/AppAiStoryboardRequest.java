@@ -27,6 +27,19 @@ public class AppAiStoryboardRequest
     /** 用户选用的模型名（可选；命中启用渠道则按渠道调用，否则回退默认环境配置） */
     private String model;
 
+    /** 关联章节标题（可选，如「第3集：夜探账房」；传入后写入提示词锁定集号，并归一化输出首行标题） */
+    private String chapterTitle;
+
+    public String getChapterTitle()
+    {
+        return chapterTitle;
+    }
+
+    public void setChapterTitle(String chapterTitle)
+    {
+        this.chapterTitle = chapterTitle;
+    }
+
     public String getModel()
     {
         return model;

@@ -166,7 +166,7 @@ public class AiServiceClient
                 + "画面内容要具体到人物动作、表情与构图；台词直接引用或精简改写剧本对白；"
                 + "整体风格：" + styleHint + "。直接用中文输出分镜正文，不要解释、不要前后缀。";
         String user = "剧本文本：\n" + script;
-        return chat(appendSkill(system, skillContent), user);
+        return chat(appendSkill(system, skillContent), user, tokenLimit("storyboard", 0));
     }
 
     // ================================================================
@@ -520,7 +520,7 @@ public class AiServiceClient
                 + "画面内容要具体到人物动作、表情与构图；台词直接引用或精简改写剧本对白；"
                 + "整体风格：" + styleHint + "。直接用中文输出分镜正文，不要解释、不要前后缀。";
         String user = "剧本文本：\n" + script;
-        return streamChat(appendSkill(system, skillContent), user, onDelta);
+        return streamChat(appendSkill(system, skillContent), user, onDelta, tokenLimit("storyboard", 0));
     }
 
     /** 截断文本到 max 字符（保留头部，null 视为空串）；用于设定原文（简介在前）这类「前面才是主线」的文本。 */
@@ -747,6 +747,12 @@ public class AiServiceClient
     private AiCallResult streamChat(String system, String user, Consumer<String> onDelta)
     {
         return streamChat(system, user, onDelta, null, null, null);
+    }
+
+    /** 流式调用（默认渠道，可指定本次输出额度）。 */
+    private AiCallResult streamChat(String system, String user, Consumer<String> onDelta, int maxTokens)
+    {
+        return streamChat(system, user, onDelta, null, null, null, maxTokens);
     }
 
     /**
@@ -1095,6 +1101,12 @@ public class AiServiceClient
         return chat(system, user, null, null, null);
     }
 
+    /** 调用 Chat Completions（默认渠道，可指定本次输出额度）。 */
+    private AiCallResult chat(String system, String user, int maxTokens)
+    {
+        return chat(system, user, null, null, null, maxTokens);
+    }
+
     /**
      * 调用 Chat Completions（可按渠道覆盖 baseUrl / apiKey / model；传 null 用构造默认）。
      */
@@ -1315,14 +1327,43 @@ public class AiServiceClient
 
     public AiCallResult storyboard(String script, String style, String skillContent, String baseUrl, String apiKey, String model)
     {
+        return storyboard(script, style, skillContent, null, baseUrl, apiKey, model);
+    }
+
+    /** 同 {@link #storyboard(String, String, String, String, String, String)}，带本集集号与标题（防止模型自拟「第一集」）。 */
+    public AiCallResult storyboard(String script, String style, String skillContent, String episodeTitle,
+                                   String baseUrl, String apiKey, String model)
+    {
         String styleHint = (style == null || style.isBlank()) ? "电影感" : style;
-        String system = "你是一名资深影视分镜师，擅长把剧本转化为可直接用于拍摄或出售的专业分镜脚本。"
+        String system = storyboardSystem(styleHint, episodeTitle);
+        String user = "剧本文本：\n" + script;
+        return chat(appendSkill(system, skillContent), user, baseUrl, apiKey, model,
+                tokenLimit("storyboard", DEFAULT_STORYBOARD_FALLBACK));
+    }
+
+    /** 分镜额度兜底值：0=不限（由 AiGenLimitConfig / sys_config 决定实际值）。 */
+    private static final int DEFAULT_STORYBOARD_FALLBACK = 0;
+
+    /**
+     * 分镜 system 提示词：风格 + 本集身份锁定。
+     * 模型没有集号上下文时会自拟「第一集」并改写集名，这里把集号与集名写死，要求首行原样输出。
+     */
+    private static String storyboardSystem(String styleHint, String episodeTitle)
+    {
+        String base = "你是一名资深影视分镜师，擅长把剧本转化为可直接用于拍摄或出售的专业分镜脚本。"
                 + "请根据用户提供的剧本文本，按场景拆解为完整分镜；每场戏开头写清场次与场景地点，"
                 + "每个镜头依次给出：镜号、景别、运镜、时长、画面内容、台词、音效/配乐、转场。"
                 + "画面内容要具体到人物动作、表情与构图；台词直接引用或精简改写剧本对白；"
                 + "整体风格：" + styleHint + "。直接用中文输出分镜正文，不要解释、不要前后缀。";
-        String user = "剧本文本：\n" + script;
-        return chat(appendSkill(system, skillContent), user, baseUrl, apiKey, model);
+        if (episodeTitle == null || episodeTitle.isBlank())
+        {
+            return base;
+        }
+        String title = episodeTitle.trim();
+        return base + "\n本集身份锁定：本次分镜对应「" + title + "」。"
+                + "输出第一行标题必须原样使用该集号与该集名（用「" + title + "」这个字符串，可加“分镜脚本”前缀），"
+                + "不得自行编号，不得写成第一集或其它集号，不得自拟集名、片名；"
+                + "正文里提到集数时，也必须与该集号一致。";
     }
 
     public AiCallResult writeStream(String prompt, String type, String skillContent, Consumer<String> onDelta,
@@ -1366,14 +1407,19 @@ public class AiServiceClient
     public AiCallResult storyboardStream(String script, String style, String skillContent, Consumer<String> onDelta,
                                          String baseUrl, String apiKey, String model)
     {
+        return storyboardStream(script, style, skillContent, null, onDelta, baseUrl, apiKey, model);
+    }
+
+    /** 同 {@link #storyboardStream(String, String, String, Consumer, String, String, String)}，带本集集号与标题。 */
+    public AiCallResult storyboardStream(String script, String style, String skillContent, String episodeTitle,
+                                         Consumer<String> onDelta,
+                                         String baseUrl, String apiKey, String model)
+    {
         String styleHint = (style == null || style.isBlank()) ? "电影感" : style;
-        String system = "你是一名资深影视分镜师，擅长把剧本转化为可直接用于拍摄或出售的专业分镜脚本。"
-                + "请根据用户提供的剧本文本，按场景拆解为完整分镜；每场戏开头写清场次与场景地点，"
-                + "每个镜头依次给出：镜号、景别、运镜、时长、画面内容、台词、音效/配乐、转场。"
-                + "画面内容要具体到人物动作、表情与构图；台词直接引用或精简改写剧本对白；"
-                + "整体风格：" + styleHint + "。直接用中文输出分镜正文，不要解释、不要前后缀。";
+        String system = storyboardSystem(styleHint, episodeTitle);
         String user = "剧本文本：\n" + script;
-        return streamChat(appendSkill(system, skillContent), user, onDelta, baseUrl, apiKey, model);
+        return streamChat(appendSkill(system, skillContent), user, onDelta, baseUrl, apiKey, model,
+                tokenLimit("storyboard", DEFAULT_STORYBOARD_FALLBACK));
     }
 
     /** 渠道 baseUrl 覆盖（null/空白 → 构造默认） */
