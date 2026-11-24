@@ -3,6 +3,7 @@ package com.smartscript.platform.review.controller;
 import com.smartscript.platform.review.domain.PointsAccount;
 import com.smartscript.platform.review.domain.PointsRecord;
 import com.smartscript.platform.review.service.PointsService;
+import com.smartscript.platform.review.util.AdminListPager;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 import java.util.HashMap;
@@ -23,15 +24,21 @@ public class PointsController {
 
     /**
      * 查询积分账户列表
+     *
+     * <p>page / pageSize 由前端 el-pagination 传入，必须这里显式接收：
+     * 挂到实体上是绑不上的，只会被静默丢弃，导致每页返回全表。</p>
      */
     @GetMapping("/account/list")
-    public Map<String, Object> accountList(PointsAccount pointsAccount) {
+    public Map<String, Object> accountList(PointsAccount pointsAccount,
+                                           @RequestParam(value = "page", required = false) Integer page,
+                                           @RequestParam(value = "pageSize", required = false) Integer pageSize) {
         Map<String, Object> result = new HashMap<>();
-        List<PointsAccount> list = pointsService.selectPointsAccountList(pointsAccount);
+        List<PointsAccount> list = AdminListPager.query(page, pageSize,
+                () -> pointsService.selectPointsAccountList(pointsAccount));
         result.put("code", 200);
         result.put("msg", "操作成功");
         result.put("rows", list);
-        result.put("total", list.size());
+        result.put("total", AdminListPager.total(list));
         return result;
     }
 
@@ -68,15 +75,20 @@ public class PointsController {
 
     /**
      * 查询积分流水列表
+     *
+     * <p>分页口径同 {@link #accountList}：前端传 page / pageSize，这里必须显式接住。</p>
      */
     @GetMapping("/record/list")
-    public Map<String, Object> recordList(PointsRecord pointsRecord) {
+    public Map<String, Object> recordList(PointsRecord pointsRecord,
+                                          @RequestParam(value = "page", required = false) Integer page,
+                                          @RequestParam(value = "pageSize", required = false) Integer pageSize) {
         Map<String, Object> result = new HashMap<>();
-        List<PointsRecord> list = pointsService.selectPointsRecordList(pointsRecord);
+        List<PointsRecord> list = AdminListPager.query(page, pageSize,
+                () -> pointsService.selectPointsRecordList(pointsRecord));
         result.put("code", 200);
         result.put("msg", "操作成功");
         result.put("rows", list);
-        result.put("total", list.size());
+        result.put("total", AdminListPager.total(list));
         return result;
     }
 }

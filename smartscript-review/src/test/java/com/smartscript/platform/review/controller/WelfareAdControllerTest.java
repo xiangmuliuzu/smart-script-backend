@@ -57,7 +57,7 @@ class WelfareAdControllerTest {
         when(adConfigService.selectAdConfigList(any(AdConfig.class)))
                 .thenReturn(Arrays.asList(welfareAd));
 
-        Map<String, Object> r = controller.list(new AdConfig());
+        Map<String, Object> r = controller.list(new AdConfig(), 1, 10);
         assertEquals(200, r.get("code"));
 
         ArgumentCaptor<AdConfig> captor = ArgumentCaptor.forClass(AdConfig.class);
@@ -127,8 +127,8 @@ class WelfareAdControllerTest {
     void list_空列表也返回200() {
         when(adConfigService.selectAdConfigList(any(AdConfig.class)))
                 .thenReturn(Collections.emptyList());
-        Map<String, Object> r = controller.list(new AdConfig());
+        Map<String, Object> r = controller.list(new AdConfig(), 1, 10);
         assertEquals(200, r.get("code"));
-        assertEquals(0, r.get("total"));
+        assertEquals(0L, r.get("total"));
     }
 }

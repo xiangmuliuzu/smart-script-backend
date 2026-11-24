@@ -2,6 +2,7 @@ package com.smartscript.platform.review.controller;
 
 import com.smartscript.platform.review.domain.TaskConfig;
 import com.smartscript.platform.review.service.TaskConfigService;
+import com.smartscript.platform.review.util.AdminListPager;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 import java.util.HashMap;
@@ -20,16 +21,19 @@ public class TaskConfigController {
     private TaskConfigService taskConfigService;
 
     /**
-     * 查询任务配置列表
+     * 查询任务配置列表（分页：前端传 page / pageSize）
      */
     @GetMapping("/list")
-    public Map<String, Object> list(TaskConfig taskConfig) {
+    public Map<String, Object> list(TaskConfig taskConfig,
+                                    @RequestParam(value = "page", required = false) Integer page,
+                                    @RequestParam(value = "pageSize", required = false) Integer pageSize) {
         Map<String, Object> result = new HashMap<>();
-        List<TaskConfig> list = taskConfigService.selectTaskConfigList(taskConfig);
+        List<TaskConfig> list = AdminListPager.query(page, pageSize,
+                () -> taskConfigService.selectTaskConfigList(taskConfig));
         result.put("code", 200);
         result.put("msg", "操作成功");
         result.put("rows", list);
-        result.put("total", list.size());
+        result.put("total", AdminListPager.total(list));
         return result;
     }
 

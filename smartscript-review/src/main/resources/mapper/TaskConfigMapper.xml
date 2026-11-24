@@ -43,7 +43,7 @@
                 AND status = #{status}
             </if>
         </where>
-        ORDER BY sort ASC, created_at DESC
+        ORDER BY sort ASC, created_at DESC, task_id DESC
     </select>
 
     <select id="selectTaskConfigById" parameterType="Long" resultMap="TaskConfigResult">

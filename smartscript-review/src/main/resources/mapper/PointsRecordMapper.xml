@@ -43,7 +43,7 @@
                 AND DATE(pr.created_at) &lt;= #{endDate}
             </if>
         </where>
-        ORDER BY pr.created_at DESC
+        ORDER BY pr.created_at DESC, pr.record_id DESC
     </select>
 
     <insert id="insertPointsRecord" parameterType="com.smartscript.platform.review.domain.PointsRecord" useGeneratedKeys="true" keyProperty="recordId">

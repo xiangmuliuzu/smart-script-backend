@@ -67,7 +67,7 @@
                 AND is_enabled = #{isEnabled}
             </if>
         </where>
-        ORDER BY sort ASC, created_at DESC
+        ORDER BY sort ASC, created_at DESC, ad_id DESC
     </select>
 
     <select id="selectAdConfigById" parameterType="Long" resultMap="AdConfigResult">

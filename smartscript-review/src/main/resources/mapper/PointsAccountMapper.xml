@@ -37,7 +37,7 @@
                 AND u.nick_name LIKE CONCAT('%', #{nickname}, '%')
             </if>
         </where>
-        ORDER BY pa.balance DESC
+        ORDER BY pa.balance DESC, pa.account_id DESC
     </select>
 
     <select id="selectByUserId" parameterType="Long" resultMap="PointsAccountResult">
