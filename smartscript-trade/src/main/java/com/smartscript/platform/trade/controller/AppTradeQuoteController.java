@@ -299,6 +299,9 @@ public class AppTradeQuoteController
         String amountYuan = formatYuan(quote.getPrice());
         chatService.sendNoticeByInquiryId(quote.getInquiryId(),
                 "[接受] 报价已接受，成交金额 " + amountYuan + "，订单已生成");
+        // 可点击跳转的系统消息：四端按 `[订单]{json}` 前缀渲染成订单跳转卡片
+        chatService.sendNoticeByInquiryId(quote.getInquiryId(),
+                "[订单]{\"orderId\":" + order.getOrderId() + ",\"orderNo\":\"" + order.getOrderNo() + "\"}");
 
         Map<String, Object> result = new HashMap<>();
         result.put("orderId", order.getOrderId());

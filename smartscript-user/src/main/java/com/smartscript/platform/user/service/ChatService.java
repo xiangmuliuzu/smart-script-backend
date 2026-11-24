@@ -568,7 +568,7 @@ public class ChatService
         return Map.of("assignedAdminId", adminId);
     }
 
-    /** 插入系统提示消息（sender/receiver 置 0，已读，不增加未读） */
+    /** 插入系统提示消息（sender/receiver 置 0，已读，不增加未读），提交后推 WS 帧让在线双方即时可见 */
     public void insertSystemNotice(Long sessionId, String content)
     {
         ChatMessage notice = new ChatMessage();
@@ -579,6 +579,16 @@ public class ChatService
         notice.setContent(content);
         notice.setIsRead(Boolean.TRUE);
         messageMapper.insertMessage(notice);
+        ChatSession session = sessionMapper.selectById(sessionId);
+        if (session != null)
+        {
+            Long party1 = session.getUser1Id();
+            Long party2 = session.getUser2Id();
+            if (party2 != null)
+            {
+                realtimePush.pushChatMessageAfterCommit(sessionId, notice.getMessageId(), party1, party2);
+            }
+        }
     }
 
     /**

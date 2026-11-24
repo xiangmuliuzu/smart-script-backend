@@ -82,6 +82,12 @@ public class TradeOrderService
         return orderMapper.selectOrderById(orderId);
     }
 
+    /** 按询盘查关联订单（一询一档，幂等键 inquiry_id）；无订单返回 null。 */
+    public SysOrder selectOrderByInquiryId(Long inquiryId)
+    {
+        return inquiryId == null ? null : orderMapper.selectOrderByInquiryId(inquiryId);
+    }
+
     public List<SysOrderStatusLog> selectStatusLogByOrderId(Long orderId)
     {
         return logMapper.selectLogsByOrderId(orderId);

@@ -119,6 +119,27 @@ public class AppTradeOrderController
         return AppApiResponse.ok(data);
     }
 
+    /** 按询盘查关联订单（会话页「查看订单」跳转用）。无订单返回 data=null，越权 403。 */
+    @GetMapping("/by-inquiry/{inquiryId}")
+    public AppApiResponse<Map<String, Object>> detailByInquiry(@PathVariable Long inquiryId)
+    {
+        Long currentUserId = currentUserId();
+        SysOrder order = orderService.selectOrderByInquiryId(inquiryId);
+        if (order == null)
+        {
+            return AppApiResponse.ok(null);
+        }
+        if (!currentUserId.equals(order.getBuyerId()) && !currentUserId.equals(order.getSellerId()))
+        {
+            return AppApiResponse.fail(403, "无权查看该订单");
+        }
+        Map<String, Object> brief = new HashMap<>();
+        brief.put("orderId", order.getOrderId());
+        brief.put("orderNo", order.getOrderNo());
+        brief.put("status", order.getStatus());
+        return AppApiResponse.ok(brief);
+    }
+
     /** 发起支付宝沙箱支付；不会直接推进订单状态。 */
     @PostMapping("/{orderId}/pay")
     public AppApiResponse<Map<String, Object>> pay(@PathVariable Long orderId,
