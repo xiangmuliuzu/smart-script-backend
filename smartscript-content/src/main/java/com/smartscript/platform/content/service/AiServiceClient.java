@@ -1494,4 +1494,162 @@ public class AiServiceClient
     {
         return model != null && model.trim().toLowerCase(java.util.Locale.ROOT).startsWith("claude-");
     }
+
+    @Autowired(required = false)
+    private IAiChannelService toolChatChannels;
+
+    public record ToolCall(String id, String name, String argumentsJson) {}
+
+    public record AiToolChatResult(String content, List<ToolCall> toolCalls, int totalTokens,
+                                   String model, String finishReason) {}
+
+    /**
+     * 调用 OpenAI 兼容的工具协议。最后一次总结不传工具，防止模型继续请求工具。
+     */
+    public AiToolChatResult chatWithTools(List<Map<String, Object>> messages, List<Map<String, Object>> tools,
+                                         String modelOverride, Consumer<String> deltaConsumer)
+    {
+        boolean explicitModel = modelOverride != null && !modelOverride.isBlank();
+        var channel = toolChatChannels == null ? null : explicitModel
+                ? toolChatChannels.resolveChannelByModel(modelOverride)
+                : toolChatChannels.resolveDefaultChannel();
+        String url = resolveBaseUrl(channel == null ? null : channel.getBaseUrl());
+        String key = resolveApiKey(channel == null ? null : channel.getApiKey());
+        if (key.isBlank())
+        {
+            throw new AiServiceUnavailableException("AI 服务未配置，请联系管理员");
+        }
+        String requestedModel = resolveModel(explicitModel ? modelOverride
+                : channel == null ? null : channel.getDefaultModel());
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("model", requestedModel);
+        body.put("messages", messages);
+        if (!tools.isEmpty())
+        {
+            body.put("tools", tools);
+            body.put("tool_choice", "auto");
+        }
+        body.put("stream", true);
+        body.put("stream_options", Map.of("include_usage", true));
+        if (requestedModel.toLowerCase(java.util.Locale.ROOT).startsWith("deepseek-"))
+        {
+            // DeepSeek 思考模式要求回传全部 reasoning_content，Agent 仅保留可展示文本和工具轨迹。
+            body.put("thinking", Map.of("type", "disabled"));
+        }
+        try
+        {
+            HttpResponse<InputStream> response = postStream(url, key, body);
+            try (InputStream stream = response.body())
+            {
+                if (response.statusCode() < 200 || response.statusCode() >= 300)
+                {
+                    throw new AiServiceUnavailableException("AI 服务不可用，请稍后重试 (HTTP " + response.statusCode() + ")");
+                }
+                return readToolChat(stream, requestedModel, deltaConsumer);
+            }
+        }
+        catch (AiServiceUnavailableException e)
+        {
+            throw e;
+        }
+        catch (InterruptedException e)
+        {
+            Thread.currentThread().interrupt();
+            throw new AiServiceUnavailableException("AI 生成中断，请稍后重试");
+        }
+        catch (Exception e)
+        {
+            log.warn("AI tool chat failed ({})", e.getClass().getSimpleName());
+            throw new AiServiceUnavailableException("AI 服务不可用，请稍后重试");
+        }
+    }
+
+    private AiToolChatResult readToolChat(InputStream stream, String modelName, Consumer<String> onDelta)
+            throws java.io.IOException
+    {
+        StringBuilder content = new StringBuilder();
+        Map<Integer, ToolCallParts> calls = new java.util.TreeMap<>();
+        int totalTokens = 0;
+        String finishReason = null;
+        boolean done = false;
+        try (var reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8)))
+        {
+            String line;
+            while ((line = reader.readLine()) != null)
+            {
+                if (!line.startsWith("data:"))
+                {
+                    continue;
+                }
+                String data = line.substring(5).trim();
+                if (data.equals("[DONE]"))
+                {
+                    done = true;
+                    break;
+                }
+                JsonNode chunk = objectMapper.readTree(data);
+                if (chunk.hasNonNull("error"))
+                {
+                    throw new AiServiceUnavailableException("AI 服务不可用，请稍后重试");
+                }
+                if (chunk.path("usage").hasNonNull("total_tokens"))
+                {
+                    totalTokens = Math.max(0, chunk.path("usage").path("total_tokens").asInt());
+                }
+                if (chunk.path("model").isTextual())
+                {
+                    modelName = chunk.path("model").asText();
+                }
+                JsonNode choice = chunk.path("choices").path(0);
+                if (choice.path("finish_reason").isTextual())
+                {
+                    finishReason = choice.path("finish_reason").asText();
+                }
+                JsonNode delta = choice.path("delta");
+                String text = delta.path("content").asText("");
+                if (!text.isEmpty())
+                {
+                    content.append(text);
+                    if (onDelta != null)
+                    {
+                        onDelta.accept(text);
+                    }
+                }
+                for (JsonNode call : delta.path("tool_calls"))
+                {
+                    int index = call.path("index").asInt(-1);
+                    if (index < 0 || index >= 64)
+                    {
+                        throw new AiServiceUnavailableException("AI 返回的工具调用无效");
+                    }
+                    ToolCallParts parts = calls.computeIfAbsent(index, ignored -> new ToolCallParts());
+                    parts.id.append(call.path("id").asText(""));
+                    parts.name.append(call.path("function").path("name").asText(""));
+                    parts.arguments.append(call.path("function").path("arguments").asText(""));
+                }
+            }
+        }
+        if ((!done && finishReason == null) || (calls.isEmpty() && content.toString().isBlank())
+                || ("length".equals(finishReason) && !calls.isEmpty()))
+        {
+            throw new AiServiceUnavailableException("AI 生成中断，请稍后重试");
+        }
+        List<ToolCall> toolCalls = new ArrayList<>();
+        for (ToolCallParts parts : calls.values())
+        {
+            if (parts.id.isEmpty() || parts.id.length() > 64 || parts.name.isEmpty() || parts.name.length() > 64)
+            {
+                throw new AiServiceUnavailableException("AI 返回的工具调用无效");
+            }
+            toolCalls.add(new ToolCall(parts.id.toString(), parts.name.toString(), parts.arguments.toString()));
+        }
+        return new AiToolChatResult(content.toString(), List.copyOf(toolCalls), totalTokens, modelName, finishReason);
+    }
+
+    private static class ToolCallParts
+    {
+        private final StringBuilder id = new StringBuilder();
+        private final StringBuilder name = new StringBuilder();
+        private final StringBuilder arguments = new StringBuilder();
+    }
 }
