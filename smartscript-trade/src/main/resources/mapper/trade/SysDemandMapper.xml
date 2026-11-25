@@ -43,6 +43,9 @@
         <result property="depositSettledAt" column="deposit_settled_at" />
         <result property="failReason"      column="fail_reason" />
         <result property="failAt"          column="fail_at" />
+        <result property="auditRemark"     column="audit_remark" />
+        <result property="auditAt"         column="audit_at" />
+        <result property="auditorId"       column="auditor_id" />
     </resultMap>
 
     <!-- 任务查询可复用片段：列 / 连接 / where 条件（selectDemandList、selectDemandPage、countDemandList 共用，避免漂移） -->
@@ -53,6 +56,7 @@
         d.accepted_creator_id, d.accepted_at, d.duration_hours, d.due_at, d.is_overdue,
         d.escrow_amount, d.escrow_status, d.deposit_amount, d.deposit_status,
         d.deposit_paid_at, d.deposit_settled_at, d.fail_reason, d.fail_at,
+        d.audit_remark, d.audit_at, d.auditor_id,
         d.created_at, d.updated_at, d.create_by, d.create_time, d.update_by, d.update_time, d.remark,
         uc.nick_name as client_name,
         ua.nick_name as accepted_creator_name,
@@ -173,6 +177,7 @@
                d.accepted_creator_id, d.accepted_at, d.duration_hours, d.due_at, d.is_overdue,
                d.escrow_amount, d.escrow_status, d.deposit_amount, d.deposit_status,
                d.deposit_paid_at, d.deposit_settled_at, d.fail_reason, d.fail_at,
+               d.audit_remark, d.audit_at, d.auditor_id,
                d.created_at, d.updated_at, d.create_by, d.create_time, d.update_by, d.update_time, d.remark,
                uc.nick_name as client_name,
                ua.nick_name as accepted_creator_name,
@@ -219,6 +224,8 @@
                 source_script_name = #{sourceScriptName},
             </if>
             <if test="updateBy != null">update_by = #{updateBy},</if>
+            <!-- 买方驳回后重新提交：上一轮审核意见随本次改动作废，由 service 置位 resetAudit 指令清空 -->
+            <if test="resetAudit != null and resetAudit">audit_remark = NULL, audit_at = NULL, auditor_id = NULL,</if>
             updated_at = NOW(),
             update_time = NOW()
         </set>
@@ -234,6 +241,19 @@
     <update id="updateStatusCas">
         update sys_demand set status = #{status}, update_by = #{updateBy}, update_time = NOW(), updated_at = NOW()
         where demand_id = #{demandId} and status = #{expectStatus}
+    </update>
+
+    <!-- 发布审核写回（CAS）：只有仍待审的单能被审掉，重复点击/并发变更时返回 0 行 -->
+    <update id="updateAuditCas">
+        update sys_demand
+        set status = #{status},
+            audit_remark = #{auditRemark},
+            audit_at = NOW(),
+            auditor_id = #{auditorId},
+            update_by = #{updateBy},
+            update_time = NOW(),
+            updated_at = NOW()
+        where demand_id = #{demandId} and status = 'pending_review'
     </update>
 
     <!-- 行锁读取（编辑任务等与抢单串行化的前置）：须在事务内调用 -->

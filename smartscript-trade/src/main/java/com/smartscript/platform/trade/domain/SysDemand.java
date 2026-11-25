@@ -68,6 +68,13 @@ public class SysDemand extends BaseEntity
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private Date failAt;
 
+    private String auditRemark;
+
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+    private Date auditAt;
+
+    private Long auditorId;
+
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private Date createdAt;
 
@@ -143,6 +150,12 @@ public class SysDemand extends BaseEntity
     public void setFailReason(String failReason) { this.failReason = failReason; }
     public Date getFailAt() { return failAt; }
     public void setFailAt(Date failAt) { this.failAt = failAt; }
+    public String getAuditRemark() { return auditRemark; }
+    public void setAuditRemark(String auditRemark) { this.auditRemark = auditRemark; }
+    public Date getAuditAt() { return auditAt; }
+    public void setAuditAt(Date auditAt) { this.auditAt = auditAt; }
+    public Long getAuditorId() { return auditorId; }
+    public void setAuditorId(Long auditorId) { this.auditorId = auditorId; }
     public String getTaskType() { return taskType; }
     public void setTaskType(String taskType) { this.taskType = taskType; }
     public Long getSourceWorkId() { return sourceWorkId; }
@@ -202,4 +215,9 @@ public class SysDemand extends BaseEntity
     private Boolean excludeExpired;
     public Boolean getExcludeExpired() { return excludeExpired; }
     public void setExcludeExpired(Boolean excludeExpired) { this.excludeExpired = excludeExpired; }
+
+    /** 买方驳回后重新提交时清空上一轮审核意见；仅作为更新语句指令，不是库列。 */
+    private Boolean resetAudit;
+    public Boolean getResetAudit() { return resetAudit; }
+    public void setResetAudit(Boolean resetAudit) { this.resetAudit = resetAudit; }
 }

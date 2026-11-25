@@ -53,6 +53,15 @@ public interface SysDemandMapper
                     @Param("acceptedAt") Date acceptedAt, @Param("dueAt") Date dueAt,
                     @Param("updateBy") String updateBy);
 
+    /**
+     * 发布审核写回（CAS）：仅当任务仍为 pending_review 才生效。
+     * 通过→open（进广场），不通过→rejected（可改后重新提交）；审核意见/审核人/审核时间同批写入。
+     * 返回 0 表示已被并发处理（重复点击审核、或运营已同时改动状态），调用方不得再做副作用。
+     */
+    int updateAuditCas(@Param("demandId") Long demandId, @Param("status") String status,
+                       @Param("auditRemark") String auditRemark, @Param("auditorId") Long auditorId,
+                       @Param("updateBy") String updateBy);
+
     /** 状态与失败信息流转：仅更新非空字段（status/failReason） */
     int updateStatusAndFailReason(@Param("demandId") Long demandId, @Param("status") String status,
                         @Param("failReason") String failReason);

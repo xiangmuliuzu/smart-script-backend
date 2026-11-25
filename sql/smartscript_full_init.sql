@@ -1423,6 +1423,9 @@ CREATE TABLE IF NOT EXISTS sys_demand (
   `source_work_id` bigint DEFAULT NULL COMMENT '源剧本作品ID（storyboard 类型，发布者选本人作品，与 source_script_url 至少其一）',
   `source_script_url` varchar(500) COLLATE utf8mb4_general_ci DEFAULT NULL COMMENT '源剧本文件相对路径（storyboard 类型，上传的剧本文档）',
   `source_script_name` varchar(255) COLLATE utf8mb4_general_ci DEFAULT NULL COMMENT '源剧本文件原始文件名（展示用）',
+  `audit_remark` varchar(500) COLLATE utf8mb4_general_ci DEFAULT NULL COMMENT '发布审核意见（驳回时给需求方看，重新提交后清空）',
+  `audit_at` datetime DEFAULT NULL COMMENT '发布审核时间',
+  `auditor_id` bigint DEFAULT NULL COMMENT '发布审核人（后台账号ID）',
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   `create_by` varchar(64) COLLATE utf8mb4_general_ci DEFAULT NULL,
@@ -1984,6 +1987,9 @@ FROM (
   UNION ALL SELECT 2,'邮件','email','trade_follow_method','default'
   UNION ALL SELECT 3,'面谈','meeting','trade_follow_method','default'
   UNION ALL SELECT 1,'征集中','open','trade_demand_status','success'
+  -- 需求方自助发布：提交即待审核，审核通过后才是广场上的征集中
+  UNION ALL SELECT 4,'待审核','pending_review','trade_demand_status','warning'
+  UNION ALL SELECT 5,'审核未通过','rejected','trade_demand_status','danger'
   UNION ALL SELECT 2,'已截止','closed','trade_demand_status','info'
   UNION ALL SELECT 3,'已选定','selected','trade_demand_status','primary'
   UNION ALL SELECT 1,'已投稿','submitted','trade_submission_status','warning'

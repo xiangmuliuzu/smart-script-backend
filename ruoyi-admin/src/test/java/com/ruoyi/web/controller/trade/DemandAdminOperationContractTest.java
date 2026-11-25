@@ -18,9 +18,9 @@ import org.springframework.web.bind.annotation.PutMapping;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
- * 任务发布/验收收归管理端后的接口契约回归。
+ * 任务域管理端接口契约回归。
  *
- * <p>用户侧发布与买方动作已全部下线（见 AppTradeDemandController 的 403 响应），管理端成为唯一入口，
+ * <p>发布链路已回到需求方手上（用户侧建单/改单 → 待审核），管理端负责审核与逐轮验收，
  * 因此这里锁两条最容易在后续迭代里松掉的口径：</p>
  * <ul>
  *   <li>任务域每个管理端端点都必须带 {@code trade:demand:*} 权限位——漏一个就等于把运营动作开放给任意登录账号；</li>
@@ -87,15 +87,32 @@ class DemandAdminOperationContractTest
     @Test
     void stageReviewUsesItsOwnPermission()
     {
-        List<String> reviewPerms = new ArrayList<>();
+        assertEquals(List.of("@ss.hasPermi('trade:demand:review')"),
+                permissionsForPath("/trade/demand/{demandId}/stage/{stageId}/review"));
+    }
+
+    /**
+     * 需求方自助发布的审核关口与逐轮验收同档权限（review）：
+     * 能给运营开「审单」而不必连带开「改单/关闭」，两个动作的责任边界保持一致。
+     */
+    @Test
+    void publishAuditUsesReviewPermission()
+    {
+        assertEquals(List.of("@ss.hasPermi('trade:demand:review')"),
+                permissionsForPath("/trade/demand/{demandId}/audit"));
+    }
+
+    private List<String> permissionsForPath(String path)
+    {
+        List<String> perms = new ArrayList<>();
         for (Method method : demandHandlers())
         {
-            if ("/trade/demand/{demandId}/stage/{stageId}/review".equals(mappedDemandPath(method)))
+            if (path.equals(mappedDemandPath(method)))
             {
-                reviewPerms.add(method.getAnnotation(PreAuthorize.class).value());
+                perms.add(method.getAnnotation(PreAuthorize.class).value());
             }
         }
-        assertEquals(List.of("@ss.hasPermi('trade:demand:review')"), reviewPerms);
+        return perms;
     }
 
     @Test

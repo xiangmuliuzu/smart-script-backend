@@ -47,9 +47,9 @@ public class AppTradeDemandController
     private static final String BIDDING_OFFLINE_MSG =
             "招标制已下线，本任务仅支持接单制（创作者凭接单资格直接接单、逐轮交付验收）";
 
-    /** 发布与买方（需求方）动作已收归平台运营；用户侧对应端点统一返回此提示。 */
-    private static final String PUBLISH_RETIRED_MSG =
-            "任务发布与逐轮验收已收归平台运营，用户侧不再提供发布、审核、延时审批与资金入口";
+    /** 逐轮验收、延时审批与关闭征集由平台运营在管理端执行；用户侧对应端点统一返回此提示。 */
+    private static final String ACCEPTANCE_RETIRED_MSG =
+            "逐轮验收、延时审批与关闭征集已收归平台运营，用户侧不再提供这些入口（发布与编辑仍在本端）";
 
     public AppTradeDemandController(TradeDemandService demandService,
             IdentityProvider identityProvider, ChatService chatService)
@@ -216,21 +216,19 @@ public class AppTradeDemandController
             return AppApiResponse.fail(404, "任务不存在");
         }
         applyFen(demand);
-        boolean expiredOpen = TradeDemandService.DEMAND_STATUS_OPEN.equals(demand.getStatus())
-                && TradeDemandService.isRecruitExpired(demand);
         if (!identityProvider.currentIdentity().isAuthenticated())
         {
-            boolean squareVisible = TradeDemandService.DEMAND_STATUS_OPEN.equals(demand.getStatus()) && !expiredOpen;
-            if (!squareVisible)
+            if (!TradeDemandService.isSquareVisible(demand))
             {
                 // 不用 403：403 会告诉调用方「这个单存在但你没权限」，任务编号本身也是业务信息。
                 return AppApiResponse.fail(404, "任务不存在");
             }
             return AppApiResponse.ok(publicView(demand));
         }
-        // 过期且仍 open 的单已退出广场，只留给当事人（发布方 / 接单方）在「我的任务」里查看，
-        // 其他登录用户按「不存在」处理，与广场列表口径一致。
-        if (expiredOpen && !isDemandParticipant(demand))
+        // 退出广场的单（征集已过截止、待审核、审核未通过）只留给当事人
+        // （需求方 / 接单创作者）在「我的任务」里查看，其他登录用户按「不存在」处理，与轮次读取同一口径。
+        // 审核意见只在被驳回态存在（通过时写 NULL、重交时清空），因此驳回原因必然随本单只回给提交人。
+        if (TradeDemandService.isOffSquare(demand) && !isDemandParticipant(demand))
         {
             return AppApiResponse.fail(404, "任务不存在");
         }
@@ -269,30 +267,120 @@ public class AppTradeDemandController
     }
 
     /**
-     * 发布任务已收归管理端（POST 保留仅作旧客户端可读拒绝）。
+     * 发布任务（企业/买方角色）。
      *
-     * <p>业务口径：平台在线下与需求方商定并收款后代为发布，用户侧不再有发布入口；
-     * 对应管理端接口为 POST /api/v1/admin/trade/demand（权限 trade:demand:add）。</p>
+     * <p>Body: {title, genreId, budget(分), deadline, requirement, contactInfo, tags, totalEpisodes,
+     *        durationHours, taskType(script/script_storyboard/storyboard),
+     *        sourceWorkId, sourceScriptUrl, sourceScriptName, stages:[{stageOrder,episodeTo,amount(元)}]}
+     *
+     * <p>建单后状态是「待审核」而不是「征集中」：运营在管理端审核通过才出现在任务广场，
+     * 驳回后本接口链路可继续编辑重交（PUT /{demandId}）。</p>
      */
     @PostMapping
     public AppApiResponse<SysDemand> create(@RequestBody(required = false) Map<String, Object> body)
     {
-        return AppApiResponse.fail(403, PUBLISH_RETIRED_MSG);
+        if (body == null) return AppApiResponse.fail(400, "请填写任务信息");
+        Long userId;
+        try
+        {
+            userId = currentUserId();
+        }
+        catch (RuntimeException e)
+        {
+            return AppApiResponse.fail(401, "请登录后查看个人任务");
+        }
+        SysDemand demand = fillDemandForm(new SysDemand(), body);
+        // 总集数必填：最后一轮验收依赖总集数固定生成
+        if (demand.getTotalEpisodes() == null || demand.getTotalEpisodes() <= 0)
+        {
+            return AppApiResponse.fail(400, "请填写总集数");
+        }
+        String deadlineError = applyDeadline(demand, str(body, "deadline"));
+        if (deadlineError != null) return AppApiResponse.fail(400, deadlineError);
+        List<SysDemandStage> stages = parseStages(body.get("stages"));
+        try
+        {
+            SysDemand created = demandService.insertDemandByBuyer(demand, stages, userId);
+            applyFen(created);
+            return AppApiResponse.ok(created);
+        }
+        catch (RuntimeException e)
+        {
+            return AppApiResponse.fail(400, e.getMessage());
+        }
     }
 
-    /** 编辑任务已收归管理端（PUT /api/v1/admin/trade/demand/{demandId}，权限 trade:demand:edit）。 */
+    /**
+     * 编辑任务（仅需求方本人；待审核中直接改，审核未通过后改完自动重新提交审核）。
+     * Body 同发布；不传 taskType 时沿用原任务类型与源剧本。
+     */
     @PutMapping("/{demandId}")
     public AppApiResponse<SysDemand> update(@PathVariable Long demandId,
             @RequestBody(required = false) Map<String, Object> body)
     {
-        return AppApiResponse.fail(403, PUBLISH_RETIRED_MSG);
+        if (body == null) return AppApiResponse.fail(400, "请填写任务信息");
+        SysDemand demand = fillDemandForm(new SysDemand(), body);
+        demand.setDemandId(demandId);
+        if (demand.getTotalEpisodes() == null || demand.getTotalEpisodes() <= 0)
+        {
+            return AppApiResponse.fail(400, "请填写总集数");
+        }
+        String deadlineError = applyDeadline(demand, str(body, "deadline"));
+        if (deadlineError != null) return AppApiResponse.fail(400, deadlineError);
+        List<SysDemandStage> stages = parseStages(body.get("stages"));
+        try
+        {
+            SysDemand d = demandService.updateDemandByBuyer(demand, stages, currentUserId());
+            applyFen(d);
+            return AppApiResponse.ok(d);
+        }
+        catch (RuntimeException e)
+        {
+            return AppApiResponse.fail(400, e.getMessage());
+        }
+    }
+
+    /** 发布/编辑共用的字段装配（预算按分传入、元落库）。 */
+    private static SysDemand fillDemandForm(SysDemand demand, Map<String, Object> body)
+    {
+        demand.setTitle(str(body, "title"));
+        demand.setGenreId(intVal(body, "genreId"));
+        demand.setBudget(fenToYuan(decimalVal(body, "budget")));
+        demand.setTags(str(body, "tags"));
+        demand.setRequirement(str(body, "requirement"));
+        demand.setContactInfo(str(body, "contactInfo"));
+        demand.setTotalEpisodes(intVal(body, "totalEpisodes"));
+        demand.setDurationHours(intVal(body, "durationHours"));
+        demand.setTaskType(str(body, "taskType"));
+        demand.setSourceWorkId(longVal(body, "sourceWorkId"));
+        demand.setSourceScriptUrl(str(body, "sourceScriptUrl"));
+        demand.setSourceScriptName(str(body, "sourceScriptName"));
+        return demand;
+    }
+
+    /** 截止日期按 yyyy-MM-dd 解析；返回错误文案（null 表示成功或未填）。 */
+    private static String applyDeadline(SysDemand demand, String deadlineStr)
+    {
+        if (deadlineStr == null || deadlineStr.isEmpty())
+        {
+            return null;
+        }
+        try
+        {
+            demand.setDeadline(new java.text.SimpleDateFormat("yyyy-MM-dd").parse(deadlineStr));
+            return null;
+        }
+        catch (java.text.ParseException e)
+        {
+            return "截止日期格式不正确，请重新选择";
+        }
     }
 
     /** 关闭征集已收归管理端（PUT /api/v1/admin/trade/demand/{demandId}/close，权限 trade:demand:edit）。 */
     @PutMapping("/{demandId}/close")
     public AppApiResponse<Void> close(@PathVariable Long demandId)
     {
-        return AppApiResponse.fail(403, PUBLISH_RETIRED_MSG);
+        return AppApiResponse.fail(403, ACCEPTANCE_RETIRED_MSG);
     }
 
     /**
@@ -429,12 +517,12 @@ public class AppTradeDemandController
     /* ==================== 验收轮次 ==================== */
 
     /**
-     * 查看任务的验收轮次列表。
+     * 查看任务的验收轮次列表（轮次金额元→分；非参与者拿不到交付物与 AI 结果）。
      */
     @GetMapping("/{demandId}/stages")
     public AppApiResponse<List<SysDemandStage>> stages(@PathVariable Long demandId)
     {
-        List<SysDemandStage> list = demandService.selectStagesByDemandId(demandId);
+        List<SysDemandStage> list = demandService.selectStagesForViewer(demandId, currentUserId());
         // 元→分
         for (SysDemandStage s : list)
         {
@@ -453,21 +541,27 @@ public class AppTradeDemandController
     }
 
     /**
-     * 源剧本作品候选（发布分镜任务用）已随发布权收归管理端。
+     * 源剧本作品候选（发布分镜任务用）：本人未删除的作品，供 sourceWorkId 选择。
+     * 发布分镜任务时源剧本必须属于提交人，服务端在建单/改单时二次校验归属。
      */
     @GetMapping("/source-works")
     public AppApiResponse<List<Map<String, Object>>> sourceWorks()
     {
-        return AppApiResponse.fail(403, PUBLISH_RETIRED_MSG);
+        return AppApiResponse.ok(demandService.selectSourceWorks(currentUserId()));
     }
 
-    /**
-     * 上传源剧本文件（发布分镜任务用）已随发布权收归管理端。
-     */
+    /** 上传源剧本文件（发布分镜任务用），返回 {url, fileName} 供发布表单回填。 */
     @PostMapping("/upload-script")
     public AppApiResponse<Map<String, Object>> uploadScript(@RequestParam("file") org.springframework.web.multipart.MultipartFile file)
     {
-        return AppApiResponse.fail(403, PUBLISH_RETIRED_MSG);
+        try
+        {
+            return AppApiResponse.ok(demandService.uploadSourceScript(file));
+        }
+        catch (RuntimeException e)
+        {
+            return AppApiResponse.fail(400, e.getMessage());
+        }
     }
 
     /**
@@ -524,18 +618,29 @@ public class AppTradeDemandController
             @PathVariable Long stageId,
             @RequestBody(required = false) Map<String, Object> body)
     {
-        return AppApiResponse.fail(403, PUBLISH_RETIRED_MSG);
+        return AppApiResponse.fail(403, ACCEPTANCE_RETIRED_MSG);
     }
 
     /**
-     * 查看某轮交付作品（验收动作）已收归管理端（GET /api/v1/admin/trade/demand/{demandId}/stage/{stageId}/deliverable-work）。
+     * 查看某轮交付作品（用户侧口，带身份闸）。
+     *
+     * <p>需求方只在整单完成（末轮验收通过）后看到末轮最终稿；接单创作者看自己交付的轮次不受限制。
+     * 运营验收走管理端口 GET /api/v1/admin/trade/demand/{demandId}/stage/{stageId}/deliverable-work，
+     * 两端共用同一份正文截断与富文本转纯文本实现。</p>
      */
     @GetMapping("/{demandId}/stage/{stageId}/deliverable-work")
     public AppApiResponse<Map<String, Object>> deliverableWork(
             @PathVariable Long demandId,
             @PathVariable Long stageId)
     {
-        return AppApiResponse.fail(403, PUBLISH_RETIRED_MSG);
+        try
+        {
+            return AppApiResponse.ok(demandService.selectDeliverableWorkForViewer(demandId, stageId, currentUserId()));
+        }
+        catch (RuntimeException e)
+        {
+            return AppApiResponse.fail(400, e.getMessage());
+        }
     }
 
     /**
@@ -574,7 +679,7 @@ public class AppTradeDemandController
             @PathVariable Long stageId,
             @RequestBody(required = false) Map<String, Object> body)
     {
-        return AppApiResponse.fail(403, PUBLISH_RETIRED_MSG);
+        return AppApiResponse.fail(403, ACCEPTANCE_RETIRED_MSG);
     }
 
     /**
@@ -620,7 +725,7 @@ public class AppTradeDemandController
             @PathVariable Long stageId,
             @RequestBody(required = false) Map<String, Object> body)
     {
-        return AppApiResponse.fail(403, PUBLISH_RETIRED_MSG);
+        return AppApiResponse.fail(403, ACCEPTANCE_RETIRED_MSG);
     }
 
     /* ===================== helpers ===================== */
@@ -679,6 +784,14 @@ public class AppTradeDemandController
         try { return Long.parseLong(String.valueOf(v)); } catch (Exception e) { return null; }
     }
 
+    private static BigDecimal decimalVal(Map<String, Object> map, String key)
+    {
+        Object v = map.get(key);
+        if (v == null) return null;
+        if (v instanceof BigDecimal) return (BigDecimal) v;
+        try { return new BigDecimal(String.valueOf(v)); } catch (Exception e) { return null; }
+    }
+
     private static BigDecimal yuanToFen(BigDecimal yuan)
     {
         return yuan == null ? null : yuan.multiply(new BigDecimal("100"));
@@ -694,5 +807,29 @@ public class AppTradeDemandController
     {
         if (d == null) return;
         d.setBudget(yuanToFen(d.getBudget()));
+    }
+
+    /**
+     * 解析发布表单的验收轮次：stageOrder/episodeTo 为整数，amount 按元传入（与库列同口径，
+     * 只有整单预算走分）。未传轮次时返回 null，由 Service 固定兜底生成最后一轮验收。
+     */
+    @SuppressWarnings("unchecked")
+    private static List<SysDemandStage> parseStages(Object raw)
+    {
+        if (!(raw instanceof List)) return null;
+        List<Map<String, Object>> list = (List<Map<String, Object>>) raw;
+        if (list.isEmpty()) return null;
+        List<SysDemandStage> result = new ArrayList<>();
+        for (Map<String, Object> item : list)
+        {
+            SysDemandStage s = new SysDemandStage();
+            s.setStageOrder(intVal(item, "stageOrder"));
+            s.setEpisodeTo(intVal(item, "episodeTo"));
+            s.setAmount(decimalVal(item, "amount"));
+            s.setDurationDays(intVal(item, "durationDays"));
+            s.setDurationHours(intVal(item, "durationHours"));
+            result.add(s);
+        }
+        return result;
     }
 }

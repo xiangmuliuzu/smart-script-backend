@@ -46,6 +46,10 @@ public class TradeDemandService
     public static final String DEMAND_STATUS_OPEN = "open";
     public static final String DEMAND_STATUS_CLOSED = "closed";
     public static final String DEMAND_STATUS_SELECTED = "selected";
+    /** 买方已提交，等待平台运营审核后才进入任务广场。 */
+    public static final String DEMAND_STATUS_PENDING_REVIEW = "pending_review";
+    /** 买方任务发布申请未通过审核；可修改后重新提交。 */
+    public static final String DEMAND_STATUS_REJECTED = "rejected";
     /** 接单制：已被抢单、进行中 */
     public static final String DEMAND_STATUS_IN_PROGRESS = "in_progress";
     /** 接单制：全部轮次验收通过、已完成 */
@@ -88,8 +92,46 @@ public class TradeDemandService
     }
 
     /**
+     * 广场曝光口径：只有审核通过（open）且征集未截止的单对外可见。
+     * 待审核（pending_review）与被驳回（rejected）天然落在此集合之外，
+     * 列表、统计、抢单、自动关闭四处查询都以此为界，读侧不需要再按状态各写一遍。
+     */
+    public static boolean isSquareVisible(SysDemand demand)
+    {
+        return demand != null && DEMAND_STATUS_OPEN.equals(demand.getStatus()) && !isRecruitExpired(demand);
+    }
+
+    /**
+     * 是否已退出广场、只留给当事人：待审核与被驳回是审核队列内容，征集已过截止的 open 单不再收单。
+     *
+     * <p>与「广场曝光」不是取反关系：进行中、已完成、已关闭等收尾状态早已不在广场列表里，
+     * 但需求内容与轮次排期不是隐私，详情与轮次读取仍对登录用户开放，只是交付材料按身份裁剪。
+     * 详情、轮次两处共用此口径，避免出现「详情打得开、轮次读不出」的半坏页面。</p>
+     */
+    public static boolean isOffSquare(SysDemand demand)
+    {
+        if (demand == null)
+        {
+            return true;
+        }
+        String status = demand.getStatus();
+        if (DEMAND_STATUS_PENDING_REVIEW.equals(status) || DEMAND_STATUS_REJECTED.equals(status))
+        {
+            return true;
+        }
+        return DEMAND_STATUS_OPEN.equals(status) && isRecruitExpired(demand);
+    }
+
+    /** 参与者口径：需求方本人或接单创作者，其余登录用户只能看广场内容。 */
+    public static boolean isDemandParticipant(SysDemand demand, Long viewerId)
+    {
+        if (demand == null || viewerId == null) return false;
+        return viewerId.equals(demand.getClientId()) || viewerId.equals(demand.getAcceptedCreatorId());
+    }
+
+    /**
      * 托管与押金资金状态常量已随需求域资金链路退役（sys_demand 的历史资金列仅作留档读取）。
-     * 任务发布权收归管理端后，平台在站外与需求方结算，广场可接口径只看 status=open。
+     * 需求方自助发布的单先经运营审核进广场，验收链路仍由平台运营代执行。
      */
 
     /** 任务类型：只征集剧本 / 剧本+分镜都要 / 提供剧本做分镜 */
@@ -537,22 +579,53 @@ public class TradeDemandService
     }
 
     /**
-     * 编辑任务（仅运营管理员入口调用）：更新主字段并重建验收轮次。
+     * 编辑任务（运营代客建单入口）：更新主字段并重建验收轮次。
      *
      * <p>前置：任务存在、status=open（未被接单/未关闭）；提供 stages 则先校验后删旧插新重建。
      * 调用方是带 {@code trade:demand:edit} 权限的管理端接口，授权由权限位把关，
-     * 服务层不再比对 client_id（发布权已收归平台，历史单的 client_id 可能是普通用户）。</p>
+     * 服务层不再比对 client_id（历史单的 client_id 可能是普通用户）。</p>
      */
     @Transactional
     public SysDemand updateDemand(SysDemand demand, List<SysDemandStage> stages, Long operatorId)
+    {
+        return editDemand(demand, stages, operatorId, false);
+    }
+
+    /**
+     * 需求方修改自己的发布申请：待审核中的单可直接改，被驳回的单改后自动回到待审核。
+     *
+     * <p>与运营编辑的差别只有三点：只认本人（client_id）的单、只在未进广场前可改、
+     * 重新提交要作废上一轮审核意见并回到 pending_review。校验与轮次重建共用运营编辑的实现，
+     * 避免两条链路对「末轮金额=预算差额」这类口径各写一遍。</p>
+     */
+    @Transactional
+    public SysDemand updateDemandByBuyer(SysDemand demand, List<SysDemandStage> stages, Long buyerId)
+    {
+        return editDemand(demand, stages, buyerId, true);
+    }
+
+    private SysDemand editDemand(SysDemand demand, List<SysDemandStage> stages, Long operatorId, boolean byBuyer)
     {
         if (demand == null || demand.getDemandId() == null)
         {
             throw new RuntimeException("任务ID缺失");
         }
+        if (byBuyer && operatorId == null)
+        {
+            throw new RuntimeException("请先登录");
+        }
         SysDemand existing = demandMapper.selectDemandForUpdate(demand.getDemandId());
         if (existing == null) throw new RuntimeException("任务不存在");
-        if (!DEMAND_STATUS_OPEN.equals(existing.getStatus()))
+        if (byBuyer)
+        {
+            if (!operatorId.equals(existing.getClientId())) throw new RuntimeException("只能修改自己提交的任务");
+            if (!DEMAND_STATUS_PENDING_REVIEW.equals(existing.getStatus())
+                    && !DEMAND_STATUS_REJECTED.equals(existing.getStatus()))
+            {
+                throw new RuntimeException("任务已通过审核，如需调整请联系平台客服");
+            }
+        }
+        else if (!DEMAND_STATUS_OPEN.equals(existing.getStatus()))
         {
             throw new RuntimeException("任务已被接单或已关闭，不可编辑");
         }
@@ -568,7 +641,7 @@ public class TradeDemandService
             demand.setSourceScriptUrl(existing.getSourceScriptUrl());
             demand.setSourceScriptName(existing.getSourceScriptName());
         }
-        normalizeAndValidateTaskType(demand);
+        normalizeAndValidateTaskType(demand, byBuyer);
         // 总集数必填；未显式配置轮次时也固定生成最后一轮验收
         if (demand.getTotalEpisodes() == null || demand.getTotalEpisodes() <= 0)
         {
@@ -580,9 +653,14 @@ public class TradeDemandService
         }
         validateStages(demand, stages);
         demand.setUpdateBy(String.valueOf(operatorId));
+        if (byBuyer)
+        {
+            // 重新提交即重新排队：上一轮审核意见随本次改动作废
+            demand.setResetAudit(true);
+        }
         demandMapper.updateDemand(demand);
 
-        // 重建轮次：先删后插（任务仍为 open 未接单，旧轮必为 pending，无交付数据丢失风险）
+        // 重建轮次：先删后插（任务尚未被接单，旧轮必为 pending，无交付数据丢失风险）
         stageMapper.deleteByDemandId(demand.getDemandId());
         if (stages != null && !stages.isEmpty())
         {
@@ -596,7 +674,96 @@ public class TradeDemandService
             }
             stageMapper.insertBatch(stages);
         }
-        return demandMapper.selectDemandById(demand.getDemandId());
+
+        if (byBuyer && DEMAND_STATUS_REJECTED.equals(existing.getStatus()))
+        {
+            // 行锁内已确认仍是被驳回态，CAS 只可能命中；走状态机口径回到待审核
+            demandMapper.updateStatusCas(demand.getDemandId(), DEMAND_STATUS_PENDING_REVIEW,
+                    String.valueOf(operatorId), DEMAND_STATUS_REJECTED);
+        }
+        SysDemand saved = demandMapper.selectDemandById(demand.getDemandId());
+        if (byBuyer)
+        {
+            notifyService.notifyDemandPublishSubmitted(saved, auditStamp(saved), true);
+        }
+        return saved;
+    }
+
+    /**
+     * 需求方自助发布：建单即进入待审核，运营通过后才出现在任务广场。
+     *
+     * <p>与运营代客建单的差别只在归属与初始状态：需求方固定是登录本人、
+     * storyboard 的源剧本必须是本人作品、状态落 pending_review。
+     * 轮次与金额校验沿用 {@link #insertDemand(SysDemand, List)}，与运营链路同一口径。</p>
+     */
+    @Transactional
+    public SysDemand insertDemandByBuyer(SysDemand demand, List<SysDemandStage> stages, Long buyerId)
+    {
+        if (buyerId == null)
+        {
+            throw new RuntimeException("请先登录");
+        }
+        demand.setClientId(buyerId);
+        // APP 域 principal 是 Long userId，不是 LoginUser，create_by 由调用侧显式落本人
+        demand.setCreateBy(String.valueOf(buyerId));
+        demand.setStatus(DEMAND_STATUS_PENDING_REVIEW);
+        normalizeAndValidateTaskType(demand, true);
+        insertDemand(demand, stages);
+        SysDemand created = demandMapper.selectDemandById(demand.getDemandId());
+        notifyService.notifyDemandPublishSubmitted(created != null ? created : demand,
+                auditStamp(created != null ? created : demand), false);
+        return created;
+    }
+
+    /** 运营审核通过：任务进入任务广场（open），可被创作者接单。 */
+    @Transactional
+    public SysDemand approveDemandPublish(Long demandId, Long operatorId)
+    {
+        return decideDemandPublish(demandId, operatorId, true, null);
+    }
+
+    /** 运营审核驳回：任务留在需求方名下（rejected），可修改后重新提交，驳回理由必填。 */
+    @Transactional
+    public SysDemand rejectDemandPublish(Long demandId, Long operatorId, String rejectReason)
+    {
+        if (rejectReason == null || rejectReason.trim().isEmpty())
+        {
+            throw new RuntimeException("请填写驳回原因");
+        }
+        return decideDemandPublish(demandId, operatorId, false, rejectReason.trim());
+    }
+
+    private SysDemand decideDemandPublish(Long demandId, Long operatorId, boolean approved, String auditRemark)
+    {
+        SysDemand demand = demandMapper.selectDemandById(demandId);
+        if (demand == null) throw new RuntimeException("任务不存在");
+        if (!DEMAND_STATUS_PENDING_REVIEW.equals(demand.getStatus()))
+        {
+            throw new RuntimeException("该任务不在待审核列表中");
+        }
+        String target = approved ? DEMAND_STATUS_OPEN : DEMAND_STATUS_REJECTED;
+        // CAS（where status='pending_review'）：审核只有一个人能点成，重复提交或并发变更时不再二次通知
+        int changed = demandMapper.updateAuditCas(demandId, target,
+                approved ? null : auditRemark, operatorId, String.valueOf(operatorId));
+        if (changed == 0)
+        {
+            throw new RuntimeException("该任务已被审核，请刷新后重试");
+        }
+        SysDemand audited = demandMapper.selectDemandById(demandId);
+        notifyService.notifyDemandPublishAudited(audited != null ? audited : demand,
+                approved, auditRemark, auditStamp(audited != null ? audited : demand));
+        return audited;
+    }
+
+    /** 通知幂等键里的动作刻度：同一单的重复「提交/审核」要能各落一条，故带上库内时间。 */
+    private static long auditStamp(SysDemand demand)
+    {
+        if (demand == null)
+        {
+            return System.currentTimeMillis();
+        }
+        Date stamp = demand.getUpdatedAt() != null ? demand.getUpdatedAt() : demand.getCreatedAt();
+        return stamp == null ? System.currentTimeMillis() : stamp.getTime();
     }
 
     /** 建单/改单共用的基础字段校验（标题/截止日期/联系电话格式）。 */
@@ -621,11 +788,16 @@ public class TradeDemandService
     /**
      * 任务类型归一与校验（建单/改单共用）：
      * 缺省回落 script；storyboard 必须至少提供一种源剧本（作品或上传文件），
-     * 选作品时只校验作品存在——发布权已收归平台，源剧本由运营按需求方授权代选，
-     * 不再要求它属于 client_id 对应用户（新单 client_id 是运营账号）。
+     * 选作品时只校验作品存在——运营代客建单不校验归属（新单 client_id 是运营账号）；
+     * 买方自助发布（requireOwnedSourceWork）时源剧本必须属于本人。
      * 非 storyboard 类型清空源剧本字段，防止改类型后残留。
      */
     private void normalizeAndValidateTaskType(SysDemand demand)
+    {
+        normalizeAndValidateTaskType(demand, false);
+    }
+
+    private void normalizeAndValidateTaskType(SysDemand demand, boolean requireOwnedSourceWork)
     {
         String type = demand.getTaskType() == null || demand.getTaskType().trim().isEmpty()
                 ? TASK_TYPE_SCRIPT : demand.getTaskType().trim();
@@ -650,9 +822,17 @@ public class TradeDemandService
         {
             throw new RuntimeException("提供剧本做分镜的任务，请选择源剧本作品或上传剧本文件");
         }
-        if (demand.getSourceWorkId() != null && stageMapper.selectWorkBrief(demand.getSourceWorkId()) == null)
+        if (demand.getSourceWorkId() != null)
         {
-            throw new RuntimeException("源剧本作品不存在");
+            Map<String, Object> source = stageMapper.selectWorkBrief(demand.getSourceWorkId());
+            if (source == null)
+            {
+                throw new RuntimeException("源剧本作品不存在");
+            }
+            if (requireOwnedSourceWork && !String.valueOf(demand.getClientId()).equals(String.valueOf(source.get("authorId"))))
+            {
+                throw new RuntimeException("源剧本作品必须属于本人");
+            }
         }
     }
 
@@ -1248,6 +1428,93 @@ public class TradeDemandService
     public List<SysDemandStage> selectStagesByDemandId(Long demandId)
     {
         return stageMapper.selectByDemandId(demandId);
+    }
+
+    /**
+     * APP/PC 普通用户读取轮次列表：可见集合与任务详情严格一致，交付字段按身份裁剪。
+     *
+     * <p>广场上的单（open 且征集未截止）对所有人公开排期（第几轮、收到第几集、金额、时限），
+     * 但交付说明、文件地址、作品与 AI 评分属于验收材料，只有需求方、接单创作者能看；
+     * 待审核/被驳回/已过征集截止的单按「不存在」处理，与详情接口同一口径，
+     * 避免未过审的需求内容从轮次口漏出去。</p>
+     */
+    public List<SysDemandStage> selectStagesForViewer(Long demandId, Long viewerId)
+    {
+        SysDemand demand = demandMapper.selectDemandById(demandId);
+        if (demand == null) throw new RuntimeException("任务不存在");
+        boolean participant = isDemandParticipant(demand, viewerId);
+        if (!participant && isOffSquare(demand))
+        {
+            throw new RuntimeException("任务不存在");
+        }
+        List<SysDemandStage> stages = stageMapper.selectByDemandId(demandId);
+        if (participant || stages == null)
+        {
+            return stages;
+        }
+        for (SysDemandStage s : stages)
+        {
+            s.setDeliverableDesc(null);
+            s.setDeliverableUrl(null);
+            s.setWorkId(null);
+            s.setWorkTitle(null);
+            s.setWorkShelfStatus(null);
+            s.setAiScore(null);
+            s.setAiResult(null);
+        }
+        return stages;
+    }
+
+    /**
+     * 参与者查看某轮交付作品（用户端入口，与运营验收同一个读取实现，前面多一道身份闸）。
+     *
+     * <p>需求方只有在整单完成（末轮验收通过）后才能看到最终作品，且只能看末轮那一版；
+     * 中途通过的轮次是过程稿，交付给需求方会绕过「按轮验收由平台代办」的口径。
+     * 接单创作者看的是自己交付的作品，本人本就有权读全文，不受完成状态限制。</p>
+     */
+    public Map<String, Object> selectDeliverableWorkForViewer(Long demandId, Long stageId, Long viewerId)
+    {
+        if (viewerId == null) throw new RuntimeException("请先登录");
+        SysDemand demand = demandMapper.selectDemandById(demandId);
+        if (demand == null) throw new RuntimeException("任务不存在");
+        if (viewerId.equals(demand.getAcceptedCreatorId()))
+        {
+            return selectStageDeliveredWork(demandId, stageId);
+        }
+        if (!viewerId.equals(demand.getClientId()))
+        {
+            throw new RuntimeException("无权查看该交付作品");
+        }
+        if (!DEMAND_STATUS_COMPLETED.equals(demand.getStatus()))
+        {
+            throw new RuntimeException("任务尚未完成验收，暂不可查看交付作品");
+        }
+        SysDemandStage finalStage = lastStage(stageMapper.selectByDemandId(demandId));
+        if (finalStage == null || !finalStage.getStageId().equals(stageId))
+        {
+            throw new RuntimeException("需求方仅可查看最后一轮的交付作品");
+        }
+        if (!SysDemandStage.STAGE_STATUS_APPROVED.equals(finalStage.getStatus()))
+        {
+            throw new RuntimeException("最后一轮尚未验收通过");
+        }
+        return selectStageDeliveredWork(demandId, stageId);
+    }
+
+    /** 末轮（stage_order 最大者）：整单完成时通过验收的最后一轮，即需求方可见的最终交付。 */
+    private static SysDemandStage lastStage(List<SysDemandStage> stages)
+    {
+        if (stages == null || stages.isEmpty()) return null;
+        SysDemandStage last = null;
+        for (SysDemandStage s : stages)
+        {
+            if (s.getStageOrder() == null) continue;
+            if (last == null || last.getStageOrder() == null || s.getStageOrder() > last.getStageOrder())
+            {
+                last = s;
+            }
+        }
+        return last;
     }
 
     /**

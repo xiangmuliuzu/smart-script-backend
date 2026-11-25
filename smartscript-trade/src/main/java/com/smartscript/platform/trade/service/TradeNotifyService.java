@@ -832,6 +832,56 @@ public class TradeNotifyService
                 + "收益请前往「收益-待结算」逐轮确认入账。";
         push("TRD-DM-DONE-" + demand.getDemandId() + "-S", "任务已完成",
                 creatorContent, "DEMAND", str(demand.getDemandId()), one(demand.getAcceptedCreatorId()), "SELLER");
+
+        // 末轮验收通过 = 交付全量完成，需求方此时才有权查看最终作品
+        String buyerContent = "任务已全部轮次验收通过，交易完成。\n"
+                + detailLine("任务", titleOf(demand.getTitle()))
+                + detailLine("需求编号", demand.getDemandNo())
+                + detailLine("预算总额", amountText(demand.getBudget()))
+                + detailLine("接单人", nameOf(demand.getAcceptedCreatorName()))
+                + "最终作品已可查看，请前往「我的任务-任务详情-最终作品」查阅。";
+        push("TRD-DM-DONE-" + demand.getDemandId() + "-B", "任务已完成，可查看最终作品",
+                buyerContent, "DEMAND", str(demand.getDemandId()), one(demand.getClientId()), "BUYER");
+    }
+
+    /**
+     * 买方提交发布申请（新建或驳回后重新提交）→ 管理端公告，请运营审核。
+     * 幂等键带提交时刻：同一单重新提交会再次通知运营，否则第二次提交永远排队不到人。
+     */
+    public void notifyDemandPublishSubmitted(SysDemand demand, long submittedAtMillis, boolean resubmit)
+    {
+        StringBuilder content = new StringBuilder(resubmit
+                ? "需求方修改后重新提交发布申请，请重新审核。\n"
+                : "需求方提交了一条任务发布申请，待审核后方可进入任务广场。\n");
+        line(content, "任务", titleOf(demand.getTitle()));
+        line(content, "需求编号", demand.getDemandNo());
+        line(content, "需求方", nameOf(demand.getClientName()));
+        line(content, "预算金额", amountText(demand.getBudget()));
+        line(content, "征集截止", dateText(demand.getDeadline()));
+        content.append("请前往管理端「任务管理」审核：通过后任务发布到广场，驳回后需求方可修改重交。");
+        pushAdminNotice("TRD-DM-SUBMIT-" + demand.getDemandId() + "-" + submittedAtMillis,
+                resubmit ? "任务发布申请已重新提交" : "任务发布申请待审核", content.toString());
+    }
+
+    /**
+     * 发布审核结果 → 需求方站内信。通过意味着任务进广场，驳回意味着要去改单重交。
+     * 幂等键带审核时刻：同一单可多次「驳回→重交→再驳回」，只按 demandId 会吞掉后续通知。
+     */
+    public void notifyDemandPublishAudited(SysDemand demand, boolean approved, String auditRemark,
+            long auditedAtMillis)
+    {
+        StringBuilder content = new StringBuilder(approved
+                ? "您提交的任务已通过平台审核，已发布到任务广场等待创作者接单。\n"
+                : "您提交的任务未通过平台审核。\n");
+        line(content, "任务", titleOf(demand.getTitle()));
+        line(content, "需求编号", demand.getDemandNo());
+        line(content, "审核意见", approved ? null : auditRemark);
+        content.append(approved
+                ? "后续交付与验收由平台运营代为完成，末轮验收通过后您可查看最终作品。"
+                : "请根据审核意见修改任务，修改后重新提交即可再次进入审核。");
+        push("TRD-DM-AUDIT-" + demand.getDemandId() + "-" + auditedAtMillis,
+                approved ? "任务已通过审核并发布" : "任务审核未通过",
+                content.toString(), "DEMAND", str(demand.getDemandId()), one(demand.getClientId()), "BUYER");
     }
 
     /**

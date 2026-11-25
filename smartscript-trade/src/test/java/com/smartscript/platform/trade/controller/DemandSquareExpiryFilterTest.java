@@ -189,4 +189,40 @@ class DemandSquareExpiryFilterTest
                 .claim(801L).getCode());
         verify(service).claimDemand(801L, 9001L);
     }
+
+    /* ===================== 发布审核态：未进广场的单不外泄 ===================== */
+
+    private static SysDemand auditDemand(String status, Long buyer)
+    {
+        SysDemand demand = new SysDemand();
+        demand.setDemandId(801L);
+        demand.setStatus(status);
+        demand.setClientId(buyer);
+        demand.setBudget(new BigDecimal("1000"));
+        // 征集截止放在未来：状态本身就该拦住曝光，不让 deadline 混进断言
+        demand.setDeadline(new Date(System.currentTimeMillis() + 86400_000L));
+        demand.setAuditRemark("预算与集数不匹配");
+        return demand;
+    }
+
+    @Test
+    void 待审核与被驳回的单对游客和其他登录用户都按不存在处理()
+    {
+        for (String status : List.of(TradeDemandService.DEMAND_STATUS_PENDING_REVIEW,
+                TradeDemandService.DEMAND_STATUS_REJECTED))
+        {
+            assertEquals(404, detail(auditDemand(status, 7777L), false).getCode(), status + " 不应曝光给游客");
+            assertEquals(404, detail(auditDemand(status, 7777L), true).getCode(), status + " 不应曝光给他人");
+        }
+    }
+
+    @Test
+    void 待审核与被驳回的单仍对提交人开放()
+    {
+        // 提交人要能在「我发布的」里看到审核进度与驳回意见，才能改单重交
+        assertEquals(200, detail(auditDemand(TradeDemandService.DEMAND_STATUS_PENDING_REVIEW, 9001L), true).getCode());
+        AppApiResponse<?> rejected = detail(auditDemand(TradeDemandService.DEMAND_STATUS_REJECTED, 9001L), true);
+        assertEquals(200, rejected.getCode());
+        assertEquals("预算与集数不匹配", ((SysDemand) rejected.getData()).getAuditRemark());
+    }
 }
