@@ -36,6 +36,7 @@ class EnterpriseAgentToolRegistryTest
         AppWorkDto hidden = work(5, 49000, 80, true);
         hidden.setStatus("off_shelf");
         AppWorkDto accepted = work(6, 50000, 80, true);
+        accepted.setCover("https://cdn.example.com/covers/work-6.jpg");
         accepted.setSummary("悬疑".repeat(120));
         accepted.setCopyrightRegistrationStatus("registered");
         accepted.setCopyrightCertNo("TEST-6");
@@ -53,6 +54,7 @@ class EnterpriseAgentToolRegistryTest
         assertEquals(1, found.size());
         var hit = found.get(0);
         assertEquals(6L, hit.get("workId"));
+        assertEquals("https://cdn.example.com/covers/work-6.jpg", hit.get("cover"));
         assertEquals(200, hit.get("summary").toString().length());
         assertEquals("registered", hit.get("copyrightRegistrationStatus"));
         assertEquals("TEST-6", hit.get("copyrightCertNo"));

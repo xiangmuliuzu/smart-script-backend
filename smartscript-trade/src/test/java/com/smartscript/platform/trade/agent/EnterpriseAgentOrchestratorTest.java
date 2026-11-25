@@ -162,6 +162,23 @@ class EnterpriseAgentOrchestratorTest
                 .map(message -> message.get("role")).toList());
     }
 
+    @Test
+    void stripsDsmlToolCallMarkupFromStreamAndSavedAnswer() throws Exception
+    {
+        String leaked = "为您找到一部候选作品。\n<｜DSML｜function_calls>\n"
+            + "<｜DSML｜invoke name=\"get_work_detail\">\n"
+            + "<｜DSML｜parameter name=\"workId\" string=\"false\">129</｜DSML｜parameter>\n"
+            + "</｜DSML｜invoke>\n</｜DSML｜function_calls>";
+        when(ai.chatWithTools(anyList(), anyList(), isNull(), isNull()))
+            .thenReturn(new AiToolChatResult(leaked, List.of(), 10, "test", "stop"));
+
+        agent.runTurn(3, 8, "找悬疑剧", null, this::receive);
+
+        assertEquals("为您找到一部候选作品。", saved.get(1).getContent());
+        assertFalse(payloads.toString().contains("DSML"));
+        assertFalse(payloads.toString().contains("get_work_detail"));
+    }
+
     private void receive(String event, Object data)
     {
         events.add(event);

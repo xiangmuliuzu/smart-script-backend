@@ -223,7 +223,10 @@ public class EnterpriseAgentToolRegistry
             + (scanLimited ? "，已达本次检索范围" : "");
         var payload = new LinkedHashMap<String, Object>();
         payload.put("works", matches);
-        payload.put("scanLimited", scanLimited);
+        if (scanLimited)
+        {
+            payload.put("scanLimited", true);
+        }
         payload.put("criteria", String.join(" · ", searchSummary(args)));
         return new ToolResult(payload, summary, new Card("work_list", payload));
     }
@@ -366,6 +369,7 @@ public class EnterpriseAgentToolRegistry
         boolean tradeEnabled = "1".equals(work.getTradeEnabled());
         item.put("workId", work.getWorkId());
         item.put("title", clip(work.getTitle(), 150));
+        item.put("cover", clip(work.getCover(), 1024));
         item.put("authorName", clip(work.getAuthorName(), 80));
         item.put("tags", work.getTags() == null ? List.of() : work.getTags().stream()
             .limit(10).filter(tag -> tag.getTagName() != null).map(tag -> clip(tag.getTagName(), 48)).toList());
