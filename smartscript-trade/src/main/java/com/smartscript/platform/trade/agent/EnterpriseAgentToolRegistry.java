@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.smartscript.platform.content.domain.SysTag;
 import com.smartscript.platform.content.domain.SysWorkChapter;
 import com.smartscript.platform.content.dto.AppChapterDto;
 import com.smartscript.platform.content.dto.AppWorkDto;
@@ -39,12 +40,15 @@ public class EnterpriseAgentToolRegistry
     private static final Map<String, Object> NON_NEGATIVE_MONEY = Map.of("type", "number", "minimum", 0);
     private static final Map<String, Object> STRINGS = Map.of("type", "array", "items", STRING);
 
+    private static final Pattern GENRE_SUFFIX = Pattern.compile("(?:短剧|剧本|小说|题材|类型|类|文|剧)+$");
+    private static final int MAX_MATCHED_TAG_IDS = 8;
+
     private static final List<Tool> TOOLS = List.of(
         new Tool("list_tags", "正在查询作品标签", "列出已启用的作品标签，以获取真实 tagId。", Map.of(), List.of()),
-        new Tool("search_works", "正在检索作品市场", "按标签或作品标题检索已上架作品，价格单位为元。", Map.of(
+        new Tool("search_works", "正在检索作品市场", "按标签或关键词检索书城已上架作品（支持题材词自动匹配标签），价格单位为元。", Map.of(
             "keyword", STRING, "tagId", POSITIVE_INTEGER, "maxPriceYuan", NON_NEGATIVE_MONEY,
             "minEpisodes", POSITIVE_INTEGER, "maxEpisodes", POSITIVE_INTEGER,
-            "tradeOnly", Map.of("type", "boolean", "default", true),
+            "tradeOnly", Map.of("type", "boolean", "default", false),
             "sort", Map.of("type", "string", "enum", SORTS.stream().sorted().toList()),
             "limit", Map.of("type", "integer", "minimum", 1, "maximum", 10, "default", 8)), List.of()),
         new Tool("get_work_detail", "正在核对作品与版权", "读取已上架作品详情、版权登记和询盘条件。",
@@ -139,10 +143,22 @@ public class EnterpriseAgentToolRegistry
 
     private ToolResult listTags()
     {
-        var tags = bookstore.listTags(null, null).stream()
-            .filter(tag -> "0".equals(tag.getStatus()) && tag.getTagId() != null && tag.getTagName() != null)
-            .limit(250).map(tag -> Map.<String, Object>of("tagId", tag.getTagId(),
-                "name", clip(tag.getTagName(), 48))).toList();
+        Map<String, Long> unique = new LinkedHashMap<>();
+        for (var tag : bookstore.listTags(null, null))
+        {
+            if (!"0".equals(tag.getStatus()) || tag.getTagId() == null || tag.getTagName() == null)
+            {
+                continue;
+            }
+            String name = clip(tag.getTagName().strip(), 48);
+            if (!name.isEmpty())
+            {
+                unique.putIfAbsent(name, tag.getTagId());
+            }
+        }
+        var tags = unique.entrySet().stream()
+            .map(entry -> Map.<String, Object>of("tagId", entry.getValue(), "name", entry.getKey()))
+            .toList();
         return new ToolResult(tags, "已读取 " + tags.size() + " 个启用标签", null);
     }
 
@@ -154,10 +170,21 @@ public class EnterpriseAgentToolRegistry
         {
             throw new IllegalArgumentException("请指定作品关键词或有效标签");
         }
-        if (tagId != null && bookstore.listTags(null, null).stream()
-                .noneMatch(tag -> tagId.equals(tag.getTagId()) && "0".equals(tag.getStatus())))
+        var enabledTags = bookstore.listTags(null, null).stream()
+            .filter(tag -> "0".equals(tag.getStatus()) && tag.getTagId() != null && tag.getTagName() != null)
+            .toList();
+        String selectedTagName = null;
+        if (tagId != null)
         {
-            throw new IllegalArgumentException("请选择已启用的作品标签");
+            var matchedTag = enabledTags.stream()
+                .filter(tag -> tagId.equals(tag.getTagId()))
+                .findFirst()
+                .orElse(null);
+            if (matchedTag == null)
+            {
+                throw new IllegalArgumentException("请选择已启用的作品标签");
+            }
+            selectedTagName = matchedTag.getTagName().strip();
         }
         BigDecimal budget = args.has("maxPriceYuan") ? money(args, "maxPriceYuan") : null;
         Integer min = args.has("minEpisodes") ? integer(args, "minEpisodes", 1, Integer.MAX_VALUE) : null;
@@ -170,53 +197,108 @@ public class EnterpriseAgentToolRegistry
         {
             throw new IllegalArgumentException("tradeOnly 必须为布尔值");
         }
-        boolean tradeOnly = args.path("tradeOnly").asBoolean(true);
+        boolean tradeOnly = args.path("tradeOnly").asBoolean(false);
         String sort = args.has("sort") ? text(args, "sort", 20, true) : "latest";
         if (!SORTS.contains(sort))
         {
             throw new IllegalArgumentException("排序方式无效");
         }
         int limit = args.has("limit") ? integer(args, "limit", 1, 10) : 8;
-        AppWorkQuery query = new AppWorkQuery();
-        query.setKeyword(keyword);
-        query.setTagId(tagId);
-        query.setSort(sort);
+
+        // 构造检索计划：
+        // 1) 若指定 tagId：自动展开同名的其他启用标签（不同频道/分组可能存在同名标签，如两个「种田」），
+        //    且当 keyword 只是重复题材名（如「种田文」）时不拿它硬卡标题；
+        // 2) 若仅传 keyword：除按标题检索外，自动匹配相关题材标签，避免书名不含题材词时搜不到。
+        List<AppWorkQuery> queries = new ArrayList<>();
+        if (tagId != null)
+        {
+            String effectiveKeyword = keyword;
+            if (!keyword.isEmpty() && selectedTagName != null && keywordOverlapsTag(keyword, selectedTagName))
+            {
+                effectiveKeyword = "";
+            }
+            Set<Long> siblingIds = new LinkedHashSet<>();
+            siblingIds.add(tagId);
+            if (selectedTagName != null && !selectedTagName.isEmpty())
+            {
+                for (var tag : enabledTags)
+                {
+                    if (selectedTagName.equalsIgnoreCase(tag.getTagName().strip()))
+                    {
+                        siblingIds.add(tag.getTagId());
+                    }
+                }
+            }
+            for (Long id : siblingIds)
+            {
+                AppWorkQuery q = new AppWorkQuery();
+                q.setKeyword(effectiveKeyword);
+                q.setTagId(id);
+                q.setSort(sort);
+                queries.add(q);
+            }
+        }
+        else
+        {
+            AppWorkQuery titleQuery = new AppWorkQuery();
+            titleQuery.setKeyword(keyword);
+            titleQuery.setSort(sort);
+            queries.add(titleQuery);
+
+            for (Long matchedTagId : findTagIdsForKeyword(keyword, enabledTags))
+            {
+                AppWorkQuery tagQuery = new AppWorkQuery();
+                tagQuery.setKeyword("");
+                tagQuery.setTagId(matchedTagId);
+                tagQuery.setSort(sort);
+                queries.add(tagQuery);
+            }
+        }
 
         List<Map<String, Object>> matches = new ArrayList<>();
         Set<Long> seen = new LinkedHashSet<>();
         boolean moreCandidates = false;
-        for (int page = 1; page <= MAX_MARKET_PAGES && matches.size() < limit; page++)
+        for (AppWorkQuery query : queries)
         {
-            var result = bookstore.pageWorks(query, page, MARKET_PAGE_SIZE);
-            moreCandidates = result.getTotal() > (long) page * MARKET_PAGE_SIZE;
-            for (AppWorkDto row : result.getList())
+            if (matches.size() >= limit)
             {
-                if (!matches(row, userId, tradeOnly, budget, min, max) || !seen.add(row.getWorkId()))
+                break;
+            }
+            boolean queryHasMore = false;
+            for (int page = 1; page <= MAX_MARKET_PAGES && matches.size() < limit; page++)
+            {
+                var result = bookstore.pageWorks(query, page, MARKET_PAGE_SIZE);
+                queryHasMore = result.getTotal() > (long) page * MARKET_PAGE_SIZE;
+                for (AppWorkDto row : result.getList())
                 {
-                    continue;
+                    if (!matches(row, userId, tradeOnly, budget, min, max) || !seen.add(row.getWorkId()))
+                    {
+                        continue;
+                    }
+                    AppWorkDto detail = bookstore.getWork(row.getWorkId());
+                    if (matches(detail, userId, tradeOnly, budget, min, max))
+                    {
+                        Map<String, Object> item = workItem(detail, userId, 200);
+                        List<String> reasons = new ArrayList<>();
+                        if (query.getTagId() != null) reasons.add("关联所选题材标签");
+                        if (query.getKeyword() != null && !query.getKeyword().isEmpty()) reasons.add("标题匹配检索关键词");
+                        if (budget != null) reasons.add("参考价在预算范围内");
+                        if (min != null || max != null) reasons.add("集数符合筛选条件");
+                        item.put("recommendationReason", String.join("、", reasons));
+                        if (budget != null) item.put("budgetMatch", true);
+                        matches.add(item);
+                    }
+                    if (matches.size() == limit)
+                    {
+                        break;
+                    }
                 }
-                AppWorkDto detail = bookstore.getWork(row.getWorkId());
-                if (matches(detail, userId, tradeOnly, budget, min, max))
-                {
-                    Map<String, Object> item = workItem(detail, userId, 200);
-                    List<String> reasons = new ArrayList<>();
-                    if (tagId != null) reasons.add("关联所选题材标签");
-                    if (!keyword.isEmpty()) reasons.add("标题匹配检索关键词");
-                    if (budget != null) reasons.add("参考价在预算范围内");
-                    if (min != null || max != null) reasons.add("集数符合筛选条件");
-                    item.put("recommendationReason", String.join("、", reasons));
-                    if (budget != null) item.put("budgetMatch", true);
-                    matches.add(item);
-                }
-                if (matches.size() == limit)
+                if (!queryHasMore || result.getList().isEmpty())
                 {
                     break;
                 }
             }
-            if (!moreCandidates || result.getList().isEmpty())
-            {
-                break;
-            }
+            moreCandidates = moreCandidates || queryHasMore;
         }
         boolean scanLimited = moreCandidates && matches.size() < limit;
         String summary = "找到 " + matches.size() + " 部符合筛选条件的作品"
@@ -229,6 +311,58 @@ public class EnterpriseAgentToolRegistry
         }
         payload.put("criteria", String.join(" · ", searchSummary(args)));
         return new ToolResult(payload, summary, new Card("work_list", payload));
+    }
+
+    private static String normalizeGenreKeyword(String keyword)
+    {
+        String trimmed = keyword == null ? "" : keyword.strip();
+        String stripped = GENRE_SUFFIX.matcher(trimmed).replaceAll("").strip();
+        return stripped.length() >= 2 ? stripped : trimmed;
+    }
+
+    private static boolean keywordOverlapsTag(String keyword, String tagName)
+    {
+        String normKw = normalizeGenreKeyword(keyword).toLowerCase();
+        String normTag = tagName == null ? "" : tagName.strip().toLowerCase();
+        if (normKw.isEmpty() || normTag.isEmpty())
+        {
+            return false;
+        }
+        return normKw.equals(normTag)
+            || (normKw.length() >= 2 && normTag.contains(normKw))
+            || (normTag.length() >= 2 && normKw.contains(normTag));
+    }
+
+    private static List<Long> findTagIdsForKeyword(String keyword, List<SysTag> enabledTags)
+    {
+        String norm = normalizeGenreKeyword(keyword).toLowerCase();
+        if (norm.isEmpty())
+        {
+            return List.of();
+        }
+        List<Long> exact = new ArrayList<>();
+        List<Long> partial = new ArrayList<>();
+        for (var tag : enabledTags)
+        {
+            String name = tag.getTagName().strip().toLowerCase();
+            if (name.isEmpty())
+            {
+                continue;
+            }
+            if (name.equals(norm))
+            {
+                exact.add(tag.getTagId());
+            }
+            else if ((norm.length() >= 2 && name.contains(norm))
+                || (name.length() >= 2 && norm.contains(name)))
+            {
+                partial.add(tag.getTagId());
+            }
+        }
+        Set<Long> ordered = new LinkedHashSet<>();
+        ordered.addAll(exact);
+        ordered.addAll(partial);
+        return ordered.stream().limit(MAX_MATCHED_TAG_IDS).toList();
     }
 
     private static boolean matches(AppWorkDto work, long userId, boolean tradeOnly, BigDecimal budget,

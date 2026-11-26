@@ -8,6 +8,7 @@ import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import com.smartscript.platform.content.domain.SysTag;
 import com.smartscript.platform.content.domain.SysWorkChapter;
 import com.smartscript.platform.content.dto.AppChapterDto;
 import com.smartscript.platform.content.dto.AppPageResult;
@@ -47,7 +48,7 @@ class EnterpriseAgentToolRegistryTest
         when(inquiries.hasCopyright(6L)).thenReturn(true);
 
         var result = tools.execute("search_works",
-            "{\"keyword\":\"悬疑\",\"maxPriceYuan\":50000,\"minEpisodes\":50,\"maxEpisodes\":80}", 1001);
+            "{\"keyword\":\"悬疑\",\"maxPriceYuan\":50000,\"minEpisodes\":50,\"maxEpisodes\":80,\"tradeOnly\":true}", 1001);
         assertEquals(6, tools.definitions().size());
         assertEquals("work_list", result.card().type());
         var found = rows(result.data(), "works");
@@ -62,6 +63,36 @@ class EnterpriseAgentToolRegistryTest
         assertEquals("待核实", hit.get("exclusiveStatus"));
         verify(books, never()).getWorkDetail(anyLong());
         verify(books, never()).getWork(5L);
+    }
+
+    @Test
+    void defaultSearchIncludesNonTradeWorksExpandsSiblingTagsAndMatchesGenreKeyword()
+    {
+        SysTag tag10 = tag(10L, "种田");
+        SysTag tag291 = tag(291L, "种田");
+        when(books.listTags(null, null)).thenReturn(List.of(tag10, tag291));
+
+        AppWorkDto farmBook = work(73, 888, 3, false);
+        farmBook.setTitle("1111");
+        when(books.pageWorks(argThat(q -> q != null && Long.valueOf(10L).equals(q.getTagId())
+            && (q.getKeyword() == null || q.getKeyword().isEmpty())), eq(1), eq(50)))
+            .thenReturn(AppPageResult.of(1, List.of(farmBook)));
+        when(books.pageWorks(argThat(q -> q != null && !Long.valueOf(10L).equals(q.getTagId())), eq(1), eq(50)))
+            .thenReturn(AppPageResult.of(0, List.of()));
+        when(books.getWork(73L)).thenReturn(farmBook);
+
+        // 1) 直接搜「种田文」自动匹配到「种田」标签，且默认包含 tradeEnabled=0 的在架作品
+        var byKeyword = tools.execute("search_works", "{\"keyword\":\"种田文\"}", 1001);
+        var keywordWorks = rows(byKeyword.data(), "works");
+        assertEquals(1, keywordWorks.size());
+        assertEquals(73L, keywordWorks.get(0).get("workId"));
+        assertEquals(false, keywordWorks.get(0).get("canInquire"));
+
+        // 2) 指定同名标签 291（即使带冗余关键词「种田文」）也能自动扩展查到标签 10 下的作品
+        var bySiblingTag = tools.execute("search_works", "{\"tagId\":291,\"keyword\":\"种田文\"}", 1001);
+        var siblingWorks = rows(bySiblingTag.data(), "works");
+        assertEquals(1, siblingWorks.size());
+        assertEquals(73L, siblingWorks.get(0).get("workId"));
     }
 
     @Test
@@ -166,5 +197,14 @@ class EnterpriseAgentToolRegistryTest
         chapter.setIsFree(isFree);
         chapter.setContent(text);
         return chapter;
+    }
+
+    private static SysTag tag(long id, String name)
+    {
+        var tag = new SysTag();
+        tag.setTagId(id);
+        tag.setTagName(name);
+        tag.setStatus("0");
+        return tag;
     }
 }
