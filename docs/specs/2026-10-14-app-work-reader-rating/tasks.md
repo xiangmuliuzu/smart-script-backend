@@ -3,7 +3,7 @@
 依赖顺序自上而下；每步完成即打勾。
 
 ## [x] T1 数据库迁移脚本（前置，阻塞后端联调）
-- 文件：`sql/migrations/b/B_20261014_001__create_work_rating_table.sql`
+- 文件：`sql/_archive/migrations/b/B_20261014_001__create_work_rating_table.sql`
 - 内容：`CREATE TABLE IF NOT EXISTS sys_work_rating`（rating_id / work_id / user_id / score / created_at / updated_at；UNIQUE `uk_work_user(work_id,user_id)`；KEY `idx_work_id`；`utf8mb4_general_ci`）
 - 校验闸门：表存在 + 6 列齐备 + 唯一键（复合 2 列且 NON_UNIQUE=0）+ 排序规则，末行输出 `PASS fail_cnt=0`
 - 执行结果：`CHECK table=1, columns=6, uk_work_user=1, collation=1` → `PASS fail_cnt=0`；`SHOW CREATE TABLE` 已核对（唯一键/索引/排序规则全部符合）

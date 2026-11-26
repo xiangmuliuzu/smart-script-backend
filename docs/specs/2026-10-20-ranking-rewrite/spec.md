@@ -28,7 +28,7 @@
 
 ## 数据来源（已逐条核实，禁止编造）
 
-来源：`sql/smartscript_full_init.sql`、`sql/migrations/b/*.sql`、`开发资料/_extracted/`
+来源：`sql/smartscript_full_init.sql`、`sql/_archive/migrations/b/*.sql`、`开发资料/_extracted/`
 
 | 指标 | 数据源 | 结论 |
 |---|---|---|

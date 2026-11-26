@@ -7,7 +7,7 @@ import org.apache.ibatis.annotations.Param;
  * 作品读者评分 数据层（App 书城读者评分通道）
  *
  * 依据：云端 script_platform_dev 库 sys_work_rating 表（迁移脚本
- * sql/migrations/b/B_20261014_001__create_work_rating_table.sql）。
+ * sql/_archive/migrations/b/B_20261014_001__create_work_rating_table.sql）。
  * 设计文档未定义读者评分表与提交接口，本通道按「一人一评、可覆盖」补齐。
  *
  * 反推处理点：

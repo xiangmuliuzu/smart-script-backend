@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS sys_work_rating (
 
 | # | 文件 | 变更 |
 | --- | --- | --- |
-| 1 | 新增 `sql/migrations/b/B_20261014_001__create_work_rating_table.sql` | 建表 + 幂等校验闸门（PASS fail_cnt=0） |
+| 1 | 新增 `sql/_archive/migrations/b/B_20261014_001__create_work_rating_table.sql` | 建表 + 幂等校验闸门（PASS fail_cnt=0） |
 | 2 | 新增 `smartscript-content/.../content/mapper/AppWorkRatingMapper.java` | `int upsertRating(Long userId, Long workId, Integer score)`；`Integer selectMyScore(Long userId, Long workId)`；`int countByWork(Long workId)`；`BigDecimal selectAvgRating(Long workId)`；`int refreshWorkRating(Long workId)` |
 | 3 | 新增 `smartscript-content/resources/mapper/content/AppWorkRatingMapper.xml` | `insert ... on duplicate key update score=values(score), updated_at=now()`；`select score ...`；`select count(1) ...`；`select round(avg(score),1) ...`；`update sys_work w set rating = coalesce((select round(avg(r.score),1) from sys_work_rating r where r.work_id = w.work_id), 0) where w.work_id = #{workId}` |
 | 4 | 新增 `.../content/dto/AppWorkRatingDto.java` | `workId(Long)`、`rating(BigDecimal 平均分)`、`ratingCount(Integer)`、`myScore(Integer，null=未评分)` |
@@ -85,7 +85,7 @@ CREATE TABLE IF NOT EXISTS sys_work_rating (
 ## 6. 验证步骤
 
 1. 对云端库执行迁移脚本（口令经 `$env:MYSQL_PWD` 从 `.env.local` 读入，不进 argv）：
-   `...\mysql.exe -h 124.221.131.38 -u dev_xiang_sipeng script_platform_dev -e "source sql/migrations/b/B_20261014_001__create_work_rating_table.sql"` → 期望末行 `PASS fail_cnt=0`。
+   `...\mysql.exe -h 124.221.131.38 -u dev_xiang_sipeng script_platform_dev -e "source sql/_archive/migrations/b/B_20261014_001__create_work_rating_table.sql"` → 期望末行 `PASS fail_cnt=0`。
 2. 核实建表结果：`SHOW CREATE TABLE sys_work_rating`（列、唯一键、排序规则）。
 3. 后端构建 + 单测：`mvn -pl smartscript-content -am test` → 期望 0 失败（含新增评分用例）。
 4. App 静态检查：`d:\code\smart-script-app` 执行 `flutter analyze` → 期望 0 error。
