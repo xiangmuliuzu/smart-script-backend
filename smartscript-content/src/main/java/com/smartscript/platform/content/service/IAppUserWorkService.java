@@ -72,15 +72,47 @@ public interface IAppUserWorkService
     /**
      * 新增章节（仅 draft / revision / rejected 状态允许）
      *
+     * 显式传入 chapterNo 时按该序号新建；序号已被占用则拒绝（绝不覆盖旧章）。
+     * 不传 chapterNo 时按当前最大序号 + 1 追加，标题中的「第N集」不参与集号解析。
+     *
      * @param userId       当前用户ID
      * @param workId       作品ID
+     * @param chapterNo    章节序号（null = 追加到末尾）
      * @param chapterTitle 章节标题
      * @param content      章节内容
      * @param summary      章节摘要（本集一条，供后续续写注入；可为空）
      * @param isFree       免费试读标记（"0"/"1"，null 默认为 "0"）
      * @return 新增后的章节对象
      */
-    SysWorkChapter addChapter(Long userId, Long workId, String chapterTitle, String content, String summary, String isFree);
+    SysWorkChapter addChapter(Long userId, Long workId, Integer chapterNo, String chapterTitle, String content,
+            String summary, String isFree);
+
+    /**
+     * 兼容旧调用：不指定集号，追加到末尾。
+     */
+    default SysWorkChapter addChapter(Long userId, Long workId, String chapterTitle, String content,
+            String summary, String isFree)
+    {
+        return addChapter(userId, workId, null, chapterTitle, content, summary, isFree);
+    }
+
+    /**
+     * 后台生成队列专用：按显式集号复用/覆盖已有章节，不存在时按该集号新建。
+     *
+     * 与 {@link #addChapter} 不同，同序号已存在时直接覆盖（队列重跑同一集只保留一章），
+     * 不抛「序号已存在」；页面先保存的分集空骨架同样会被复用回填。
+     *
+     * @param userId       当前用户ID
+     * @param workId       作品ID
+     * @param chapterNo    章节序号（必须大于 0）
+     * @param chapterTitle 章节标题
+     * @param content      章节内容
+     * @param summary      章节摘要（可为空）
+     * @param isFree       免费试读标记（"0"/"1"，null 默认为 "0"）
+     * @return 复用/新建后的章节对象
+     */
+    SysWorkChapter upsertGeneratedChapter(Long userId, Long workId, int chapterNo, String chapterTitle,
+            String content, String summary, String isFree);
 
     /**
      * 修改章节（仅 draft / revision / rejected 状态允许）

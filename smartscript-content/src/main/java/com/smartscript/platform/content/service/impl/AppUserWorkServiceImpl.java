@@ -7,8 +7,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
@@ -242,46 +240,86 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
 
     @Override
     @Transactional
-    public SysWorkChapter addChapter(Long userId, Long workId, String chapterTitle, String content, String summary, String isFree)
+    public SysWorkChapter addChapter(Long userId, Long workId, Integer chapterNo, String chapterTitle, String content,
+            String summary, String isFree)
     {
         requireOwnWork(userId, workId);
         requireEditable(workId, userId);
         // 风控：章节标题/正文敏感词检查
         riskCheckService.checkContentOrThrow(userId,
                 (chapterTitle == null ? "" : chapterTitle) + (content == null ? "" : content));
-
-        int maxNo = chapterMapper.selectMaxChapterNo(workId);
         validateTrialFlag(isFree);
+
+        if (chapterNo != null)
+        {
+            if (chapterNo <= 0)
+            {
+                throw new IllegalArgumentException("章节序号必须为正整数");
+            }
+            // 显式序号只允许新建：同序号已存在时拒绝，绝不覆盖已有章节。
+            if (findChapterByNo(workId, chapterNo) != null)
+            {
+                throw new IllegalArgumentException("章节序号已存在，请刷新后重试");
+            }
+            return insertChapter(userId, workId, chapterNo, chapterTitle, content, summary);
+        }
+
+        // 未指定序号：追加到末尾。标题中的「第N集」只是展示文案，不参与集号解析，
+        // 否则普通新增会被误判为队列回填而覆盖已有章节。
+        int maxNo = chapterMapper.selectMaxChapterNo(workId);
+        return insertChapter(userId, workId, maxNo + 1, chapterTitle, content, summary);
+    }
+
+    @Override
+    @Transactional
+    public SysWorkChapter upsertGeneratedChapter(Long userId, Long workId, int chapterNo, String chapterTitle,
+            String content, String summary, String isFree)
+    {
+        requireOwnWork(userId, workId);
+        requireEditable(workId, userId);
+        riskCheckService.checkContentOrThrow(userId,
+                (chapterTitle == null ? "" : chapterTitle) + (content == null ? "" : content));
+        validateTrialFlag(isFree);
+        if (chapterNo <= 0)
+        {
+            throw new IllegalArgumentException("章节序号必须为正整数");
+        }
 
         // 页面先保存过分集骨架时，库里已有同序号的空章；队列按「第N集：标题」回填，直接复用该章，
         // 否则同一集会变成"空章 + 新建正文"两章，作品集数翻倍、首页停在空白第 1 集。
         // 同一集被重新生成（队列重跑）时也要复用已有正文的章，否则每跑一次就多出一章，
         // 集号错位后验收记录、状态板都会记到不存在的集上。
-        int targetNo = chapterNoFromTitle(chapterTitle);
-        SysWorkChapter blank = targetNo > 0 ? findChapterByNo(workId, targetNo) : null;
-        if (blank != null)
+        SysWorkChapter existing = findChapterByNo(workId, chapterNo);
+        if (existing == null)
         {
-            SysWorkChapter fill = new SysWorkChapter();
-            fill.setChapterId(blank.getChapterId());
-            fill.setChapterTitle(chapterTitle == null ? "" : chapterTitle);
-            fill.setContent(content == null ? "" : content);
-            fill.setSummary(clipChapterSummary(summary));
-            fill.setWordCount(countWords(fill.getContent()));
-            if (!Objects.equals(blank.getChapterTitle(), fill.getChapterTitle())
-                    || !Objects.equals(blank.getStorageContent(), fill.getStorageContent()))
-            {
-                fill.setStatus(WorkStatusDeriver.CHAPTER_DRAFT);
-                fill.setIsFree(resetTrialFlag(blank));
-            }
-            fill.setUpdateBy(String.valueOf(userId));
-            chapterMapper.updateChapter(fill);
-            workMapper.refreshWorkAggregates(workId);
-            return chapterMapper.selectChapterDetail(blank.getChapterId());
+            return insertChapter(userId, workId, chapterNo, chapterTitle, content, summary);
         }
 
+        SysWorkChapter fill = new SysWorkChapter();
+        fill.setChapterId(existing.getChapterId());
+        fill.setChapterTitle(chapterTitle == null ? "" : chapterTitle);
+        fill.setContent(content == null ? "" : content);
+        fill.setSummary(clipChapterSummary(summary));
+        fill.setWordCount(countWords(fill.getContent()));
+        if (!Objects.equals(existing.getChapterTitle(), fill.getChapterTitle())
+                || !Objects.equals(existing.getStorageContent(), fill.getStorageContent()))
+        {
+            fill.setStatus(WorkStatusDeriver.CHAPTER_DRAFT);
+            fill.setIsFree(resetTrialFlag(existing));
+        }
+        fill.setUpdateBy(String.valueOf(userId));
+        chapterMapper.updateChapter(fill);
+        workMapper.refreshWorkAggregates(workId);
+        return chapterMapper.selectChapterDetail(existing.getChapterId());
+    }
+
+    /** 按指定序号插入新章，并刷新作品聚合列（word_count/episode_count）。 */
+    private SysWorkChapter insertChapter(Long userId, Long workId, int chapterNo, String chapterTitle,
+            String content, String summary)
+    {
         SysWorkChapter chapter = new SysWorkChapter();
         chapter.setWorkId(workId);
-        chapter.setChapterNo(maxNo + 1);
+        chapter.setChapterNo(chapterNo);
         chapter.setChapterTitle(chapterTitle == null ? "" : chapterTitle);
         chapter.setContent(content == null ? "" : content);
         chapter.setSummary(clipChapterSummary(summary));
@@ -300,17 +338,6 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
     {
         return ChapterTrialAccess.EXPLICITLY_CLOSED.equals(chapter.getIsFree())
                 ? ChapterTrialAccess.EXPLICITLY_CLOSED : "0";
-    }
-
-    /** 从「第N集：标题」取集号，取不到返回 0（普通新增章节不参与复用）。 */
-    private int chapterNoFromTitle(String title)
-    {
-        if (title == null || title.isBlank())
-        {
-            return 0;
-        }
-        Matcher matcher = Pattern.compile("第\\s*(\\d{1,3})\\s*集").matcher(title);
-        return matcher.find() ? Integer.parseInt(matcher.group(1)) : 0;
     }
 
     /**

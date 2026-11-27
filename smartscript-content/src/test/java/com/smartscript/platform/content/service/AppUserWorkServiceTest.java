@@ -377,6 +377,138 @@ class AppUserWorkServiceTest
     }
 
     @Test
+    @DisplayName("新增章节：显式 chapterNo 按该序号新建并落库")
+    void addChapterWithExplicitNoInsertsAtThatNo()
+    {
+        when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
+        when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of());
+
+        SysWorkChapter created = service.addChapter(OWNER, WORK_ID, 7, "第七章", "正文", null, null);
+
+        assertEquals(7, created.getChapterNo());
+        verify(chapterMapper).insertChapter(argThat(c -> Integer.valueOf(7).equals(c.getChapterNo())));
+        verify(workMapper).refreshWorkAggregates(WORK_ID);
+    }
+
+    @Test
+    @DisplayName("新增章节：显式 chapterNo 已存在 → 抛异常且不覆盖旧章")
+    void addChapterWithExistingNoRejectsWithoutOverwrite()
+    {
+        when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
+        when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of());
+        SysWorkChapter existing = new SysWorkChapter();
+        existing.setChapterId(55L);
+        existing.setWorkId(WORK_ID);
+        existing.setChapterNo(3);
+        existing.setChapterTitle("旧第三章");
+        existing.setContent("旧正文");
+        when(chapterMapper.selectChapterListByWorkId(any(SysWorkChapter.class))).thenReturn(List.of(existing));
+        when(chapterMapper.selectChapterDetail(55L)).thenReturn(existing);
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> service.addChapter(OWNER, WORK_ID, 3, "新第三章", "新正文", null, null));
+
+        assertEquals("章节序号已存在，请刷新后重试", ex.getMessage());
+        assertEquals("旧正文", existing.getContent());
+        verify(chapterMapper, never()).updateChapter(any());
+        verify(chapterMapper, never()).insertChapter(any());
+    }
+
+    @Test
+    @DisplayName("新增章节：显式 chapterNo <= 0 → 抛 IllegalArgumentException")
+    void addChapterRejectsNonPositiveNo()
+    {
+        when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
+        when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of());
+
+        assertThrows(IllegalArgumentException.class,
+                () -> service.addChapter(OWNER, WORK_ID, 0, "零章", "正文", null, null));
+        assertThrows(IllegalArgumentException.class,
+                () -> service.addChapter(OWNER, WORK_ID, -1, "负章", "正文", null, null));
+        verify(chapterMapper, never()).insertChapter(any());
+        verify(chapterMapper, never()).updateChapter(any());
+    }
+
+    @Test
+    @DisplayName("新增章节：不传 chapterNo 时标题含「第1集」也按 max+1 新增，不覆盖第 1 章")
+    void addChapterWithoutNoIgnoresEpisodeNoInTitle()
+    {
+        when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
+        when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of());
+        when(chapterMapper.selectMaxChapterNo(WORK_ID)).thenReturn(1);
+        SysWorkChapter first = new SysWorkChapter();
+        first.setChapterId(11L);
+        first.setWorkId(WORK_ID);
+        first.setChapterNo(1);
+        first.setChapterTitle("第1集：开头");
+        first.setContent("旧第一章");
+        when(chapterMapper.selectChapterListByWorkId(any(SysWorkChapter.class))).thenReturn(List.of(first));
+
+        SysWorkChapter created = service.addChapter(OWNER, WORK_ID, "第1集：新的一集", "新正文", null, null);
+
+        assertEquals(2, created.getChapterNo());
+        verify(chapterMapper).insertChapter(argThat(c -> Integer.valueOf(2).equals(c.getChapterNo())));
+        verify(chapterMapper, never()).updateChapter(any());
+        assertEquals("旧第一章", first.getContent());
+    }
+
+    @Test
+    @DisplayName("生成队列 upsert：同序号已存在时复用覆盖原章，不新增")
+    void upsertGeneratedChapterOverwritesSameNo()
+    {
+        when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
+        when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of());
+        SysWorkChapter existing = new SysWorkChapter();
+        existing.setChapterId(55L);
+        existing.setWorkId(WORK_ID);
+        existing.setChapterNo(4);
+        existing.setChapterTitle("第4集：旧标题");
+        existing.setContent("旧正文");
+        when(chapterMapper.selectChapterListByWorkId(any(SysWorkChapter.class))).thenReturn(List.of(existing));
+        when(chapterMapper.selectChapterDetail(55L)).thenReturn(existing);
+
+        service.upsertGeneratedChapter(OWNER, WORK_ID, 4, "第4集：新标题", "新正文", "", "0");
+
+        verify(chapterMapper).updateChapter(argThat(c -> Long.valueOf(55L).equals(c.getChapterId())
+                && "第4集：新标题".equals(c.getChapterTitle())
+                && "新正文".equals(c.getContent())
+                && "1".equals(c.getStatus())));
+        verify(chapterMapper, never()).insertChapter(any());
+        verify(workMapper).refreshWorkAggregates(WORK_ID);
+    }
+
+    @Test
+    @DisplayName("生成队列 upsert：无同序号时按指定序号新建")
+    void upsertGeneratedChapterInsertsWhenMissing()
+    {
+        when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
+        when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of());
+        when(chapterMapper.selectChapterListByWorkId(any(SysWorkChapter.class))).thenReturn(List.of());
+
+        service.upsertGeneratedChapter(OWNER, WORK_ID, 4, "第4集：标题", "正文", "", "0");
+
+        verify(chapterMapper).insertChapter(argThat(c -> Integer.valueOf(4).equals(c.getChapterNo())));
+        verify(chapterMapper, never()).updateChapter(any());
+        verify(workMapper).refreshWorkAggregates(WORK_ID);
+    }
+
+    @Test
+    @DisplayName("生成队列 upsert：非法集号或审核中作品拒绝写入")
+    void upsertGeneratedChapterValidatesNoAndEditableState()
+    {
+        when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
+        when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of());
+        assertThrows(IllegalArgumentException.class,
+                () -> service.upsertGeneratedChapter(OWNER, WORK_ID, 0, "标题", "正文", "", "0"));
+
+        when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of(recordOf("pending")));
+        assertThrows(IllegalStateException.class,
+                () -> service.upsertGeneratedChapter(OWNER, WORK_ID, 1, "标题", "正文", "", "0"));
+        verify(chapterMapper, never()).insertChapter(any());
+        verify(chapterMapper, never()).updateChapter(any());
+    }
+
+    @Test
     @DisplayName("删除章节：非本人作品章节抛 SecurityException")
     void deleteChapterRejectsOtherUser()
     {

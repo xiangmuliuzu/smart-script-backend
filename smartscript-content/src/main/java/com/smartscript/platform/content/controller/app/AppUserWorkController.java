@@ -214,16 +214,23 @@ public class AppUserWorkController
 
     /**
      * 新增章节
+     *
+     * chapterNo 可选：显式传入时按该序号新建（已被占用返回 400，
+     * 绝不覆盖旧章）；不传时追加到末尾。
      */
     @PostMapping("/{workId}/chapters")
-    public AppApiResponse<SysWorkChapter> addChapter(@PathVariable Long workId, @RequestBody Map<String, Object> body)
+    public AppApiResponse<SysWorkChapter> addChapter(@PathVariable Long workId,
+            @RequestBody(required = false) Map<String, Object> body)
     {
         Long userId = requireLogin();
         try
         {
             return AppApiResponse.ok(userWorkService.addChapter(userId, workId,
-                    str(body.get("chapterTitle")), str(body.get("content")), str(body.get("summary")),
-                    str(body.get("isFree"))));
+                    AppRequestNumbers.positiveInt(body == null ? null : body.get("chapterNo"), "章节序号"),
+                    str(body == null ? null : body.get("chapterTitle")),
+                    str(body == null ? null : body.get("content")),
+                    str(body == null ? null : body.get("summary")),
+                    str(body == null ? null : body.get("isFree"))));
         }
         catch (IllegalArgumentException e)
         {

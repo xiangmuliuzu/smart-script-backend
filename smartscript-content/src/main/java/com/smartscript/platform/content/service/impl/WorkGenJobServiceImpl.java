@@ -435,8 +435,8 @@ public class WorkGenJobServiceImpl implements IWorkGenJobService
             log.warn("第{}集重写后仍有硬事实冲突，已落库待人工复核：{}", episode.getNo(), conflicts);
         }
 
-        // 标题带上集号：addChapter 靠「第N集」找到页面已保存的同序号空章并复用，否则每集会多建一章
-        SysWorkChapter chapter = workService.addChapter(userId, workId,
+        // 按显式集号复用页面已保存的同序号空章（或重跑时覆盖原章），否则会多建一章
+        SysWorkChapter chapter = workService.upsertGeneratedChapter(userId, workId, episode.getNo(),
                 "第" + episode.getNo() + "集：" + episode.getTitle(), text, "", "0");
         episode.setChapterId(chapter.getChapterId());
 
