@@ -8,7 +8,8 @@ package com.smartscript.platform.content.dto;
  *   2. 无 readable（作者对自己作品的阅读可见性由目录接口按试读/授权口径单独判定）；
  *   3. 不下发 content 全文（与目录一致，避免长文本随列表返回）。
  *
- * is_free/status 为 tinyint，沿用 B 模块 App 契约以字符串 "0"/"1" 下发。
+ * is_free/status 为 tinyint，沿用 B 模块 App 契约以字符串下发：
+ * status "0"=审核通过，"1"=草稿，"2"=未通过审核。
  *
  * @author xiangsipeng
  */

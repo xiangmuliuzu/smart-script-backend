@@ -220,7 +220,7 @@ public class RealNameReviewService
                     : "恭喜，您的实名认证已通过审核，现在可以使用需要实名的功能。";
             notifications.create(
                     REAL_NAME_NOTICE_ID_PREFIX + applicationId,
-                    AppAdminConstants.NOTIFICATION_REVIEW,
+                    AppAdminConstants.NOTIFICATION_SYSTEM,
                     title,
                     content,
                     "REAL_NAME",

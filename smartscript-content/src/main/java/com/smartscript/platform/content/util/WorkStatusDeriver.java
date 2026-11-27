@@ -41,16 +41,16 @@ public final class WorkStatusDeriver
     /** 生命周期：已驳回（原样返回 rejected） */
     public static final String REJECTED = "rejected";
 
-    /** 生命周期：已发布（最新审核为 approved） */
+    /** 生命周期：审核通过（内部兼容值 published，最新审核为 approved） */
     public static final String PUBLISHED = "published";
 
     /** 审核记录：已通过（审核流转终态） */
     public static final String APPROVED = "approved";
 
-    /** 章节状态：已发布（读者可见） */
+    /** 章节状态：审核通过（读者还需满足作品可见性和试读/授权条件） */
     public static final String CHAPTER_PUBLISHED = "0";
 
-    /** 章节状态：草稿（仅作者可见，发布由 PUT /chapters/{chapterId} 传 status='0' 触发） */
+    /** 章节状态：草稿（仅作者可见） */
     public static final String CHAPTER_DRAFT = "1";
 
     /** 审核记录中属于「审核中」的状态值 */
@@ -108,13 +108,13 @@ public final class WorkStatusDeriver
     }
 
     /**
-     * 章节对读者是否可见：仅「已发布」章节可见，「草稿」章节只有作者自己能看到。
+     * 章节对读者是否可见：仅已生效章节可见，草稿章节只有作者自己能看到。
      *
      * @param chapterStatus sys_work_chapter.status（tinyint 以字符串持有）
      * @return true=读者可见
      */
     public static boolean isChapterReaderVisible(String chapterStatus)
     {
-        return !CHAPTER_DRAFT.equals(chapterStatus);
+        return CHAPTER_PUBLISHED.equals(chapterStatus);
     }
 }

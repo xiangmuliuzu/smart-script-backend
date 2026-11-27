@@ -97,6 +97,9 @@ token:
   header: Authorization
   secret: ${TOKEN_SECRET:}
   expireTime: ${TOKEN_EXPIRE_MINUTES:30}
+  # App 端会话有效期（分钟）：按最后活跃时间滑动续期，默认 7 天未使用才失效。
+  # 管理端（PC 后台）仍使用上面的 expireTime，不受此项影响。
+  appExpireTime: ${APP_TOKEN_EXPIRE_MINUTES:10080}
 
 # A4 材料网关：材料文件根目录
 # 必须配置，且**不得**位于 ruoyi.profile 之下——该目录由 ResourcesConfig
@@ -122,6 +125,11 @@ app:
     redis-key-prefix: ${APP_REDIS_KEY_PREFIX:}
     # 同一账号最多同时保留的 App 登录会话数；0 = 不限制。
     max-devices: ${APP_AUTH_MAX_DEVICES:3}
+    # 扫码登录：PC 出码，App 扫码确认后由 PC 轮询取回同一套 App 域令牌。
+    qr-login:
+      ticket-ttl-seconds: ${APP_QR_TICKET_TTL_SECONDS:120}
+      poll-interval-seconds: ${APP_QR_POLL_INTERVAL_SECONDS:2}
+      consume-ttl-seconds: ${APP_QR_CONSUME_TTL_SECONDS:60}
     sms:
       provider: ${SMS_PROVIDER:mock}
       access-key-id: ${SMS_ACCESS_KEY_ID:}

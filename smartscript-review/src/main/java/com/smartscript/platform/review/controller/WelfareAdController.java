@@ -2,6 +2,7 @@ package com.smartscript.platform.review.controller;
 
 import com.smartscript.platform.review.domain.AdConfig;
 import com.smartscript.platform.review.service.AdConfigService;
+import com.smartscript.platform.review.util.AdminListPager;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
@@ -27,17 +28,20 @@ public class WelfareAdController {
     private AdConfigService adConfigService;
 
     /**
-     * 广告福利任务列表（强制 category=WELFARE）
+     * 广告福利任务列表（强制 category=WELFARE，分页：前端传 page / pageSize）
      */
     @GetMapping("/list")
-    public Map<String, Object> list(AdConfig query) {
+    public Map<String, Object> list(AdConfig query,
+                                    @RequestParam(value = "page", required = false) Integer page,
+                                    @RequestParam(value = "pageSize", required = false) Integer pageSize) {
         query.setCategory("WELFARE");
-        List<AdConfig> list = adConfigService.selectAdConfigList(query);
+        List<AdConfig> list = AdminListPager.query(page, pageSize,
+                () -> adConfigService.selectAdConfigList(query));
         Map<String, Object> result = new HashMap<>();
         result.put("code", 200);
         result.put("msg", "操作成功");
         result.put("rows", list);
-        result.put("total", list.size());
+        result.put("total", AdminListPager.total(list));
         return result;
     }
 

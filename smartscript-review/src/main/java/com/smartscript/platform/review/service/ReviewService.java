@@ -10,6 +10,7 @@ import com.smartscript.platform.review.mapper.ReviewWorkContentMapper;
 import com.smartscript.platform.review.mapper.OperationLogMapper;
 import com.smartscript.platform.review.util.ReviewContentText;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
@@ -30,6 +31,10 @@ public class ReviewService {
 
     @Autowired
     private OperationLogMapper operationLogMapper;
+
+    /** 审核结果事件由用户模块负责落站内通知，避免 review 模块反向依赖 user 模块。 */
+    @Autowired(required = false)
+    private ApplicationEventPublisher eventPublisher;
 
     @Autowired
     private ReviewWorkContentMapper reviewWorkContentMapper;
@@ -319,15 +324,33 @@ public class ReviewService {
         ReviewRecord reviewRecord = new ReviewRecord();
         reviewRecord.setReviewId(reviewId);
         reviewRecord.setStatus(status);
+        reviewRecord.setExpectedStatus(from);
         reviewRecord.setReviewResult(status);
         reviewRecord.setReviewOpinion(reviewOpinion);
         reviewRecord.setReviewerId(reviewerId);
         int cnt = reviewRecordMapper.updateReviewRecord(reviewRecord);
-        // 审核通过 → 内容侧作品自动上架（两个业务模块无编译期依赖，故在共享库的 Mapper 层落地）
+        if (cnt == 0)
+        {
+            result.put("code", 409);
+            result.put("msg", "审核状态已改变，请刷新后重试");
+            return result;
+        }
+        if ("work".equals(before.getTargetType()) && before.getTargetId() != null)
+        {
+            if ("approved".equals(status))
+            {
+                reviewWorkContentMapper.applyChapterReviewResult(before.getTargetId(), reviewId, "0");
+            }
+            else if ("rejected".equals(status) || "revision".equals(status))
+            {
+                reviewWorkContentMapper.applyChapterReviewResult(before.getTargetId(), reviewId, "2");
+            }
+        }
+        // 审核通过只改变审核结果，不改变作品上架状态。
+        // 作品必须由作者在 App/PC 作品详情中主动点击“上架到书城”。
         if (cnt > 0 && "approved".equals(status) && "work".equals(before.getTargetType()) && before.getTargetId() != null)
         {
-            reviewRecordMapper.markWorkOnShelf(before.getTargetId(),
-                    reviewerId == null ? null : String.valueOf(reviewerId));
+            publishApprovedEvent(before, reviewId);
         }
         // 写审核操作日志（真实落库）
         ReviewLog log = new ReviewLog();
@@ -346,6 +369,19 @@ public class ReviewService {
         result.put("to", status);
         result.put("cnt", cnt);
         return result;
+    }
+
+    private void publishApprovedEvent(ReviewRecord record, Long reviewId)
+    {
+        if (eventPublisher == null || record.getUserId() == null)
+        {
+            return;
+        }
+        eventPublisher.publishEvent(new ReviewApprovedEvent(
+                reviewId,
+                record.getTargetId(),
+                record.getUserId(),
+                record.getWorkTitle()));
     }
 
     private String actionOf(String status) {

@@ -23,14 +23,14 @@ public interface IAppUserWorkService
      *
      * @param userId 当前用户ID（归属校验）
      * @param workId 作品ID
-     * @return {work, tags, chapters, latestReview}
+     * @return {work, tags, chapters, latestReview, blueprint?}
      */
     Map<String, Object> getWorkDetail(Long userId, Long workId);
 
     /**
      * 修改作品基本信息（标题/简介/封面/标签）
      *
-     * 仅「审核中」锁定，其余状态（含已发布）均可修改。
+ * 仅「审核中」锁定，其余状态（含审核通过）均可修改。
      *
      * @param userId  当前用户ID
      * @param workId  作品ID
@@ -40,9 +40,16 @@ public interface IAppUserWorkService
      * @param tagIds  标签ID列表（接口文档 2.3.3：全量覆盖，最多 8 个；
      *                null = 不修改标签，空列表 = 清空标签）
      * @param channelId 所属频道（146 男频 / 147 女频；null = 不修改）
+     * @param duration 单集时长（秒；null = 不修改）
      */
     void updateWorkBase(Long userId, Long workId, String title, String summary, String cover,
-            List<Integer> tagIds, BigDecimal price, String tradeType, Integer channelId);
+            List<Integer> tagIds, BigDecimal price, String tradeType, Integer channelId, Integer duration);
+
+    default void updateWorkBase(Long userId, Long workId, String title, String summary, String cover,
+            List<Integer> tagIds, BigDecimal price, String tradeType, Integer channelId)
+    {
+        updateWorkBase(userId, workId, title, summary, cover, tagIds, price, tradeType, channelId, null);
+    }
 
     /**
      * 兼容旧调用：不修改频道。
@@ -65,15 +72,47 @@ public interface IAppUserWorkService
     /**
      * 新增章节（仅 draft / revision / rejected 状态允许）
      *
+     * 显式传入 chapterNo 时按该序号新建；序号已被占用则拒绝（绝不覆盖旧章）。
+     * 不传 chapterNo 时按当前最大序号 + 1 追加，标题中的「第N集」不参与集号解析。
+     *
      * @param userId       当前用户ID
      * @param workId       作品ID
+     * @param chapterNo    章节序号（null = 追加到末尾）
      * @param chapterTitle 章节标题
      * @param content      章节内容
      * @param summary      章节摘要（本集一条，供后续续写注入；可为空）
      * @param isFree       免费试读标记（"0"/"1"，null 默认为 "0"）
      * @return 新增后的章节对象
      */
-    SysWorkChapter addChapter(Long userId, Long workId, String chapterTitle, String content, String summary, String isFree);
+    SysWorkChapter addChapter(Long userId, Long workId, Integer chapterNo, String chapterTitle, String content,
+            String summary, String isFree);
+
+    /**
+     * 兼容旧调用：不指定集号，追加到末尾。
+     */
+    default SysWorkChapter addChapter(Long userId, Long workId, String chapterTitle, String content,
+            String summary, String isFree)
+    {
+        return addChapter(userId, workId, null, chapterTitle, content, summary, isFree);
+    }
+
+    /**
+     * 后台生成队列专用：按显式集号复用/覆盖已有章节，不存在时按该集号新建。
+     *
+     * 与 {@link #addChapter} 不同，同序号已存在时直接覆盖（队列重跑同一集只保留一章），
+     * 不抛「序号已存在」；页面先保存的分集空骨架同样会被复用回填。
+     *
+     * @param userId       当前用户ID
+     * @param workId       作品ID
+     * @param chapterNo    章节序号（必须大于 0）
+     * @param chapterTitle 章节标题
+     * @param content      章节内容
+     * @param summary      章节摘要（可为空）
+     * @param isFree       免费试读标记（"0"/"1"，null 默认为 "0"）
+     * @return 复用/新建后的章节对象
+     */
+    SysWorkChapter upsertGeneratedChapter(Long userId, Long workId, int chapterNo, String chapterTitle,
+            String content, String summary, String isFree);
 
     /**
      * 修改章节（仅 draft / revision / rejected 状态允许）

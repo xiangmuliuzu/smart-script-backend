@@ -32,9 +32,9 @@ class ChatDeliveryTest
     void administratorUnreadUsesAuthenticatedParticipantRatherThanListSize()
     {
         var mapper = mock(ChatSessionMapper.class);
-        when(mapper.sumMyUnread(8L)).thenReturn(23);
+        when(mapper.sumMyUnread(8L, null)).thenReturn(23);
         assertEquals(Map.of("chatUnread", 23),
-                new ChatService(mapper, mock(ChatMessageMapper.class), mock(ChatTradeTemplateMapper.class), mock(UserBlockService.class)).chatUnreadCount(8L));
-        verify(mapper).sumMyUnread(8L);
+                new ChatService(mapper, mock(ChatMessageMapper.class), mock(ChatTradeTemplateMapper.class), mock(UserBlockService.class)).chatUnreadCount(8L, null));
+        verify(mapper).sumMyUnread(8L, null);
     }
 }

@@ -144,7 +144,7 @@ public final class AdminAuditParamProjection
 
     /** 契约 §5.4 允许的消息类型枚举值（与 {@code UserNotificationAdminService.isKnownType} 同源常量）。 */
     private static final Set<String> NOTIFICATION_TYPES = Set.of(
-            AppAdminConstants.NOTIFICATION_SYSTEM, AppAdminConstants.NOTIFICATION_REVIEW,
+            AppAdminConstants.NOTIFICATION_SYSTEM,
             AppAdminConstants.NOTIFICATION_TRANSACTION, AppAdminConstants.NOTIFICATION_BENEFIT);
 
     /** 契约 §5.1 允许的账号状态枚举值（与 {@code AppUserAdminService.changeStatus} 同源常量）。 */

@@ -83,6 +83,19 @@ class AppBookstoreChapterCatalogTest
         return chapter;
     }
 
+    @Test
+    void explicitlyClosedChapterOverridesLegacyPreviewButNotAuthorization()
+    {
+        when(identityProvider.currentUserId()).thenReturn(USER_ID);
+        when(chapterMapper.selectChapterListByWorkId(any())).thenReturn(List.of(
+                chapter(2001L, 1, "2"), chapter(2002L, 2, "0")));
+        AppWorkDto work = work("1", 2);
+        assertEquals(List.of(2002L), service.getChapterCatalog(work).getList().stream()
+                .map(AppChapterDto::getChapterId).toList());
+        when(authorizationMapper.countEffectiveAuthorization(WORK_ID, USER_ID)).thenReturn(1);
+        assertEquals(2, service.getChapterCatalog(work).getList().size());
+    }
+
     private void stubChapters()
     {
         when(chapterMapper.selectChapterListByWorkId(any())).thenReturn(List.of(

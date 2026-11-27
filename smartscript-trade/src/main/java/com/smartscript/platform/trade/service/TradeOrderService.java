@@ -82,6 +82,12 @@ public class TradeOrderService
         return orderMapper.selectOrderById(orderId);
     }
 
+    /** 按询盘查关联订单（一询一档，幂等键 inquiry_id）；无订单返回 null。 */
+    public SysOrder selectOrderByInquiryId(Long inquiryId)
+    {
+        return inquiryId == null ? null : orderMapper.selectOrderByInquiryId(inquiryId);
+    }
+
     public List<SysOrderStatusLog> selectStatusLogByOrderId(Long orderId)
     {
         return logMapper.selectLogsByOrderId(orderId);
@@ -267,6 +273,17 @@ public class TradeOrderService
     }
 
     /**
+     * 测试直付：跳过支付宝沙箱，按已付款直接推进订单（与版权零元直付同性质）。
+     * 顺带作废该订单尚未支付的沙箱收款记录，避免旧码在后续查单里被误结算。
+     */
+    @Transactional
+    public void directPayOrder(Long orderId, Long buyerId)
+    {
+        payOrder(orderId, buyerId);
+        jdbc.update("UPDATE sandbox_alipay_payment SET status='CLOSED' WHERE order_id=? AND status='PENDING'", orderId);
+    }
+
+    /**
      * 买方确认收货。订单 delivering → completed，写入作者收益。
      */
     @Transactional
@@ -336,10 +353,10 @@ public class TradeOrderService
      * 取消订单（问题4）：付款前可取消——「双方签署完成前」（confirmed）与「待付款尚未付款」（paying 且 pay_time 为空）均允许。
      * 无版权分流后新单成即 paying，若仅放行 confirmed 则此类单永不可取消；一旦实际付款（转 delivering）即锁定。
      * <p>
-     * 买卖双方任一方可发起；CAS 落库（仅 confirmed/paying-未付款 可取消，防并发与付款竞态）；
+     * 仅买方可发起，卖方一律不可取消；CAS 落库（仅 confirmed/paying-未付款 可取消，防并发与付款竞态）；
      * 连带作废该订单下尚未签满的合同，避免残留合同被签署后试图把已取消订单推回 paying。
      *
-     * @param operatorId 操作人（须为买方或卖方）
+     * @param operatorId 操作人（须为买方）
      * @param reason     取消原因，落 sys_order.remark
      */
     @Transactional
@@ -350,10 +367,9 @@ public class TradeOrderService
         {
             throw new RuntimeException("订单不存在");
         }
-        if (operatorId == null
-                || !(operatorId.equals(order.getBuyerId()) || operatorId.equals(order.getSellerId())))
+        if (operatorId == null || !operatorId.equals(order.getBuyerId()))
         {
-            throw new RuntimeException("只有交易双方可以取消订单");
+            throw new RuntimeException("只有买方可以在付款前取消订单");
         }
         String prevStatus = order.getStatus();
         boolean cancellable = ORDER_STATUS_CONFIRMED.equals(prevStatus)
@@ -382,7 +398,7 @@ public class TradeOrderService
         log.setFromStatus(prevStatus);
         log.setToStatus(ORDER_STATUS_CANCELLED);
         log.setOperatorId(operatorId);
-        log.setOperatorRole(operatorId.equals(order.getBuyerId()) ? "buyer" : "seller");
+        log.setOperatorRole("buyer");
         log.setRemark("合同签署前取消订单" + (reason != null && !reason.isBlank() ? "：" + reason : ""));
         log.setCreateBy(actor);
         log.setCreateTime(new Date());

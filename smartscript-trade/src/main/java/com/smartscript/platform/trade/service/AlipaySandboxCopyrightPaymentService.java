@@ -138,7 +138,14 @@ public class AlipaySandboxCopyrightPaymentService
             if (!response.isSuccess() || !outTradeNo.equals(response.getOutTradeNo())
                     || response.getQrCode() == null || response.getQrCode().isBlank())
             {
-                throw new IllegalStateException("支付宝沙箱创建支付失败，请检查沙箱配置");
+                String reason = response.getSubMsg();
+                if (reason == null || reason.isBlank())
+                {
+                    reason = response.getMsg();
+                }
+                throw new IllegalStateException(reason == null || reason.isBlank()
+                        ? "支付宝沙箱创建支付失败，请检查沙箱配置"
+                        : ("支付宝沙箱创建支付失败：" + reason.trim()));
             }
             Map<String, Object> result = new HashMap<>();
             result.put("qrCode", response.getQrCode());
@@ -149,7 +156,14 @@ public class AlipaySandboxCopyrightPaymentService
         }
         catch (AlipayApiException e)
         {
-            throw new IllegalStateException("支付宝沙箱服务暂不可用");
+            String detail = e.getErrMsg() == null ? "" : e.getErrMsg().trim();
+            if (detail.isEmpty() && e.getMessage() != null)
+            {
+                detail = e.getMessage().trim();
+            }
+            throw new IllegalStateException(detail.isEmpty()
+                    ? "支付宝沙箱服务暂不可用"
+                    : ("支付宝沙箱不可用：" + detail));
         }
     }
 
@@ -235,7 +249,14 @@ public class AlipaySandboxCopyrightPaymentService
         }
         catch (AlipayApiException e)
         {
-            throw new IllegalStateException("支付宝沙箱服务暂不可用");
+            String detail = e.getErrMsg() == null ? "" : e.getErrMsg().trim();
+            if (detail.isEmpty() && e.getMessage() != null)
+            {
+                detail = e.getMessage().trim();
+            }
+            throw new IllegalStateException(detail.isEmpty()
+                    ? "支付宝沙箱服务暂不可用"
+                    : ("支付宝沙箱不可用：" + detail));
         }
     }
 }

@@ -21,6 +21,7 @@ import com.smartscript.platform.content.domain.SysPromotionApplication;
 import com.smartscript.platform.content.domain.SysPromotionSlot;
 import com.smartscript.platform.content.domain.SysTag;
 import com.smartscript.platform.content.domain.SysWorkChapter;
+import com.smartscript.platform.content.util.ChapterTrialAccess;
 import com.smartscript.platform.content.domain.SysWorkFile;
 import com.smartscript.platform.content.dto.AppCategoryNavDto;
 import com.smartscript.platform.content.dto.AppChapterDetailDto;
@@ -666,31 +667,10 @@ public class AppBookstoreServiceImpl implements IAppBookstoreService
         return episodes == null || episodes < 0 ? 0 : episodes;
     }
 
-    /**
-     * 章节是否在试读范围内：开关开启 且 试读集数>0 且 chapter_no<=试读集数。
-     *
-     * 仅代表「免费试读」这一条放开分支；是否可读还需 OR 上「当前身份已获授权」
-     * （见 {@link #isWorkAuthorized}）。命名刻意不含 readable 字样，避免与
-     * 「授权放开全文」混淆。
-     */
-    private static boolean isInPreviewRange(AppWorkDto work, Integer chapterNo)
-    {
-        int episodes = previewEpisodes(work);
-        return isPreviewEnabled(work) && episodes > 0 && chapterNo != null && chapterNo <= episodes;
-    }
-
-    /**
-     * 章节对当前身份是否可读。三条放开分支，任一成立即可读：
-     *
-     *   1. 在作品试读范围内（见 {@link #isInPreviewRange}，由平台在审核通过时配置）；
-     *   2. 作者标记为免费章节（sys_work_chapter.is_free='1'，0 付费 / 1 免费）——
-     *      作者可在 App 章节编辑页逐章开启，若不纳入本判定，作者的标记在阅读端将完全无效；
-     *   3. 当前身份已获版权授权（见 {@link #isWorkAuthorized}）。
-     */
+    /** 试读与完整版权授权分别判定。 */
     private boolean isChapterReadable(AppWorkDto work, SysWorkChapter chapter)
     {
-        return isInPreviewRange(work, chapter.getChapterNo())
-                || CHAPTER_FREE.equals(chapter.getIsFree())
+        return ChapterTrialAccess.isOpen(chapter, work.getPreviewEnabled(), work.getPreviewEpisodes())
                 || isWorkAuthorized(work.getWorkId());
     }
 
@@ -701,7 +681,7 @@ public class AppBookstoreServiceImpl implements IAppBookstoreService
         dto.setChapterNo(row.getChapterNo());
         dto.setChapterTitle(row.getChapterTitle());
         dto.setWordCount(row.getWordCount());
-        dto.setIsFree(row.getIsFree());
+        dto.setIsFree(CHAPTER_FREE.equals(row.getIsFree()) ? "1" : "0");
         dto.setReadable(readable);
         return dto;
     }

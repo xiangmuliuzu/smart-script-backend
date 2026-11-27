@@ -38,6 +38,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		<result property="previewEpisodes"  column="preview_episodes"  />
 		<result property="status"           column="status"            />
 		<result property="isCopyrighted"    column="is_copyrighted"    />
+		<result property="copyrightRegistrationStatus" column="copyright_registration_status"/>
 		<result property="viewCount"        column="view_count"        />
 		<result property="favoriteCount"    column="favorite_count"    />
 		<result property="saleCount"        column="sale_count"        />
@@ -61,6 +62,15 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		<result property="recommendExpireAt"  column="recommend_expire_at" />
 	</resultMap>
 
+	<!-- 以已签发证书或版权中心终态为准；内部初审 approved 不代表登记完成。 -->
+	<sql id="copyrightRegistrationStatus">
+		case when exists (
+			select 1 from sys_copyright_cert cert where cert.work_id = w.work_id and cert.status = 'issued'
+		) or exists (
+			select 1 from sys_copyright_application app where app.work_id = w.work_id and app.status = 'certificated'
+		) then 'registered' else 'unregistered' end
+	</sql>
+
 	<!-- 作品管理列表：含 authorName，全字段；标签由 Service 层批量回填 -->
 	<sql id="selectWorkVo">
 		select w.work_id, w.title, w.cover, w.author_id, w.channel_id, w.work_type, w.upload_type,
@@ -69,6 +79,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		       w.quote_valid_days, w.word_count, w.episode_count, w.duration,
 		       w.is_free, w.preview_enabled, w.preview_episodes,
 		       w.status, w.is_copyrighted, w.view_count, w.favorite_count, w.sale_count,
+		       <include refid="copyrightRegistrationStatus"/> as copyright_registration_status,
 		       w.rating, w.quality_level, w.reviewer_id, w.review_time, w.reject_reason,
 		       w.ext_json, w.is_deleted,
 		       w.create_by, w.create_time, w.update_by, w.update_time, w.remark,
@@ -123,11 +134,13 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		  and status = '0'
 	</select>
 
-	<!-- 用户端「我的作品」列表：本人作品，按更新时间倒序 -->
+	<!-- 用户端「我的作品」列表：本人作品，按更新时间倒序。
+	     update_time 可能为 NULL（历史数据/未写初始值）：coalesce 回退 create_time，
+	     再用 work_id 倒序做稳定次级排序，保证新建作品排在最前。 -->
 	<select id="selectWorkListByAuthor" parameterType="Long" resultMap="SysWorkResult">
 		<include refid="selectWorkVo"/>
 		and w.author_id = #{authorId}
-		order by w.update_time desc
+		order by coalesce(w.update_time, w.create_time) desc, w.work_id desc
 	</select>
 
 	<!-- 书城列表：含从 ext_json 解析的 recommendStatus/showScope -->
@@ -249,6 +262,8 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		<result property="previewEpisodes"  column="preview_episodes"  />
 		<result property="status"           column="status"            />
 		<result property="isCopyrighted"    column="is_copyrighted"    />
+		<result property="copyrightRegistrationStatus" column="copyright_registration_status"/>
+		<result property="copyrightCertNo"  column="copyright_cert_no" />
 		<result property="qualityLevel"     column="quality_level"     />
 		<result property="viewCount"        column="view_count"        />
 		<result property="favoriteCount"    column="favorite_count"    />
@@ -353,8 +368,12 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		       w.price, w.trade_type, w.trade_enabled,
 		       w.word_count, w.episode_count, w.duration, w.is_free, w.preview_enabled,
 		       w.preview_episodes, w.status, w.is_copyrighted, w.quality_level,
+		       <include refid="copyrightRegistrationStatus"/> as copyright_registration_status,
 		       w.view_count, w.favorite_count, w.sale_count, w.rating, w.create_time,
-		       u.nick_name as author_name, u.avatar as author_avatar
+		       u.nick_name as author_name, u.avatar as author_avatar,
+		       (select c.cert_no from sys_copyright_cert c
+		         where c.work_id = w.work_id and c.status = 'issued'
+		         order by c.cert_time desc, c.cert_id desc limit 1) as copyright_cert_no
 		from sys_work w
 		left join sys_user u on u.user_id = w.author_id
 		<where>
@@ -481,6 +500,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 			<if test="price != null">price = #{price},</if>
 			<if test="tradeType != null">trade_type = #{tradeType},</if>
 			<if test="channelId != null">channel_id = #{channelId},</if>
+			<if test="duration != null">duration = #{duration},</if>
 			<if test="updateBy != null">update_by = #{updateBy},</if>
 			<if test="updateTime != null">update_time = #{updateTime},</if>
 		</trim>
@@ -591,18 +611,20 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		<result property="createTime" column="create_time" />
 	</resultMap>
 
-	<!-- 创建作品（2.9.2） -->
+	<!-- 创建作品（2.9.2）
+	     create_time / update_time 同时初始化为 sysdate()：update_time 为 NULL 时，
+	     MySQL 的 desc 排序会把新作品排到最后。 -->
 	<insert id="insertWork" parameterType="SysContentWork" useGeneratedKeys="true" keyProperty="workId">
 		insert into sys_work (
 			title, cover, author_id, work_type, length_type, summary,
 			price, trade_enabled, quote_valid_days, word_count, is_free, status,
 			is_copyrighted, view_count, favorite_count, sale_count, rating, is_deleted,
-			create_by, create_time
+			duration, create_by, create_time, update_time
 		) values (
 			#{title}, #{cover}, #{authorId}, #{workType}, #{lengthType}, #{summary},
 			#{price}, #{tradeEnabled}, #{quoteValidDays}, #{wordCount}, #{isFree}, #{status},
 			#{isCopyrighted}, #{viewCount}, #{favoriteCount}, #{saleCount}, #{rating}, #{isDeleted},
-			#{createBy}, sysdate()
+			#{duration}, #{createBy}, sysdate(), sysdate()
 		)
 	</insert>
 

@@ -4,12 +4,15 @@ import com.smartscript.platform.review.domain.ReviewLog;
 import com.smartscript.platform.review.domain.ReviewRecord;
 import com.smartscript.platform.review.mapper.ReviewLogMapper;
 import com.smartscript.platform.review.mapper.ReviewRecordMapper;
+import com.smartscript.platform.review.mapper.ReviewWorkContentMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 
 import java.util.Map;
 
@@ -29,7 +32,13 @@ class ReviewServiceTest {
     private ReviewRecordMapper reviewRecordMapper;
 
     @Mock
+    private ReviewWorkContentMapper reviewWorkContentMapper;
+
+    @Mock
     private ReviewLogMapper reviewLogMapper;
+
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
 
     @InjectMocks
     private ReviewService reviewService;
@@ -52,6 +61,40 @@ class ReviewServiceTest {
         assertEquals("pending", r.get("from"));
         assertEquals("approved", r.get("to"));
         verify(reviewLogMapper, times(1)).insertReviewLog(any(ReviewLog.class));
+    }
+
+    @Test
+    void operate_work_approved_只发审核通过通知_不自动上架() {
+        ReviewRecord pending = record("pending");
+        pending.setTargetType("work");
+        pending.setTargetId(301L);
+        pending.setUserId(88L);
+        pending.setWorkTitle("悬疑故事");
+        pending.setAuthorName("作者甲");
+        when(reviewRecordMapper.selectReviewRecordById(1L)).thenReturn(pending);
+        when(reviewRecordMapper.updateReviewRecord(any())).thenReturn(1);
+
+        reviewService.operateReview(1L, "approved", "内容合格", 1L, "管理员");
+
+        verify(reviewWorkContentMapper).applyChapterReviewResult(301L, 1L, "0");
+        // 审核通过只改审核结果：不自动上架，也不广播「作品发布」。
+        // 上架由作者在作品详情手动点击触发，发布事件在上下架接口里发。
+        ArgumentCaptor<Object> captor = ArgumentCaptor.forClass(Object.class);
+        verify(eventPublisher).publishEvent(captor.capture());
+        assertTrue(captor.getValue() instanceof ReviewApprovedEvent);
+        assertEquals(301L, ((ReviewApprovedEvent) captor.getValue()).getWorkId());
+    }
+
+    @Test
+    void rejectionMarksChaptersUnapprovedWithoutNotifyingApproval() {
+        ReviewRecord pending = record("pending");
+        pending.setTargetType("work");
+        pending.setTargetId(301L);
+        when(reviewRecordMapper.selectReviewRecordById(1L)).thenReturn(pending);
+        when(reviewRecordMapper.updateReviewRecord(any())).thenReturn(1);
+        assertEquals(200, reviewService.operateReview(1L, "revision", "修改正文", 1L, "管理员").get("code"));
+        verify(reviewWorkContentMapper).applyChapterReviewResult(301L, 1L, "2");
+        verify(eventPublisher, never()).publishEvent(any(Object.class));
     }
 
     @Test

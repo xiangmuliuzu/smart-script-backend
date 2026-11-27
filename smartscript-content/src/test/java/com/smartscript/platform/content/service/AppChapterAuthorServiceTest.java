@@ -13,6 +13,7 @@ import com.smartscript.platform.content.domain.SysWorkChapter;
 import com.smartscript.platform.content.dto.AppChapterCreateRequest;
 import com.smartscript.platform.content.mapper.SysContentWorkMapper;
 import com.smartscript.platform.content.mapper.SysWorkChapterMapper;
+import com.smartscript.platform.content.mapper.SysWorkReviewRecordMapper;
 import com.smartscript.platform.content.service.impl.AppChapterAuthorServiceImpl;
 import com.smartscript.platform.identity.IdentityProvider;
 
@@ -42,6 +43,7 @@ class AppChapterAuthorServiceTest
         service = new AppChapterAuthorServiceImpl();
         ReflectionTestUtils.setField(service, "chapterMapper", chapterMapper);
         ReflectionTestUtils.setField(service, "workMapper", workMapper);
+        ReflectionTestUtils.setField(service, "reviewRecordMapper", mock(SysWorkReviewRecordMapper.class));
         ReflectionTestUtils.setField(service, "identityProvider", identityProvider);
         when(identityProvider.currentUserId()).thenReturn(USER_ID);
     }
@@ -56,10 +58,11 @@ class AppChapterAuthorServiceTest
         request.setChapterNo(1);
         request.setChapterTitle("第一章");
         request.setContent("内容");
+        request.setIsFree("1"); // 旧客户端不能借新增接口打开试读。
 
         service.createChapter(WORK_ID, request);
 
-        verify(chapterMapper).insertChapter(argThat(c -> "1".equals(c.getStatus())));
+        verify(chapterMapper).insertChapter(argThat(c -> "1".equals(c.getStatus()) && "0".equals(c.getIsFree())));
         verify(workMapper).refreshWorkAggregates(WORK_ID);
     }
 }

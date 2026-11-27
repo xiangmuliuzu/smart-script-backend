@@ -15,6 +15,12 @@ public interface SysDemandMapper
     /** 与 selectDemandPage 成对的独立总数（同 where）。 */
     long countDemandList(SysDemand demand);
 
+    /**
+     * 定时扫描用：已过征集截止日期却仍为 open 的任务（广场口径的补集）。
+     * 只取关闭与通知需要的列，量级由 LIMIT 兜住，超出部分下一轮扫描继续处理。
+     */
+    List<SysDemand> selectExpiredOpenDemands();
+
     /** Hero 轻量统计（广场口径 status=open）：availableCount/prizePoolYuan/todayNewCount。 */
     java.util.Map<String, Object> selectDemandSquareStats();
 
@@ -46,6 +52,15 @@ public interface SysDemandMapper
     int claimDemand(@Param("demandId") Long demandId, @Param("creatorId") Long creatorId,
                     @Param("acceptedAt") Date acceptedAt, @Param("dueAt") Date dueAt,
                     @Param("updateBy") String updateBy);
+
+    /**
+     * 发布审核写回（CAS）：仅当任务仍为 pending_review 才生效。
+     * 通过→open（进广场），不通过→rejected（可改后重新提交）；审核意见/审核人/审核时间同批写入。
+     * 返回 0 表示已被并发处理（重复点击审核、或运营已同时改动状态），调用方不得再做副作用。
+     */
+    int updateAuditCas(@Param("demandId") Long demandId, @Param("status") String status,
+                       @Param("auditRemark") String auditRemark, @Param("auditorId") Long auditorId,
+                       @Param("updateBy") String updateBy);
 
     /** 状态与失败信息流转：仅更新非空字段（status/failReason） */
     int updateStatusAndFailReason(@Param("demandId") Long demandId, @Param("status") String status,

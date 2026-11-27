@@ -16,6 +16,16 @@ public interface ChatMessageMapper
     /** 会话内消息列表（按时间正序，分页） */
     List<ChatMessage> selectBySession(@Param("sessionId") Long sessionId);
 
+    /** 单条消息（撤回前置校验用，不带联表字段） */
+    ChatMessage selectMessageById(@Param("messageId") Long messageId);
+
+    /** 条件撤回：本人 + TEXT + 未撤回 + 时间窗口内，返回 0 表示未生效 */
+    int recallMessage(@Param("messageId") Long messageId,
+                      @Param("sessionId") Long sessionId,
+                      @Param("senderId") Long senderId,
+                      @Param("windowStart") java.util.Date windowStart,
+                      @Param("placeholder") String placeholder);
+
     /** 批量标记已读（会话中发给指定用户的消息） */
     int markReadBySession(@Param("sessionId") Long sessionId,
                           @Param("receiverId") Long receiverId,

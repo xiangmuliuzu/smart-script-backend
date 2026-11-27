@@ -22,6 +22,7 @@
         <result property="overdue"          column="is_overdue" />
         <result property="workId"           column="work_id" />
         <result property="workTitle"        column="work_title" />
+        <result property="workShelfStatus"  column="work_shelf_status" />
         <result property="aiScore"          column="ai_score" />
         <result property="aiResult"         column="ai_result" />
         <result property="aiReviewedAt"     column="ai_reviewed_at" />
@@ -56,7 +57,7 @@
     </delete>
 
     <select id="selectByDemandId" resultMap="StageResult">
-        SELECT s.*, w.title AS work_title
+        SELECT s.*, w.title AS work_title, w.status AS work_shelf_status
         FROM sys_demand_stage s
         LEFT JOIN sys_work w ON w.work_id = s.work_id
         WHERE s.demand_id = #{demandId}
@@ -64,7 +65,7 @@
     </select>
 
     <select id="selectByStageId" resultMap="StageResult">
-        SELECT s.*, w.title AS work_title
+        SELECT s.*, w.title AS work_title, w.status AS work_shelf_status
         FROM sys_demand_stage s
         LEFT JOIN sys_work w ON w.work_id = s.work_id
         WHERE s.stage_id = #{stageId}
@@ -232,6 +233,32 @@
         ORDER BY s.stage_id ASC
     </select>
 
+    <!-- 定时提醒扫描：未到截止但已进入 horizonMinutes 窗口的活动轮（跨全库）。
+         过滤条件与 selectOverdueActiveStages 逐条对应，只把「已过截止」换成「窗口内」；
+         已接单是硬条件——提醒只发给接单人，没接单的轮次发出去也没人收。 -->
+    <select id="selectDueSoonActiveStages" resultMap="StageResult">
+        SELECT s.*, w.title AS work_title
+        FROM sys_demand_stage s
+        JOIN sys_demand d ON d.demand_id = s.demand_id
+        LEFT JOIN sys_work w ON w.work_id = s.work_id
+        WHERE d.status = 'in_progress'
+          AND d.accepted_creator_id IS NOT NULL
+          AND s.started_at IS NOT NULL
+          AND s.status IN ('pending', 'rejected')
+          AND (s.extend_status IS NULL OR s.extend_status &lt;&gt; 'pending')
+          AND s.due_at IS NOT NULL
+          AND s.due_at &gt; NOW()
+          AND s.due_at &lt;= DATE_ADD(NOW(), INTERVAL #{horizonMinutes} MINUTE)
+          AND s.stage_order = (
+              SELECT MIN(s2.stage_order)
+              FROM sys_demand_stage s2
+              WHERE s2.demand_id = s.demand_id
+                AND s2.started_at IS NOT NULL
+                AND s2.status IN ('pending', 'ai_reviewing', 'submitted', 'rejected')
+          )
+        ORDER BY s.stage_id ASC
+    </select>
+
     <!-- 顺延截止（驳回恢复计时/延期批准/自主延期共用），并清零逾期 -->
     <update id="pushDue">
         UPDATE sys_demand_stage
@@ -267,20 +294,20 @@
         WHERE stage_id = #{stageId}
     </update>
 
-    <!-- 交付校验：读作品归属与上架状态 -->
+    <!-- 交付校验：读作品归属与书城状态；任务只允许 off_shelf -->
     <select id="selectWorkBrief" resultType="java.util.HashMap">
         SELECT work_id AS workId, author_id AS authorId, status, title
         FROM sys_work
         WHERE work_id = #{workId}
     </select>
 
-    <!-- 可交付作品：本人、未删除、非已上架售卖(on_shelf) -->
+    <!-- 可交付作品：本人、未删除、明确处于未上架(off_shelf) -->
     <select id="selectDeliverableWorks" resultType="java.util.HashMap">
-        SELECT work_id AS workId, title, status, update_time AS updateTime
+        SELECT work_id AS workId, title, status, status AS shelfStatus, update_time AS updateTime
         FROM sys_work
         WHERE author_id = #{authorId}
           AND is_deleted = 0
-          AND status &lt;&gt; 'on_shelf'
+          AND status = 'off_shelf'
         ORDER BY update_time DESC
     </select>
 

@@ -35,6 +35,10 @@ public interface SysWorkChapterMapper
      */
     public SysWorkChapter selectChapterDetail(Long chapterId);
 
+    SysWorkChapter selectChapterByNo(@Param("workId") Long workId, @Param("chapterNo") int chapterNo);
+
+    List<SysWorkChapter> selectPreviousChapters(@Param("workId") Long workId, @Param("chapterNo") int chapterNo);
+
     /**
      * 按作品ID查询章节列表（含 content 全文，用户端编辑用）
      *
@@ -102,6 +106,11 @@ public interface SysWorkChapterMapper
      * @return 影响行数
      */
     public int updateChapter(SysWorkChapter chapter);
+
+    int setApprovedChapterTrial(@org.apache.ibatis.annotations.Param("chapterId") Long chapterId,
+                                @org.apache.ibatis.annotations.Param("workId") Long workId,
+                                @org.apache.ibatis.annotations.Param("isFree") String isFree,
+                                @org.apache.ibatis.annotations.Param("operator") String operator);
 
     /**
      * 删除章节（物理删除：sys_work_chapter 无逻辑删除列）

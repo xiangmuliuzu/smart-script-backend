@@ -23,7 +23,7 @@ class AppAiContinuationControllerTest
 {
     private static final String MESSAGE = "请提供需要续写的正文";
     private final IAiWriteService service = mock(IAiWriteService.class);
-    private final MockMvc mvc = MockMvcBuilders.standaloneSetup(new AppAiController(service)).build();
+    private final MockMvc mvc = MockMvcBuilders.standaloneSetup(new AppAiController(service, null, null)).build();
 
     @Test
     void synchronousValidationReturnsTheApp400Envelope() throws Exception

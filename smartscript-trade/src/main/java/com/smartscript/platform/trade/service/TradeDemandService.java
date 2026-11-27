@@ -46,6 +46,10 @@ public class TradeDemandService
     public static final String DEMAND_STATUS_OPEN = "open";
     public static final String DEMAND_STATUS_CLOSED = "closed";
     public static final String DEMAND_STATUS_SELECTED = "selected";
+    /** 买方已提交，等待平台运营审核后才进入任务广场。 */
+    public static final String DEMAND_STATUS_PENDING_REVIEW = "pending_review";
+    /** 买方任务发布申请未通过审核；可修改后重新提交。 */
+    public static final String DEMAND_STATUS_REJECTED = "rejected";
     /** 接单制：已被抢单、进行中 */
     public static final String DEMAND_STATUS_IN_PROGRESS = "in_progress";
     /** 接单制：全部轮次验收通过、已完成 */
@@ -58,10 +62,76 @@ public class TradeDemandService
     private static final String OPERATOR_SYSTEM = "system";
     /** 接单制：未传时限时的默认完成时限（168 小时 = 7 天），仅用于无轮次的历史兼容单 */
     private static final int DEFAULT_DURATION_HOURS = 168;
+    /**
+     * 本轮截止前的提醒档位（小时，由宽到窄）：活动轮进入某一档位时提醒接单创作者一次。
+     * 取「最窄的已跨越档位」而非全部命中档位，保证一次扫描最多发一条。
+     */
+    private static final int[] DUE_SOON_HORIZONS_HOURS = { 24, 2 };
+
+    /**
+     * 征集截止判定：deadline 为空表示不设时限。
+     *
+     * <p>广场曝光（SQL 口径）、详情可见性与接单三处共用同一个判断，避免「列表看不到、
+     * 拼 demandId 仍能进详情并接单」的口径漂移。</p>
+     *
+     * <p>sys_demand.deadline 是 DATE 列（只到天，落地即当天 00:00），按业务口径
+     * 「截止日当天整天仍可接单」处理：只有走完截止日那一整天才算过期，
+     * 否则 11 月 20 日截止的任务会在 20 日早上就消失。</p>
+     */
+    public static boolean isRecruitExpired(SysDemand demand)
+    {
+        if (demand == null) return false;
+        Date deadline = demand.getDeadline();
+        if (deadline == null) return false;
+        Calendar todayStart = Calendar.getInstance();
+        todayStart.set(Calendar.HOUR_OF_DAY, 0);
+        todayStart.set(Calendar.MINUTE, 0);
+        todayStart.set(Calendar.SECOND, 0);
+        todayStart.set(Calendar.MILLISECOND, 0);
+        return deadline.before(todayStart.getTime());
+    }
+
+    /**
+     * 广场曝光口径：只有审核通过（open）且征集未截止的单对外可见。
+     * 待审核（pending_review）与被驳回（rejected）天然落在此集合之外，
+     * 列表、统计、抢单、自动关闭四处查询都以此为界，读侧不需要再按状态各写一遍。
+     */
+    public static boolean isSquareVisible(SysDemand demand)
+    {
+        return demand != null && DEMAND_STATUS_OPEN.equals(demand.getStatus()) && !isRecruitExpired(demand);
+    }
+
+    /**
+     * 是否已退出广场、只留给当事人：待审核与被驳回是审核队列内容，征集已过截止的 open 单不再收单。
+     *
+     * <p>与「广场曝光」不是取反关系：进行中、已完成、已关闭等收尾状态早已不在广场列表里，
+     * 但需求内容与轮次排期不是隐私，详情与轮次读取仍对登录用户开放，只是交付材料按身份裁剪。
+     * 详情、轮次两处共用此口径，避免出现「详情打得开、轮次读不出」的半坏页面。</p>
+     */
+    public static boolean isOffSquare(SysDemand demand)
+    {
+        if (demand == null)
+        {
+            return true;
+        }
+        String status = demand.getStatus();
+        if (DEMAND_STATUS_PENDING_REVIEW.equals(status) || DEMAND_STATUS_REJECTED.equals(status))
+        {
+            return true;
+        }
+        return DEMAND_STATUS_OPEN.equals(status) && isRecruitExpired(demand);
+    }
+
+    /** 参与者口径：需求方本人或接单创作者，其余登录用户只能看广场内容。 */
+    public static boolean isDemandParticipant(SysDemand demand, Long viewerId)
+    {
+        if (demand == null || viewerId == null) return false;
+        return viewerId.equals(demand.getClientId()) || viewerId.equals(demand.getAcceptedCreatorId());
+    }
 
     /**
      * 托管与押金资金状态常量已随需求域资金链路退役（sys_demand 的历史资金列仅作留档读取）。
-     * 任务发布权收归管理端后，平台在站外与需求方结算，广场可接口径只看 status=open。
+     * 需求方自助发布的单先经运营审核进广场，验收链路仍由平台运营代执行。
      */
 
     /** 任务类型：只征集剧本 / 剧本+分镜都要 / 提供剧本做分镜 */
@@ -257,25 +327,80 @@ public class TradeDemandService
         demand.setFailAt(now);
         demand.setOverdue(1);
         demand.setDueAt(active.getDueAt());
-        notifyService.notifyDemandRoundFailed(demand.getDemandId(), demand.getTitle(),
-                active.getStageOrder(), reason, demand.getClientId(), demand.getAcceptedCreatorId());
+        notifyService.notifyDemandRoundFailed(demand, active.getStageOrder(), reason,
+                demand.getAcceptedCreatorId());
         return true;
     }
 
     /**
      * 定时扫描入口（供 tradeDemandTask.expireOverdueRounds 调用）：
      * ① 先把发布者超过 24 小时未处理的延时申请自动驳回——pending 会暂停超时判定，不先驳回则到期任务永远判不掉；
-     * ② 再终止全部已过截止且仍在计时的活动轮。
+     * ② 再终止全部已过截止且仍在计时的活动轮；
+     * ③ 最后关闭已过征集截止日期仍挂 open 的任务。
      * 单条异常仅记日志不中断整批（下一轮扫描仍会重试）；终止自身是 CAS、通知按 requestId 幂等，重复执行安全。
      * 无事务上下文：逐条写入各自提交，与读路径惰性判定的现有行为保持一致。
      *
-     * @return 本次生效的处置条数（自动驳回数 + 超时终止数）
+     * @return 本次生效的处置条数（自动驳回数 + 超时终止数 + 过期征集关闭数）
      */
     public int expireOverdueRounds()
     {
         int rejected = autoRejectStaleExtendApplies();
         int failed = terminateOverdueRounds();
-        return rejected + failed;
+        int closed = closeExpiredRecruits();
+        return rejected + failed + closed;
+    }
+
+    /**
+     * 跨全库扫描临近截止的活动轮，按档位提醒接单创作者。
+     * <p>与超时终止同一个入口：同一轮同一档位只发一条（幂等键见 TradeNotifyService），
+     * 所以本方法可以被高频调用而不刷屏；延时批准后截止时刻变化，档位会重新计数一次。
+     *
+     * @return 命中并投递提醒的轮次数（含幂等去重后的实际落库由通知层保证）
+     */
+    public int remindDueSoonRounds()
+    {
+        int maxHorizonMinutes = DUE_SOON_HORIZONS_HOURS[0] * 60;
+        int count = 0;
+        for (SysDemandStage stage : stageMapper.selectDueSoonActiveStages(maxHorizonMinutes))
+        {
+            try
+            {
+                SysDemand demand = demandMapper.selectDemandById(stage.getDemandId());
+                if (demand == null || !DEMAND_STATUS_IN_PROGRESS.equals(demand.getStatus())
+                        || demand.getAcceptedCreatorId() == null)
+                {
+                    continue;
+                }
+                long remainingMinutes = (stage.getDueAt().getTime() - System.currentTimeMillis() + 59_999) / 60_000;
+                int horizonHours = tightestCrossedHorizon(remainingMinutes);
+                if (horizonHours <= 0)
+                {
+                    continue;
+                }
+                notifyService.notifyStageDueSoon(demand, stage, horizonHours, remainingMinutes);
+                count++;
+            }
+            catch (Exception e)
+            {
+                log.warn("定时临近截止提醒失败 demandId={} stageId={}: {}",
+                        stage.getDemandId(), stage.getStageId(), e.getMessage());
+            }
+        }
+        return count;
+    }
+
+    /** 取剩余时长已落入的最窄档位：进入 2 小时窗口后只发 2H，不再重复发 24H。 */
+    private int tightestCrossedHorizon(long remainingMinutes)
+    {
+        int matched = 0;
+        for (int hours : DUE_SOON_HORIZONS_HOURS)
+        {
+            if (remainingMinutes <= hours * 60L)
+            {
+                matched = hours;
+            }
+        }
+        return matched;
     }
 
     /** 跨全库扫描已到期的活动轮，逐条复用读路径同一个终止方法。 */
@@ -422,6 +547,10 @@ public class TradeDemandService
         {
             throw new RuntimeException("该任务已被接单或不可接单");
         }
+        if (isRecruitExpired(demand))
+        {
+            throw new RuntimeException("该任务征集已截止，不可接单");
+        }
         if (creatorId != null && creatorId.equals(demand.getClientId()))
         {
             throw new RuntimeException("不能接自己发布的任务");
@@ -443,27 +572,60 @@ public class TradeDemandService
         {
             stageMapper.activateStage(round1.getStageId(), now, dueAt, String.valueOf(creatorId));
         }
-        notifyService.notifyDemandClaimed(demandId, demand.getTitle(), demand.getClientId(), null);
-        return demandMapper.selectDemandById(demandId);
+        // 重取一次带接单人姓名的视图再通知，公告里运营能直接看到是谁接的单
+        SysDemand claimed = demandMapper.selectDemandById(demandId);
+        notifyService.notifyDemandClaimed(claimed != null ? claimed : demand);
+        return claimed;
     }
 
     /**
-     * 编辑任务（仅运营管理员入口调用）：更新主字段并重建验收轮次。
+     * 编辑任务（运营代客建单入口）：更新主字段并重建验收轮次。
      *
      * <p>前置：任务存在、status=open（未被接单/未关闭）；提供 stages 则先校验后删旧插新重建。
      * 调用方是带 {@code trade:demand:edit} 权限的管理端接口，授权由权限位把关，
-     * 服务层不再比对 client_id（发布权已收归平台，历史单的 client_id 可能是普通用户）。</p>
+     * 服务层不再比对 client_id（历史单的 client_id 可能是普通用户）。</p>
      */
     @Transactional
     public SysDemand updateDemand(SysDemand demand, List<SysDemandStage> stages, Long operatorId)
+    {
+        return editDemand(demand, stages, operatorId, false);
+    }
+
+    /**
+     * 需求方修改自己的发布申请：待审核中的单可直接改，被驳回的单改后自动回到待审核。
+     *
+     * <p>与运营编辑的差别只有三点：只认本人（client_id）的单、只在未进广场前可改、
+     * 重新提交要作废上一轮审核意见并回到 pending_review。校验与轮次重建共用运营编辑的实现，
+     * 避免两条链路对「末轮金额=预算差额」这类口径各写一遍。</p>
+     */
+    @Transactional
+    public SysDemand updateDemandByBuyer(SysDemand demand, List<SysDemandStage> stages, Long buyerId)
+    {
+        return editDemand(demand, stages, buyerId, true);
+    }
+
+    private SysDemand editDemand(SysDemand demand, List<SysDemandStage> stages, Long operatorId, boolean byBuyer)
     {
         if (demand == null || demand.getDemandId() == null)
         {
             throw new RuntimeException("任务ID缺失");
         }
+        if (byBuyer && operatorId == null)
+        {
+            throw new RuntimeException("请先登录");
+        }
         SysDemand existing = demandMapper.selectDemandForUpdate(demand.getDemandId());
         if (existing == null) throw new RuntimeException("任务不存在");
-        if (!DEMAND_STATUS_OPEN.equals(existing.getStatus()))
+        if (byBuyer)
+        {
+            if (!operatorId.equals(existing.getClientId())) throw new RuntimeException("只能修改自己提交的任务");
+            if (!DEMAND_STATUS_PENDING_REVIEW.equals(existing.getStatus())
+                    && !DEMAND_STATUS_REJECTED.equals(existing.getStatus()))
+            {
+                throw new RuntimeException("任务已通过审核，如需调整请联系平台客服");
+            }
+        }
+        else if (!DEMAND_STATUS_OPEN.equals(existing.getStatus()))
         {
             throw new RuntimeException("任务已被接单或已关闭，不可编辑");
         }
@@ -479,7 +641,7 @@ public class TradeDemandService
             demand.setSourceScriptUrl(existing.getSourceScriptUrl());
             demand.setSourceScriptName(existing.getSourceScriptName());
         }
-        normalizeAndValidateTaskType(demand);
+        normalizeAndValidateTaskType(demand, byBuyer);
         // 总集数必填；未显式配置轮次时也固定生成最后一轮验收
         if (demand.getTotalEpisodes() == null || demand.getTotalEpisodes() <= 0)
         {
@@ -491,9 +653,14 @@ public class TradeDemandService
         }
         validateStages(demand, stages);
         demand.setUpdateBy(String.valueOf(operatorId));
+        if (byBuyer)
+        {
+            // 重新提交即重新排队：上一轮审核意见随本次改动作废
+            demand.setResetAudit(true);
+        }
         demandMapper.updateDemand(demand);
 
-        // 重建轮次：先删后插（任务仍为 open 未接单，旧轮必为 pending，无交付数据丢失风险）
+        // 重建轮次：先删后插（任务尚未被接单，旧轮必为 pending，无交付数据丢失风险）
         stageMapper.deleteByDemandId(demand.getDemandId());
         if (stages != null && !stages.isEmpty())
         {
@@ -507,7 +674,96 @@ public class TradeDemandService
             }
             stageMapper.insertBatch(stages);
         }
-        return demandMapper.selectDemandById(demand.getDemandId());
+
+        if (byBuyer && DEMAND_STATUS_REJECTED.equals(existing.getStatus()))
+        {
+            // 行锁内已确认仍是被驳回态，CAS 只可能命中；走状态机口径回到待审核
+            demandMapper.updateStatusCas(demand.getDemandId(), DEMAND_STATUS_PENDING_REVIEW,
+                    String.valueOf(operatorId), DEMAND_STATUS_REJECTED);
+        }
+        SysDemand saved = demandMapper.selectDemandById(demand.getDemandId());
+        if (byBuyer)
+        {
+            notifyService.notifyDemandPublishSubmitted(saved, auditStamp(saved), true);
+        }
+        return saved;
+    }
+
+    /**
+     * 需求方自助发布：建单即进入待审核，运营通过后才出现在任务广场。
+     *
+     * <p>与运营代客建单的差别只在归属与初始状态：需求方固定是登录本人、
+     * storyboard 的源剧本必须是本人作品、状态落 pending_review。
+     * 轮次与金额校验沿用 {@link #insertDemand(SysDemand, List)}，与运营链路同一口径。</p>
+     */
+    @Transactional
+    public SysDemand insertDemandByBuyer(SysDemand demand, List<SysDemandStage> stages, Long buyerId)
+    {
+        if (buyerId == null)
+        {
+            throw new RuntimeException("请先登录");
+        }
+        demand.setClientId(buyerId);
+        // APP 域 principal 是 Long userId，不是 LoginUser，create_by 由调用侧显式落本人
+        demand.setCreateBy(String.valueOf(buyerId));
+        demand.setStatus(DEMAND_STATUS_PENDING_REVIEW);
+        normalizeAndValidateTaskType(demand, true);
+        insertDemand(demand, stages);
+        SysDemand created = demandMapper.selectDemandById(demand.getDemandId());
+        notifyService.notifyDemandPublishSubmitted(created != null ? created : demand,
+                auditStamp(created != null ? created : demand), false);
+        return created;
+    }
+
+    /** 运营审核通过：任务进入任务广场（open），可被创作者接单。 */
+    @Transactional
+    public SysDemand approveDemandPublish(Long demandId, Long operatorId)
+    {
+        return decideDemandPublish(demandId, operatorId, true, null);
+    }
+
+    /** 运营审核驳回：任务留在需求方名下（rejected），可修改后重新提交，驳回理由必填。 */
+    @Transactional
+    public SysDemand rejectDemandPublish(Long demandId, Long operatorId, String rejectReason)
+    {
+        if (rejectReason == null || rejectReason.trim().isEmpty())
+        {
+            throw new RuntimeException("请填写驳回原因");
+        }
+        return decideDemandPublish(demandId, operatorId, false, rejectReason.trim());
+    }
+
+    private SysDemand decideDemandPublish(Long demandId, Long operatorId, boolean approved, String auditRemark)
+    {
+        SysDemand demand = demandMapper.selectDemandById(demandId);
+        if (demand == null) throw new RuntimeException("任务不存在");
+        if (!DEMAND_STATUS_PENDING_REVIEW.equals(demand.getStatus()))
+        {
+            throw new RuntimeException("该任务不在待审核列表中");
+        }
+        String target = approved ? DEMAND_STATUS_OPEN : DEMAND_STATUS_REJECTED;
+        // CAS（where status='pending_review'）：审核只有一个人能点成，重复提交或并发变更时不再二次通知
+        int changed = demandMapper.updateAuditCas(demandId, target,
+                approved ? null : auditRemark, operatorId, String.valueOf(operatorId));
+        if (changed == 0)
+        {
+            throw new RuntimeException("该任务已被审核，请刷新后重试");
+        }
+        SysDemand audited = demandMapper.selectDemandById(demandId);
+        notifyService.notifyDemandPublishAudited(audited != null ? audited : demand,
+                approved, auditRemark, auditStamp(audited != null ? audited : demand));
+        return audited;
+    }
+
+    /** 通知幂等键里的动作刻度：同一单的重复「提交/审核」要能各落一条，故带上库内时间。 */
+    private static long auditStamp(SysDemand demand)
+    {
+        if (demand == null)
+        {
+            return System.currentTimeMillis();
+        }
+        Date stamp = demand.getUpdatedAt() != null ? demand.getUpdatedAt() : demand.getCreatedAt();
+        return stamp == null ? System.currentTimeMillis() : stamp.getTime();
     }
 
     /** 建单/改单共用的基础字段校验（标题/截止日期/联系电话格式）。 */
@@ -532,11 +788,16 @@ public class TradeDemandService
     /**
      * 任务类型归一与校验（建单/改单共用）：
      * 缺省回落 script；storyboard 必须至少提供一种源剧本（作品或上传文件），
-     * 选作品时只校验作品存在——发布权已收归平台，源剧本由运营按需求方授权代选，
-     * 不再要求它属于 client_id 对应用户（新单 client_id 是运营账号）。
+     * 选作品时只校验作品存在——运营代客建单不校验归属（新单 client_id 是运营账号）；
+     * 买方自助发布（requireOwnedSourceWork）时源剧本必须属于本人。
      * 非 storyboard 类型清空源剧本字段，防止改类型后残留。
      */
     private void normalizeAndValidateTaskType(SysDemand demand)
+    {
+        normalizeAndValidateTaskType(demand, false);
+    }
+
+    private void normalizeAndValidateTaskType(SysDemand demand, boolean requireOwnedSourceWork)
     {
         String type = demand.getTaskType() == null || demand.getTaskType().trim().isEmpty()
                 ? TASK_TYPE_SCRIPT : demand.getTaskType().trim();
@@ -561,9 +822,17 @@ public class TradeDemandService
         {
             throw new RuntimeException("提供剧本做分镜的任务，请选择源剧本作品或上传剧本文件");
         }
-        if (demand.getSourceWorkId() != null && stageMapper.selectWorkBrief(demand.getSourceWorkId()) == null)
+        if (demand.getSourceWorkId() != null)
         {
-            throw new RuntimeException("源剧本作品不存在");
+            Map<String, Object> source = stageMapper.selectWorkBrief(demand.getSourceWorkId());
+            if (source == null)
+            {
+                throw new RuntimeException("源剧本作品不存在");
+            }
+            if (requireOwnedSourceWork && !String.valueOf(demand.getClientId()).equals(String.valueOf(source.get("authorId"))))
+            {
+                throw new RuntimeException("源剧本作品必须属于本人");
+            }
         }
     }
 
@@ -710,7 +979,8 @@ public class TradeDemandService
 
     /**
      * 创作者提交本轮交付物。
-     * script/script_storyboard：必须携带本人作品（work_id），已上架售卖（on_shelf）作品不得用于交付；
+     * script/script_storyboard：必须携带本人处于 off_shelf 的作品（work_id）；
+     * 任务交付审核是独立的验收流程，不会创建作品审核记录，也不会修改 sys_work.status；
      * 提交后本轮先进入 AI 审核（ai_reviewing）：计时暂停，后台 AI 打分 >=60 自动转人工验收(submitted)，
      * <60 自动打回(rejected)，AI 审核本身不需要人工介入。
      * storyboard（提供剧本做分镜）：分镜无剧本正文可审，作品可选（未选作品时须给文件链接或交付说明），
@@ -774,9 +1044,9 @@ public class TradeDemandService
             {
                 throw new RuntimeException("只能交付自己创作的作品");
             }
-            if ("on_shelf".equals(String.valueOf(work.get("status"))))
+            if (!"off_shelf".equals(String.valueOf(work.get("status"))))
             {
-                throw new RuntimeException("作品已上架售卖，不能用于任务交付；请先下架后再提交");
+                throw new RuntimeException("只能提交未上架作品；请先将作品下架后再提交任务");
             }
         }
 
@@ -963,8 +1233,8 @@ public class TradeDemandService
         // 轮次行快照：供列表快速展示待处理状态与审核入口
         stageMapper.requestExtend(stageId, days, hours,
                 apply.getReason(), String.valueOf(creatorId));
-        notifyService.notifyExtendRequested(apply.getApplyId(), demandId, demand.getTitle(),
-                active.getStageOrder(), days, hours, apply.getReason(), demand.getClientId());
+        notifyService.notifyExtendRequested(apply.getApplyId(), demand, active.getStageOrder(),
+                days, hours, apply.getReason());
         return stageMapper.selectByStageId(stageId);
     }
 
@@ -1161,6 +1431,93 @@ public class TradeDemandService
     }
 
     /**
+     * APP/PC 普通用户读取轮次列表：可见集合与任务详情严格一致，交付字段按身份裁剪。
+     *
+     * <p>广场上的单（open 且征集未截止）对所有人公开排期（第几轮、收到第几集、金额、时限），
+     * 但交付说明、文件地址、作品与 AI 评分属于验收材料，只有需求方、接单创作者能看；
+     * 待审核/被驳回/已过征集截止的单按「不存在」处理，与详情接口同一口径，
+     * 避免未过审的需求内容从轮次口漏出去。</p>
+     */
+    public List<SysDemandStage> selectStagesForViewer(Long demandId, Long viewerId)
+    {
+        SysDemand demand = demandMapper.selectDemandById(demandId);
+        if (demand == null) throw new RuntimeException("任务不存在");
+        boolean participant = isDemandParticipant(demand, viewerId);
+        if (!participant && isOffSquare(demand))
+        {
+            throw new RuntimeException("任务不存在");
+        }
+        List<SysDemandStage> stages = stageMapper.selectByDemandId(demandId);
+        if (participant || stages == null)
+        {
+            return stages;
+        }
+        for (SysDemandStage s : stages)
+        {
+            s.setDeliverableDesc(null);
+            s.setDeliverableUrl(null);
+            s.setWorkId(null);
+            s.setWorkTitle(null);
+            s.setWorkShelfStatus(null);
+            s.setAiScore(null);
+            s.setAiResult(null);
+        }
+        return stages;
+    }
+
+    /**
+     * 参与者查看某轮交付作品（用户端入口，与运营验收同一个读取实现，前面多一道身份闸）。
+     *
+     * <p>需求方只有在整单完成（末轮验收通过）后才能看到最终作品，且只能看末轮那一版；
+     * 中途通过的轮次是过程稿，交付给需求方会绕过「按轮验收由平台代办」的口径。
+     * 接单创作者看的是自己交付的作品，本人本就有权读全文，不受完成状态限制。</p>
+     */
+    public Map<String, Object> selectDeliverableWorkForViewer(Long demandId, Long stageId, Long viewerId)
+    {
+        if (viewerId == null) throw new RuntimeException("请先登录");
+        SysDemand demand = demandMapper.selectDemandById(demandId);
+        if (demand == null) throw new RuntimeException("任务不存在");
+        if (viewerId.equals(demand.getAcceptedCreatorId()))
+        {
+            return selectStageDeliveredWork(demandId, stageId);
+        }
+        if (!viewerId.equals(demand.getClientId()))
+        {
+            throw new RuntimeException("无权查看该交付作品");
+        }
+        if (!DEMAND_STATUS_COMPLETED.equals(demand.getStatus()))
+        {
+            throw new RuntimeException("任务尚未完成验收，暂不可查看交付作品");
+        }
+        SysDemandStage finalStage = lastStage(stageMapper.selectByDemandId(demandId));
+        if (finalStage == null || !finalStage.getStageId().equals(stageId))
+        {
+            throw new RuntimeException("需求方仅可查看最后一轮的交付作品");
+        }
+        if (!SysDemandStage.STAGE_STATUS_APPROVED.equals(finalStage.getStatus()))
+        {
+            throw new RuntimeException("最后一轮尚未验收通过");
+        }
+        return selectStageDeliveredWork(demandId, stageId);
+    }
+
+    /** 末轮（stage_order 最大者）：整单完成时通过验收的最后一轮，即需求方可见的最终交付。 */
+    private static SysDemandStage lastStage(List<SysDemandStage> stages)
+    {
+        if (stages == null || stages.isEmpty()) return null;
+        SysDemandStage last = null;
+        for (SysDemandStage s : stages)
+        {
+            if (s.getStageOrder() == null) continue;
+            if (last == null || last.getStageOrder() == null || s.getStageOrder() > last.getStageOrder())
+            {
+                last = s;
+            }
+        }
+        return last;
+    }
+
+    /**
      * 查看某轮交付作品（验收动作，现由平台运营在管理端执行）。
      *
      * <p>为什么要在 trade 域开这个口：交付作品一定未上架（deliverStage 拒 on_shelf 交付），
@@ -1351,6 +1708,7 @@ public class TradeDemandService
 
     /**
      * 关闭征集（运营在管理端截止）。调用方须具备 trade:demand:edit 权限，服务层不再比对发布者身份。
+     * 关闭后向管理端公告投递一条记录：操作者本人看得见，其他运营也需要知道该单已不再征集。
      */
     public int closeDemand(Long demandId, Long operatorId)
     {
@@ -1361,7 +1719,45 @@ public class TradeDemandService
         int changed = demandMapper.updateStatusCas(demandId, DEMAND_STATUS_CLOSED,
                 String.valueOf(operatorId), DEMAND_STATUS_OPEN);
         if (changed == 0) throw new RuntimeException("任务状态已变更，请刷新后重试");
+        notifyService.notifyDemandClosed(demand, false);
         return changed;
+    }
+
+    /**
+     * 定时扫描：把「征集截止日期已过但状态仍为 open」的任务自动关闭。
+     *
+     * <p>发布权收归平台后没有人再手工盯这些单：它们早已不在任务广场展示、也接不了单，
+     * 却仍挂着 open 状态，运营在管理端列表里看不出它到底还有没有戏。到点即关闭，
+     * 并投递一条管理端公告让运营知道（自动处置无人当场可见）。
+     *
+     * <p>逐条 CAS（open→closed），落败说明已被并发接单或关闭，跳过即可；
+     * 单条异常仅记日志，下一轮扫描仍会重试。
+     *
+     * @return 本次关闭的条数
+     */
+    public int closeExpiredRecruits()
+    {
+        List<SysDemand> expired = demandMapper.selectExpiredOpenDemands();
+        int count = 0;
+        for (SysDemand demand : expired)
+        {
+            try
+            {
+                int changed = demandMapper.updateStatusCas(demand.getDemandId(), DEMAND_STATUS_CLOSED,
+                        OPERATOR_SYSTEM, DEMAND_STATUS_OPEN);
+                if (changed == 0)
+                {
+                    continue;
+                }
+                notifyService.notifyDemandClosed(demand, true);
+                count++;
+            }
+            catch (Exception e)
+            {
+                log.warn("过期征集自动关闭失败 demandId={}: {}", demand.getDemandId(), e.getMessage());
+            }
+        }
+        return count;
     }
 
     /**
@@ -1395,8 +1791,9 @@ public class TradeDemandService
         submissionMapper.insertSubmission(sub);
         demandMapper.incrementSubmissionCount(demandId);
 
-        // 通知发布者
-        notifyService.notifyDemandSubmitted(sub.getSubmissionId(), demandId, demand.getTitle(), demand.getClientId());
+        // 通知平台评审：投稿行回读一次，取联表的作品标题与投稿人昵称，正文才带得全
+        SysDemandSubmission saved = submissionMapper.selectSubmissionById(sub.getSubmissionId());
+        notifyService.notifyDemandSubmitted(demand, saved != null ? saved : sub);
         return sub;
     }
 
@@ -1413,8 +1810,8 @@ public class TradeDemandService
         int changed = submissionMapper.updateStatus(submissionId, SUBMISSION_STATUS_SHORTLISTED, null, String.valueOf(operatorId));
         if (changed == 1)
         {
-            notifyService.notifySubmissionShortlisted(submissionId, sub.getDemandId(), demand.getTitle(),
-                    sub.getSubmitterId(), sub.getWorkTitle());
+            notifyService.notifySubmissionShortlisted(submissionId, sub.getDemandId(), demand.getDemandNo(),
+                    demand.getTitle(), sub.getSubmitterId(), sub.getWorkTitle());
         }
         return changed;
     }
@@ -1445,7 +1842,8 @@ public class TradeDemandService
                     && SUBMISSION_STATUS_REJECTED.equals(other.getStatus()))
             {
                 notifyService.notifySubmissionRejected(other.getSubmissionId(), demand.getDemandId(),
-                        demand.getTitle(), other.getSubmitterId(), other.getWorkTitle(), "本征集已选定其他投稿");
+                        demand.getDemandNo(), demand.getTitle(), other.getSubmitterId(),
+                        other.getWorkTitle(), "本征集已选定其他投稿");
             }
         }
 
@@ -1461,8 +1859,9 @@ public class TradeDemandService
         inquiry.setCreateBy(String.valueOf(demand.getClientId()));
         SysInquiry created = inquiryService.createInquiry(inquiry);
 
-        // 通知投稿者
-        notifyService.notifySubmissionAccepted(submissionId, sub.getSubmitterId(), demand.getTitle());
+        // 通知投稿者：中标后的下一步在自动创建的询盘里报价，故带询盘定位
+        notifyService.notifySubmissionAccepted(submissionId, sub.getDemandId(), demand.getTitle(),
+                sub.getWorkTitle(), created.getInquiryId(), created.getInquiryNo(), sub.getSubmitterId());
         return created;
     }
 
@@ -1479,8 +1878,8 @@ public class TradeDemandService
         int changed = submissionMapper.updateStatus(submissionId, SUBMISSION_STATUS_REJECTED, remark, String.valueOf(operatorId));
         if (changed == 1)
         {
-            notifyService.notifySubmissionRejected(submissionId, sub.getDemandId(), demand.getTitle(),
-                    sub.getSubmitterId(), sub.getWorkTitle(), remark);
+            notifyService.notifySubmissionRejected(submissionId, sub.getDemandId(), demand.getDemandNo(),
+                    demand.getTitle(), sub.getSubmitterId(), sub.getWorkTitle(), remark);
         }
         return changed;
     }

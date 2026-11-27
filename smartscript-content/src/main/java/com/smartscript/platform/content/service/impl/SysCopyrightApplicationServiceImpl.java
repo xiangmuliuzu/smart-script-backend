@@ -24,6 +24,7 @@ import com.smartscript.platform.content.service.ISysWorkService;
 import com.smartscript.platform.content.service.ISysWorkFileService;
 import com.smartscript.platform.content.domain.SysWorkFile;
 import com.smartscript.platform.content.util.CopyrightStatusUtil;
+import com.smartscript.platform.content.service.RightsStatusNotifyService;
 import com.ruoyi.system.service.ISysUserService;
 import com.ruoyi.common.core.domain.entity.SysUser;
 
@@ -72,6 +73,9 @@ public class SysCopyrightApplicationServiceImpl implements ISysCopyrightApplicat
     @Lazy
     @Autowired
     private ICopyrightThirdPartyMessageService thirdPartyMessageService;
+
+    @Autowired
+    private RightsStatusNotifyService rightsStatusNotifyService;
 
     @Override
     public SysCopyrightApplication selectCopyrightApplicationByApplyId(Long applyId)
@@ -263,6 +267,7 @@ public class SysCopyrightApplicationServiceImpl implements ISysCopyrightApplicat
             );
 
             String status = (String) statusInfo.get("status");
+            String previousStatus = application.getStatus();
 
             // Mock/第三方返回「要求补正」：走消息+补正单链路（截止+30天、不重交官费）
             if (CopyrightStatusUtil.STATUS_NEED_SUPPLEMENT.equals(status))
@@ -295,16 +300,27 @@ public class SysCopyrightApplicationServiceImpl implements ISysCopyrightApplicat
             log.info("同步申请状态: applyId={}, status={}", applyId, status);
 
             int updateResult = copyrightApplicationMapper.updateCopyrightApplication(application);
-            
-            if (CopyrightStatusUtil.STATUS_CERTIFICATED.equals(status)) {
+            boolean statusChanged = previousStatus == null || !previousStatus.equals(status);
+
+            if (CopyrightStatusUtil.STATUS_CERTIFICATED.equals(status) && statusChanged) {
                 try {
-                    copyrightCertService.createCertFromApplication(application);
+                    var cert = copyrightCertService.ensureCertFromApplication(application);
                     log.info("自动创建电子证书成功: applyId={}, certNo={}", applyId, application.getCertNo());
+                    if (cert != null && cert.getCertId() != null)
+                    {
+                        rightsStatusNotifyService.notifyCopyrightCertificated(
+                                application, cert.getCertId(), "sync");
+                    }
                 }
                 catch (Exception certEx) {
                     log.error("自动创建电子证书失败: applyId=" + applyId, certEx);
                     // 不抛出异常，避免影响状态同步
                 }
+            }
+            else if (CopyrightStatusUtil.STATUS_REJECTED.equals(status) && statusChanged)
+            {
+                rightsStatusNotifyService.notifyCopyrightRejected(
+                        application, application.getRejectReason(), "sync");
             }
             
             return updateResult;

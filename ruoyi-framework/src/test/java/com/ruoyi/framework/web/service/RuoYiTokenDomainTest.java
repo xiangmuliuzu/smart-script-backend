@@ -48,6 +48,7 @@ class RuoYiTokenDomainTest
         ReflectionTestUtils.setField(tokens, "secret", SECRET);
         ReflectionTestUtils.setField(tokens, "header", "Authorization");
         ReflectionTestUtils.setField(tokens, "expireTime", 30);
+        ReflectionTestUtils.setField(tokens, "appExpireTime", 7 * 24 * 60);
         doNothing().when(tokens).setUserAgent(any());
     }
 
@@ -84,9 +85,41 @@ class RuoYiTokenDomainTest
         String jwt = tokens.createToken(app);
         app.setExpireTime(System.currentTimeMillis() + 60_000);
         tokens.verifyToken(app);
-        assertTrue(app.getExpireTime() > System.currentTimeMillis() + 25 * 60_000);
+        assertTrue(app.getExpireTime() > System.currentTimeMillis() + 6 * 24 * 60 * 60_000L);
         app.setExpireTime(System.currentTimeMillis() - 1);
         assertNull(tokens.getLoginUser(jwt));
+    }
+
+    @Test
+    void appSessionSlidesToSevenDaysAndAdminStaysAtThirtyMinutes()
+    {
+        long now = System.currentTimeMillis();
+        long sevenDays = 7 * 24 * 60 * 60_000L;
+
+        LoginUser app = user(8, "app");
+        tokens.createToken(app);
+        assertTrue(app.getExpireTime() - now >= sevenDays - 5_000, "App 会话创建即 7 天有效期");
+
+        // 用了 3 天后仍有 4 天剩余：不足「7天-1小时」，续期会把过期时间推回 now + 7 天
+        app.setExpireTime(now + 4 * 24 * 60 * 60_000L);
+        tokens.verifyToken(app);
+        assertTrue(app.getExpireTime() - now >= sevenDays - 5_000, "App 会话按最后活跃时间滑动续期");
+
+        // 刚续期不久（只剩 6 天 23 小时）不重复写 Redis
+        long recentlyRenewed = app.getExpireTime();
+        tokens.verifyToken(app);
+        assertEquals(recentlyRenewed, app.getExpireTime(), "1 小时内不重复续期");
+
+        // 管理端仍按 30 分钟 + 剩 20 分钟才续的原口径
+        LoginUser admin = user(1, "admin");
+        tokens.createToken(admin);
+        assertTrue(admin.getExpireTime() - now <= 30 * 60_000L + 5_000);
+        admin.setExpireTime(now + 25 * 60_000L);
+        tokens.verifyToken(admin);
+        assertEquals(now + 25 * 60_000L, admin.getExpireTime(), "管理端剩余超过 20 分钟不续期");
+        admin.setExpireTime(now + 10 * 60_000L);
+        tokens.verifyToken(admin);
+        assertTrue(admin.getExpireTime() - now > 29 * 60_000L, "管理端剩余不足 20 分钟续到 30 分钟");
     }
 
     @Test

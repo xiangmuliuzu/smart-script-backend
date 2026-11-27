@@ -55,6 +55,13 @@ public class AppAuthAuthenticationFilter extends OncePerRequestFilter
             "/auth/password/reset",
             "/auth/register",
             "/auth/agreements",
+            // App 版本检查：冷启动登录前就要拿到版本信息，匿名可达。
+            "/app/version",
+            // 扫码登录：PC 登录页出码与轮询在拿到任何身份之前发生，必须匿名可达；
+            // 扫码 / 确认 / 取消不在此列，仍按需要 App 身份处理。
+            "/auth/qr/create",
+            "/auth/qr/poll",
+            "/auth/qr/abort",
             "/pc-auth/login",
             // 运维端忘记密码：两个 POST 匿名可达，前缀匹配同时覆盖 sms/send 与 password/reset。
             "/pc-auth/admin",

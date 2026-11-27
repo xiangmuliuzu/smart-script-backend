@@ -6,20 +6,25 @@ import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.Objects;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import com.smartscript.platform.content.domain.SysWork;
 import com.smartscript.platform.content.domain.SysTag;
 import com.smartscript.platform.content.domain.SysWorkChapter;
 import com.smartscript.platform.content.domain.SysWorkReviewRecord;
+import com.smartscript.platform.content.exception.AiServiceUnavailableException;
+import com.smartscript.platform.content.mapper.AppAiWriteRecordMapper;
 import com.smartscript.platform.content.mapper.SysContentWorkMapper;
 import com.smartscript.platform.content.mapper.SysTagMapper;
 import com.smartscript.platform.content.mapper.SysWorkChapterMapper;
 import com.smartscript.platform.content.mapper.SysWorkReviewRecordMapper;
 import com.smartscript.platform.content.service.IAppUserWorkService;
+import com.smartscript.platform.content.util.ChapterTrialAccess;
 import com.smartscript.platform.content.util.WorkStatusDeriver;
+import com.smartscript.platform.review.event.WorkPublishedEvent;
 import com.smartscript.platform.review.service.AiReviewService;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -36,10 +41,12 @@ import java.util.concurrent.CompletableFuture;
  *      无记录 -> draft；pending/ai_reviewing -> reviewing；approved -> published；
  *      revision / rejected 原样返回。
  * 编辑闸门：仅 reviewing（审核中）锁定，其余状态均允许编辑。
- * 提交审核只写 sys_review_record，不修改 sys_work.status；审核通过时由审核侧自动置 on_shelf。
+ * 提交审核只写 sys_review_record，不修改 sys_work.status；审核通过后由作者主动上架。
  * 上下架语义：作者「下架」只降低可见性、无前置；「重新上架」要求最新审核为 approved
  * 且 reject_reason 为空（平台强制下架的作品禁止作者自助上架）。
- * 章节两态：新增章节默认 status='1'（草稿，仅作者可见），发布由 PUT /chapters/{id} 传 status='0' 触发。
+ * 章节两态：普通章节默认 status='1'（草稿，仅作者可见）；设置 is_free='1' 的试读章节
+ * 章节审核结果继承整部作品审核：通过写 status='0'，驳回/发回写 status='2'，
+ * 新增或修改正文写 status='1'；试读设置只能单独修改审核通过章节。
  *
  * 鉴权：userId 由控制器从 IdentityProvider 取得后传入，本服务不做请求体信任。
  *
@@ -59,15 +66,27 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
     private final SysWorkChapterMapper chapterMapper;
     private final SysWorkReviewRecordMapper reviewRecordMapper;
     private final SysTagMapper tagMapper;
+    private final AppAiWriteRecordMapper aiRecords;
     private final AiReviewService aiReviewService;
     private final com.smartscript.platform.review.service.RiskCheckService riskCheckService;
 
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(AppUserWorkServiceImpl.class);
 
+    /**
+     * 作者手动上架成功后发布「作品发布」事件，供关注动态广播。
+     *
+     * 审核通过只代表审核结果，不再自动上架（见 ReviewService/AiReviewService）；
+     * 所以「作品发布」的发点从审核环节移到作者真正点上架这一步。
+     * 可选注入：测试或未装事件容器时不影响上下架主流程。
+     */
+    @Autowired(required = false)
+    private ApplicationEventPublisher eventPublisher;
+
     public AppUserWorkServiceImpl(SysContentWorkMapper workMapper,
             SysWorkChapterMapper chapterMapper,
             SysWorkReviewRecordMapper reviewRecordMapper,
             SysTagMapper tagMapper,
+            AppAiWriteRecordMapper aiRecords,
             AiReviewService aiReviewService,
             com.smartscript.platform.review.service.RiskCheckService riskCheckService)
     {
@@ -75,6 +94,7 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
         this.chapterMapper = chapterMapper;
         this.reviewRecordMapper = reviewRecordMapper;
         this.tagMapper = tagMapper;
+        this.aiRecords = aiRecords;
         this.aiReviewService = aiReviewService;
         this.riskCheckService = riskCheckService;
     }
@@ -89,20 +109,41 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
         SysWorkReviewRecord latest = records.isEmpty() ? null : records.get(0);
 
         Map<String, Object> result = new LinkedHashMap<>();
+        // 详情同时返回审核派生状态和独立的上架状态，供 App/PC 区分“审核通过”和“已上架”。
+        String shelfStatus = work.getStatus();
         // 以审核派生状态覆盖 sys_work 原始上架状态，供前端直接渲染
         work.setStatus(deriveStatus(latest));
         result.put("work", work);
+        result.put("shelfStatus", shelfStatus);
         // 作品标签（接口文档 2.3.2 输出参数 tags）：仅启用标签，供设置页回填已选标签
         result.put("tags", tagMapper.selectWorkTagRows(List.of(workId)));
+        for (SysWorkChapter chapter : chapters)
+        {
+            // 仅转换返回给客户端的值，保留数据库里的兼容试读配置。
+            chapter.setIsFree(ChapterTrialAccess.isOpen(chapter, work.getPreviewEnabled(), work.getPreviewEpisodes())
+                    && WorkStatusDeriver.PUBLISHED.equals(work.getStatus()) ? "1" : "0");
+        }
         result.put("chapters", chapters);
         result.put("latestReview", latest);
+        String blueprint = aiRecords.selectConfirmedBlueprint(userId, workId);
+        if (blueprint != null)
+        {
+            try
+            {
+                result.put("blueprint", StructuredWritingJson.asMap(StructuredWritingJson.parse(blueprint)));
+            }
+            catch (AiServiceUnavailableException e)
+            {
+                log.warn("作品 Blueprint 数据无法解析 workId={}", workId);
+            }
+        }
         return result;
     }
 
     @Override
     @Transactional
     public void updateWorkBase(Long userId, Long workId, String title, String summary, String cover,
-            List<Integer> tagIds, BigDecimal price, String tradeType, Integer channelId)
+            List<Integer> tagIds, BigDecimal price, String tradeType, Integer channelId, Integer duration)
     {
         requireOwnWork(userId, workId);
         requireEditable(workId, userId);
@@ -123,6 +164,10 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
         {
             throw new IllegalArgumentException("频道不存在或已停用");
         }
+        if (duration != null && duration <= 0)
+        {
+            throw new IllegalArgumentException("单集时长（秒）必须为正整数");
+        }
         SysWork update = new SysWork();
         update.setPrice(price);
         update.setTradeType(tradeType);
@@ -131,6 +176,7 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
         update.setSummary(summary);
         update.setCover(cover);
         update.setChannelId(channelId);
+        update.setDuration(duration);
         update.setUpdateBy(String.valueOf(userId));
         update.setUpdateTime(new Date());
         workMapper.updateWorkBaseInfo(update);
@@ -194,45 +240,91 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
 
     @Override
     @Transactional
-    public SysWorkChapter addChapter(Long userId, Long workId, String chapterTitle, String content, String summary, String isFree)
+    public SysWorkChapter addChapter(Long userId, Long workId, Integer chapterNo, String chapterTitle, String content,
+            String summary, String isFree)
     {
         requireOwnWork(userId, workId);
         requireEditable(workId, userId);
         // 风控：章节标题/正文敏感词检查
         riskCheckService.checkContentOrThrow(userId,
                 (chapterTitle == null ? "" : chapterTitle) + (content == null ? "" : content));
-
-        int maxNo = chapterMapper.selectMaxChapterNo(workId);
         validateTrialFlag(isFree);
+
+        if (chapterNo != null)
+        {
+            if (chapterNo <= 0)
+            {
+                throw new IllegalArgumentException("章节序号必须为正整数");
+            }
+            // 显式序号只允许新建：同序号已存在时拒绝，绝不覆盖已有章节。
+            if (findChapterByNo(workId, chapterNo) != null)
+            {
+                throw new IllegalArgumentException("章节序号已存在，请刷新后重试");
+            }
+            return insertChapter(userId, workId, chapterNo, chapterTitle, content, summary);
+        }
+
+        // 未指定序号：追加到末尾。标题中的「第N集」只是展示文案，不参与集号解析，
+        // 否则普通新增会被误判为队列回填而覆盖已有章节。
+        int maxNo = chapterMapper.selectMaxChapterNo(workId);
+        return insertChapter(userId, workId, maxNo + 1, chapterTitle, content, summary);
+    }
+
+    @Override
+    @Transactional
+    public SysWorkChapter upsertGeneratedChapter(Long userId, Long workId, int chapterNo, String chapterTitle,
+            String content, String summary, String isFree)
+    {
+        requireOwnWork(userId, workId);
+        requireEditable(workId, userId);
+        riskCheckService.checkContentOrThrow(userId,
+                (chapterTitle == null ? "" : chapterTitle) + (content == null ? "" : content));
+        validateTrialFlag(isFree);
+        if (chapterNo <= 0)
+        {
+            throw new IllegalArgumentException("章节序号必须为正整数");
+        }
 
         // 页面先保存过分集骨架时，库里已有同序号的空章；队列按「第N集：标题」回填，直接复用该章，
         // 否则同一集会变成"空章 + 新建正文"两章，作品集数翻倍、首页停在空白第 1 集。
-        int targetNo = chapterNoFromTitle(chapterTitle);
-        SysWorkChapter blank = targetNo > 0 ? findBlankChapter(workId, targetNo) : null;
-        if (blank != null)
+        // 同一集被重新生成（队列重跑）时也要复用已有正文的章，否则每跑一次就多出一章，
+        // 集号错位后验收记录、状态板都会记到不存在的集上。
+        SysWorkChapter existing = findChapterByNo(workId, chapterNo);
+        if (existing == null)
         {
-            SysWorkChapter fill = new SysWorkChapter();
-            fill.setChapterId(blank.getChapterId());
-            fill.setChapterTitle(chapterTitle == null ? "" : chapterTitle);
-            fill.setContent(content == null ? "" : content);
-            fill.setSummary(clipChapterSummary(summary));
-            fill.setWordCount(countWords(fill.getContent()));
-            fill.setIsFree(isFree == null ? "0" : isFree);
-            fill.setUpdateBy(String.valueOf(userId));
-            chapterMapper.updateChapter(fill);
-            workMapper.refreshWorkAggregates(workId);
-            return chapterMapper.selectChapterDetail(blank.getChapterId());
+            return insertChapter(userId, workId, chapterNo, chapterTitle, content, summary);
         }
 
+        SysWorkChapter fill = new SysWorkChapter();
+        fill.setChapterId(existing.getChapterId());
+        fill.setChapterTitle(chapterTitle == null ? "" : chapterTitle);
+        fill.setContent(content == null ? "" : content);
+        fill.setSummary(clipChapterSummary(summary));
+        fill.setWordCount(countWords(fill.getContent()));
+        if (!Objects.equals(existing.getChapterTitle(), fill.getChapterTitle())
+                || !Objects.equals(existing.getStorageContent(), fill.getStorageContent()))
+        {
+            fill.setStatus(WorkStatusDeriver.CHAPTER_DRAFT);
+            fill.setIsFree(resetTrialFlag(existing));
+        }
+        fill.setUpdateBy(String.valueOf(userId));
+        chapterMapper.updateChapter(fill);
+        workMapper.refreshWorkAggregates(workId);
+        return chapterMapper.selectChapterDetail(existing.getChapterId());
+    }
+
+    /** 按指定序号插入新章，并刷新作品聚合列（word_count/episode_count）。 */
+    private SysWorkChapter insertChapter(Long userId, Long workId, int chapterNo, String chapterTitle,
+            String content, String summary)
+    {
         SysWorkChapter chapter = new SysWorkChapter();
         chapter.setWorkId(workId);
-        chapter.setChapterNo(maxNo + 1);
+        chapter.setChapterNo(chapterNo);
         chapter.setChapterTitle(chapterTitle == null ? "" : chapterTitle);
         chapter.setContent(content == null ? "" : content);
         chapter.setSummary(clipChapterSummary(summary));
         chapter.setWordCount(countWords(chapter.getContent()));
-        chapter.setIsFree(isFree == null ? "0" : isFree);
-        // 章节两态：新增即草稿（仅作者可见），作者写完再发布（PUT 传 status='0'）
+        chapter.setIsFree("0");
         chapter.setStatus(WorkStatusDeriver.CHAPTER_DRAFT);
         chapter.setCreateBy(String.valueOf(userId));
         chapter.setCreateTime(new Date());
@@ -242,19 +334,17 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
         return chapter;
     }
 
-    /** 从「第N集：标题」取集号，取不到返回 0（普通新增章节不参与复用）。 */
-    private int chapterNoFromTitle(String title)
+    private static String resetTrialFlag(SysWorkChapter chapter)
     {
-        if (title == null || title.isBlank())
-        {
-            return 0;
-        }
-        Matcher matcher = Pattern.compile("第\\s*(\\d{1,3})\\s*集").matcher(title);
-        return matcher.find() ? Integer.parseInt(matcher.group(1)) : 0;
+        return ChapterTrialAccess.EXPLICITLY_CLOSED.equals(chapter.getIsFree())
+                ? ChapterTrialAccess.EXPLICITLY_CLOSED : "0";
     }
 
-    /** 找同序号的空章（尚无正文），用于把生成结果填回页面已保存的分集骨架。 */
-    private SysWorkChapter findBlankChapter(Long workId, int chapterNo)
+    /**
+     * 找同序号的章节：队列重生成同一集时覆盖原章，页面上已存的空骨架同样命中。
+     * 同一集只保留一章，避免集号漂移（验收记录与状态板都按集号归属）。
+     */
+    private SysWorkChapter findChapterByNo(Long workId, int chapterNo)
     {
         SysWorkChapter query = new SysWorkChapter();
         query.setWorkId(workId);
@@ -267,13 +357,7 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
         {
             if (item.getChapterNo() != null && item.getChapterNo() == chapterNo)
             {
-                SysWorkChapter detail = chapterMapper.selectChapterDetail(item.getChapterId());
-                if (detail == null)
-                {
-                    return null;
-                }
-                String existing = detail.getStorageContent();
-                return (existing == null || existing.trim().isEmpty()) ? detail : null;
+                return chapterMapper.selectChapterDetail(item.getChapterId());
             }
         }
         return null;
@@ -287,22 +371,43 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
         requireEditable(workId, userId);
 
         SysWorkChapter chapter = requireOwnChapter(workId, chapterId);
-        // 风控：章节标题/正文敏感词检查
         String mergedTitle = chapterTitle == null ? chapter.getChapterTitle() : chapterTitle;
         String mergedContent = content == null ? chapter.getStorageContent() : content;
-        riskCheckService.checkContentOrThrow(userId, mergedTitle + mergedContent);
         validateTrialFlag(isFree);
+        boolean contentChanged = !Objects.equals(mergedTitle, chapter.getChapterTitle())
+                || !Objects.equals(mergedContent, chapter.getStorageContent());
         SysWorkChapter update = new SysWorkChapter();
         update.setChapterId(chapterId);
-        update.setChapterTitle(mergedTitle);
-        update.setContent(mergedContent);
-        update.setWordCount(countWords(update.getContent()));
+        if (contentChanged)
+        {
+            riskCheckService.checkContentOrThrow(userId, mergedTitle + mergedContent);
+            update.setChapterTitle(mergedTitle);
+            update.setContent(mergedContent);
+            update.setWordCount(countWords(update.getContent()));
+            update.setStatus(WorkStatusDeriver.CHAPTER_DRAFT);
+            update.setIsFree(resetTrialFlag(chapter));
+        }
+        else if (isFree != null && (chapterTitle == null && content == null && summary == null
+                || !Objects.equals(isFree, chapter.getIsFree())))
+        {
+            if (chapterMapper.setApprovedChapterTrial(chapterId, workId, isFree, String.valueOf(userId)) == 0)
+            {
+                throw new IllegalStateException("章节审核通过后才能设置试读，请刷新后重试");
+            }
+            if (summary == null)
+            {
+                return;
+            }
+        }
+        if (!contentChanged && summary == null)
+        {
+            return;
+        }
         // 摘要：null 表示本次不修改；空串按清空（落库 null），超过 500 字符截断
         if (summary != null)
         {
             update.setSummary(clipChapterSummaryForUpdate(summary));
         }
-        update.setIsFree(isFree);
         update.setUpdateBy(String.valueOf(userId));
         update.setUpdateTime(new Date());
         chapterMapper.updateChapter(update);
@@ -601,7 +706,7 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
         return chapter;
     }
 
-    /** 校验作品可编辑：仅「审核中」锁定，其余状态（含已发布）均允许编辑 */
+    /** 校验作品可编辑：仅「审核中」锁定，其余状态（含审核通过）均允许编辑 */
     private void requireEditable(Long workId, Long userId)
     {
         List<SysWorkReviewRecord> records = reviewRecordMapper.selectByWorkId(workId);
@@ -700,5 +805,14 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
         update.setUpdateBy(String.valueOf(userId));
         update.setUpdateTime(new Date());
         workMapper.updateWorkStatus(update);
+
+        // 只有「下架 → 上架」这一次转换才广播，重复点已上架的作品不再打扰关注者
+        boolean firstPublish = WorkStatusDeriver.ON_SHELF.equals(status)
+                && !WorkStatusDeriver.ON_SHELF.equals(work.getStatus());
+        if (firstPublish && eventPublisher != null)
+        {
+            eventPublisher.publishEvent(new WorkPublishedEvent(workId, work.getAuthorId(),
+                    work.getTitle(), work.getAuthorName()));
+        }
     }
 }

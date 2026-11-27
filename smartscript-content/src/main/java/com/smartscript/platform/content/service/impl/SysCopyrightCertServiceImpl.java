@@ -83,35 +83,45 @@ public class SysCopyrightCertServiceImpl implements ISysCopyrightCertService
     @Override
     public int createCertFromApplication(SysCopyrightApplication application)
     {
-        log.info("从版权申请创建电子证书: applyId={}, certNo={}", 
+        SysCopyrightCert cert = ensureCertFromApplication(application);
+        return cert == null ? 0 : 1;
+    }
+
+    @Override
+    public SysCopyrightCert ensureCertFromApplication(SysCopyrightApplication application)
+    {
+        if (application == null || application.getWorkId() == null || application.getUserId() == null)
+        {
+            return null;
+        }
+        log.info("从版权申请创建电子证书: applyId={}, certNo={}",
                  application.getApplyId(), application.getCertNo());
-        
-        // 检查是否已存在该作品的证书，避免重复创建
+
         SysCopyrightCert existingCert = certMapper.selectCertByWorkId(application.getWorkId());
         if (existingCert != null)
         {
             log.warn("作品 {} 的证书已存在，跳过创建, certId={}", application.getWorkId(), existingCert.getCertId());
-            return 0;
+            return existingCert;
         }
-        
-        // 创建证书记录
+
         SysCopyrightCert cert = new SysCopyrightCert();
         cert.setWorkId(application.getWorkId());
         cert.setUserId(application.getUserId());
         cert.setCertNo(application.getCertNo());
         cert.setCertUrl(application.getCertUrl());
-        cert.setStatus("issued"); // 已签发
-        cert.setApplyTime(application.getCreateTime()); // 使用申请创建时间作为申请时间
-        cert.setCertTime(application.getCertTime()); // 证书颁发时间
-        
-        // 生成区块链哈希（模拟）
-        String blockchainHash = generateBlockchainHash(application);
-        cert.setBlockchainHash(blockchainHash);
-        
+        cert.setStatus("issued");
+        cert.setApplyTime(application.getCreateTime());
+        cert.setCertTime(application.getCertTime() != null ? application.getCertTime() : new Date());
+        cert.setBlockchainHash(generateBlockchainHash(application));
+
         int result = certMapper.insertCert(cert);
+        if (result <= 0 || cert.getCertId() == null)
+        {
+            log.error("电子证书创建失败: applyId={}", application.getApplyId());
+            return null;
+        }
         log.info("电子证书创建完成: certId={}, certNo={}", cert.getCertId(), cert.getCertNo());
-        
-        return result;
+        return cert;
     }
     
     /**

@@ -23,7 +23,10 @@ import com.smartscript.platform.content.domain.SysCopyrightApplication;
 import com.smartscript.platform.content.dto.copyright.AppCopyrightSupplementRequest;
 import com.smartscript.platform.content.dto.copyright.CopyrightThirdPartyMessageRequest;
 import com.smartscript.platform.content.service.ICopyrightThirdPartyMessageService;
+import com.smartscript.platform.content.domain.SysCopyrightCert;
 import com.smartscript.platform.content.service.ISysCopyrightApplicationService;
+import com.smartscript.platform.content.service.ISysCopyrightCertService;
+import com.smartscript.platform.content.service.RightsStatusNotifyService;
 import com.smartscript.platform.content.util.CopyrightStatusUtil;
 
 /**
@@ -46,13 +49,19 @@ public class CopyrightThirdPartyMessageServiceImpl implements ICopyrightThirdPar
 
     private final JdbcTemplate jdbc;
     private final ISysCopyrightApplicationService applicationService;
+    private final ISysCopyrightCertService copyrightCertService;
+    private final RightsStatusNotifyService rightsStatusNotifyService;
 
     public CopyrightThirdPartyMessageServiceImpl(
             JdbcTemplate jdbc,
-            ISysCopyrightApplicationService applicationService)
+            ISysCopyrightApplicationService applicationService,
+            ISysCopyrightCertService copyrightCertService,
+            RightsStatusNotifyService rightsStatusNotifyService)
     {
         this.jdbc = jdbc;
         this.applicationService = applicationService;
+        this.copyrightCertService = copyrightCertService;
+        this.rightsStatusNotifyService = rightsStatusNotifyService;
     }
 
     @Override
@@ -264,6 +273,7 @@ public class CopyrightThirdPartyMessageServiceImpl implements ICopyrightThirdPar
                 app.setRemark(CopyrightStatusUtil.getDefaultRemark(CopyrightStatusUtil.STATUS_SUPPLEMENT_OVERDUE));
                 app.setUpdateTime(new Date());
                 applicationService.updateCopyrightApplication(app);
+                rightsStatusNotifyService.notifyCopyrightSupplementOverdue(app, supplementId);
                 n++;
             }
         }
@@ -326,9 +336,9 @@ public class CopyrightThirdPartyMessageServiceImpl implements ICopyrightThirdPar
             SysCopyrightApplication application, Long messagePk,
             CopyrightThirdPartyMessageRequest request, Date deadline)
     {
-        String status = application.getStatus();
-        if (CopyrightStatusUtil.STATUS_CERTIFICATED.equals(status)
-                || CopyrightStatusUtil.STATUS_REJECTED.equals(status))
+        String previousStatus = application.getStatus();
+        if (CopyrightStatusUtil.STATUS_CERTIFICATED.equals(previousStatus)
+                || CopyrightStatusUtil.STATUS_REJECTED.equals(previousStatus))
         {
             throw new IllegalStateException("申请已结案，不能再进入补正");
         }
@@ -360,10 +370,17 @@ public class CopyrightThirdPartyMessageServiceImpl implements ICopyrightThirdPar
         application.setRemark(CopyrightStatusUtil.getDefaultRemark(CopyrightStatusUtil.STATUS_NEED_SUPPLEMENT));
         application.setUpdateTime(new Date());
         applicationService.updateCopyrightApplication(application);
+        // 仅状态真正进入待补正时通知；已是待补正的重复补正单不刷屏
+        if (!CopyrightStatusUtil.STATUS_NEED_SUPPLEMENT.equals(previousStatus))
+        {
+            rightsStatusNotifyService.notifyCopyrightNeedSupplement(
+                    application, requirement, deadline, messagePk == null ? null : String.valueOf(messagePk));
+        }
     }
 
     private void handleCertificated(SysCopyrightApplication application, CopyrightThirdPartyMessageRequest request)
     {
+        String previousStatus = application.getStatus();
         application.setStatus(CopyrightStatusUtil.STATUS_CERTIFICATED);
         if (StringUtils.isNotBlank(request.getCertNo()))
         {
@@ -380,10 +397,16 @@ public class CopyrightThirdPartyMessageServiceImpl implements ICopyrightThirdPar
         applicationService.updateCopyrightApplication(application);
         jdbc.update("UPDATE sys_copyright_supplement SET status=?, update_time=NOW() WHERE apply_id=? AND status IN (?,?)",
                 SUPP_CLOSED, application.getApplyId(), SUPP_OPEN, SUPP_OVERDUE);
+        if (!CopyrightStatusUtil.STATUS_CERTIFICATED.equals(previousStatus))
+        {
+            notifyCertificated(application, StringUtils.isNotBlank(request.getExternalMessageId())
+                    ? request.getExternalMessageId() : "tp");
+        }
     }
 
     private void handleRejected(SysCopyrightApplication application, CopyrightThirdPartyMessageRequest request)
     {
+        String previousStatus = application.getStatus();
         application.setStatus(CopyrightStatusUtil.STATUS_REJECTED);
         String reason = StringUtils.isNotBlank(request.getRejectReason())
                 ? request.getRejectReason()
@@ -395,6 +418,32 @@ public class CopyrightThirdPartyMessageServiceImpl implements ICopyrightThirdPar
         applicationService.updateCopyrightApplication(application);
         jdbc.update("UPDATE sys_copyright_supplement SET status=?, update_time=NOW() WHERE apply_id=? AND status IN (?,?)",
                 SUPP_CLOSED, application.getApplyId(), SUPP_OPEN, SUPP_OVERDUE);
+        if (!CopyrightStatusUtil.STATUS_REJECTED.equals(previousStatus))
+        {
+            rightsStatusNotifyService.notifyCopyrightRejected(application, reason,
+                    StringUtils.isNotBlank(request.getExternalMessageId())
+                            ? request.getExternalMessageId() : "tp");
+        }
+    }
+
+    private void notifyCertificated(SysCopyrightApplication application, String requestToken)
+    {
+        try
+        {
+            SysCopyrightCert cert = copyrightCertService.ensureCertFromApplication(application);
+            if (cert != null && cert.getCertId() != null)
+            {
+                rightsStatusNotifyService.notifyCopyrightCertificated(application, cert.getCertId(), requestToken);
+            }
+            else
+            {
+                log.warn("发证通知跳过：证书行不可用 applyId={}", application.getApplyId());
+            }
+        }
+        catch (Exception e)
+        {
+            log.error("发证后创建证书/通知失败 applyId=" + application.getApplyId(), e);
+        }
     }
 
     private SysCopyrightApplication resolveApplication(Long applyId, String externalApplyNo)

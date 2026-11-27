@@ -39,6 +39,7 @@ import com.smartscript.platform.content.service.AiCallResult;
 import com.smartscript.platform.content.service.AiServiceClient;
 import com.smartscript.platform.content.service.ChapterSummarySupport;
 import com.smartscript.platform.content.service.ChapterReviewSupport;
+import com.smartscript.platform.content.service.WorkStateBoardSupport;
 import com.smartscript.platform.content.service.IAiChannelService;
 import com.smartscript.platform.content.service.IAiWriteService;
 import com.smartscript.platform.identity.IdentityProvider;
@@ -157,11 +158,14 @@ public class AiWriteServiceImpl implements IAiWriteService
     @Autowired
     private com.smartscript.platform.content.service.IAppWorkLedgerService workLedgerService;
 
+    @Autowired
+    private com.smartscript.platform.content.service.IWorkTimelineService workTimelineService;
+
     @Autowired(required = false)
     private com.smartscript.platform.review.service.RiskCheckService riskCheckService;
 
     /** 内容风控（测试无 Bean 时跳过，生产必注入） */
-    private void checkContent(Long userId, String text)
+    void checkContent(Long userId, String text)
     {
         if (riskCheckService != null && text != null && !text.isBlank())
         {
@@ -225,6 +229,7 @@ public class AiWriteServiceImpl implements IAiWriteService
         int safePageSize = pageSize < 1 ? DEFAULT_PAGE_SIZE : Math.min(pageSize, PAGE_SIZE_MAX);
         Long userId = identityProvider.currentUserId();
         PageHelper.startPage(safePageNum, safePageSize);
+        // 按原始 writeType 返回，包含仍处于 draft 状态的 Blueprint 会话。
         List<AppAiWriteRecordItem> rows = writeRecordMapper.selectWriteRecordsByUser(userId);
         long total = new PageInfo<>(rows).getTotal();
         return AppPageResult.of(total, rows);
@@ -406,7 +411,7 @@ public class AiWriteServiceImpl implements IAiWriteService
                 resolveModel(r), r.getTotalTokens());
         consumePoints(identityProvider.currentUserId(), "outline", recordId, r.getTotalTokens());
         AppAiOutlineResult result = new AppAiOutlineResult(outline, requestNo,
-                Math.max(1, r.getTotalTokens()), false);
+                Math.max(1, r.getTotalTokens()), r.isTruncated());
         result.setContent(r.getContent());
         return result;
     }
@@ -491,7 +496,8 @@ public class AiWriteServiceImpl implements IAiWriteService
                 CAPABILITY_OUTLINE, buildOutlineInputText(request), outlineToText(outline),
                 resolveModel(r), r.getTotalTokens());
         consumePoints(identityProvider.currentUserId(), "outline", recordId, r.getTotalTokens());
-        return new AppAiOutlineResult(outline, requestNo, Math.max(1, r.getTotalTokens()), false);
+        return new AppAiOutlineResult(outline, requestNo, Math.max(1, r.getTotalTokens()),
+                r.isTruncated());
     }
 
     private static void requireContinuationContext(String prompt)
@@ -508,7 +514,7 @@ public class AiWriteServiceImpl implements IAiWriteService
      * 无账户或不足 1 积分即抛 {@link AiQuotaInsufficientException}（消息为积分文案），由控制器转 400。
      * 本方法只校验；实际扣减在 AI 调用成功后由 {@link #consumePoints} 完成。
      */
-    private void checkPoints(Long userId)
+    void checkPoints(Long userId)
     {
         Integer balance;
         try
@@ -539,16 +545,31 @@ public class AiWriteServiceImpl implements IAiWriteService
      */
     private void consumePoints(Long userId, String capability, Long businessId, int totalTokens)
     {
+        consumePoints(userId, capability, businessId, totalTokens, false);
+    }
+
+    /** 新结构化接口在事务内扣费，扣减或写流水失败时回滚业务记录。 */
+    int consumeStructuredPoints(Long userId, String capability, Long recordId, int totalTokens)
+    {
+        return consumePoints(userId, capability, recordId, totalTokens, true);
+    }
+
+    private int consumePoints(Long userId, String capability, Long businessId, int totalTokens, boolean atomic)
+    {
         int tokenPerPoint = readTokenPerPoint();
         int points = totalTokens <= 0 ? MIN_POINTS_COST
-                : Math.max(MIN_POINTS_COST, (totalTokens + tokenPerPoint - 1) / tokenPerPoint);
+                : 1 + (totalTokens - 1) / tokenPerPoint;
         int rows = jdbcTemplate.update(
                 "UPDATE sys_points_account SET balance = balance - ?, last_update_date = NOW() "
                         + "WHERE user_id = ? AND balance >= ?",
                 points, userId, points);
         if (rows == 0)
         {
-            return; // checkPoints 已前置拦截，此处并发兜底
+            if (atomic)
+            {
+                throw new AiQuotaInsufficientException("积分不足，本次生成需要 " + points + " 积分");
+            }
+            return 0; // 既有接口的并发兜底
         }
         Integer after;
         try
@@ -564,18 +585,27 @@ public class AiWriteServiceImpl implements IAiWriteService
         int before = (after == null ? points : after) + points;
         try
         {
-            jdbcTemplate.update(
+            int inserted = jdbcTemplate.update(
                     "INSERT INTO sys_points_record (user_id, change_type, points, balance_after, "
                             + "source, related_id, remark, created_at) "
                             + "VALUES (?, 'SPEND', ?, ?, 'AI', ?, ?, NOW())",
                     userId, points, after == null ? before : after, businessId,
                     "AI创作消耗(" + capability + "): " + totalTokens + " token = " + points + " 积分");
+            if (atomic && inserted != 1)
+            {
+                throw new IllegalStateException("写入 AI 积分流水失败");
+            }
         }
         catch (Exception e)
         {
+            if (atomic)
+            {
+                throw e;
+            }
             // 流水失败不回滚积分（主业务已完成）；日志留痕便于对账
             log.error("写积分流水失败 userId={} businessId={}: {}", userId, businessId, e.getMessage());
         }
+        return points;
     }
 
     /** 读取「1 积分 = N token」配置（sys_config key=ai.token.per.point）；缺失/非法回退默认 1000。 */
@@ -608,20 +638,27 @@ public class AiWriteServiceImpl implements IAiWriteService
      */
     private Long saveRecord(Long userId, Long workId, String writeType, String inputPrompt, String outputContent, String model, int tokens)
     {
+        return saveRecord(userId, workId, writeType, truncate(inputPrompt, TITLE_MAX_LENGTH),
+                truncate(inputPrompt, PROMPT_MAX_LENGTH), outputContent, model, tokens, STATUS_SUCCESS);
+    }
+
+    Long saveRecord(Long userId, Long workId, String writeType, String title, String inputPrompt,
+            String outputContent, String model, int tokens, String status)
+    {
         AppAiWriteRecordInsert row = new AppAiWriteRecordInsert();
         row.setUserId(userId);
         row.setWorkId(workId);
-        row.setTitle(truncate(inputPrompt, TITLE_MAX_LENGTH));
+        row.setTitle(title == null ? BLANK : title);
         row.setWriteType(writeType);
         row.setPov(BLANK);
         row.setLanguageStyle(BLANK);
         row.setPace(BLANK);
-        row.setInputPrompt(inputPrompt == null ? BLANK : truncate(inputPrompt, PROMPT_MAX_LENGTH));
+        row.setInputPrompt(inputPrompt == null ? BLANK : inputPrompt);
         row.setOutputContent(outputContent == null ? BLANK : outputContent);
         row.setWordCount(outputContent == null ? 0 : outputContent.length());
         row.setAiModel(model);
         row.setTokensUsed(tokens);
-        row.setStatus(STATUS_SUCCESS);
+        row.setStatus(status);
         writeRecordMapper.insertWriteRecord(row);
         return row.getRecordId();
     }
@@ -629,17 +666,27 @@ public class AiWriteServiceImpl implements IAiWriteService
     /** 写作类型：入参为空回退默认 write */
     private String resolveWriteType(String type)
     {
-        return type == null || type.isBlank() ? WRITE_TYPE_DEFAULT : type;
+        return type == null || type.isBlank() || BlueprintService.TYPE.equalsIgnoreCase(type.trim())
+                ? WRITE_TYPE_DEFAULT : type;
     }
 
     /** 模型名：优先 AI 返回，其次配置，最后兜底 */
-    private String resolveModel(AiCallResult r)
+    String resolveModel(AiCallResult r)
     {
         if (r.getModel() != null && !r.getModel().isBlank())
         {
             return r.getModel();
         }
         return aiModel == null || aiModel.isBlank() ? DEFAULT_MODEL : aiModel;
+    }
+
+    AiCallResult structuredStream(String system, String input, String model, Long skillId,
+            java.util.function.Consumer<String> onDelta)
+    {
+        AiChannel channel = resolveChannel(model);
+        return aiServiceClient.structuredStream(system, input, resolveSkillContent(skillId), onDelta,
+                channel == null ? null : channel.getBaseUrl(), channel == null ? null : channel.getApiKey(),
+                channelModel(channel, model));
     }
 
     /** 服务提供方：配置为空时兜底 */
@@ -950,12 +997,32 @@ public class AiWriteServiceImpl implements IAiWriteService
         {
             workLedgerService.saveLedger(workId, ledger);
         }
+        // 时间线：同一次摘要调用产出的事件，按集追加；整集重写时重建该集事件
+        Integer chapterNoValue = null;
+        try
+        {
+            chapterNoValue = Integer.valueOf(chapterNo);
+        }
+        catch (NumberFormatException ignored)
+        {
+            // chapter_no 非数字时跳过事件落库，摘要与台账照常
+        }
+        java.util.List<com.smartscript.platform.content.domain.SysWorkTimelineEvent> events =
+                com.smartscript.platform.content.service.WorkTimelineSupport.parseEvents(root);
+        java.util.List<String> closes =
+                com.smartscript.platform.content.service.WorkTimelineSupport.parseCloses(root);
+        if (chapterNoValue != null)
+        {
+            workTimelineService.saveEpisodeEvents(workId, chapterNoValue, events, closes);
+        }
         Long recordId = saveRecord(userId, workId, CAPABILITY_CHAPTER_SUMMARY,
                 displayTitle, summary, resolveModel(r), r.getTotalTokens());
         consumePoints(userId, CAPABILITY_CHAPTER_SUMMARY, recordId, r.getTotalTokens());
         Map<String, Object> result = new java.util.LinkedHashMap<>();
         result.put("summary", summary);
         result.put("ledgerUpdated", ledgerUpdated);
+        result.put("events", events.size());
+        result.put("closes", closes.size());
         result.put("recordId", recordId);
         result.put("tokens", Math.max(1, r.getTotalTokens()));
         return result;
@@ -1032,10 +1099,24 @@ public class AiWriteServiceImpl implements IAiWriteService
         }
         String ledgerText = buildLedgerContext(userId, workId);
         String settingText = buildSettingContext(userId, workId);
+        // 状态板是连续性的第一判据：只带「上一集结束时已经成立」的所在/持有/认知/约定。
+        String stateBoard = BLANK;
+        try
+        {
+            SysWorkLedger board = workLedgerService.getLedger(workId);
+            if (board != null && board.getStateBoard() != null)
+            {
+                stateBoard = board.getStateBoard();
+            }
+        }
+        catch (Exception e)
+        {
+            log.debug("读取状态板失败 workId={}：{}", workId, e.getMessage());
+        }
         AiChannel channel = resolveChannel(model);
         String system = ChapterReviewSupport.reviewSystemPrompt();
         String user = ChapterReviewSupport.reviewUserPrompt(displayTitle, prevSummary, settingText, ledgerText,
-                ChapterSummarySupport.clipBody(body, ChapterSummarySupport.BODY_CLIP));
+                stateBoard, ChapterSummarySupport.clipBody(body, ChapterSummarySupport.BODY_CLIP));
         AiCallResult r = (channel == null)
                 ? aiServiceClient.chatText(system, user)
                 : aiServiceClient.chatText(system, user, channel.getBaseUrl(), channel.getApiKey(), channelModel(channel, model));
@@ -1065,6 +1146,8 @@ public class AiWriteServiceImpl implements IAiWriteService
         result.put("issues", issues);
         result.put("recordId", recordId);
         result.put("tokens", Math.max(1, r.getTotalTokens()));
+        // 本集结束时的状态增量：调用方（队列）据此增量更新状态板，供下一集注入。
+        result.put("stateDelta", WorkStateBoardSupport.deltaText(root));
         return result;
     }
 
@@ -1257,7 +1340,8 @@ public class AiWriteServiceImpl implements IAiWriteService
                 + "    threads 未解线索：尚未解释的悬念、约定与期限，一行一条，格式「悬念或约定｜涉及人｜计划兑现点（写“第N集”，实在未定写“未定”）｜状态（未结/已结）」；"
                 + "本集出现但还没兑现的承诺、约期、期限必须写进来并标好兑现点，已经兑现的标「已结」；"
                 + "兑现点不是本集、也不用在本集解决的长线悬念必须保留，不得为了收线提前解决。\n"
-                + "4. summary 必须放在 JSON 最前面、写完整；严格输出一个 JSON 对象，结构如下（值替换为实际内容）：\n"
+                + com.smartscript.platform.content.service.WorkTimelineSupport.schemaHint()
+                + "6. summary 必须放在 JSON 最前面、写完整；严格输出一个 JSON 对象，结构如下（值替换为实际内容）：\n"
                 + ChapterSummarySupport.emptyLedgerJson() + "\n"
                 + "不要 Markdown 代码块，不要任何解释文字。";
     }
@@ -1388,12 +1472,12 @@ public class AiWriteServiceImpl implements IAiWriteService
         AiChannel channel = resolveChannel(request.getModel());
         String model = resolveStoryboardModel(request.getModel(), channel);
         AiCallResult r = aiServiceClient.storyboard(request.getScript(), request.getStyle(),
-                resolveSkillContent(request.getSkillId()),
+                resolveSkillContent(request.getSkillId()), request.getChapterTitle(),
                 channel == null ? null : channel.getBaseUrl(),
                 channel == null ? null : channel.getApiKey(),
                 model);
         Date finishedAt = new Date();
-        String content = r.getContent();
+        String content = normalizeStoryboardHeading(r.getContent(), request.getChapterTitle());
         String requestNo = generateRequestNo();
         aiRequestMapper.insertAiRequest(requestNo, identityProvider.currentUserId(), request.getWorkId(),
                 CAPABILITY_STORYBOARD, Math.max(1, r.getTotalTokens()), STATUS_SUCCESS, resolveProvider(),
@@ -1416,12 +1500,12 @@ public class AiWriteServiceImpl implements IAiWriteService
         AiChannel channel = resolveChannel(request.getModel());
         String model = resolveStoryboardModel(request.getModel(), channel);
         AiCallResult r = aiServiceClient.storyboardStream(request.getScript(), request.getStyle(),
-                resolveSkillContent(request.getSkillId()), onDelta,
+                resolveSkillContent(request.getSkillId()), request.getChapterTitle(), onDelta,
                 channel == null ? null : channel.getBaseUrl(),
                 channel == null ? null : channel.getApiKey(),
                 model);
         Date finishedAt = new Date();
-        String content = r.getContent();
+        String content = normalizeStoryboardHeading(r.getContent(), request.getChapterTitle());
         String requestNo = generateRequestNo();
         aiRequestMapper.insertAiRequest(requestNo, identityProvider.currentUserId(), request.getWorkId(),
                 CAPABILITY_STORYBOARD, Math.max(1, r.getTotalTokens()), STATUS_SUCCESS, resolveProvider(),
@@ -1438,13 +1522,69 @@ public class AiWriteServiceImpl implements IAiWriteService
     {
         return "scriptLen=" + (request.getScript() == null ? 0 : request.getScript().length())
                 + ";style=" + safe(request.getStyle())
-                + ";skillId=" + (request.getSkillId() == null ? "" : request.getSkillId());
+                + ";skillId=" + (request.getSkillId() == null ? "" : request.getSkillId())
+                + ";chapter=" + safe(request.getChapterTitle());
     }
 
     /** 分镜输入的展示文本（落 sys_ai_write_record.input_prompt，用户可见） */
     private static String buildStoryboardInputText(AppAiStoryboardRequest request)
     {
         String styleLine = safe(request.getStyle()).isEmpty() ? "" : "\n风格：" + request.getStyle();
-        return "剧本文本：" + safe(request.getScript()) + styleLine;
+        String chapterLine = safe(request.getChapterTitle()).isEmpty() ? "" : "\n关联章节：" + request.getChapterTitle();
+        return "剧本文本：" + safe(request.getScript()) + styleLine + chapterLine;
+    }
+
+    /**
+     * 分镜标题归一化：模型没有集号上下文时会自拟「第一集《偷账》」，这里以用户所选章节标题为准，
+     * 把开头标题行、二级集标题与「集数：本集为第N集」统一改成本集的集号与集名，保证目录与内容一一对应。
+     * 未传 chapterTitle 时原样返回（App 端老版本不传，行为不变）。
+     */
+    static String normalizeStoryboardHeading(String content, String chapterTitle)
+    {
+        if (content == null || content.isBlank() || chapterTitle == null || chapterTitle.isBlank())
+        {
+            return content;
+        }
+        String title = chapterTitle.trim();
+        String[] lines = content.split("\r?\n", -1);
+        // 1) 第一处非空行若是标题样式（# 开头 / 含「分镜脚本」/「第N集」短标题），统一成本集标题；
+        //    若不是标题样式（模型直接从「场次一」写起），在开头补一行本集标题，保证分镜与所选章节一一对应。
+        boolean headingFound = false;
+        for (int i = 0; i < lines.length && i < 8; i++)
+        {
+            String t = lines[i].trim();
+            if (t.isEmpty())
+            {
+                continue;
+            }
+            boolean headingLike = t.startsWith("#") || t.contains("分镜脚本")
+                    || (t.contains("第") && t.contains("集") && t.length() <= 40);
+            if (headingLike)
+            {
+                lines[i] = "# 分镜脚本 · " + title;
+                headingFound = true;
+            }
+            break;
+        }
+        // 2) 其余「## 第N集 · xxx」二级集标题也改成本集
+        boolean subFixed = false;
+        for (int i = 0; i < lines.length; i++)
+        {
+            String t = lines[i];
+            if (!subFixed && t.matches("^\\s*#{2,6}\\s*第\\s*[0-9一二三四五六七八九十百]+\\s*集[\\s\\S]*$"))
+            {
+                lines[i] = "## " + title;
+                subFixed = true;
+            }
+        }
+        String joined = String.join("\n", lines);
+        // 3) 元信息里的集数声明（部分 skill 会写「集数：本集为第1集」）
+        joined = joined.replaceAll("集数：本集为第\\s*[0-9一二三四五六七八九十百]+\\s*集", "集数：本集为" + title);
+        // 4) 全篇既无归一化标题、也没有本集标题字样时，在最前面补标题行（模型漏写标题的兜底）
+        if (!headingFound && !joined.contains(title))
+        {
+            joined = "# 分镜脚本 · " + title + "\n\n" + joined;
+        }
+        return joined;
     }
 }

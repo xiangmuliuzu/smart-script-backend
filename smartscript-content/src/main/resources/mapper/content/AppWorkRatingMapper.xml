@@ -6,7 +6,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 
 	<!--
 	  依据：云端 script_platform_dev 库 sys_work_rating 表
-	  （迁移脚本 sql/migrations/b/B_20261014_001__create_work_rating_table.sql）。
+	  （迁移脚本 sql/_archive/migrations/b/B_20261014_001__create_work_rating_table.sql）。
 	  反推处理点：
 	  1. (work_id, user_id) 有唯一键 uk_work_user，覆盖更新用 INSERT ... ON DUPLICATE KEY UPDATE，
 	     同一用户重复评分不新增记录、评分数（COUNT）不增长。

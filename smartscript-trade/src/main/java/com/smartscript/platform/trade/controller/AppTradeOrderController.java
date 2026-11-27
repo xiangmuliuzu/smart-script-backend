@@ -119,6 +119,27 @@ public class AppTradeOrderController
         return AppApiResponse.ok(data);
     }
 
+    /** 按询盘查关联订单（会话页「查看订单」跳转用）。无订单返回 data=null，越权 403。 */
+    @GetMapping("/by-inquiry/{inquiryId}")
+    public AppApiResponse<Map<String, Object>> detailByInquiry(@PathVariable Long inquiryId)
+    {
+        Long currentUserId = currentUserId();
+        SysOrder order = orderService.selectOrderByInquiryId(inquiryId);
+        if (order == null)
+        {
+            return AppApiResponse.ok(null);
+        }
+        if (!currentUserId.equals(order.getBuyerId()) && !currentUserId.equals(order.getSellerId()))
+        {
+            return AppApiResponse.fail(403, "无权查看该订单");
+        }
+        Map<String, Object> brief = new HashMap<>();
+        brief.put("orderId", order.getOrderId());
+        brief.put("orderNo", order.getOrderNo());
+        brief.put("status", order.getStatus());
+        return AppApiResponse.ok(brief);
+    }
+
     /** 发起支付宝沙箱支付；不会直接推进订单状态。 */
     @PostMapping("/{orderId}/pay")
     public AppApiResponse<Map<String, Object>> pay(@PathVariable Long orderId,
@@ -138,8 +159,33 @@ public class AppTradeOrderController
         catch (RuntimeException e) { return AppApiResponse.fail(500, "沙箱支付暂不可用"); }
     }
 
+    /** 临时直付：跳过支付宝沙箱，订单直接按已付款进入交割（测试通道，与版权零元直付同性质）。 */
+    @PostMapping("/{orderId}/pay/direct-pay")
+    public AppApiResponse<Void> directPay(@PathVariable Long orderId)
+    {
+        Long currentUserId = currentUserId();
+        SysOrder order = orderService.selectOrderById(orderId);
+        if (order == null)
+        {
+            return AppApiResponse.fail(404, "订单不存在");
+        }
+        if (!currentUserId.equals(order.getBuyerId()))
+        {
+            return AppApiResponse.fail(403, "只有买方可以付款");
+        }
+        try
+        {
+            orderService.directPayOrder(orderId, currentUserId);
+            return AppApiResponse.ok(null);
+        }
+        catch (RuntimeException e)
+        {
+            return AppApiResponse.fail(400, e.getMessage());
+        }
+    }
+
     /**
-     * 取消订单。仅「合同双方签署完成前」（订单 confirmed）可由买卖双方任一方取消；签后锁定。
+     * 取消订单。仅买方可发起，且限「付款前」（confirmed，或未签完/待付款的 paying 且未实际付款）；付款后锁定。
      */
     @PostMapping("/{orderId}/cancel")
     public AppApiResponse<Void> cancel(@PathVariable Long orderId,
@@ -151,9 +197,9 @@ public class AppTradeOrderController
         {
             return AppApiResponse.fail(404, "订单不存在");
         }
-        if (!currentUserId.equals(order.getBuyerId()) && !currentUserId.equals(order.getSellerId()))
+        if (!currentUserId.equals(order.getBuyerId()))
         {
-            return AppApiResponse.fail(403, "只有交易双方可以取消订单");
+            return AppApiResponse.fail(403, "只有买方可以取消订单");
         }
         try
         {

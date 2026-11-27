@@ -47,7 +47,7 @@ class ProfileStorageServiceTest
         assertEquals("upload/2026/10/19/a.png",
                 storage.keyOf("http://10.0.2.2:8080/profile/upload/2026/10/19/a.png"));
         assertEquals("avatar/2026/11/02/a.png",
-                storage.keyOf("https://www.eyhereal.site/prod-api/profile/avatar/2026/11/02/a.png"));
+                storage.keyOf("http://192.168.100.3:1100/prod-api/profile/avatar/2026/11/02/a.png"));
         assertEquals("upload/WPS图片.jpeg",
                 storage.keyOf("/profile/upload/WPS%E5%9B%BE%E7%89%87.jpeg"));
         assertEquals("", storage.keyOf("https://example.com/seals/a.png"));

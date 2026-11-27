@@ -505,6 +505,26 @@ public class TradeController extends BaseController
     }
 
     /**
+     * 发布审核：需求方自助提交的任务落在待审核（pending_review），通过后才进任务广场。
+     *
+     * <p>Body: {approved: true/false, rejectReason(驳回必填)}。驳回保留单据，需求方可修改后重新提交；
+     * 同一单重复审核由服务端 CAS 拦下（只认仍在待审核的单）。</p>
+     */
+    @PreAuthorize("@ss.hasPermi('trade:demand:review')")
+    @Log(title = "C-DemandAudit", businessType = BusinessType.UPDATE)
+    @PutMapping("/trade/demand/{demandId}/audit")
+    public AjaxResult auditDemandPublish(@PathVariable Long demandId, @RequestBody Map<String, Object> body)
+    {
+        boolean approved = Boolean.TRUE.equals(body.get("approved"));
+        Object reason = body.get("rejectReason");
+        String rejectReason = reason == null ? null : String.valueOf(reason);
+        SysDemand demand = approved
+                ? demandService.approveDemandPublish(demandId, SecurityUtils.getUserId())
+                : demandService.rejectDemandPublish(demandId, SecurityUtils.getUserId(), rejectReason);
+        return AjaxResult.success(demand);
+    }
+
+    /**
      * 分镜任务的源剧本候选：代发布时按需求方指定的创作者编号取其作品（未删除即可，不要求已上架）。
      */
     @PreAuthorize("@ss.hasPermi('trade:demand:query')")

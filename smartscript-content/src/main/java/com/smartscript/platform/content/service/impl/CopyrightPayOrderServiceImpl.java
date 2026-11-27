@@ -257,7 +257,7 @@ public class CopyrightPayOrderServiceImpl implements ICopyrightPayOrderService
     @Transactional(rollbackFor = Exception.class)
     public Map<String, Object> directPay(Long payOrderId, Long userId)
     {
-        // 临时跳过支付宝沙箱：直接履约建申请并提交第三方
+        // 测试链路：跳过支付宝沙箱直接履约建申请并提交第三方
         return fulfillPaidOrder(payOrderId, userId, "DIRECT-" + System.currentTimeMillis());
     }
 

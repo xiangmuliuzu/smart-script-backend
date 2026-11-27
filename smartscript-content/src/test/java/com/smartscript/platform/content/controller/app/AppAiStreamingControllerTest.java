@@ -51,7 +51,7 @@ class AppAiStreamingControllerTest
         when(service.writeStream(any(), any())).thenAnswer(generate);
         when(service.polishStream(any(), any())).thenAnswer(generate);
         when(service.outlineStream(any(), any())).thenAnswer(generate);
-        MockMvc mvc = MockMvcBuilders.standaloneSetup(new AppAiController(service))
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(new AppAiController(service, null, null))
                 .addFilters(new WebAsyncManagerIntegrationFilter()).build();
         ExecutorService requestThread = Executors.newSingleThreadExecutor();
         try

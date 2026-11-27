@@ -16,6 +16,53 @@ public class AppAuthProperties
     private int maxDevices = 3;
     private Sms sms = new Sms();
     private Agreement agreement = new Agreement();
+    private QrLogin qrLogin = new QrLogin();
+
+    /**
+     * 扫码登录（PC 出码、App 确认）。
+     *
+     * 票据时长决定用户从扫码到确认的时间窗；轮询间隔由服务端下发，
+     * PC 端照此节奏轮询即可，避免两端各自拍一个数字导致相互拖累。
+     */
+    public static class QrLogin
+    {
+        /** 二维码有效期（秒）。默认 2 分钟，与主流扫码登录一致。 */
+        private int ticketTtlSeconds = 120;
+        /** PC 轮询间隔（秒），随票据下发。 */
+        private int pollIntervalSeconds = 2;
+        /** 确认后令牌的可领取时间（秒）：PC 下一次轮询取走即删除。 */
+        private int consumeTtlSeconds = 60;
+
+        public int getTicketTtlSeconds()
+        {
+            return ticketTtlSeconds;
+        }
+
+        public void setTicketTtlSeconds(int ticketTtlSeconds)
+        {
+            this.ticketTtlSeconds = ticketTtlSeconds;
+        }
+
+        public int getPollIntervalSeconds()
+        {
+            return pollIntervalSeconds;
+        }
+
+        public void setPollIntervalSeconds(int pollIntervalSeconds)
+        {
+            this.pollIntervalSeconds = pollIntervalSeconds;
+        }
+
+        public int getConsumeTtlSeconds()
+        {
+            return consumeTtlSeconds;
+        }
+
+        public void setConsumeTtlSeconds(int consumeTtlSeconds)
+        {
+            this.consumeTtlSeconds = consumeTtlSeconds;
+        }
+    }
 
     public static class Sms
     {
@@ -306,6 +353,16 @@ public class AppAuthProperties
     public void setMaxDevices(int maxDevices)
     {
         this.maxDevices = maxDevices;
+    }
+
+    public QrLogin getQrLogin()
+    {
+        return qrLogin;
+    }
+
+    public void setQrLogin(QrLogin qrLogin)
+    {
+        this.qrLogin = qrLogin;
     }
 
     public Sms getSms()

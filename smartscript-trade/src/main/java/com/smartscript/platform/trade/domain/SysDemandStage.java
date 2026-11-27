@@ -53,10 +53,12 @@ public class SysDemandStage
 
     private Integer overdue;
 
-    /** 交付作品（作者本人的 sys_work；on_shelf 作品禁止交付，服务层校验） */
+    /** 交付作品（作者本人的 sys_work；仅 off_shelf 未上架作品允许交付） */
     private Long workId;
     /** 交付作品标题（JOIN sys_work 透传，只读展示用） */
     private String workTitle;
+    /** 交付作品的书城状态（只读展示；任务验收不会修改该字段） */
+    private String workShelfStatus;
 
     /** AI 审核得分（0-100，NULL=未审核）：>=60 自动进入人工验收，<60 自动打回 */
     private Integer aiScore;
@@ -125,6 +127,8 @@ public class SysDemandStage
     public void setWorkId(Long workId) { this.workId = workId; }
     public String getWorkTitle() { return workTitle; }
     public void setWorkTitle(String workTitle) { this.workTitle = workTitle; }
+    public String getWorkShelfStatus() { return workShelfStatus; }
+    public void setWorkShelfStatus(String workShelfStatus) { this.workShelfStatus = workShelfStatus; }
     public Integer getAiScore() { return aiScore; }
     public void setAiScore(Integer aiScore) { this.aiScore = aiScore; }
     public String getAiResult() { return aiResult; }

@@ -12,6 +12,9 @@ import com.smartscript.platform.content.domain.SysWorkLedger;
 import com.smartscript.platform.content.service.IAppChapterAuthorService;
 import com.smartscript.platform.content.service.IAppWorkLedgerService;
 import com.smartscript.platform.content.service.IAiWriteService;
+import com.smartscript.platform.content.service.WorkGenPromptSupport;
+import com.smartscript.platform.content.service.impl.ChapterDraftService;
+import com.smartscript.platform.content.service.impl.BlueprintService;
 import java.util.List;
 import java.util.Map;
 
@@ -49,18 +52,54 @@ public class AppWorkLedgerController
     /** 其余台账单字段长度上限：50 集人物卡实测已达 8396，列是 mediumtext，放宽到 20000 */
     private static final int FIELD_MAX_LENGTH = 20000;
 
+    /** 剧本大纲长度上限：50 集事件卡会超过 20000，列是 longtext，放宽到 60000 */
+    private static final int OUTLINE_MAX_LENGTH = 60000;
+
     private final IAppChapterAuthorService chapterService;
 
     private final IAppWorkLedgerService ledgerService;
 
     private final IAiWriteService aiWriteService;
+    private final ChapterDraftService chapterDraftService;
+    private final BlueprintService blueprintService;
 
     public AppWorkLedgerController(IAppChapterAuthorService chapterService,
-            IAppWorkLedgerService ledgerService, IAiWriteService aiWriteService)
+            IAppWorkLedgerService ledgerService, IAiWriteService aiWriteService, ChapterDraftService chapterDraftService,
+            BlueprintService blueprintService)
     {
         this.chapterService = chapterService;
         this.ledgerService = ledgerService;
         this.aiWriteService = aiWriteService;
+        this.chapterDraftService = chapterDraftService;
+        this.blueprintService = blueprintService;
+    }
+
+    @GetMapping("/works/{workId}/blueprint")
+    public AppApiResponse<Map<String, Object>> getBlueprint(@PathVariable Long workId)
+    {
+        int access = chapterService.resolveWorkAccess(workId);
+        if (access == IAppChapterAuthorService.ACCESS_NOT_FOUND)
+        {
+            return AppApiResponse.fail(CODE_NOT_FOUND, "作品不存在");
+        }
+        if (access == IAppChapterAuthorService.ACCESS_DENIED)
+        {
+            return AppApiResponse.fail(CODE_FORBIDDEN, "无权操作该作品");
+        }
+        return AppAiController.structuredResponse(() -> blueprintService.getForWork(workId));
+    }
+
+    @GetMapping("/works/{workId}/chapter-meta")
+    public AppApiResponse<Map<String, Object>> getChapterMeta(@PathVariable Long workId)
+    {
+        return AppAiController.structuredResponse(() -> chapterDraftService.getMeta(workId));
+    }
+
+    @PutMapping("/works/{workId}/chapter-meta/{chapterNo}")
+    public AppApiResponse<Map<String, Object>> saveChapterMeta(@PathVariable Long workId, @PathVariable Integer chapterNo,
+            @RequestBody(required = false) Map<String, Object> body)
+    {
+        return AppAiController.structuredResponse(() -> chapterDraftService.saveMeta(workId, chapterNo, body));
     }
 
     /**
@@ -85,10 +124,10 @@ public class AppWorkLedgerController
     }
 
     /**
-     * 保存作品台账（整条覆盖）
+     * 保存作品台账。字段未传或为 null 时保留，空串清空。
      *
      * @param workId 作品ID
-     * @param ledger body：storySummary/characters/relations/foreshadow/timeline/items/threads
+     * @param ledger body：要更新的台账文本字段
      * @return data = null；非本人 403，作品不存在 404，单字段超长 400
      */
     @PutMapping("/works/{workId}/ledger")
@@ -108,6 +147,11 @@ public class AppWorkLedgerController
         {
             return AppApiResponse.fail(CODE_BAD_REQUEST, "台账内容不能为空");
         }
+        // 大纲入库前统一文体：剧本体对白稿改成叙事句，避免后续正文照抄出两套写法。
+        if (ledger.getOutline() != null)
+        {
+            ledger.setOutline(WorkGenPromptSupport.normalizeOutlineScript(ledger.getOutline()));
+        }
         if (overLength(ledger.getStorySummary(), SUMMARY_MAX_LENGTH)
                 || overLength(ledger.getCharacters(), FIELD_MAX_LENGTH)
                 || overLength(ledger.getRelations(), FIELD_MAX_LENGTH)
@@ -116,6 +160,7 @@ public class AppWorkLedgerController
                 || overLength(ledger.getItems(), FIELD_MAX_LENGTH)
                 || overLength(ledger.getProps(), FIELD_MAX_LENGTH)
                 || overLength(ledger.getStyleGuide(), FIELD_MAX_LENGTH)
+                || overLength(ledger.getOutline(), OUTLINE_MAX_LENGTH)
                 || overLength(ledger.getThreads(), FIELD_MAX_LENGTH))
         {
             return AppApiResponse.fail(CODE_BAD_REQUEST, "台账内容过长，请精简后重试");

@@ -44,16 +44,19 @@ public class UserMessageService
     /** 支持的渠道集合（契约 §1.5）。 */
     private static final List<String> CHANNELS = List.of(CHANNEL_INBOX, CHANNEL_PUSH);
 
-    /** 支持的消息类型集合，与 A4 消息创建端 AppAdminConstants 同集合。 */
+    /** 支持的消息类型集合（与 AppAdminConstants 同源；FOLLOW 只由系统事件产生，后台群发不开放）。 */
     private static final List<String> TYPES = List.of(
             AppAdminConstants.NOTIFICATION_SYSTEM,
-            AppAdminConstants.NOTIFICATION_REVIEW,
+            AppAdminConstants.NOTIFICATION_COPYRIGHT,
+            AppAdminConstants.NOTIFICATION_SEAL,
+            AppAdminConstants.NOTIFICATION_FOLLOW,
             AppAdminConstants.NOTIFICATION_TRANSACTION,
             AppAdminConstants.NOTIFICATION_BENEFIT);
 
     private static final List<String> PREFERENCE_TYPES = List.of(
-            "INQUIRY", "ORDER", "CONTRACT", "SYSTEM", "REVIEW", "BENEFIT", "TRANSACTION");
+            "INQUIRY", "ORDER", "CONTRACT", "SYSTEM", "COPYRIGHT", "SEAL", "FOLLOW", "BENEFIT", "TRANSACTION");
     private static final Set<String> TRADE_PREFERENCE_TYPES = Set.of("INQUIRY", "ORDER", "CONTRACT");
+
 
     /** 列表摘要长度：列表只展示摘要，正文在详情返回。 */
     private static final int SUMMARY_LENGTH = 80;
@@ -98,13 +101,14 @@ public class UserMessageService
         return PageResult.of(total, list);
     }
 
-    /** 未读数：总数 + 按类型分布，供角标与筛选标签使用。 */
-    public Map<String, Object> unreadCount(Long userId)
+    /** 未读数：总数 + 按类型分布，供角标与筛选标签使用。portalRole 与列表页同口径按 audience 过滤，空则全量（APP 端）。 */
+    public Map<String, Object> unreadCount(Long userId, String portalRole)
     {
+        String role = "BUYER".equals(portalRole) || "SELLER".equals(portalRole) ? portalRole : null;
         Map<String, Object> result = new LinkedHashMap<>();
-        result.put("total", centerMapper.countUnread(userId));
+        result.put("total", centerMapper.countUnread(userId, role));
         Map<String, Integer> byType = new TreeMap<>();
-        List<Map<String, Object>> rows = centerMapper.countUnreadGroupByType(userId);
+        List<Map<String, Object>> rows = centerMapper.countUnreadGroupByType(userId, role);
         if (rows != null)
         {
             for (Map<String, Object> row : rows)

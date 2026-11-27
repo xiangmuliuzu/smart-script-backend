@@ -48,7 +48,8 @@ class DemandDetailGuestViewTest
         d.setTitle("需要 30 集分镜");
         d.setGenreId(3);
         d.setBudget(new BigDecimal("6000"));
-        d.setDeadline(new Date());
+        // 征集未截止：deadline 已过的 open 单不再对外曝光，本测试只锁历史资金列不影响可见性
+        d.setDeadline(new Date(System.currentTimeMillis() + 86400_000L));
         d.setRequirement("每集 3 分钟");
         d.setContactInfo("13800000000");
         d.setTotalEpisodes(30);

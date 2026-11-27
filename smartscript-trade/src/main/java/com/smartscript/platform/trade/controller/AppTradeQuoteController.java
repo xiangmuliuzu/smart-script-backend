@@ -59,6 +59,16 @@ public class AppTradeQuoteController
     @GetMapping("/list")
     public AppApiResponse<Map<String, Object>> listByInquiry(@RequestParam Long inquiryId)
     {
+        SysInquiry inquiry = inquiryService.selectInquiryById(inquiryId);
+        if (inquiry == null)
+        {
+            return AppApiResponse.fail(404, "询盘不存在");
+        }
+        if (!isInquiryParty(inquiry, currentUserId()))
+        {
+            return AppApiResponse.fail(403, "无权查看该询盘的报价");
+        }
+
         SysQuote query = new SysQuote();
         query.setInquiryId(inquiryId);
         List<SysQuote> list = quoteService.selectQuoteList(query);
@@ -82,6 +92,15 @@ public class AppTradeQuoteController
         {
             return AppApiResponse.fail(404, "报价不存在");
         }
+        SysInquiry inquiry = inquiryService.selectInquiryById(quote.getInquiryId());
+        if (inquiry == null)
+        {
+            return AppApiResponse.fail(404, "关联询盘不存在");
+        }
+        if (!isInquiryParty(inquiry, currentUserId()))
+        {
+            return AppApiResponse.fail(403, "无权查看该报价");
+        }
         quote.setPrice(yuanToFen(quote.getPrice()));
         return AppApiResponse.ok(quote);
     }
@@ -92,6 +111,16 @@ public class AppTradeQuoteController
     @GetMapping("/latest")
     public AppApiResponse<SysQuote> latest(@RequestParam Long inquiryId)
     {
+        SysInquiry inquiry = inquiryService.selectInquiryById(inquiryId);
+        if (inquiry == null)
+        {
+            return AppApiResponse.fail(404, "询盘不存在");
+        }
+        if (!isInquiryParty(inquiry, currentUserId()))
+        {
+            return AppApiResponse.fail(403, "无权查看该询盘的报价");
+        }
+
         SysQuote query = new SysQuote();
         query.setInquiryId(inquiryId);
         List<SysQuote> list = quoteService.selectQuoteList(query);
@@ -270,6 +299,9 @@ public class AppTradeQuoteController
         String amountYuan = formatYuan(quote.getPrice());
         chatService.sendNoticeByInquiryId(quote.getInquiryId(),
                 "[接受] 报价已接受，成交金额 " + amountYuan + "，订单已生成");
+        // 可点击跳转的系统消息：四端按 `[订单]{json}` 前缀渲染成订单跳转卡片
+        chatService.sendNoticeByInquiryId(quote.getInquiryId(),
+                "[订单]{\"orderId\":" + order.getOrderId() + ",\"orderNo\":\"" + order.getOrderNo() + "\"}");
 
         Map<String, Object> result = new HashMap<>();
         result.put("orderId", order.getOrderId());
@@ -325,6 +357,13 @@ public class AppTradeQuoteController
                 "[拒绝] " + roleLabel + "已拒绝报价 " + amountYuan);
 
         return AppApiResponse.ok();
+    }
+
+    /** 报价金额与报价人只对询盘双方可见 */
+    private boolean isInquiryParty(SysInquiry inquiry, Long userId)
+    {
+        return userId != null
+                && (userId.equals(inquiry.getBuyerId()) || userId.equals(inquiry.getSellerId()));
     }
 
     /**

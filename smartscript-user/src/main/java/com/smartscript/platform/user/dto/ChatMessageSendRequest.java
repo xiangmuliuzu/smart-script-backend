@@ -9,10 +9,15 @@ public class ChatMessageSendRequest
     private String msgType;
     /** 消息正文 */
     private String content;
+    /** 被引用的消息ID（可空；须为同会话内未撤回的 TEXT 消息） */
+    private Long   quoteMessageId;
 
     public String getMsgType()              { return msgType; }
     public void setMsgType(String t)        { this.msgType = t; }
 
     public String getContent()              { return content; }
     public void setContent(String c)        { this.content = c; }
+
+    public Long getQuoteMessageId()         { return quoteMessageId; }
+    public void setQuoteMessageId(Long id)  { this.quoteMessageId = id; }
 }

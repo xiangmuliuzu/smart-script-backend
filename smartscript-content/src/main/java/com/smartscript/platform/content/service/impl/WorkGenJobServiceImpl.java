@@ -22,8 +22,10 @@ import com.smartscript.platform.content.service.IAppUserWorkService;
 import com.smartscript.platform.content.service.IAppWorkLedgerService;
 import com.smartscript.platform.content.service.IAiWriteService;
 import com.smartscript.platform.content.service.IWorkGenJobService;
+import com.smartscript.platform.content.service.IWorkTimelineService;
 import com.smartscript.platform.content.service.WorkGenPromptSupport;
 import com.smartscript.platform.content.service.WorkGenConsistencySupport;
+import com.smartscript.platform.content.service.WorkStateBoardSupport;
 import com.smartscript.platform.identity.BackgroundIdentity;
 
 /**
@@ -53,6 +55,9 @@ public class WorkGenJobServiceImpl implements IWorkGenJobService
     /** 硬事实冲突后的补写次数（只重写该集，不重跑队列） */
     private static final int CONSISTENCY_RETRY = 1;
 
+    /** 验收判 fail 且属承接类问题时的回灌重写次数（队列无人值守，只重写这一集） */
+    private static final int REVIEW_REWRITE = 1;
+
     @Autowired
     private WorkGenJobMapper jobMapper;
 
@@ -64,6 +69,9 @@ public class WorkGenJobServiceImpl implements IWorkGenJobService
 
     @Autowired
     private IAppWorkLedgerService ledgerService;
+
+    @Autowired
+    private IWorkTimelineService timelineService;
 
     @Autowired
     @Qualifier("threadPoolTaskExecutor")
@@ -86,13 +94,14 @@ public class WorkGenJobServiceImpl implements IWorkGenJobService
         {
             throw new IllegalArgumentException("待生成集列表不能为空");
         }
+        recordStyleLock(userId, workId, episodes);
         WorkGenJob job = new WorkGenJob();
         job.setWorkId(workId);
         job.setUserId(userId);
         job.setStatus(WorkGenJob.STATUS_QUEUED);
         job.setTotal(episodes.size());
         job.setDoneCount(0);
-        job.setOutline(request.getOutline());
+        job.setOutline(WorkGenPromptSupport.normalizeOutlineScript(request.getOutline()));
         job.setCharacters(request.getCharacters());
         job.setRoster(request.getRoster());
         job.setGenre(request.getGenre());
@@ -102,6 +111,66 @@ public class WorkGenJobServiceImpl implements IWorkGenJobService
         jobMapper.insertJob(job);
         start(workId, job.getJobId());
         return job;
+    }
+
+    /**
+     * 续写开始前先「定文体」：从已落库正文（AI 创作写的那几集）判定文体，写进台账 styleGuide，
+     * 后续每集提示词再按它强制注入，避免同一部作品前半散文、后半剧本。
+     */
+    private void recordStyleLock(Long userId, Long workId, List<WorkGenEpisode> episodes)
+    {
+        int firstNo = Integer.MAX_VALUE;
+        for (WorkGenEpisode episode : episodes)
+        {
+            if (episode != null && episode.getNo() > 0)
+            {
+                firstNo = Math.min(firstNo, episode.getNo());
+            }
+        }
+        if (firstNo == Integer.MAX_VALUE)
+        {
+            return;
+        }
+        try
+        {
+            List<SysWorkChapter> chapters = workService.listChapters(userId, workId);
+            String profile = WorkGenPromptSupport.detectStyle(chapters, firstNo);
+            if (profile.isEmpty())
+            {
+                return;
+            }
+            SysWorkLedger ledger = ledgerService.getLedger(workId);
+            if (ledger == null)
+            {
+                return;
+            }
+            StringBuilder base = new StringBuilder();
+            String style = ledger.getStyleGuide() == null ? "" : ledger.getStyleGuide();
+            for (String line : style.split("\\n"))
+            {
+                if (line.trim().isEmpty() || line.startsWith("【文体锁定】"))
+                {
+                    continue;
+                }
+                if (base.length() > 0)
+                {
+                    base.append('\n');
+                }
+                base.append(line);
+            }
+            if (base.length() > 0)
+            {
+                base.append('\n');
+            }
+            base.append("【文体锁定】").append(profile);
+            ledger.setStyleGuide(base.toString());
+            ledgerService.saveLedger(workId, ledger);
+            log.info("文体锁定已记录 workId={}：{}", workId, profile);
+        }
+        catch (Exception e)
+        {
+            log.warn("文体锁定记录失败 workId={}：{}", workId, e.getMessage());
+        }
     }
 
     @Override
@@ -314,11 +383,11 @@ public class WorkGenJobServiceImpl implements IWorkGenJobService
         List<SysWorkChapter> chapters = workService.listChapters(userId, workId);
         SysWorkLedger ledger = ledgerService.getLedger(workId);
         List<Map<String, Object>> volumes = aiWriteService.listVolumes(workId);
-        String prevTail = chapters == null || chapters.isEmpty()
-                ? ""
-                : WorkGenPromptSupport.chapterTail(chapters.get(chapters.size() - 1).getContent(), 500);
+        SysWorkChapter prevChapter = WorkGenPromptSupport.previousChapter(chapters, episode.getNo());
+        String prevTail = prevChapter == null ? "" : WorkGenPromptSupport.chapterTail(prevChapter.getContent(), 500);
 
-        String prompt = WorkGenPromptSupport.buildEpisodePrompt(job, episode, ledger, chapters, volumes);
+        String prompt = WorkGenPromptSupport.buildEpisodePrompt(job, episode, ledger, chapters, volumes,
+                timelineService.promptBlock(workId, episode.getNo()));
         AppAiWriteResult result = callWrite(job, prompt);
         String text = result == null ? "" : result.getContent();
 
@@ -332,6 +401,9 @@ public class WorkGenJobServiceImpl implements IWorkGenJobService
                 text = text + WorkGenPromptSupport.stripRepeatedHead(more.getContent(), text);
             }
         }
+
+        // 末尾停在半句（尤其是一句「某人：」没说完）时必须补完，否则下一集会从一句没说的话接起。
+        text = completeTail(job, episode, ledger, text);
 
         text = cleanEpisode(text, prevTail);
         if (text.length() < MIN_BODY)
@@ -363,10 +435,16 @@ public class WorkGenJobServiceImpl implements IWorkGenJobService
             log.warn("第{}集重写后仍有硬事实冲突，已落库待人工复核：{}", episode.getNo(), conflicts);
         }
 
-        // 标题带上集号：addChapter 靠「第N集」找到页面已保存的同序号空章并复用，否则每集会多建一章
-        SysWorkChapter chapter = workService.addChapter(userId, workId,
+        // 按显式集号复用页面已保存的同序号空章（或重跑时覆盖原章），否则会多建一章
+        SysWorkChapter chapter = workService.upsertGeneratedChapter(userId, workId, episode.getNo(),
                 "第" + episode.getNo() + "集：" + episode.getTitle(), text, "", "0");
         episode.setChapterId(chapter.getChapterId());
+
+        // 验收闭环：队列无人值守时，验收 fail 不能只留一条记录，要把意见回灌成一次重写。
+        if (REVIEW_REWRITE > 0)
+        {
+            text = reviewAndRewrite(job, episode, chapter, text, prompt, prevTail, ledger);
+        }
 
         // 摘要 + 台账合并：下一集的「前情」与「道具状态」靠它，失败不回滚章节，只记录警告。
         try
@@ -380,12 +458,196 @@ public class WorkGenJobServiceImpl implements IWorkGenJobService
         }
     }
 
+    /**
+     * 末尾停在半句时补完：最多续写 2 轮；补不回来就退到最后一个完整句。
+     *
+     * 不补会让下一集从一句没说完的话接起，这是「对话被吞」的源头之一。
+     */
+    private String completeTail(WorkGenJob job, WorkGenEpisode episode, SysWorkLedger ledger, String text)
+    {
+        String body = text;
+        for (int round = 0; round < 2 && WorkGenPromptSupport.endsMidway(body); round++)
+        {
+            String fixTail = WorkGenPromptSupport.buildContinuation(body, job, episode, ledger)
+                    + "\n上一段停在半句，先从断处把这句台词或这个动作写完，再继续本集余下内容。";
+            AppAiWriteResult more = callWrite(job, fixTail);
+            String add = more == null || more.getContent() == null
+                    ? ""
+                    : WorkGenPromptSupport.stripRepeatedHead(more.getContent(), body);
+            if (add.trim().isEmpty() && more != null && more.getContent() != null)
+            {
+                // 续写模型把上文重抄一遍时去重会清空，退回原始返回再试。
+                add = more.getContent().trim();
+            }
+            if (add.trim().isEmpty())
+            {
+                break;
+            }
+            body = body + add;
+            log.info("第{}集末尾半句已补齐 workId={} round={}", episode.getNo(), job.getWorkId(), round + 1);
+        }
+        if (WorkGenPromptSupport.endsMidway(body))
+        {
+            body = WorkGenPromptSupport.trimToLastSentence(body);
+            log.warn("第{}集末尾半句未能补齐，已截到上一完整句 workId={}", episode.getNo(), job.getWorkId());
+        }
+        return body;
+    }
+
+    /**
+     * 验收后按意见重写一集。
+     *
+     * 只处理承接类问题（因果/连续）：这两项是「上一集到本集跳场景、跳事件」的直接判据；
+     * 写法、伏笔等其余 fail 项不触发重写，避免无人值守时无谓烧 token。
+     * 重写只覆盖本集正文，事件卡节点、结尾钩子与台账状态不动。
+     */
+    private String reviewAndRewrite(WorkGenJob job, WorkGenEpisode episode, SysWorkChapter chapter,
+            String text, String basePrompt, String prevTail, SysWorkLedger ledger)
+    {
+        String current = text;
+        boolean rewritten = false;
+        Map<String, Object> lastReview = null;
+        for (int round = 0; round < REVIEW_REWRITE; round++)
+        {
+            Map<String, Object> review;
+            try
+            {
+                // 验收会写 sys_chapter_review / sys_ai_request 并扣积分，走和手动验收同一条链路。
+                review = aiWriteService.reviewChapter(job.getWorkId(), chapter.getChapterId(), current, job.getModel());
+            }
+            catch (Exception e)
+            {
+                log.warn("第{}集验收调用失败，跳过回灌重写 workId={}：{}", episode.getNo(), job.getWorkId(), e.getMessage());
+                return current;
+            }
+            lastReview = review;
+            if (review == null)
+            {
+                log.warn("第{}集验收返回空结果，跳过回灌 workId={}", episode.getNo(), job.getWorkId());
+                return current;
+            }
+            String issues = String.valueOf(review.getOrDefault("issues", ""));
+            boolean pass = Boolean.TRUE.equals(review.get("pass"));
+            // 承接断点不看总分：只要上一集停在对话/动作中途而本集开头没接，即使总分过也算硬问题。
+            boolean hard = needsRewrite(issues)
+                    || WorkGenPromptSupport.dropsUnfinishedDialogue(prevTail, current);
+            if (!hard)
+            {
+                mergeStateBoard(job.getWorkId(), review, episode.getNo());
+                if (!pass)
+                {
+                    log.info("第{}集验收未过但非承接类问题，留待人工处理：{}", episode.getNo(), clip(issues, 200));
+                }
+                return current;
+            }
+            log.warn("第{}集承接断点（pass={}），按意见重写 workId={}：{}", episode.getNo(), pass,
+                    job.getWorkId(), clip(issues, 300));
+            String lastLine = WorkGenPromptSupport.lastMeaningfulLine(prevTail);
+            String retryPrompt = basePrompt
+                    + "\n\n【验收退回意见（本集开场承接不合格，整集重写时逐条改掉）】\n- "
+                    + issues.replace("\n", "\n- ")
+                    + "\n重写要求：上一集最后一句是「" + lastLine + "」。"
+                    + "本集开头第一段必须先给出对这句话的回应：由被问的一方开口，正面回答或明确拒绝、反问、被迫打断，"
+                    + "这条回应必须落在正文前 100 字内，不许让上一集开口的人没得到任何答复就走掉或直接换场；"
+                    + "回应之后才允许推进事件卡的后续节点。"
+                    + "确实换场时，用一句话写明是「上集已收束／本集开启新的过渡事件／切到另一视角」，"
+                    + "不许人物不提任何时间与起因就出现在新场景做新的事；"
+                    + "承接信息全部写进人物动作与对白，不许出现「上一刻」「上集结尾」「这一段紧接上集」这类旁白式说明；"
+                    + "事件卡的五个节点、结尾钩子、人物与道具状态一律照原设定保留，只修衔接与因果。";
+            AppAiWriteResult again = callWrite(job, retryPrompt);
+            String next = completeTail(job, episode, ledger,
+                    cleanEpisode(again == null ? "" : again.getContent(), prevTail));
+            if (next.length() < MIN_BODY)
+            {
+                log.warn("第{}集按验收意见重写未得到可用正文，保留原稿", episode.getNo());
+                mergeStateBoard(job.getWorkId(), review, episode.getNo());
+                return current;
+            }
+            workService.updateChapter(job.getUserId(), job.getWorkId(), chapter.getChapterId(),
+                    "第" + episode.getNo() + "集：" + episode.getTitle(), next, "", "0");
+            current = next;
+            rewritten = true;
+        }
+        // 重写后的正文才是落库版本：必须再验一次，否则状态板收的是被推翻那版的状态。
+        if (rewritten)
+        {
+            Map<String, Object> finalReview = null;
+            try
+            {
+                finalReview = aiWriteService.reviewChapter(job.getWorkId(), chapter.getChapterId(), current, job.getModel());
+            }
+            catch (Exception e)
+            {
+                log.warn("第{}集重写后复检失败 workId={}：{}", episode.getNo(), job.getWorkId(), e.getMessage());
+            }
+            if (finalReview != null)
+            {
+                mergeStateBoard(job.getWorkId(), finalReview, episode.getNo());
+                log.info("第{}集重写后复检 pass={} score={}", episode.getNo(),
+                        finalReview.get("pass"), finalReview.get("score"));
+            }
+            else
+            {
+                mergeStateBoard(job.getWorkId(), lastReview, episode.getNo());
+            }
+        }
+        return current;
+    }
+
+    /**
+     * 把验收返回的状态增量并入状态板：同一条目以新值为准，保留集号与因由。
+     *
+     * 写回失败只记日志，不阻断本章落库——状态板是下一集的输入，缺一集不至于断更。
+     */
+    private void mergeStateBoard(Long workId, Map<String, Object> review, int chapterNo)
+    {
+        if (workId == null || review == null)
+        {
+            return;
+        }
+        Object deltaObj = review.get("stateDelta");
+        String delta = deltaObj == null ? "" : String.valueOf(deltaObj);
+        if (delta.isBlank())
+        {
+            return;
+        }
+        try
+        {
+            SysWorkLedger ledger = ledgerService.getLedger(workId);
+            if (ledger == null)
+            {
+                ledger = new SysWorkLedger();
+                ledger.setWorkId(workId);
+            }
+            ledger.setStateBoard(WorkStateBoardSupport.merge(ledger.getStateBoard(), delta, chapterNo));
+            ledgerService.saveLedger(workId, ledger);
+            log.info("第{}集状态板已更新 workId={}：{}", chapterNo, workId, clip(delta, 200));
+        }
+        catch (Exception e)
+        {
+            log.warn("第{}集状态板更新失败 workId={}：{}", chapterNo, workId, e.getMessage());
+        }
+    }
+
+    /** 验收意见是否属于「本集与上一集接不上」：只有这两类才值得花钱重写。 */
+    private boolean needsRewrite(String issues)
+    {
+        if (issues == null || issues.isBlank())
+        {
+            return false;
+        }
+        return issues.contains("因果") || issues.contains("连续") || issues.contains("causality") || issues.contains("continuity");
+    }
+
     /** 正文清洗：去上一集首尾重复 → 超长按句收束；首版与重写版共用同一口径。 */
     private String cleanEpisode(String raw, String prevTail)
     {
-        return WorkGenPromptSupport.clampEpisodeText(
+        String cleaned = WorkGenPromptSupport.stripInvisible(
                 WorkGenPromptSupport.stripRepeatedTail(
                         WorkGenPromptSupport.stripRepeatedHead(raw == null ? "" : raw, prevTail), prevTail));
+        return WorkGenPromptSupport.clampEpisodeText(
+                WorkGenPromptSupport.dropDanglingSpeaker(
+                        WorkGenPromptSupport.toFullWidthPunct(cleaned)));
     }
 
     private AppAiWriteResult callWrite(WorkGenJob job, String prompt)
@@ -474,15 +736,15 @@ public class WorkGenJobServiceImpl implements IWorkGenJobService
         return text == null || text.isBlank();
     }
 
-    /** 写法基线的字数区间由系统统一，模型写成长篇字数时补一句覆盖，避免与 700-900 字冲突。 */
+    /** 写法基线的字数口径由系统统一：只给上限 1500 字、不设下限，模型写成长篇字数时补一句覆盖。 */
     private static String ensureStyleRange(String style)
     {
         String text = style == null ? "" : style.trim();
-        if (text.isEmpty() || text.matches("(?s).*700\\s*[-~～至到]\\s*900.*"))
+        if (text.isEmpty() || text.contains("1500"))
         {
             return text;
         }
-        return text + " 每集正文 700-900 字，超过 1000 字即不合格。";
+        return text + " 每集正文不超过 1500 字，不设下限，本集事重要可略超。";
     }
 
     /**

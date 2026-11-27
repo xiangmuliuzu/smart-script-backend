@@ -99,7 +99,8 @@ public class AppContractController
      * <ul>
      *   <li>signatureImage — 手写签名图片（可选）</li>
      *   <li>sealImage — 印章图片（可选）</li>
-     *   <li>placements — 上传件签章定位 JSON 数组 [{kind,page,x,y,w,h}]（source_type=uploaded 时必传）</li>
+     *   <li>placements — 上传件签章定位 JSON 数组 [{kind,page,x,y,w,rot}]（source_type=uploaded 时必传；
+     *       x/y/w 为 0~1 比例，rot 为绕章心顺时针角度，缺省 0）</li>
      * </ul>
      * 至少传一项签名或印章。
      */

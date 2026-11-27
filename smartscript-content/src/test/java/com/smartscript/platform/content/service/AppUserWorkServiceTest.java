@@ -21,6 +21,7 @@ import com.smartscript.platform.content.domain.SysTag;
 import com.smartscript.platform.content.domain.SysWork;
 import com.smartscript.platform.content.domain.SysWorkChapter;
 import com.smartscript.platform.content.domain.SysWorkReviewRecord;
+import com.smartscript.platform.content.mapper.AppAiWriteRecordMapper;
 import com.smartscript.platform.content.mapper.SysContentWorkMapper;
 import com.smartscript.platform.content.mapper.SysTagMapper;
 import com.smartscript.platform.content.mapper.SysWorkChapterMapper;
@@ -44,6 +45,7 @@ class AppUserWorkServiceTest
     private SysWorkChapterMapper chapterMapper;
     private SysWorkReviewRecordMapper reviewRecordMapper;
     private SysTagMapper tagMapper;
+    private AppAiWriteRecordMapper aiRecords;
     private com.smartscript.platform.review.service.AiReviewService aiReviewService;
     private AppUserWorkServiceImpl service;
 
@@ -54,8 +56,9 @@ class AppUserWorkServiceTest
         chapterMapper = mock(SysWorkChapterMapper.class);
         reviewRecordMapper = mock(SysWorkReviewRecordMapper.class);
         tagMapper = mock(SysTagMapper.class);
+        aiRecords = mock(AppAiWriteRecordMapper.class);
         aiReviewService = mock(com.smartscript.platform.review.service.AiReviewService.class);
-        service = new AppUserWorkServiceImpl(workMapper, chapterMapper, reviewRecordMapper, tagMapper, aiReviewService,
+        service = new AppUserWorkServiceImpl(workMapper, chapterMapper, reviewRecordMapper, tagMapper, aiRecords, aiReviewService,
                 mock(com.smartscript.platform.review.service.RiskCheckService.class));
     }
 
@@ -107,6 +110,22 @@ class AppUserWorkServiceTest
         assertEquals("draft", ((SysWork) result.get("work")).getStatus());
         assertNotNull(result.get("chapters"));
         assertNull(result.get("latestReview"));
+    }
+
+    @Test
+    void getWorkDetailReturnsDurationAndConfirmedBlueprint()
+    {
+        SysWork work = workOf();
+        work.setDuration(90);
+        when(workMapper.selectWorkById(WORK_ID)).thenReturn(work);
+        when(aiRecords.selectConfirmedBlueprint(OWNER, WORK_ID)).thenReturn(
+                "{\"characters\":[{\"key\":\"c-one\",\"name\":\"阿甲\",\"goal\":\"调查\"}]}");
+
+        Map<String, Object> result = service.getWorkDetail(OWNER, WORK_ID);
+
+        assertEquals(90, ((SysWork) result.get("work")).getDuration());
+        assertEquals(Map.of("characters", List.of(Map.of("key", "c-one", "name", "阿甲", "goal", "调查"))),
+                result.get("blueprint"));
     }
 
     @Test
@@ -221,6 +240,17 @@ class AppUserWorkServiceTest
         when(workMapper.countEnabledChannel(999)).thenReturn(0);
         assertThrows(IllegalArgumentException.class, () -> service.updateWorkBase(
                 OWNER, WORK_ID, "标题", "简介", null, null, null, null, 999));
+    }
+
+    @Test
+    void updateWorkBaseAcceptsDurationWithoutOtherFields()
+    {
+        when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
+        service.updateWorkBase(OWNER, WORK_ID, null, null, null, null, null, null, null, 120);
+        verify(workMapper).updateWorkBaseInfo(argThat(work -> Integer.valueOf(120).equals(work.getDuration())));
+        assertThrows(IllegalArgumentException.class, () -> service.updateWorkBase(
+                OWNER, WORK_ID, null, null, null, null, null, null, null, 0));
+        verify(workMapper).updateWorkBaseInfo(any());
     }
 
     @Test
@@ -344,6 +374,138 @@ class AppUserWorkServiceTest
         assertEquals(4, created.getChapterNo());
         assertEquals("这是第四章内容。Helloworld!", created.getContent().replace(" ", ""));
         verify(chapterMapper).insertChapter(any(SysWorkChapter.class));
+    }
+
+    @Test
+    @DisplayName("新增章节：显式 chapterNo 按该序号新建并落库")
+    void addChapterWithExplicitNoInsertsAtThatNo()
+    {
+        when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
+        when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of());
+
+        SysWorkChapter created = service.addChapter(OWNER, WORK_ID, 7, "第七章", "正文", null, null);
+
+        assertEquals(7, created.getChapterNo());
+        verify(chapterMapper).insertChapter(argThat(c -> Integer.valueOf(7).equals(c.getChapterNo())));
+        verify(workMapper).refreshWorkAggregates(WORK_ID);
+    }
+
+    @Test
+    @DisplayName("新增章节：显式 chapterNo 已存在 → 抛异常且不覆盖旧章")
+    void addChapterWithExistingNoRejectsWithoutOverwrite()
+    {
+        when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
+        when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of());
+        SysWorkChapter existing = new SysWorkChapter();
+        existing.setChapterId(55L);
+        existing.setWorkId(WORK_ID);
+        existing.setChapterNo(3);
+        existing.setChapterTitle("旧第三章");
+        existing.setContent("旧正文");
+        when(chapterMapper.selectChapterListByWorkId(any(SysWorkChapter.class))).thenReturn(List.of(existing));
+        when(chapterMapper.selectChapterDetail(55L)).thenReturn(existing);
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> service.addChapter(OWNER, WORK_ID, 3, "新第三章", "新正文", null, null));
+
+        assertEquals("章节序号已存在，请刷新后重试", ex.getMessage());
+        assertEquals("旧正文", existing.getContent());
+        verify(chapterMapper, never()).updateChapter(any());
+        verify(chapterMapper, never()).insertChapter(any());
+    }
+
+    @Test
+    @DisplayName("新增章节：显式 chapterNo <= 0 → 抛 IllegalArgumentException")
+    void addChapterRejectsNonPositiveNo()
+    {
+        when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
+        when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of());
+
+        assertThrows(IllegalArgumentException.class,
+                () -> service.addChapter(OWNER, WORK_ID, 0, "零章", "正文", null, null));
+        assertThrows(IllegalArgumentException.class,
+                () -> service.addChapter(OWNER, WORK_ID, -1, "负章", "正文", null, null));
+        verify(chapterMapper, never()).insertChapter(any());
+        verify(chapterMapper, never()).updateChapter(any());
+    }
+
+    @Test
+    @DisplayName("新增章节：不传 chapterNo 时标题含「第1集」也按 max+1 新增，不覆盖第 1 章")
+    void addChapterWithoutNoIgnoresEpisodeNoInTitle()
+    {
+        when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
+        when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of());
+        when(chapterMapper.selectMaxChapterNo(WORK_ID)).thenReturn(1);
+        SysWorkChapter first = new SysWorkChapter();
+        first.setChapterId(11L);
+        first.setWorkId(WORK_ID);
+        first.setChapterNo(1);
+        first.setChapterTitle("第1集：开头");
+        first.setContent("旧第一章");
+        when(chapterMapper.selectChapterListByWorkId(any(SysWorkChapter.class))).thenReturn(List.of(first));
+
+        SysWorkChapter created = service.addChapter(OWNER, WORK_ID, "第1集：新的一集", "新正文", null, null);
+
+        assertEquals(2, created.getChapterNo());
+        verify(chapterMapper).insertChapter(argThat(c -> Integer.valueOf(2).equals(c.getChapterNo())));
+        verify(chapterMapper, never()).updateChapter(any());
+        assertEquals("旧第一章", first.getContent());
+    }
+
+    @Test
+    @DisplayName("生成队列 upsert：同序号已存在时复用覆盖原章，不新增")
+    void upsertGeneratedChapterOverwritesSameNo()
+    {
+        when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
+        when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of());
+        SysWorkChapter existing = new SysWorkChapter();
+        existing.setChapterId(55L);
+        existing.setWorkId(WORK_ID);
+        existing.setChapterNo(4);
+        existing.setChapterTitle("第4集：旧标题");
+        existing.setContent("旧正文");
+        when(chapterMapper.selectChapterListByWorkId(any(SysWorkChapter.class))).thenReturn(List.of(existing));
+        when(chapterMapper.selectChapterDetail(55L)).thenReturn(existing);
+
+        service.upsertGeneratedChapter(OWNER, WORK_ID, 4, "第4集：新标题", "新正文", "", "0");
+
+        verify(chapterMapper).updateChapter(argThat(c -> Long.valueOf(55L).equals(c.getChapterId())
+                && "第4集：新标题".equals(c.getChapterTitle())
+                && "新正文".equals(c.getContent())
+                && "1".equals(c.getStatus())));
+        verify(chapterMapper, never()).insertChapter(any());
+        verify(workMapper).refreshWorkAggregates(WORK_ID);
+    }
+
+    @Test
+    @DisplayName("生成队列 upsert：无同序号时按指定序号新建")
+    void upsertGeneratedChapterInsertsWhenMissing()
+    {
+        when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
+        when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of());
+        when(chapterMapper.selectChapterListByWorkId(any(SysWorkChapter.class))).thenReturn(List.of());
+
+        service.upsertGeneratedChapter(OWNER, WORK_ID, 4, "第4集：标题", "正文", "", "0");
+
+        verify(chapterMapper).insertChapter(argThat(c -> Integer.valueOf(4).equals(c.getChapterNo())));
+        verify(chapterMapper, never()).updateChapter(any());
+        verify(workMapper).refreshWorkAggregates(WORK_ID);
+    }
+
+    @Test
+    @DisplayName("生成队列 upsert：非法集号或审核中作品拒绝写入")
+    void upsertGeneratedChapterValidatesNoAndEditableState()
+    {
+        when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
+        when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of());
+        assertThrows(IllegalArgumentException.class,
+                () -> service.upsertGeneratedChapter(OWNER, WORK_ID, 0, "标题", "正文", "", "0"));
+
+        when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of(recordOf("pending")));
+        assertThrows(IllegalStateException.class,
+                () -> service.upsertGeneratedChapter(OWNER, WORK_ID, 1, "标题", "正文", "", "0"));
+        verify(chapterMapper, never()).insertChapter(any());
+        verify(chapterMapper, never()).updateChapter(any());
     }
 
     @Test
@@ -587,33 +749,33 @@ class AppUserWorkServiceTest
     }
 
     @Test
-    void trialChapterCanBeCreated()
+    void creatingChapterCannotMakeItTrial()
     {
         when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
         when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of());
         SysWorkChapter created = service.addChapter(OWNER, WORK_ID, "试读章节", "正文", null, "1");
-        assertEquals("1", created.getIsFree());
+        assertEquals("0", created.getIsFree());
         assertEquals("1", created.getStatus());
     }
 
     @Test
-    void trialFlagCanBeEnabledDisabledOrOmittedWithoutChangingPublicationStatus()
+    void trialToggleChangesOnlyTheFlagAndRejectsUnapprovedChapter()
     {
         when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
-        when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of());
+        when(reviewRecordMapper.selectByWorkId(WORK_ID)).thenReturn(List.of(recordOf("approved")));
         SysWorkChapter chapter = new SysWorkChapter();
         chapter.setChapterId(55L);
         chapter.setWorkId(WORK_ID);
-        chapter.setIsFree("1");
         chapter.setContent("原正文");
         when(chapterMapper.selectChapterDetail(55L)).thenReturn(chapter);
-
-        for (String flag : new String[] { "1", "0", null })
-        {
-            service.updateChapter(OWNER, WORK_ID, 55L, null, null, null, flag);
-            verify(chapterMapper).updateChapter(argThat(c -> java.util.Objects.equals(flag, c.getIsFree())
-                    && c.getStatus() == null && "原正文".equals(c.getContent())));
-        }
+        assertThrows(IllegalStateException.class, () -> service.updateChapter(OWNER, WORK_ID, 55L, null, null, null, "1"));
+        when(chapterMapper.setApprovedChapterTrial(55L, WORK_ID, "1", String.valueOf(OWNER))).thenReturn(1);
+        service.updateChapter(OWNER, WORK_ID, 55L, null, null, null, "1");
+        verify(chapterMapper, never()).updateChapter(any());
+        verify(workMapper, never()).refreshWorkAggregates(any());
+        service.updateChapter(OWNER, WORK_ID, 55L, null, "已修改的正文", null, "1");
+        verify(chapterMapper).updateChapter(argThat(c -> "1".equals(c.getStatus())
+                && "0".equals(c.getIsFree()) && "已修改的正文".equals(c.getContent())));
     }
 
     @Test

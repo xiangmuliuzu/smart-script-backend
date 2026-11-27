@@ -369,10 +369,12 @@ public class UserNotificationAdminService
     private boolean isKnownType(String type)
     {
         return AppAdminConstants.NOTIFICATION_SYSTEM.equals(type)
-                || AppAdminConstants.NOTIFICATION_REVIEW.equals(type)
                 || AppAdminConstants.NOTIFICATION_TRANSACTION.equals(type)
-                || AppAdminConstants.NOTIFICATION_BENEFIT.equals(type);
+                || AppAdminConstants.NOTIFICATION_BENEFIT.equals(type)
+                || AppAdminConstants.NOTIFICATION_SEAL.equals(type)
+                || AppAdminConstants.NOTIFICATION_COPYRIGHT.equals(type);
     }
+
 
     /**
      * 幂等签名，需与 Mapper 中 SQL 侧 SHA2 计算口径完全一致，

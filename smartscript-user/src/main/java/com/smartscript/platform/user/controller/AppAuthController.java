@@ -44,15 +44,19 @@ public class AppAuthController
     private final com.smartscript.platform.user.config.AppAuthProperties properties;
     private final com.smartscript.platform.review.service.RiskCheckService riskCheckService;
 
+    private final com.smartscript.platform.user.service.QrLoginService qrLoginService;
+
     public AppAuthController(AppAuthenticationService authenticationService,
             SmsCodeService smsCodeService,
             com.smartscript.platform.user.config.AppAuthProperties properties,
-            com.smartscript.platform.review.service.RiskCheckService riskCheckService)
+            com.smartscript.platform.review.service.RiskCheckService riskCheckService,
+            com.smartscript.platform.user.service.QrLoginService qrLoginService)
     {
         this.authenticationService = authenticationService;
         this.smsCodeService = smsCodeService;
         this.properties = properties;
         this.riskCheckService = riskCheckService;
+        this.qrLoginService = qrLoginService;
     }
 
     @PostMapping("/sms/send")
@@ -159,6 +163,61 @@ public class AppAuthController
     {
         riskCheckService.checkFrequencyOrThrow(null, clientIp(http), "login");
         return AjaxResult.success(authenticationService.passwordLogin(request, clientIp(http)));
+    }
+
+    // ---- 扫码登录 ----
+    // 出码与轮询匿名可达（登录页还没有任何身份）；扫码/确认/取消要求 App 身份。
+    // 三者都在 /api/v1/auth 下，凭据域与网页登录、App 登录完全相同。
+
+    /**
+     * PC 登录页出码。请求体可省略（创作者端不传，企业端传 portal=enterprise）。
+     * 浏览器与系统由服务端从 User-Agent 解析，供 App 确认页展示——不接受前端自报，
+     * 否则任何人都能把确认页渲染成「你自己的 Chrome」。
+     */
+    @PostMapping("/qr/create")
+    public AjaxResult qrCreate(@RequestBody(required = false) com.smartscript.platform.user.dto.QrLoginCreateRequest request,
+            HttpServletRequest http)
+    {
+        riskCheckService.checkFrequencyOrThrow(null, clientIp(http), "login");
+        String userAgent = http.getHeader("User-Agent");
+        String portal = request == null ? null : request.getPortal();
+        return AjaxResult.success(qrLoginService.create(portal,
+                com.ruoyi.common.utils.http.UserAgentUtils.getBrowser(userAgent),
+                com.ruoyi.common.utils.http.UserAgentUtils.getOperatingSystem(userAgent)));
+    }
+
+    /** PC 轮询扫码状态；确认后同一次响应里带回令牌，票据随即销毁。 */
+    @PostMapping("/qr/poll")
+    public AjaxResult qrPoll(@RequestBody com.smartscript.platform.user.dto.QrLoginTokenRequest request,
+            HttpServletRequest http)
+    {
+        return AjaxResult.success(qrLoginService.poll(request.getQrToken(), clientIp(http)));
+    }
+
+    /** PC 侧拒绝一张已被扫的票据（抢扫防护）；令牌只在出码方的浏览器里，无需身份。 */
+    @PostMapping("/qr/abort")
+    public AjaxResult qrAbort(@RequestBody com.smartscript.platform.user.dto.QrLoginTokenRequest request)
+    {
+        return AjaxResult.success(qrLoginService.abort(request.getQrToken()));
+    }
+
+    /** App 扫码：登记「谁扫的」，等待用户在 App 内确认。 */
+    @PostMapping("/qr/scan")
+    public AjaxResult qrScan(@RequestBody com.smartscript.platform.user.dto.QrLoginTokenRequest request)
+    {
+        return AjaxResult.success(qrLoginService.scan(currentIdentity(), request.getQrToken()));
+    }
+
+    @PostMapping("/qr/confirm")
+    public AjaxResult qrConfirm(@RequestBody com.smartscript.platform.user.dto.QrLoginTokenRequest request)
+    {
+        return AjaxResult.success(qrLoginService.confirm(currentIdentity(), request.getQrToken()));
+    }
+
+    @PostMapping("/qr/cancel")
+    public AjaxResult qrCancel(@RequestBody com.smartscript.platform.user.dto.QrLoginTokenRequest request)
+    {
+        return AjaxResult.success(qrLoginService.cancel(currentIdentity(), request.getQrToken()));
     }
 
     @PostMapping("/register")

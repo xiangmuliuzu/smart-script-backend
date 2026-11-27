@@ -1,0 +1,177 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+"http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.smartscript.platform.content.mapper.SysWorkStoryboardMapper">
+
+    <resultMap id="SysWorkStoryboardResult" type="com.smartscript.platform.content.domain.SysWorkStoryboard">
+        <id property="storyboardId" column="storyboard_id"/>
+        <result property="workId" column="work_id"/>
+        <result property="chapterId" column="chapter_id"/>
+        <result property="chapterTitle" column="chapter_title"/>
+        <result property="content" column="content"/>
+        <result property="wordCount" column="word_count"/>
+        <result property="source" column="source"/>
+        <result property="status" column="status"/>
+        <result property="reviewerId" column="reviewer_id"/>
+        <result property="reviewTime" column="review_time"/>
+        <result property="rejectReason" column="reject_reason"/>
+        <result property="aiResult" column="ai_result"/>
+        <result property="aiRiskLevel" column="ai_risk_level"/>
+        <result property="aiSensitiveWords" column="ai_sensitive_words"/>
+        <result property="aiStartTime" column="ai_start_time"/>
+        <result property="aiEndTime" column="ai_end_time"/>
+        <result property="isDeleted" column="is_deleted"/>
+        <result property="workTitle" column="work_title"/>
+        <result property="authorName" column="author_name"/>
+        <result property="createBy" column="create_by"/>
+        <result property="createTime" column="create_time"/>
+        <result property="updateBy" column="update_by"/>
+        <result property="updateTime" column="update_time"/>
+        <result property="remark" column="remark"/>
+    </resultMap>
+
+    <select id="selectByWorkId" parameterType="java.lang.Long" resultMap="SysWorkStoryboardResult">
+        select storyboard_id, work_id, chapter_id, chapter_title, content, word_count,
+               source, status, reviewer_id, review_time, reject_reason,
+               ai_result, ai_risk_level, ai_sensitive_words, ai_start_time, ai_end_time,
+               create_by, create_time, update_by, update_time, remark
+        from sys_work_storyboard
+        where work_id = #{workId} and is_deleted = 0
+        order by chapter_id asc, storyboard_id asc
+    </select>
+
+    <!--
+        公开分镜目录：作品是否已上架由服务层判定，这里只返回审核通过、未删除，
+        且仍关联正常章节的分镜。正文是否属于试读范围由服务层按章节规则裁剪。
+    -->
+    <select id="selectApprovedByWorkId" parameterType="java.lang.Long" resultMap="SysWorkStoryboardResult">
+        select s.storyboard_id, s.work_id, s.chapter_id, s.chapter_title, s.content, s.word_count,
+               s.source, s.status, s.reviewer_id, s.review_time, s.reject_reason,
+               s.ai_result, s.ai_risk_level, s.ai_sensitive_words, s.ai_start_time, s.ai_end_time,
+               s.create_by, s.create_time, s.update_by, s.update_time, s.remark
+        from sys_work_storyboard s
+        inner join sys_work_chapter c on c.chapter_id = s.chapter_id and c.status = '0'
+        where s.work_id = #{workId}
+          and s.status = 'approved'
+          and s.is_deleted = 0
+        order by c.chapter_no asc, s.storyboard_id asc
+    </select>
+
+    <select id="countApprovedByWorkId" parameterType="java.lang.Long" resultType="int">
+        select count(1)
+        from sys_work_storyboard s
+        inner join sys_work_chapter c on c.chapter_id = s.chapter_id and c.status = '0'
+        where s.work_id = #{workId}
+          and s.status = 'approved'
+          and s.is_deleted = 0
+    </select>
+
+    <select id="selectById" parameterType="java.lang.Long" resultMap="SysWorkStoryboardResult">
+        select storyboard_id, work_id, chapter_id, chapter_title, content, word_count,
+               source, status, reviewer_id, review_time, reject_reason,
+               ai_result, ai_risk_level, ai_sensitive_words, ai_start_time, ai_end_time,
+               create_by, create_time, update_by, update_time, remark
+        from sys_work_storyboard
+        where storyboard_id = #{storyboardId} and is_deleted = 0
+    </select>
+
+    <sql id="adminStoryboardColumns">
+        select s.storyboard_id, s.work_id, s.chapter_id, s.chapter_title, s.content, s.word_count,
+               s.source, s.status, s.reviewer_id, s.review_time, s.reject_reason,
+               s.ai_result, s.ai_risk_level, s.ai_sensitive_words, s.ai_start_time, s.ai_end_time, s.is_deleted,
+               s.create_by, s.create_time, s.update_by, s.update_time, s.remark,
+               w.title as work_title, u.nick_name as author_name
+        from sys_work_storyboard s
+        left join sys_work w on w.work_id = s.work_id
+        left join sys_user u on u.user_id = w.author_id
+    </sql>
+
+    <select id="selectAdminList" parameterType="com.smartscript.platform.content.domain.SysWorkStoryboard" resultMap="SysWorkStoryboardResult">
+        <include refid="adminStoryboardColumns"/>
+        where s.is_deleted = 0
+        <if test="title != null and title != ''">
+            and s.chapter_title like concat('%', #{title}, '%')
+        </if>
+        <if test="workTitle != null and workTitle != ''">
+            and w.title like concat('%', #{workTitle}, '%')
+        </if>
+        <if test="authorName != null and authorName != ''">
+            and u.nick_name like concat('%', #{authorName}, '%')
+        </if>
+        <if test="status != null and status != ''">
+            and s.status = #{status}
+        </if>
+        order by s.update_time desc, s.storyboard_id desc
+    </select>
+
+    <select id="selectAdminById" parameterType="java.lang.Long" resultMap="SysWorkStoryboardResult">
+        <include refid="adminStoryboardColumns"/>
+        where s.storyboard_id = #{storyboardId} and s.is_deleted = 0
+    </select>
+
+    <insert id="upsert" parameterType="com.smartscript.platform.content.domain.SysWorkStoryboard"
+            useGeneratedKeys="true" keyProperty="storyboardId">
+        insert into sys_work_storyboard
+        (work_id, chapter_id, chapter_title, content, word_count, source, status,
+         create_by, create_time, update_by, update_time, remark)
+        values
+        (#{workId}, #{chapterId}, #{chapterTitle}, #{content}, #{wordCount}, #{source}, #{status},
+         #{createBy}, #{createTime}, #{updateBy}, #{updateTime}, #{remark})
+        on duplicate key update
+            storyboard_id = last_insert_id(storyboard_id),
+            chapter_title = #{chapterTitle},
+            content = #{content},
+            word_count = #{wordCount},
+            source = #{source},
+            status = #{status},
+            reviewer_id = null,
+            review_time = null,
+            reject_reason = null,
+            ai_result = null,
+            ai_risk_level = null,
+            ai_sensitive_words = null,
+            ai_start_time = null,
+            ai_end_time = null,
+            is_deleted = 0,
+            update_by = #{updateBy},
+            update_time = #{updateTime}
+    </insert>
+
+    <update id="review" parameterType="com.smartscript.platform.content.domain.SysWorkStoryboard">
+        update sys_work_storyboard
+        set status = #{status},
+            reviewer_id = #{reviewerId},
+            review_time = #{reviewTime},
+            reject_reason = #{rejectReason},
+            update_by = #{updateBy},
+            update_time = #{updateTime}
+        where storyboard_id = #{storyboardId}
+          and is_deleted = 0
+          and status = 'pending'
+    </update>
+
+    <update id="updateAiReview" parameterType="com.smartscript.platform.content.domain.SysWorkStoryboard">
+        update sys_work_storyboard
+        set status = #{status},
+            ai_result = #{aiResult},
+            ai_risk_level = #{aiRiskLevel},
+            ai_sensitive_words = #{aiSensitiveWords},
+            ai_start_time = #{aiStartTime},
+            ai_end_time = #{aiEndTime},
+            reject_reason = case when #{status} = 'rejected' then #{rejectReason} else null end,
+            update_time = sysdate()
+        where storyboard_id = #{storyboardId}
+          and is_deleted = 0
+          and status = 'ai_reviewing'
+          and cast(content as binary) = cast(#{content} as binary)
+    </update>
+
+    <update id="softDelete">
+        update sys_work_storyboard
+        set is_deleted = 1,
+            update_by = #{updateBy},
+            update_time = sysdate()
+        where storyboard_id = #{storyboardId} and is_deleted = 0
+    </update>
+</mapper>

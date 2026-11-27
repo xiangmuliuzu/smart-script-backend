@@ -4,12 +4,14 @@ import com.smartscript.platform.review.domain.AiReviewRule;
 import com.smartscript.platform.review.domain.ReviewRecord;
 import com.smartscript.platform.review.mapper.AiReviewRuleMapper;
 import com.smartscript.platform.review.mapper.ReviewRecordMapper;
+import com.smartscript.platform.review.mapper.ReviewWorkContentMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -36,6 +38,12 @@ class AiReviewServiceTest {
 
     @Mock
     private ReviewRecordMapper reviewRecordMapper;
+
+    @Mock
+    private ReviewWorkContentMapper reviewWorkContentMapper;
+
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
 
     @InjectMocks
     private AiReviewService aiReviewService;
@@ -292,21 +300,25 @@ class AiReviewServiceTest {
 
     @Test
     void score_低风险高分_直接通过审核_不再人工复审() {
-        // AI打分 >=90：直接 approved（不再进人工复审 pending），并触发作品自动上架
+        // AI打分 >=90：直接 approved（不再进人工复审 pending），但不能自动上架
         ReviewRecord record = new ReviewRecord();
         record.setReviewId(30L);
         record.setStatus("ai_reviewing");
         record.setTargetType("work");
         record.setTargetId(301L);
+        record.setUserId(88L);
+        record.setWorkTitle("悬疑故事");
+        record.setAuthorName("作者甲");
         when(reviewRecordMapper.selectReviewRecordById(30L)).thenReturn(record);
+        when(reviewRecordMapper.updateReviewRecord(any())).thenReturn(1);
         when(aiReviewRuleMapper.selectActiveAiReviewRules()).thenReturn(Collections.emptyList());
 
         Map<String, Object> r = aiReviewService.score(30L, "这是一篇优秀的悬疑小说，情节紧凑");
+        verify(reviewWorkContentMapper).applyChapterReviewResult(301L, 30L, "0");
         assertEquals("approved", r.get("nextStatus"));
         org.mockito.ArgumentCaptor<ReviewRecord> captor = org.mockito.ArgumentCaptor.forClass(ReviewRecord.class);
         verify(reviewRecordMapper).updateReviewRecord(captor.capture());
         assertEquals("approved", captor.getValue().getStatus());
-        verify(reviewRecordMapper).markWorkOnShelf(301L, null);
     }
 
     @Test

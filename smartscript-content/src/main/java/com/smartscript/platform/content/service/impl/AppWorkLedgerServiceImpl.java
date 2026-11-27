@@ -11,7 +11,7 @@ import com.smartscript.platform.content.service.IAppWorkLedgerService;
  * 作品创作台账 服务实现
  *
  * 依据：sys_work_ledger（B_20261110_001 迁移）。
- * 说明：一作品一条；保存为整条覆盖，未传字段落空串（前端按整表提交）。
+ * 说明：一作品一条；文本字段支持缺省保留与空串清空。
  *
  * @author smartscript
  */

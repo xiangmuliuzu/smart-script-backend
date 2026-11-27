@@ -100,11 +100,62 @@ class ProfileFileControllerTest
     }
 
     @Test
+    void servesAppPackageUnderAppDirectory() throws Exception
+    {
+        // 应用内更新：APK 放在 profile/app/ 下，匿名可下载（App 下载时可能尚未登录）
+        File apk = new File(root, "app/script-app-1.0.1-2.apk");
+        Files.createDirectories(apk.getParentFile().toPath());
+        Files.write(apk.toPath(), new byte[] { 0x50, 0x4B, 0x03, 0x04 });
+
+        MockHttpServletResponse response = get("/profile/app/script-app-1.0.1-2.apk", null);
+        assertEquals(200, response.getStatus());
+        assertEquals("application/vnd.android.package-archive", response.getContentType());
+        assertEquals(4, response.getContentLength());
+    }
+
+    @Test
+    void deniesAppPackagesOutsideAppDirectory() throws Exception
+    {
+        // 只放行 app/ 目录：别处的 apk 仍不可下载，避免 /profile 变成任意文件分发点
+        File apk = new File(root, "upload/2026/11/17/sneaky.apk");
+        Files.createDirectories(apk.getParentFile().toPath());
+        Files.write(apk.toPath(), new byte[] { 0x50, 0x4B, 0x03, 0x04 });
+        assertEquals(403, get("/profile/upload/2026/11/17/sneaky.apk", null).getStatus());
+    }
+
+    @Test
     void deniesContractArtifactsAnonymously() throws Exception
     {
         // 合同 PDF 里是双方真名与金额，目录可枚举时匿名 GET 就等于公开
         writeContractFile("contract/9/CT20261020145911A006_signed.pdf", "%PDF-1.7".getBytes());
         assertEquals(403, get("/profile/contract/9/CT20261020145911A006_signed.pdf", null).getStatus());
+    }
+
+    @Test
+    void reportsMissingArtifactAsPlainNotFoundWithoutErrorForwarding() throws Exception
+    {
+        // 历史签章只剩库里的地址、原图不在这台机器上：签名有效但文件缺失，必须是干净的 404。
+        // 走 sendError 会转发 /error，被安全入口改写成 HTTP 200 + {"code":401}，
+        // <img> 于是表现为「请求成功却解不出图」的静默破图，谁都看不出是缺文件。
+        String url = "/profile/contract/23/buyer_seal_1793599661535.png";
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", url);
+        String query = new ProfileAccessSigner(SECRET).sign(url).split("\\?")[1];
+        for (String pair : query.split("&"))
+        {
+            int equals = pair.indexOf('=');
+            request.addParameter(pair.substring(0, equals), pair.substring(equals + 1));
+        }
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        contractController.getFile(response, request);
+
+        assertEquals(404, response.getStatus());
+        assertNull(response.getErrorMessage(), "不能交给错误页转发，否则状态码会被改写成 200");
+        assertEquals(0, response.getContentLength());
+
+        // 非合同目录（印章素材、封面）同口径：本地缺件就是 404，不是 200 空 JSON
+        MockHttpServletResponse missing = get("/profile/upload/2026/11/11/seal_missing.jpg", null);
+        assertEquals(404, missing.getStatus());
+        assertNull(missing.getErrorMessage());
     }
 
     @Test

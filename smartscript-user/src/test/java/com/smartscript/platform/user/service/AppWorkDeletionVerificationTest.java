@@ -41,7 +41,8 @@ class AppWorkDeletionVerificationTest
     {
         SmsCodeService sender = mock(SmsCodeService.class);
         var controller = new com.smartscript.platform.user.controller.AppAuthController(null, sender, properties,
-                mock(com.smartscript.platform.review.service.RiskCheckService.class));
+                mock(com.smartscript.platform.review.service.RiskCheckService.class),
+                mock(com.smartscript.platform.user.service.QrLoginService.class));
         var request = new com.smartscript.platform.user.dto.SmsSendRequest();
         request.setPhone(PHONE);
         request.setScene("DELETE_WORK");
@@ -134,7 +135,8 @@ class AppWorkDeletionVerificationTest
     {
         SmsCodeService sender = mock(SmsCodeService.class);
         var controller = new com.smartscript.platform.user.controller.AppAuthController(null, sender, properties,
-                mock(com.smartscript.platform.review.service.RiskCheckService.class));
+                mock(com.smartscript.platform.review.service.RiskCheckService.class),
+                mock(com.smartscript.platform.user.service.QrLoginService.class));
         var request = new com.smartscript.platform.user.dto.EmailCodeRequest();
         request.setEmail("author@example.com");
         request.setScene("DELETE_WORK");

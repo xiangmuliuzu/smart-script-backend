@@ -10,7 +10,7 @@
 #
 # 执行：
 #   $env:DB_PASSWORD = '<口令>'
-#   .\scripts\db\init-database.ps1 -d script_platform_dev -u <账号> -h <主机> -Steps scripts\db\seed-steps.txt
+#   .\scripts\db\init-database.ps1 -d p06_platform -u <账号> -h <主机> -Steps scripts\db\seed-steps.txt
 
 seed-content-tag-testdata|summary|sql/seed_content_tag_testdata.sql|B 模块标签筛选测试数据（sys_work_tag 关联）
 seed-content-chapter-testdata|summary|sql/seed_content_chapter_testdata.sql|B 模块免费试读测试数据（sys_work_chapter + 试读开关 + sys_work_file）

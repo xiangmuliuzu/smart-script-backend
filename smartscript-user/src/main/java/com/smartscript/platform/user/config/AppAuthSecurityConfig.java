@@ -47,7 +47,7 @@ public class AppAuthSecurityConfig
             "/api/v1/auth/**", "/api/v1/users/**", "/api/v1/messages/**", "/api/v1/feedback/**",
             "/api/v1/content/**", "/api/v1/pc-auth/**", "/api/v1/announcements/**",
             "/api/v1/trade/**", "/api/v1/welfare/**", "/api/v1/ad/**", "/api/v1/ai/**",
-            "/api/v1/open/**"
+            "/api/v1/open/**", "/api/v1/app/**"
     };
 
     @Bean
@@ -74,6 +74,14 @@ public class AppAuthSecurityConfig
                                 "/api/v1/auth/password/reset",
                                 "/api/v1/auth/register",
                                 "/api/v1/pc-auth/login").permitAll()
+                        // 扫码登录：登录页尚无身份，出码与轮询必须匿名可达；
+                        // 扫码 / 确认 / 取消仍要求 App 身份（下面 authenticated() 覆盖）。
+                        // 两条路径必须与 AppAuthAuthenticationFilter.PUBLIC_PATHS 同步登记，
+                        // 否则过滤器会先按「需要身份」返回 401。
+                        .requestMatchers(HttpMethod.POST,
+                                "/api/v1/auth/qr/create",
+                                "/api/v1/auth/qr/poll",
+                                "/api/v1/auth/qr/abort").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/trade/alipay/sandbox/notify").permitAll()
                         // 版权第三方代理回调（国版补正/结果消息）
                         .requestMatchers(HttpMethod.POST, "/api/v1/open/copyright/third-party/messages").permitAll()
@@ -87,6 +95,8 @@ public class AppAuthSecurityConfig
                                 "/api/v1/auth/agreements").permitAll()
                         // 开屏素材在登录及会话恢复之前获取，仅公开此只读接口。
                         .requestMatchers(HttpMethod.GET, "/api/v1/ad/splash").permitAll()
+                        // App 版本检查：冷启动时先于登录发生，必须匿名可达（只读，无敏感数据）。
+                        .requestMatchers(HttpMethod.GET, "/api/v1/app/version").permitAll()
                         // B 模块上传与创作私有 GET（2.9.5~2.9.9）：必须声明在 /works/** 白名单之前，
                         // 否则会被下面的游客 GET 规则误放为可匿名访问（Spring Security 首匹配优先）
                         .requestMatchers(HttpMethod.GET,
@@ -130,7 +140,7 @@ public class AppAuthSecurityConfig
                                 "/api/v1/messages/**", "/api/v1/feedback/**",
                                 "/api/v1/content/**", "/api/v1/announcements/**",
                                 "/api/v1/trade/**", "/api/v1/welfare/**",
-                                "/api/v1/ad/**", "/api/v1/ai/**").authenticated()
+                                "/api/v1/ad/**", "/api/v1/ai/**", "/api/v1/app/**").authenticated()
                         .anyRequest().denyAll())
                 .addFilterBefore(appFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();

@@ -8,8 +8,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 	  依据：B_20261110_001__work_ledger_and_chapter_summary.sql 新建的 sys_work_ledger，
 	  以及 B_20261111_002__ledger_props_and_style.sql 追加的 props / style_guide。
 	  一作品一条；九类台账均为自由文本，后端只存取不解析。
-	  props / style_guide 在冲突更新时「空串不覆盖旧值」：旧版 App 端保存台账不带这两列，
-	  若直接写空串会把道具档案和写法基线清掉。
+	  存量台账的文本字段收到 null 保留旧值，收到空串时清空。
 	-->
 	<resultMap type="SysWorkLedger" id="SysWorkLedgerResult">
 		<id     property="workId"        column="work_id"        />
@@ -21,21 +20,24 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		<result property="items"         column="items"          />
 		<result property="props"         column="props"          />
 		<result property="styleGuide"    column="style_guide"    />
+		<result property="outline"       column="outline"        />
 		<result property="threads"       column="threads"        />
+		<result property="stateBoard"    column="state_board"    />
+		<result property="chapterMeta"   column="chapter_meta"   />
 		<result property="updateTime"    column="update_time"    />
 	</resultMap>
 
 	<select id="selectByWorkId" parameterType="Long" resultMap="SysWorkLedgerResult">
-		select work_id, story_summary, characters, relations, foreshadow, timeline, items, props, style_guide, threads,
+		select work_id, story_summary, characters, relations, foreshadow, timeline, items, props, style_guide, outline, threads, state_board,
 		       date_format(update_time, '%Y-%m-%d %H:%i:%s') as update_time
 		from sys_work_ledger
 		where work_id = #{workId}
 	</select>
 
-	<!-- 整条覆盖写入；并发下由主键 work_id 保证只有一条 -->
+	<!-- 由主键保证每作品一条台账，更新时只覆盖本次提交的字段。 -->
 	<insert id="upsertLedger" parameterType="SysWorkLedger">
 		insert into sys_work_ledger
-			(work_id, story_summary, characters, relations, foreshadow, timeline, items, props, style_guide, threads, create_time, update_time)
+			(work_id, story_summary, characters, relations, foreshadow, timeline, items, props, style_guide, outline, threads, state_board, create_time, update_time)
 		values
 			(#{workId},
 			 ifnull(#{storySummary}, ''),
@@ -46,19 +48,38 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 			 ifnull(#{items}, ''),
 			 ifnull(#{props}, ''),
 			 ifnull(#{styleGuide}, ''),
+			 ifnull(#{outline}, ''),
 			 ifnull(#{threads}, ''),
+			 ifnull(#{stateBoard}, ''),
 			 now(), now())
 		on duplicate key update
-			story_summary = values(story_summary),
-			characters    = values(characters),
-			relations     = values(relations),
-			foreshadow    = values(foreshadow),
-			timeline      = values(timeline),
-			items         = values(items),
-			props         = coalesce(nullif(values(props), ''), props),
-			style_guide   = coalesce(nullif(values(style_guide), ''), style_guide),
-			threads       = values(threads),
+			story_summary = coalesce(#{storySummary}, story_summary),
+			characters    = coalesce(#{characters}, characters),
+			relations     = coalesce(#{relations}, relations),
+			foreshadow    = coalesce(#{foreshadow}, foreshadow),
+			timeline      = coalesce(#{timeline}, timeline),
+			items         = coalesce(#{items}, items),
+			props         = coalesce(#{props}, props),
+			style_guide   = coalesce(#{styleGuide}, style_guide),
+			outline       = coalesce(#{outline}, outline),
+			threads       = coalesce(#{threads}, threads),
+			state_board   = coalesce(#{stateBoard}, state_board),
 			update_time   = now()
+	</insert>
+
+	<select id="selectChapterMeta" parameterType="Long" resultMap="SysWorkLedgerResult">
+		select work_id, chapter_meta from sys_work_ledger where work_id = #{workId}
+	</select>
+
+	<!-- 写入只修改一个 JSON 成员，避免按不同章号并发保存时互相覆盖。 -->
+	<insert id="upsertChapterMeta">
+		insert into sys_work_ledger (work_id, chapter_meta)
+		select work_id, json_object(cast(chapter_no as char), cast(#{meta} as json))
+		from sys_work_chapter
+		where work_id = #{workId} and chapter_id = #{chapterId} and chapter_no = #{chapterNo}
+		on duplicate key update
+			chapter_meta = json_set(coalesce(chapter_meta, json_object()),
+				concat('$."', #{chapterNo}, '"'), cast(#{meta} as json))
 	</insert>
 
 </mapper>

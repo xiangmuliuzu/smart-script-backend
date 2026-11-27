@@ -142,6 +142,14 @@ public class AppWorkManageController
         createRequest.setDescription(trimToNull(asString(request, "description")));
         createRequest.setCover(trimToNull(asString(request, "cover")));
         createRequest.setPrice(price);
+        try
+        {
+            createRequest.setDuration(AppRequestNumbers.positiveInt(request.get("duration"), "单集时长（秒）"));
+        }
+        catch (IllegalArgumentException e)
+        {
+            return AppApiResponse.fail(CODE_BAD_REQUEST, e.getMessage());
+        }
         // 剧本文件随创建一并登记（2.9.1 上传返回的 url/name/size），落 sys_work_file
         createRequest.setScriptUrl(asStringAny(request, "script_url", "scriptUrl"));
         createRequest.setScriptName(asStringAny(request, "script_name", "scriptName"));

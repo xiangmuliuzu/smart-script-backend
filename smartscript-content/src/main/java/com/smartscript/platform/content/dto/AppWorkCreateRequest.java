@@ -24,6 +24,9 @@ public class AppWorkCreateRequest
     /** 价格（可选，缺省 0.00） */
     private BigDecimal price;
 
+    /** 单集时长（秒，可选）。 */
+    private Integer duration;
+
     /** 剧本文件地址（可选；上传接口 2.9.1 返回的 url，落 sys_work_file.file_url） */
     private String scriptUrl;
 
@@ -71,6 +74,16 @@ public class AppWorkCreateRequest
     public void setPrice(BigDecimal price)
     {
         this.price = price;
+    }
+
+    public Integer getDuration()
+    {
+        return duration;
+    }
+
+    public void setDuration(Integer duration)
+    {
+        this.duration = duration;
     }
 
     public String getScriptUrl()

@@ -411,26 +411,12 @@ public class TradeFinanceService
     }
 
     /**
-     * 作者提出异议（不入账），须填写原因。
+     * 作者提出异议（已下线）：入口关闭，避免半成品异议流程。
      */
     @Transactional
     public Map<String, Object> disputeSettle(Long userId, Long settleId, String reason)
     {
-        String text = reason == null ? "" : reason.trim();
-        if (text.isEmpty() || text.length() > 500)
-        {
-            throw new IllegalArgumentException("异议原因须为 1 至 500 个字符");
-        }
-
-        int changed = jdbc.update(
-                "UPDATE sys_income_settle SET status = 'disputed', dispute_reason = ?, dispute_time = NOW(), "
-                        + "updated_at = NOW() WHERE settle_id = ? AND user_id = ? AND status = 'pending'",
-                text, settleId, userId);
-        if (changed != 1)
-        {
-            throw new IllegalStateException("仅待确认的结算单可以提出异议");
-        }
-        return getSettleDetail(userId, settleId);
+        throw new IllegalStateException("异议功能已下线，请直接确认入账或联系平台客服");
     }
 
     /**

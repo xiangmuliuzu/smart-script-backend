@@ -137,7 +137,7 @@ public class AppUserWorkController
     }
 
     /**
-     * 修改作品基本信息（标题/简介/封面/标签/价格/交易类型）
+     * 修改作品基本信息（标题/简介/封面/标签/价格/交易类型/单集时长）
      *
      * 依据：接口文档 2.3.3 修改剧本信息，入参含 tagIds（Array&lt;Int&gt;，全量覆盖，最多 8 个）；
      * 标签墙体系下作品不再设置分类。
@@ -151,7 +151,8 @@ public class AppUserWorkController
             userWorkService.updateWorkBase(userId, workId,
                     str(body.get("title")), str(body.get("summary")),
                     str(body.get("cover")), integerList(body.get("tagIds")), decimal(body.get("price")),
-                    str(body.get("tradeType")), integer(body.get("channelId")));
+                    str(body.get("tradeType")), integer(body.get("channelId")),
+                    AppRequestNumbers.positiveInt(body.get("duration"), "单集时长（秒）"));
             return AppApiResponse.ok();
         }
         catch (IllegalArgumentException e)
@@ -213,16 +214,23 @@ public class AppUserWorkController
 
     /**
      * 新增章节
+     *
+     * chapterNo 可选：显式传入时按该序号新建（已被占用返回 400，
+     * 绝不覆盖旧章）；不传时追加到末尾。
      */
     @PostMapping("/{workId}/chapters")
-    public AppApiResponse<SysWorkChapter> addChapter(@PathVariable Long workId, @RequestBody Map<String, Object> body)
+    public AppApiResponse<SysWorkChapter> addChapter(@PathVariable Long workId,
+            @RequestBody(required = false) Map<String, Object> body)
     {
         Long userId = requireLogin();
         try
         {
             return AppApiResponse.ok(userWorkService.addChapter(userId, workId,
-                    str(body.get("chapterTitle")), str(body.get("content")), str(body.get("summary")),
-                    str(body.get("isFree"))));
+                    AppRequestNumbers.positiveInt(body == null ? null : body.get("chapterNo"), "章节序号"),
+                    str(body == null ? null : body.get("chapterTitle")),
+                    str(body == null ? null : body.get("content")),
+                    str(body == null ? null : body.get("summary")),
+                    str(body == null ? null : body.get("isFree"))));
         }
         catch (IllegalArgumentException e)
         {
