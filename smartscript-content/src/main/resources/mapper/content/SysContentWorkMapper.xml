@@ -134,11 +134,13 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		  and status = '0'
 	</select>
 
-	<!-- 用户端「我的作品」列表：本人作品，按更新时间倒序 -->
+	<!-- 用户端「我的作品」列表：本人作品，按更新时间倒序。
+	     update_time 可能为 NULL（历史数据/未写初始值）：coalesce 回退 create_time，
+	     再用 work_id 倒序做稳定次级排序，保证新建作品排在最前。 -->
 	<select id="selectWorkListByAuthor" parameterType="Long" resultMap="SysWorkResult">
 		<include refid="selectWorkVo"/>
 		and w.author_id = #{authorId}
-		order by w.update_time desc
+		order by coalesce(w.update_time, w.create_time) desc, w.work_id desc
 	</select>
 
 	<!-- 书城列表：含从 ext_json 解析的 recommendStatus/showScope -->
@@ -609,18 +611,20 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		<result property="createTime" column="create_time" />
 	</resultMap>
 
-	<!-- 创建作品（2.9.2） -->
+	<!-- 创建作品（2.9.2）
+	     create_time / update_time 同时初始化为 sysdate()：update_time 为 NULL 时，
+	     MySQL 的 desc 排序会把新作品排到最后。 -->
 	<insert id="insertWork" parameterType="SysContentWork" useGeneratedKeys="true" keyProperty="workId">
 		insert into sys_work (
 			title, cover, author_id, work_type, length_type, summary,
 			price, trade_enabled, quote_valid_days, word_count, is_free, status,
 			is_copyrighted, view_count, favorite_count, sale_count, rating, is_deleted,
-			duration, create_by, create_time
+			duration, create_by, create_time, update_time
 		) values (
 			#{title}, #{cover}, #{authorId}, #{workType}, #{lengthType}, #{summary},
 			#{price}, #{tradeEnabled}, #{quoteValidDays}, #{wordCount}, #{isFree}, #{status},
 			#{isCopyrighted}, #{viewCount}, #{favoriteCount}, #{saleCount}, #{rating}, #{isDeleted},
-			#{duration}, #{createBy}, sysdate()
+			#{duration}, #{createBy}, sysdate(), sysdate()
 		)
 	</insert>
 
