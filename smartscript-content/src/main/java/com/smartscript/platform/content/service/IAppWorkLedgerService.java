@@ -21,10 +21,10 @@ public interface IAppWorkLedgerService
     public SysWorkLedger getLedger(Long workId);
 
     /**
-     * 整条覆盖保存作品台账
+     * 保存作品台账
      *
      * @param workId 作品ID
-     * @param ledger 台账内容（null 字段按空串落库）
+     * @param ledger 台账内容（null 保留原值，空串清空）
      * @return 是否保存成功
      */
     public boolean saveLedger(Long workId, SysWorkLedger ledger);

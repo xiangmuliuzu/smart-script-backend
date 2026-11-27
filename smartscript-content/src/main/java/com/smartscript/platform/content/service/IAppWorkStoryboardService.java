@@ -11,7 +11,7 @@ public interface IAppWorkStoryboardService
 
     int countPublic(Long workId);
 
-    SysWorkStoryboard save(Long userId, Long workId, String chapterTitle,
+    SysWorkStoryboard save(Long userId, Long workId, Long chapterId, Integer chapterNo, String chapterTitle,
             String content, String source);
 
     void delete(Long userId, Long workId, Long storyboardId);

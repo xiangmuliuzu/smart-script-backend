@@ -1,5 +1,7 @@
 package com.smartscript.platform.content.domain;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
 /**
  * 作品创作台账对象 sys_work_ledger
  *
@@ -64,6 +66,9 @@ public class SysWorkLedger
      * 用于在下一集生成前判断"能不能自洽地接上"，而不是规定必须兑现某个承诺。
      */
     private String stateBoard;
+
+    /** 按章节号索引的 JSON，仅通过章节元数据接口读写。 */
+    private String chapterMeta;
 
     /** 最后更新时间（只读下发） */
     private String updateTime;
@@ -191,6 +196,18 @@ public class SysWorkLedger
     public String getUpdateTime()
     {
         return updateTime;
+    }
+
+    @JsonIgnore
+    public String getChapterMeta()
+    {
+        return chapterMeta;
+    }
+
+    @JsonIgnore
+    public void setChapterMeta(String chapterMeta)
+    {
+        this.chapterMeta = chapterMeta;
     }
 
     public void setUpdateTime(String updateTime)

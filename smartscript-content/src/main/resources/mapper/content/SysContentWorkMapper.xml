@@ -498,6 +498,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 			<if test="price != null">price = #{price},</if>
 			<if test="tradeType != null">trade_type = #{tradeType},</if>
 			<if test="channelId != null">channel_id = #{channelId},</if>
+			<if test="duration != null">duration = #{duration},</if>
 			<if test="updateBy != null">update_by = #{updateBy},</if>
 			<if test="updateTime != null">update_time = #{updateTime},</if>
 		</trim>
@@ -614,12 +615,12 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 			title, cover, author_id, work_type, length_type, summary,
 			price, trade_enabled, quote_valid_days, word_count, is_free, status,
 			is_copyrighted, view_count, favorite_count, sale_count, rating, is_deleted,
-			create_by, create_time
+			duration, create_by, create_time
 		) values (
 			#{title}, #{cover}, #{authorId}, #{workType}, #{lengthType}, #{summary},
 			#{price}, #{tradeEnabled}, #{quoteValidDays}, #{wordCount}, #{isFree}, #{status},
 			#{isCopyrighted}, #{viewCount}, #{favoriteCount}, #{saleCount}, #{rating}, #{isDeleted},
-			#{createBy}, sysdate()
+			#{duration}, #{createBy}, sysdate()
 		)
 	</insert>
 

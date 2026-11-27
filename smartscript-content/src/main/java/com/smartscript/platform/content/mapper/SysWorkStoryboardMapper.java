@@ -17,16 +17,11 @@ public interface SysWorkStoryboardMapper
 
     SysWorkStoryboard selectById(Long storyboardId);
 
-    SysWorkStoryboard selectByWorkIdAndChapterId(@Param("workId") Long workId,
-            @Param("chapterId") Long chapterId);
-
     List<SysWorkStoryboard> selectAdminList(SysWorkStoryboard query);
 
     SysWorkStoryboard selectAdminById(Long storyboardId);
 
-    int insert(SysWorkStoryboard storyboard);
-
-    int update(SysWorkStoryboard storyboard);
+    int upsert(SysWorkStoryboard storyboard);
 
     int review(SysWorkStoryboard storyboard);
 

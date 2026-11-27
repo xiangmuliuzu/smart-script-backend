@@ -35,6 +35,10 @@ public interface SysWorkChapterMapper
      */
     public SysWorkChapter selectChapterDetail(Long chapterId);
 
+    SysWorkChapter selectChapterByNo(@Param("workId") Long workId, @Param("chapterNo") int chapterNo);
+
+    List<SysWorkChapter> selectPreviousChapters(@Param("workId") Long workId, @Param("chapterNo") int chapterNo);
+
     /**
      * 按作品ID查询章节列表（含 content 全文，用户端编辑用）
      *

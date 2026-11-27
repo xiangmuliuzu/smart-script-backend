@@ -60,7 +60,8 @@ class AiServiceClientIsolationTest
                     response = delta(content.substring(0, middle));
                     if (!truncateStream) response += delta(content.substring(middle))
                             + "data: {\"choices\":[{\"finish_reason\":\""
-                            + (lengthFinish ? "length" : "stop") + "\"}]}\n\ndata: [DONE]\n\n";
+                            + (lengthFinish ? "length" : "stop") + "\"}]}\n\n"
+                            + "data: {\"choices\":[],\"usage\":{\"total_tokens\":123}}\n\ndata: [DONE]\n\n";
                 }
                 else
                 {
@@ -119,6 +120,8 @@ class AiServiceClientIsolationTest
         StringBuilder received = new StringBuilder();
         AiCallResult r = client.writeStream("完整的故事", null, null, received::append);
         assertFalse(r.isTruncated());
+        assertEquals(123, r.getTotalTokens());
+        assertFalse(r.isEstimated());
     }
 
     @Test

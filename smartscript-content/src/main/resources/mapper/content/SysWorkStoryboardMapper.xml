@@ -76,16 +76,6 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         where storyboard_id = #{storyboardId} and is_deleted = 0
     </select>
 
-    <select id="selectByWorkIdAndChapterId" resultMap="SysWorkStoryboardResult">
-        select storyboard_id, work_id, chapter_id, chapter_title, content, word_count,
-               source, status, reviewer_id, review_time, reject_reason,
-               ai_result, ai_risk_level, ai_sensitive_words, ai_start_time, ai_end_time,
-               create_by, create_time, update_by, update_time, remark
-        from sys_work_storyboard
-        where work_id = #{workId} and chapter_id = #{chapterId}
-        limit 1
-    </select>
-
     <sql id="adminStoryboardColumns">
         select s.storyboard_id, s.work_id, s.chapter_id, s.chapter_title, s.content, s.word_count,
                s.source, s.status, s.reviewer_id, s.review_time, s.reject_reason,
@@ -120,7 +110,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         where s.storyboard_id = #{storyboardId} and s.is_deleted = 0
     </select>
 
-    <insert id="insert" parameterType="com.smartscript.platform.content.domain.SysWorkStoryboard"
+    <insert id="upsert" parameterType="com.smartscript.platform.content.domain.SysWorkStoryboard"
             useGeneratedKeys="true" keyProperty="storyboardId">
         insert into sys_work_storyboard
         (work_id, chapter_id, chapter_title, content, word_count, source, status,
@@ -128,11 +118,9 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         values
         (#{workId}, #{chapterId}, #{chapterTitle}, #{content}, #{wordCount}, #{source}, #{status},
          #{createBy}, #{createTime}, #{updateBy}, #{updateTime}, #{remark})
-    </insert>
-
-    <update id="update" parameterType="com.smartscript.platform.content.domain.SysWorkStoryboard">
-        update sys_work_storyboard
-        set chapter_title = #{chapterTitle},
+        on duplicate key update
+            storyboard_id = last_insert_id(storyboard_id),
+            chapter_title = #{chapterTitle},
             content = #{content},
             word_count = #{wordCount},
             source = #{source},
@@ -148,8 +136,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
             is_deleted = 0,
             update_by = #{updateBy},
             update_time = #{updateTime}
-        where storyboard_id = #{storyboardId}
-    </update>
+    </insert>
 
     <update id="review" parameterType="com.smartscript.platform.content.domain.SysWorkStoryboard">
         update sys_work_storyboard
@@ -177,6 +164,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         where storyboard_id = #{storyboardId}
           and is_deleted = 0
           and status = 'ai_reviewing'
+          and cast(content as binary) = cast(#{content} as binary)
     </update>
 
     <update id="softDelete">

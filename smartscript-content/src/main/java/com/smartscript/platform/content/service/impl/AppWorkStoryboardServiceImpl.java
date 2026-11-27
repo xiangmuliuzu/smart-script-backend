@@ -128,7 +128,7 @@ public class AppWorkStoryboardServiceImpl implements IAppWorkStoryboardService
         dto.setWorkId(row.getWorkId());
         dto.setChapterId(row.getChapterId());
         dto.setChapterNo(chapter.getChapterNo());
-        dto.setChapterTitle(row.getChapterTitle() == null ? chapter.getChapterTitle() : row.getChapterTitle());
+        dto.setChapterTitle(chapter.getChapterTitle());
         dto.setContent(readable ? row.getContent() : null);
         dto.setWordCount(row.getWordCount());
         dto.setSource(row.getSource());
@@ -163,64 +163,63 @@ public class AppWorkStoryboardServiceImpl implements IAppWorkStoryboardService
 
     @Override
     @Transactional
-    public SysWorkStoryboard save(Long userId, Long workId, String chapterTitle,
+    public SysWorkStoryboard save(Long userId, Long workId, Long chapterId, Integer chapterNo, String chapterTitle,
             String content, String source)
     {
         requireOwnWork(userId, workId);
         requireEditable(workId);
 
-        String title = chapterTitle == null ? "" : chapterTitle.trim();
-        if (title.isEmpty())
-        {
-            throw new IllegalArgumentException("请选择已有章节目录标题作为分镜标题");
-        }
         if (content == null || content.trim().isEmpty())
         {
             throw new IllegalArgumentException("分镜内容不能为空");
         }
 
+        SysWorkChapter chapter = resolveChapter(workId, chapterId, chapterNo, chapterTitle);
+        Date now = new Date();
+        SysWorkStoryboard storyboard = new SysWorkStoryboard();
+        storyboard.setWorkId(workId);
+        storyboard.setChapterId(chapter.getChapterId());
+        storyboard.setChapterTitle(chapter.getChapterTitle());
+        storyboard.setContent(content);
+        storyboard.setWordCount(countWords(content));
+        storyboard.setSource("ai".equalsIgnoreCase(source) ? "ai" : "manual");
+        storyboard.setStatus("ai_reviewing");
+        storyboard.setCreateBy(String.valueOf(userId));
+        storyboard.setCreateTime(now);
+        storyboard.setUpdateBy(String.valueOf(userId));
+        storyboard.setUpdateTime(now);
+        storyboardMapper.upsert(storyboard);
+        if (storyboard.getStoryboardId() == null)
+        {
+            throw new IllegalStateException("分镜保存失败，请稍后重试");
+        }
+        queueAiReview(storyboard.getStoryboardId(), content);
+        return storyboardMapper.selectById(storyboard.getStoryboardId());
+    }
+
+    private SysWorkChapter resolveChapter(Long workId, Long chapterId, Integer chapterNo, String chapterTitle)
+    {
+        if (chapterId != null || chapterNo != null)
+        {
+            SysWorkChapter chapter = chapterId == null ? chapterMapper.selectChapterByNo(workId, chapterNo)
+                    : chapterMapper.selectChapterMeta(chapterId);
+            if (chapter == null || !workId.equals(chapter.getWorkId())
+                    || (chapterNo != null && !chapterNo.equals(chapter.getChapterNo())))
+            {
+                throw new IllegalArgumentException("章节不存在于当前作品，或章节 ID 与章号不一致");
+            }
+            return chapter;
+        }
+        String title = chapterTitle == null ? "" : chapterTitle.trim();
+        if (title.isEmpty())
+        {
+            throw new IllegalArgumentException("请选择章节或提供已有章节标题");
+        }
         SysWorkChapter query = new SysWorkChapter();
         query.setWorkId(workId);
-        SysWorkChapter chapter = chapterMapper.selectChapterListByWorkId(query).stream()
-                .filter(item -> title.equals(item.getChapterTitle() == null ? "" : item.getChapterTitle().trim()))
-                .findFirst().orElse(null);
-        if (chapter == null)
-        {
-            throw new IllegalArgumentException("分镜标题必须选择当前作品已有的章节目录标题");
-        }
-
-        Date now = new Date();
-        String normalizedSource = "ai".equalsIgnoreCase(source) ? "ai" : "manual";
-        SysWorkStoryboard existing = storyboardMapper.selectByWorkIdAndChapterId(workId, chapter.getChapterId());
-        if (existing == null)
-        {
-            SysWorkStoryboard created = new SysWorkStoryboard();
-            created.setWorkId(workId);
-            created.setChapterId(chapter.getChapterId());
-            created.setChapterTitle(chapter.getChapterTitle());
-            created.setContent(content);
-            created.setWordCount(countWords(content));
-            created.setSource(normalizedSource);
-            created.setStatus("ai_reviewing");
-            created.setCreateBy(String.valueOf(userId));
-            created.setCreateTime(now);
-            created.setUpdateBy(String.valueOf(userId));
-            created.setUpdateTime(now);
-            storyboardMapper.insert(created);
-            queueAiReview(created.getStoryboardId(), content);
-            return storyboardMapper.selectById(created.getStoryboardId());
-        }
-
-        existing.setChapterTitle(chapter.getChapterTitle());
-        existing.setContent(content);
-        existing.setWordCount(countWords(content));
-        existing.setSource(normalizedSource);
-        existing.setStatus("ai_reviewing");
-        existing.setUpdateBy(String.valueOf(userId));
-        existing.setUpdateTime(now);
-        storyboardMapper.update(existing);
-        queueAiReview(existing.getStoryboardId(), content);
-        return storyboardMapper.selectById(existing.getStoryboardId());
+        return chapterMapper.selectChapterListByWorkId(query).stream()
+                .filter(item -> item.getChapterTitle() != null && title.equals(item.getChapterTitle().trim()))
+                .findFirst().orElseThrow(() -> new IllegalArgumentException("分镜标题必须选择当前作品已有的章节目录标题"));
     }
 
     /** 分镜与作品共用同一套启用规则、敏感词库、AI评分和自动流转策略。 */
@@ -257,6 +256,7 @@ public class AppWorkStoryboardServiceImpl implements IAppWorkStoryboardService
                 log.warn("分镜AI审核失败，转人工审核 storyboardId={}: {}", storyboardId, e.getMessage());
                 SysWorkStoryboard fallback = new SysWorkStoryboard();
                 fallback.setStoryboardId(storyboardId);
+                fallback.setContent(content);
                 fallback.setStatus("pending");
                 fallback.setAiStartTime(new Date());
                 fallback.setAiEndTime(new Date());
@@ -288,6 +288,7 @@ public class AppWorkStoryboardServiceImpl implements IAppWorkStoryboardService
 
         SysWorkStoryboard update = new SysWorkStoryboard();
         update.setStoryboardId(storyboardId);
+        update.setContent(content);
         update.setStatus(status);
         update.setAiRiskLevel(riskLevel);
         update.setAiSensitiveWords(joinValues(judged.get("keywords")));
@@ -308,9 +309,11 @@ public class AppWorkStoryboardServiceImpl implements IAppWorkStoryboardService
         {
             update.setAiResult("{}");
         }
-        storyboardMapper.updateAiReview(update);
-        log.info("分镜AI审核完成 storyboardId={}, status={}, score={}, level={}",
-                storyboardId, status, score, riskLevel);
+        if (storyboardMapper.updateAiReview(update) > 0)
+        {
+            log.info("分镜AI审核完成 storyboardId={}, status={}, score={}, level={}",
+                    storyboardId, status, score, riskLevel);
+        }
     }
 
     private String joinValues(Object values)

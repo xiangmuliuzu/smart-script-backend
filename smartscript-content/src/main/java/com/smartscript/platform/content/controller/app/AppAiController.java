@@ -6,19 +6,26 @@ import java.io.UncheckedIOException;
 import jakarta.servlet.http.HttpServletRequest;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.ConcurrentModificationException;
 import java.util.Map;
+import java.util.NoSuchElementException;
+import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
+import com.ruoyi.common.exception.ServiceException;
 import com.smartscript.platform.api.AppApiResponse;
 import com.smartscript.platform.content.dto.AppAiOutlineRequest;
 import com.smartscript.platform.content.dto.AppAiOutlineRecordItem;
@@ -33,6 +40,8 @@ import com.smartscript.platform.content.dto.AppPageResult;
 import com.smartscript.platform.content.exception.AiQuotaInsufficientException;
 import com.smartscript.platform.content.exception.AiServiceUnavailableException;
 import com.smartscript.platform.content.service.IAiWriteService;
+import com.smartscript.platform.content.service.impl.BlueprintService;
+import com.smartscript.platform.content.service.impl.ChapterDraftService;
 
 /**
  * App AI 辅助创作（B 模块，接口文档 2.9.10~2.9.13 表2-120 ~ 表2-123）。
@@ -68,10 +77,78 @@ public class AppAiController
     private static final int CODE_SERVICE_UNAVAILABLE = 503;
 
     private final IAiWriteService aiWriteService;
+    private final BlueprintService blueprints;
+    private final ChapterDraftService chapters;
 
-    public AppAiController(IAiWriteService aiWriteService)
+    public AppAiController(IAiWriteService aiWriteService, BlueprintService blueprints, ChapterDraftService chapters)
     {
         this.aiWriteService = aiWriteService;
+        this.blueprints = blueprints;
+        this.chapters = chapters;
+    }
+
+    @PostMapping(value = "/blueprint/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public ResponseEntity<StreamingResponseBody> generateBlueprint(@RequestBody(required = false) BlueprintService.Request body,
+            HttpServletRequest request)
+    {
+        return streamResponse(request, (stage, delta) -> blueprints.generate(body, stage, delta).toString());
+    }
+
+    @GetMapping("/blueprint/{sessionId}")
+    public AppApiResponse<Map<String, Object>> getBlueprint(@PathVariable Long sessionId)
+    {
+        return structuredResponse(() -> blueprints.get(sessionId));
+    }
+
+    @PostMapping(value = "/blueprint/regenerate", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public ResponseEntity<StreamingResponseBody> regenerateBlueprint(@RequestBody(required = false) BlueprintService.RegenerateRequest body,
+            HttpServletRequest request)
+    {
+        return streamResponse(request, (stage, delta) -> blueprints.regenerate(body, stage, delta).toString());
+    }
+
+    @PreAuthorize("@contentAuthorAccess.allowed()")
+    @PostMapping("/blueprint/{sessionId}/confirm")
+    public AppApiResponse<Map<String, Long>> confirmBlueprint(@PathVariable Long sessionId)
+    {
+        return structuredResponse(() -> Map.of("workId", blueprints.confirm(sessionId)));
+    }
+
+    @PostMapping(value = "/chapter-draft/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public ResponseEntity<StreamingResponseBody> draftChapter(@RequestBody(required = false) ChapterDraftService.Request body,
+            HttpServletRequest request)
+    {
+        return streamResponse(request, delta -> chapters.draft(body, delta).toString());
+    }
+
+    @PostMapping("/chapter-meta")
+    public AppApiResponse<Map<String, Object>> generateChapterMeta(@RequestBody(required = false) ChapterDraftService.Request body)
+    {
+        return structuredResponse(() -> chapters.generateMeta(body));
+    }
+
+    static <T> AppApiResponse<T> structuredResponse(Supplier<T> action)
+    {
+        try
+        {
+            return AppApiResponse.ok(action.get());
+        }
+        catch (AiQuotaInsufficientException | IllegalArgumentException | ServiceException e)
+        {
+            return AppApiResponse.fail(CODE_BAD_REQUEST, e.getMessage());
+        }
+        catch (NoSuchElementException e)
+        {
+            return AppApiResponse.fail(404, e.getMessage());
+        }
+        catch (SecurityException e)
+        {
+            return AppApiResponse.fail(403, e.getMessage());
+        }
+        catch (AiServiceUnavailableException e)
+        {
+            return AppApiResponse.fail(CODE_SERVICE_UNAVAILABLE, e.getMessage());
+        }
     }
 
     /**
@@ -438,6 +515,12 @@ public class AppAiController
     private ResponseEntity<StreamingResponseBody> streamResponse(HttpServletRequest request,
             Function<Consumer<String>, String> generate)
     {
+        return streamResponse(request, (stage, delta) -> generate.apply(delta));
+    }
+
+    private ResponseEntity<StreamingResponseBody> streamResponse(HttpServletRequest request,
+            BiFunction<Consumer<String>, Consumer<String>, String> generate)
+    {
         return ResponseEntity.ok().contentType(MediaType.TEXT_EVENT_STREAM)
                 .header("Cache-Control", "no-cache, no-transform")
                 .header("X-Accel-Buffering", "no")
@@ -447,13 +530,26 @@ public class AppAiController
                     output.flush();
                     try
                     {
-                        String done = generate.apply(delta -> sendEvent(output, "message",
+                        String done = generate.apply(stage -> sendEvent(output, "stage", "{\"stage\":" + jsonEscape(stage) + "}"),
+                                delta -> sendEvent(output, "message",
                                 "{\"delta\":" + jsonEscape(delta) + "}"));
                         sendEvent(output, "message", done);
                     }
-                    catch (AiQuotaInsufficientException | IllegalArgumentException e)
+                    catch (AiQuotaInsufficientException | IllegalArgumentException | ServiceException e)
                     {
                         sendError(output, CODE_BAD_REQUEST, e.getMessage());
+                    }
+                    catch (NoSuchElementException e)
+                    {
+                        sendError(output, 404, e.getMessage());
+                    }
+                    catch (ConcurrentModificationException e)
+                    {
+                        sendError(output, 409, e.getMessage());
+                    }
+                    catch (SecurityException e)
+                    {
+                        sendError(output, 403, e.getMessage());
                     }
                     catch (AiServiceUnavailableException e)
                     {

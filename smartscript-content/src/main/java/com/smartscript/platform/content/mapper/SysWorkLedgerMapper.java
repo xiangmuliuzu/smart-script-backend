@@ -1,5 +1,6 @@
 package com.smartscript.platform.content.mapper;
 
+import org.apache.ibatis.annotations.Param;
 import com.smartscript.platform.content.domain.SysWorkLedger;
 
 /**
@@ -21,10 +22,15 @@ public interface SysWorkLedgerMapper
     public SysWorkLedger selectByWorkId(Long workId);
 
     /**
-     * 新增或整条覆盖台账（work_id 唯一）
+     * 新增台账或更新提交的字段（work_id 唯一）
      *
-     * @param ledger 台账对象（字段为 null 时落空串）
+     * @param ledger 台账对象（null 保留原值，空串清空）
      * @return 影响行数
      */
     public int upsertLedger(SysWorkLedger ledger);
+
+    SysWorkLedger selectChapterMeta(Long workId);
+
+    int upsertChapterMeta(@Param("workId") Long workId, @Param("chapterId") Long chapterId,
+            @Param("chapterNo") int chapterNo, @Param("meta") String meta);
 }

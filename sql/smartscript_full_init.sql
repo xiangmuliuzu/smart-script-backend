@@ -4369,10 +4369,19 @@ CREATE TABLE IF NOT EXISTS `sys_work_ledger` (
   `outline` longtext COLLATE utf8mb4_general_ci COMMENT '剧本大纲（分集事件卡）',
   `threads` mediumtext COLLATE utf8mb4_general_ci COMMENT '未解线索',
   `state_board` text COLLATE utf8mb4_general_ci COMMENT '状态板：所在/持有/认知/约定，一行一条，变更须带触发',
+  `chapter_meta` longtext COLLATE utf8mb4_general_ci NULL COMMENT '按章节号索引的JSON：cast/items/edges',
   `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
   `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
   PRIMARY KEY (`work_id`) USING BTREE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci ROW_FORMAT=DYNAMIC COMMENT='作品创作台账（跨端共享）';
+
+-- 存量库补齐章节元数据，保留原有台账。
+SET @col_exists := (SELECT COUNT(*) FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'sys_work_ledger' AND COLUMN_NAME = 'chapter_meta');
+SET @ddl := IF(@col_exists = 0,
+  'ALTER TABLE sys_work_ledger ADD COLUMN chapter_meta LONGTEXT NULL COMMENT ''按章节号索引的JSON：cast/items/edges'' AFTER state_board',
+  'SELECT ''sys_work_ledger.chapter_meta ok'' AS note');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
 
 CREATE TABLE IF NOT EXISTS `sys_work_rating` (
   `rating_id` bigint NOT NULL AUTO_INCREMENT COMMENT '评分记录ID',

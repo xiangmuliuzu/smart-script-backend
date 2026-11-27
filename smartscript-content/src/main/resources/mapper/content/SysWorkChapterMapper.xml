@@ -57,6 +57,17 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		where chapter_id = #{chapterId}
 	</select>
 
+	<select id="selectChapterByNo" resultMap="SysWorkChapterResult">
+		select chapter_id, work_id, chapter_no, chapter_title, summary, content
+		from sys_work_chapter where work_id = #{workId} and chapter_no = #{chapterNo}
+	</select>
+
+	<select id="selectPreviousChapters" resultMap="SysWorkChapterResult">
+		select chapter_id, chapter_no, chapter_title, summary
+		from sys_work_chapter where work_id = #{workId} and chapter_no &lt; #{chapterNo}
+		order by chapter_no desc limit 2
+	</select>
+
 	<!-- 用户端编辑：章节列表含 content 全文，按章节序号升序 -->
 	<select id="selectChapterListWithContentByWorkId" parameterType="Long" resultMap="SysWorkChapterResult">
 		select chapter_id, work_id, chapter_no, chapter_title, content, word_count, summary, is_free, status,

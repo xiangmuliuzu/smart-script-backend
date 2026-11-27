@@ -54,7 +54,9 @@ public class AppWorkStoryboardController
         String source = body == null || body.get("source") == null ? null : body.get("source").toString();
         try
         {
-            return AppApiResponse.ok(storyboardService.save(requireLogin(), workId, title, content, source));
+            Long chapterId = AppRequestNumbers.positiveLong(body == null ? null : body.get("chapterId"), "章节 ID");
+            Integer chapterNo = AppRequestNumbers.positiveInt(body == null ? null : body.get("chapterNo"), "章号");
+            return AppApiResponse.ok(storyboardService.save(requireLogin(), workId, chapterId, chapterNo, title, content, source));
         }
         catch (IllegalArgumentException e)
         {

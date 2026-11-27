@@ -154,6 +154,7 @@ public class AppWorkManageServiceImpl implements IAppWorkManageService
         work.setTradeEnabled("0");
         work.setQuoteValidDays(0);
         work.setWordCount(0);
+        work.setDuration(request.getDuration());
         work.setIsFree("0");
         // 可见性开关只写 off_shelf：新作品未经审核，读者不可见
         work.setStatus(WorkStatusDeriver.OFF_SHELF);

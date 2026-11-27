@@ -89,7 +89,7 @@ class AiWriteRecordDeleteTest
     {
         IAiWriteService service = mock(IAiWriteService.class);
         when(service.deleteWriteRecords(List.of(3L, 5L))).thenReturn(2);
-        AppAiController controller = new AppAiController(service);
+        AppAiController controller = new AppAiController(service, null, null);
 
         Map<String, Object> body = new java.util.HashMap<>();
         body.put("recordIds", Arrays.asList(3, "5", null, "abc", 0, -2, 3.5));
@@ -107,7 +107,7 @@ class AiWriteRecordDeleteTest
     {
         IAiWriteService service = mock(IAiWriteService.class);
         when(service.deleteWriteRecords(List.of())).thenReturn(0);
-        AppAiController controller = new AppAiController(service);
+        AppAiController controller = new AppAiController(service, null, null);
 
         AppApiResponse<Integer> response = controller.deleteWriteRecords(null);
 

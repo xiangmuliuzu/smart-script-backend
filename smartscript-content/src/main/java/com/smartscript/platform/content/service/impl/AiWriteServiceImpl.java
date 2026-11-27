@@ -165,7 +165,7 @@ public class AiWriteServiceImpl implements IAiWriteService
     private com.smartscript.platform.review.service.RiskCheckService riskCheckService;
 
     /** 内容风控（测试无 Bean 时跳过，生产必注入） */
-    private void checkContent(Long userId, String text)
+    void checkContent(Long userId, String text)
     {
         if (riskCheckService != null && text != null && !text.isBlank())
         {
@@ -229,6 +229,7 @@ public class AiWriteServiceImpl implements IAiWriteService
         int safePageSize = pageSize < 1 ? DEFAULT_PAGE_SIZE : Math.min(pageSize, PAGE_SIZE_MAX);
         Long userId = identityProvider.currentUserId();
         PageHelper.startPage(safePageNum, safePageSize);
+        // 按原始 writeType 返回，包含仍处于 draft 状态的 Blueprint 会话。
         List<AppAiWriteRecordItem> rows = writeRecordMapper.selectWriteRecordsByUser(userId);
         long total = new PageInfo<>(rows).getTotal();
         return AppPageResult.of(total, rows);
@@ -513,7 +514,7 @@ public class AiWriteServiceImpl implements IAiWriteService
      * 无账户或不足 1 积分即抛 {@link AiQuotaInsufficientException}（消息为积分文案），由控制器转 400。
      * 本方法只校验；实际扣减在 AI 调用成功后由 {@link #consumePoints} 完成。
      */
-    private void checkPoints(Long userId)
+    void checkPoints(Long userId)
     {
         Integer balance;
         try
@@ -544,16 +545,31 @@ public class AiWriteServiceImpl implements IAiWriteService
      */
     private void consumePoints(Long userId, String capability, Long businessId, int totalTokens)
     {
+        consumePoints(userId, capability, businessId, totalTokens, false);
+    }
+
+    /** 新结构化接口在事务内扣费，扣减或写流水失败时回滚业务记录。 */
+    int consumeStructuredPoints(Long userId, String capability, Long recordId, int totalTokens)
+    {
+        return consumePoints(userId, capability, recordId, totalTokens, true);
+    }
+
+    private int consumePoints(Long userId, String capability, Long businessId, int totalTokens, boolean atomic)
+    {
         int tokenPerPoint = readTokenPerPoint();
         int points = totalTokens <= 0 ? MIN_POINTS_COST
-                : Math.max(MIN_POINTS_COST, (totalTokens + tokenPerPoint - 1) / tokenPerPoint);
+                : 1 + (totalTokens - 1) / tokenPerPoint;
         int rows = jdbcTemplate.update(
                 "UPDATE sys_points_account SET balance = balance - ?, last_update_date = NOW() "
                         + "WHERE user_id = ? AND balance >= ?",
                 points, userId, points);
         if (rows == 0)
         {
-            return; // checkPoints 已前置拦截，此处并发兜底
+            if (atomic)
+            {
+                throw new AiQuotaInsufficientException("积分不足，本次生成需要 " + points + " 积分");
+            }
+            return 0; // 既有接口的并发兜底
         }
         Integer after;
         try
@@ -569,18 +585,27 @@ public class AiWriteServiceImpl implements IAiWriteService
         int before = (after == null ? points : after) + points;
         try
         {
-            jdbcTemplate.update(
+            int inserted = jdbcTemplate.update(
                     "INSERT INTO sys_points_record (user_id, change_type, points, balance_after, "
                             + "source, related_id, remark, created_at) "
                             + "VALUES (?, 'SPEND', ?, ?, 'AI', ?, ?, NOW())",
                     userId, points, after == null ? before : after, businessId,
                     "AI创作消耗(" + capability + "): " + totalTokens + " token = " + points + " 积分");
+            if (atomic && inserted != 1)
+            {
+                throw new IllegalStateException("写入 AI 积分流水失败");
+            }
         }
         catch (Exception e)
         {
+            if (atomic)
+            {
+                throw e;
+            }
             // 流水失败不回滚积分（主业务已完成）；日志留痕便于对账
             log.error("写积分流水失败 userId={} businessId={}: {}", userId, businessId, e.getMessage());
         }
+        return points;
     }
 
     /** 读取「1 积分 = N token」配置（sys_config key=ai.token.per.point）；缺失/非法回退默认 1000。 */
@@ -613,20 +638,27 @@ public class AiWriteServiceImpl implements IAiWriteService
      */
     private Long saveRecord(Long userId, Long workId, String writeType, String inputPrompt, String outputContent, String model, int tokens)
     {
+        return saveRecord(userId, workId, writeType, truncate(inputPrompt, TITLE_MAX_LENGTH),
+                truncate(inputPrompt, PROMPT_MAX_LENGTH), outputContent, model, tokens, STATUS_SUCCESS);
+    }
+
+    Long saveRecord(Long userId, Long workId, String writeType, String title, String inputPrompt,
+            String outputContent, String model, int tokens, String status)
+    {
         AppAiWriteRecordInsert row = new AppAiWriteRecordInsert();
         row.setUserId(userId);
         row.setWorkId(workId);
-        row.setTitle(truncate(inputPrompt, TITLE_MAX_LENGTH));
+        row.setTitle(title == null ? BLANK : title);
         row.setWriteType(writeType);
         row.setPov(BLANK);
         row.setLanguageStyle(BLANK);
         row.setPace(BLANK);
-        row.setInputPrompt(inputPrompt == null ? BLANK : truncate(inputPrompt, PROMPT_MAX_LENGTH));
+        row.setInputPrompt(inputPrompt == null ? BLANK : inputPrompt);
         row.setOutputContent(outputContent == null ? BLANK : outputContent);
         row.setWordCount(outputContent == null ? 0 : outputContent.length());
         row.setAiModel(model);
         row.setTokensUsed(tokens);
-        row.setStatus(STATUS_SUCCESS);
+        row.setStatus(status);
         writeRecordMapper.insertWriteRecord(row);
         return row.getRecordId();
     }
@@ -634,17 +666,27 @@ public class AiWriteServiceImpl implements IAiWriteService
     /** 写作类型：入参为空回退默认 write */
     private String resolveWriteType(String type)
     {
-        return type == null || type.isBlank() ? WRITE_TYPE_DEFAULT : type;
+        return type == null || type.isBlank() || BlueprintService.TYPE.equalsIgnoreCase(type.trim())
+                ? WRITE_TYPE_DEFAULT : type;
     }
 
     /** 模型名：优先 AI 返回，其次配置，最后兜底 */
-    private String resolveModel(AiCallResult r)
+    String resolveModel(AiCallResult r)
     {
         if (r.getModel() != null && !r.getModel().isBlank())
         {
             return r.getModel();
         }
         return aiModel == null || aiModel.isBlank() ? DEFAULT_MODEL : aiModel;
+    }
+
+    AiCallResult structuredStream(String system, String input, String model, Long skillId,
+            java.util.function.Consumer<String> onDelta)
+    {
+        AiChannel channel = resolveChannel(model);
+        return aiServiceClient.structuredStream(system, input, resolveSkillContent(skillId), onDelta,
+                channel == null ? null : channel.getBaseUrl(), channel == null ? null : channel.getApiKey(),
+                channelModel(channel, model));
     }
 
     /** 服务提供方：配置为空时兜底 */

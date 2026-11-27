@@ -57,4 +57,41 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		</foreach>
 	</delete>
 
+	<select id="selectBlueprint" resultType="com.smartscript.platform.content.mapper.AppAiWriteRecordMapper$BlueprintRecord">
+		select record_id, work_id, input_prompt, output_content, status,
+		       date_format(coalesce(update_time, created_at), '%Y-%m-%d %H:%i:%s') as updated_at
+		from sys_ai_write_record
+		where user_id = #{userId} and record_id = #{recordId} and write_type = 'blueprint'
+		  and status in ('draft', 'confirmed')
+		<if test="lock">for update</if>
+	</select>
+
+	<select id="selectConfirmedBlueprint" resultType="String">
+		select output_content from sys_ai_write_record
+		where user_id = #{userId} and work_id = #{workId} and write_type = 'blueprint' and status = 'confirmed'
+		order by record_id desc limit 1
+	</select>
+
+	<select id="selectBlueprintByWork" resultType="com.smartscript.platform.content.mapper.AppAiWriteRecordMapper$BlueprintRecord">
+		select record_id, work_id, input_prompt, output_content, status,
+		       date_format(coalesce(update_time, created_at), '%Y-%m-%d %H:%i:%s') as updated_at
+		from sys_ai_write_record
+		where user_id = #{userId} and work_id = #{workId} and write_type = 'blueprint' and status = 'confirmed'
+		order by record_id desc limit 1
+	</select>
+
+	<update id="updateBlueprint">
+		update sys_ai_write_record
+		set title = #{title}, input_prompt = #{input}, output_content = #{output}, word_count = char_length(#{output}),
+		    ai_model = #{model}, tokens_used = tokens_used + #{tokens}, update_time = now()
+		where user_id = #{userId} and record_id = #{recordId} and write_type = 'blueprint'
+	</update>
+
+	<update id="confirmBlueprint">
+		update sys_ai_write_record
+		set status = 'confirmed', work_id = #{workId}, remark = json_object('confirmedWorkId', #{workId}),
+		    output_content = #{output}, word_count = char_length(#{output}), update_time = now()
+		where user_id = #{userId} and record_id = #{recordId} and write_type = 'blueprint' and status = 'draft'
+	</update>
+
 </mapper>

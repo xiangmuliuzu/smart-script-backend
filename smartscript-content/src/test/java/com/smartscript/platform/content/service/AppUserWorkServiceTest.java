@@ -21,6 +21,7 @@ import com.smartscript.platform.content.domain.SysTag;
 import com.smartscript.platform.content.domain.SysWork;
 import com.smartscript.platform.content.domain.SysWorkChapter;
 import com.smartscript.platform.content.domain.SysWorkReviewRecord;
+import com.smartscript.platform.content.mapper.AppAiWriteRecordMapper;
 import com.smartscript.platform.content.mapper.SysContentWorkMapper;
 import com.smartscript.platform.content.mapper.SysTagMapper;
 import com.smartscript.platform.content.mapper.SysWorkChapterMapper;
@@ -44,6 +45,7 @@ class AppUserWorkServiceTest
     private SysWorkChapterMapper chapterMapper;
     private SysWorkReviewRecordMapper reviewRecordMapper;
     private SysTagMapper tagMapper;
+    private AppAiWriteRecordMapper aiRecords;
     private com.smartscript.platform.review.service.AiReviewService aiReviewService;
     private AppUserWorkServiceImpl service;
 
@@ -54,8 +56,9 @@ class AppUserWorkServiceTest
         chapterMapper = mock(SysWorkChapterMapper.class);
         reviewRecordMapper = mock(SysWorkReviewRecordMapper.class);
         tagMapper = mock(SysTagMapper.class);
+        aiRecords = mock(AppAiWriteRecordMapper.class);
         aiReviewService = mock(com.smartscript.platform.review.service.AiReviewService.class);
-        service = new AppUserWorkServiceImpl(workMapper, chapterMapper, reviewRecordMapper, tagMapper, aiReviewService,
+        service = new AppUserWorkServiceImpl(workMapper, chapterMapper, reviewRecordMapper, tagMapper, aiRecords, aiReviewService,
                 mock(com.smartscript.platform.review.service.RiskCheckService.class));
     }
 
@@ -107,6 +110,22 @@ class AppUserWorkServiceTest
         assertEquals("draft", ((SysWork) result.get("work")).getStatus());
         assertNotNull(result.get("chapters"));
         assertNull(result.get("latestReview"));
+    }
+
+    @Test
+    void getWorkDetailReturnsDurationAndConfirmedBlueprint()
+    {
+        SysWork work = workOf();
+        work.setDuration(90);
+        when(workMapper.selectWorkById(WORK_ID)).thenReturn(work);
+        when(aiRecords.selectConfirmedBlueprint(OWNER, WORK_ID)).thenReturn(
+                "{\"characters\":[{\"key\":\"c-one\",\"name\":\"阿甲\",\"goal\":\"调查\"}]}");
+
+        Map<String, Object> result = service.getWorkDetail(OWNER, WORK_ID);
+
+        assertEquals(90, ((SysWork) result.get("work")).getDuration());
+        assertEquals(Map.of("characters", List.of(Map.of("key", "c-one", "name", "阿甲", "goal", "调查"))),
+                result.get("blueprint"));
     }
 
     @Test
@@ -221,6 +240,17 @@ class AppUserWorkServiceTest
         when(workMapper.countEnabledChannel(999)).thenReturn(0);
         assertThrows(IllegalArgumentException.class, () -> service.updateWorkBase(
                 OWNER, WORK_ID, "标题", "简介", null, null, null, null, 999));
+    }
+
+    @Test
+    void updateWorkBaseAcceptsDurationWithoutOtherFields()
+    {
+        when(workMapper.selectWorkById(WORK_ID)).thenReturn(workOf());
+        service.updateWorkBase(OWNER, WORK_ID, null, null, null, null, null, null, null, 120);
+        verify(workMapper).updateWorkBaseInfo(argThat(work -> Integer.valueOf(120).equals(work.getDuration())));
+        assertThrows(IllegalArgumentException.class, () -> service.updateWorkBase(
+                OWNER, WORK_ID, null, null, null, null, null, null, null, 0));
+        verify(workMapper).updateWorkBaseInfo(any());
     }
 
     @Test

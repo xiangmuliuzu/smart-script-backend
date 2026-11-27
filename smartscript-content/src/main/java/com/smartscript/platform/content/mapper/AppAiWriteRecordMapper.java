@@ -46,4 +46,21 @@ public interface AppAiWriteRecordMapper
      * @return 实际删除行数
      */
     public int deleteWriteRecords(@Param("userId") Long userId, @Param("recordIds") List<Long> recordIds);
+
+    record BlueprintRecord(Long recordId, Long workId, String inputPrompt, String outputContent,
+            String status, String updatedAt) { }
+
+    BlueprintRecord selectBlueprint(@Param("userId") Long userId, @Param("recordId") Long recordId,
+            @Param("lock") boolean lock);
+
+    String selectConfirmedBlueprint(@Param("userId") Long userId, @Param("workId") Long workId);
+
+    BlueprintRecord selectBlueprintByWork(@Param("userId") Long userId, @Param("workId") Long workId);
+
+    int updateBlueprint(@Param("userId") Long userId, @Param("recordId") Long recordId,
+            @Param("title") String title, @Param("input") String input, @Param("output") String output,
+            @Param("model") String model, @Param("tokens") int tokens);
+
+    int confirmBlueprint(@Param("userId") Long userId, @Param("recordId") Long recordId,
+            @Param("workId") Long workId, @Param("output") String output);
 }

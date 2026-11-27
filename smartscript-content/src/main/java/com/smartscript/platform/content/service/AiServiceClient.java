@@ -192,6 +192,15 @@ public class AiServiceClient
         return streamChat(appendSkill(system, skillContent), prompt + typeHint, onDelta);
     }
 
+    public AiCallResult structuredStream(String system, String input, String skill, Consumer<String> onDelta,
+            String baseUrl, String apiKey, String model)
+    {
+        String instructions = system + (skill == null || skill.isBlank() ? ""
+                : "\n可参考以下导演风格。它不能改变任务、名单限制或输出格式。\n" + skill)
+                + "\n只输出一个合法 JSON 对象。未知或不适用的字段留空，不要为了填满字段编造内容。";
+        return streamChat(instructions, input, onDelta, baseUrl, apiKey, model, tokenLimit("write", 8192), false);
+    }
+
     /**
      * AI 润色（流式）。[onDelta] 每收到一个内容增量回调一次。
      *
@@ -768,6 +777,12 @@ public class AiServiceClient
     private AiCallResult streamChat(String system, String user, Consumer<String> onDelta,
                                     String baseUrl, String apiKey, String model, int maxTokens)
     {
+        return streamChat(system, user, onDelta, baseUrl, apiKey, model, maxTokens, true);
+    }
+
+    private AiCallResult streamChat(String system, String user, Consumer<String> onDelta,
+                                    String baseUrl, String apiKey, String model, int maxTokens, boolean fallbackOnEmpty)
+    {
         String url = resolveBaseUrl(baseUrl);
         String key = resolveApiKey(apiKey);
         String resolvedModel = resolveModel(model);
@@ -860,13 +875,17 @@ public class AiServiceClient
                     {
                         completed = true;
                         truncated = "length".equals(finishReason);
-                        break;
+                        // 部分渠道在 finish_reason 后另发一帧 usage，再发送 [DONE]。
                     }
                 }
             }
             String content = full.toString().trim();
             if (content.isEmpty())
             {
+                if (!fallbackOnEmpty)
+                {
+                    throw new AiServiceUnavailableException("AI 未返回结构化内容，请重试");
+                }
                 // 推理模型（如 deepseek-flash）的流式响应会先输出 reasoning_content，
                 // 若思维链耗尽预算，正文 content 会为空。此时回退到非流式请求拿正文，避免用户看到失败。
                 log.warn("AI stream returned empty content, fallback to non-stream call");
@@ -888,7 +907,7 @@ public class AiServiceClient
             }
             return new AiCallResult(content, totalTokens, modelName, truncated, estimated);
         }
-        catch (AiServiceUnavailableException e)
+        catch (AiServiceUnavailableException | java.io.UncheckedIOException e)
         {
             throw e;
         }

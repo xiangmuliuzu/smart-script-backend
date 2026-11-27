@@ -17,6 +17,8 @@ import com.smartscript.platform.content.domain.SysWork;
 import com.smartscript.platform.content.domain.SysTag;
 import com.smartscript.platform.content.domain.SysWorkChapter;
 import com.smartscript.platform.content.domain.SysWorkReviewRecord;
+import com.smartscript.platform.content.exception.AiServiceUnavailableException;
+import com.smartscript.platform.content.mapper.AppAiWriteRecordMapper;
 import com.smartscript.platform.content.mapper.SysContentWorkMapper;
 import com.smartscript.platform.content.mapper.SysTagMapper;
 import com.smartscript.platform.content.mapper.SysWorkChapterMapper;
@@ -66,6 +68,7 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
     private final SysWorkChapterMapper chapterMapper;
     private final SysWorkReviewRecordMapper reviewRecordMapper;
     private final SysTagMapper tagMapper;
+    private final AppAiWriteRecordMapper aiRecords;
     private final AiReviewService aiReviewService;
     private final com.smartscript.platform.review.service.RiskCheckService riskCheckService;
 
@@ -85,6 +88,7 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
             SysWorkChapterMapper chapterMapper,
             SysWorkReviewRecordMapper reviewRecordMapper,
             SysTagMapper tagMapper,
+            AppAiWriteRecordMapper aiRecords,
             AiReviewService aiReviewService,
             com.smartscript.platform.review.service.RiskCheckService riskCheckService)
     {
@@ -92,6 +96,7 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
         this.chapterMapper = chapterMapper;
         this.reviewRecordMapper = reviewRecordMapper;
         this.tagMapper = tagMapper;
+        this.aiRecords = aiRecords;
         this.aiReviewService = aiReviewService;
         this.riskCheckService = riskCheckService;
     }
@@ -122,13 +127,25 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
         }
         result.put("chapters", chapters);
         result.put("latestReview", latest);
+        String blueprint = aiRecords.selectConfirmedBlueprint(userId, workId);
+        if (blueprint != null)
+        {
+            try
+            {
+                result.put("blueprint", StructuredWritingJson.asMap(StructuredWritingJson.parse(blueprint)));
+            }
+            catch (AiServiceUnavailableException e)
+            {
+                log.warn("作品 Blueprint 数据无法解析 workId={}", workId);
+            }
+        }
         return result;
     }
 
     @Override
     @Transactional
     public void updateWorkBase(Long userId, Long workId, String title, String summary, String cover,
-            List<Integer> tagIds, BigDecimal price, String tradeType, Integer channelId)
+            List<Integer> tagIds, BigDecimal price, String tradeType, Integer channelId, Integer duration)
     {
         requireOwnWork(userId, workId);
         requireEditable(workId, userId);
@@ -149,6 +166,10 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
         {
             throw new IllegalArgumentException("频道不存在或已停用");
         }
+        if (duration != null && duration <= 0)
+        {
+            throw new IllegalArgumentException("单集时长（秒）必须为正整数");
+        }
         SysWork update = new SysWork();
         update.setPrice(price);
         update.setTradeType(tradeType);
@@ -157,6 +178,7 @@ public class AppUserWorkServiceImpl implements IAppUserWorkService
         update.setSummary(summary);
         update.setCover(cover);
         update.setChannelId(channelId);
+        update.setDuration(duration);
         update.setUpdateBy(String.valueOf(userId));
         update.setUpdateTime(new Date());
         workMapper.updateWorkBaseInfo(update);

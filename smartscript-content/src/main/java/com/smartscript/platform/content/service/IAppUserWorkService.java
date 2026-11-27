@@ -23,7 +23,7 @@ public interface IAppUserWorkService
      *
      * @param userId 当前用户ID（归属校验）
      * @param workId 作品ID
-     * @return {work, tags, chapters, latestReview}
+     * @return {work, tags, chapters, latestReview, blueprint?}
      */
     Map<String, Object> getWorkDetail(Long userId, Long workId);
 
@@ -40,9 +40,16 @@ public interface IAppUserWorkService
      * @param tagIds  标签ID列表（接口文档 2.3.3：全量覆盖，最多 8 个；
      *                null = 不修改标签，空列表 = 清空标签）
      * @param channelId 所属频道（146 男频 / 147 女频；null = 不修改）
+     * @param duration 单集时长（秒；null = 不修改）
      */
     void updateWorkBase(Long userId, Long workId, String title, String summary, String cover,
-            List<Integer> tagIds, BigDecimal price, String tradeType, Integer channelId);
+            List<Integer> tagIds, BigDecimal price, String tradeType, Integer channelId, Integer duration);
+
+    default void updateWorkBase(Long userId, Long workId, String title, String summary, String cover,
+            List<Integer> tagIds, BigDecimal price, String tradeType, Integer channelId)
+    {
+        updateWorkBase(userId, workId, title, summary, cover, tagIds, price, tradeType, channelId, null);
+    }
 
     /**
      * 兼容旧调用：不修改频道。
